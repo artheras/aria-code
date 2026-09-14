@@ -268,10 +268,44 @@ _INPUT_SCHEMAS: Dict[str, Dict[str, Any]] = {
         },
         "required": ["file_key"],
     },
+    "aria.figma.nodes": {
+        "type": "object",
+        "properties": {
+            "file_key": {"type": "string", "description": "Figma file key or URL (e.g. figma.com/design/<key>/<name>?node-id=1-23)"},
+            "node_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of node IDs to inspect (e.g. ['1:23', '2:4']). Optional if node-id is in URL.",
+            },
+            "depth": {"type": "integer", "description": "Tree depth limit for children nodes (optional)"},
+        },
+        "required": ["file_key"],
+    },
+    "aria.figma.export_images": {
+        "type": "object",
+        "properties": {
+            "file_key": {"type": "string", "description": "Figma file key or URL"},
+            "node_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of node IDs to export as images/vectors",
+            },
+            "format": {"type": "string", "enum": ["svg", "png", "jpg", "pdf"], "description": "Export format (default: svg)"},
+            "scale": {"type": "number", "description": "Export resolution scale (1-4, default: 1.0)"},
+        },
+        "required": ["file_key"],
+    },
+    "aria.figma.variables": {
+        "type": "object",
+        "properties": {
+            "file_key": {"type": "string", "description": "Figma file key or URL"},
+        },
+        "required": ["file_key"],
+    },
     "aria.figma.comments": {
         "type": "object",
         "properties": {
-            "file_key": {"type": "string", "description": "Figma file key"},
+            "file_key": {"type": "string", "description": "Figma file key or URL"},
         },
         "required": ["file_key"],
     },
@@ -387,6 +421,28 @@ _INPUT_SCHEMAS: Dict[str, Dict[str, Any]] = {
         },
         "required": ["provider", "prompt", "confirmed"],
     },
+    "aria.video.workflow_plan": {
+        "type": "object",
+        "properties": {
+            "script": {"type": "string", "description": "What the video says, in the user's words"},
+            "asset_paths": {"type": "array", "items": {"type": "string"}, "description": "Local image or video files, in any order"},
+            "project_dir": {"type": "string", "description": "Folder for the plan, narration, clips and final video"},
+            "platform": {"type": "string", "description": "douyin, xiaohongshu, tiktok, shorts, bilibili, youtube, x, linkedin. Default douyin"},
+            "aspect_ratio": {"type": "string", "enum": ["9:16", "16:9", "1:1"], "description": "Overrides the platform default"},
+            "target_seconds": {"type": "integer", "description": "Approximate length. Default 30"},
+            "allow_generation": {"type": "boolean", "description": "Let the plan use Veo-generated shots where assets are missing (paid at render). Default false"},
+            "language": {"type": "string", "description": "Narration language, default zh"},
+        },
+        "required": ["script", "asset_paths", "project_dir"],
+    },
+    "aria.video.workflow_render": {
+        "type": "object",
+        "properties": {
+            "project_dir": {"type": "string"},
+            "confirm_generation": {"type": "boolean", "description": "Must be true to render beats that Veo generates (billed per second)"},
+        },
+        "required": ["project_dir"],
+    },
     "aria.video.generate_status": {
         "type": "object",
         "properties": {
@@ -394,6 +450,30 @@ _INPUT_SCHEMAS: Dict[str, Dict[str, Any]] = {
             "task_id": {"type": "string"},
         },
         "required": ["provider", "task_id"],
+    },
+    "aria.video.engine_config": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": ["list", "set_active", "configure_custom"], "description": "Default: list"},
+            "engine": {"type": "string", "enum": ["google", "custom", "local"]},
+            "endpoint_url": {"type": "string"},
+            "auth_token": {"type": "string"},
+            "model_name": {"type": "string"},
+        },
+        "required": [],
+    },
+    "aria.video.produce_from_script": {
+        "type": "object",
+        "properties": {
+            "script": {"type": "string", "description": "Script narration / prompt"},
+            "images": {"type": "array", "items": {"type": "string"}, "description": "Paths to source images"},
+            "aspect_ratio": {"type": "string", "enum": ["16:9", "9:16", "1:1"], "description": "Default: 16:9"},
+            "target_duration": {"type": "number", "description": "Default: 15"},
+            "provider": {"type": "string", "enum": ["auto", "google", "custom", "local"], "description": "Default: auto"},
+            "audio_path": {"type": "string"},
+            "bgm_path": {"type": "string"},
+        },
+        "required": ["script"],
     },
 }
 
@@ -424,6 +504,10 @@ _WRITE_SAFE = {
     "aria.video.trim", "aria.video.concat", "aria.video.overlay_text",
     "aria.video.overlay_audio", "aria.video.convert", "aria.video.change_speed",
     "aria.video.generate_submit",
+    # Writes into project_dir only. Paid Veo generation inside render is refused
+    # unless confirm_generation=true (see pipeline.render_video).
+    "aria.video.workflow_plan", "aria.video.workflow_render",
+    "aria.video.engine_config", "aria.video.produce_from_script",
 }
 
 
@@ -912,9 +996,11 @@ async def _call_backtest_run(args: Dict[str, Any]) -> Dict[str, Any]:
 async def _call_figma_read_file(args: Dict[str, Any]) -> Dict[str, Any]:
     import asyncio
 
-    from aria_code.figma_client import get_file_summary
+    from aria_code.figma_client import get_file_summary, parse_figma_url
 
-    file_key = str(args.get("file_key", "")).strip()
+    raw_key = str(args.get("file_key", "")).strip()
+    parsed = parse_figma_url(raw_key)
+    file_key = parsed.get("file_key") or raw_key
     if not file_key:
         return {"success": False, "error": "file_key is required"}
     depth = int(args.get("depth", 2) or 2)
@@ -925,12 +1011,87 @@ async def _call_figma_read_file(args: Dict[str, Any]) -> Dict[str, Any]:
         return {"success": False, "error": str(exc)}
 
 
+async def _call_figma_nodes(args: Dict[str, Any]) -> Dict[str, Any]:
+    import asyncio
+
+    from aria_code.figma_client import get_file_nodes, parse_figma_url
+
+    raw_key = str(args.get("file_key", "")).strip()
+    parsed = parse_figma_url(raw_key)
+    file_key = parsed.get("file_key") or raw_key
+    if not file_key:
+        return {"success": False, "error": "file_key is required"}
+
+    node_ids = args.get("node_ids") or []
+    if isinstance(node_ids, str):
+        node_ids = [n.strip() for n in node_ids.split(",") if n.strip()]
+    if not node_ids and parsed.get("node_id"):
+        node_ids = [parsed["node_id"]]
+    if not node_ids:
+        return {"success": False, "error": "node_ids is required (or supply a Figma URL with ?node-id=...)"}
+
+    depth = args.get("depth")
+    loop = asyncio.get_event_loop()
+    try:
+        return await loop.run_in_executor(None, lambda: get_file_nodes(file_key, node_ids, depth=depth))
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+async def _call_figma_export_images(args: Dict[str, Any]) -> Dict[str, Any]:
+    import asyncio
+
+    from aria_code.figma_client import export_images, parse_figma_url
+
+    raw_key = str(args.get("file_key", "")).strip()
+    parsed = parse_figma_url(raw_key)
+    file_key = parsed.get("file_key") or raw_key
+    if not file_key:
+        return {"success": False, "error": "file_key is required"}
+
+    node_ids = args.get("node_ids") or []
+    if isinstance(node_ids, str):
+        node_ids = [n.strip() for n in node_ids.split(",") if n.strip()]
+    if not node_ids and parsed.get("node_id"):
+        node_ids = [parsed["node_id"]]
+    if not node_ids:
+        return {"success": False, "error": "node_ids is required (or supply a Figma URL with ?node-id=...)"}
+
+    fmt = str(args.get("format", "svg")).strip().lower()
+    scale = float(args.get("scale", 1.0) or 1.0)
+    loop = asyncio.get_event_loop()
+    try:
+        return await loop.run_in_executor(None, lambda: export_images(file_key, node_ids, format=fmt, scale=scale))
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+async def _call_figma_variables(args: Dict[str, Any]) -> Dict[str, Any]:
+    import asyncio
+
+    from aria_code.figma_client import get_local_variables, parse_figma_url
+
+    raw_key = str(args.get("file_key", "")).strip()
+    parsed = parse_figma_url(raw_key)
+    file_key = parsed.get("file_key") or raw_key
+    if not file_key:
+        return {"success": False, "error": "file_key is required"}
+
+    loop = asyncio.get_event_loop()
+    try:
+        return await loop.run_in_executor(None, lambda: get_local_variables(file_key))
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
 async def _call_figma_comments(args: Dict[str, Any]) -> Dict[str, Any]:
     import asyncio
 
-    from aria_code.figma_client import list_comments
+    from aria_code.figma_client import list_comments, parse_figma_url
 
-    file_key = str(args.get("file_key", "")).strip()
+    raw_key = str(args.get("file_key", "")).strip()
+    parsed = parse_figma_url(raw_key)
+    file_key = parsed.get("file_key") or raw_key
     if not file_key:
         return {"success": False, "error": "file_key is required"}
     loop = asyncio.get_event_loop()
@@ -1157,6 +1318,49 @@ async def _call_video_generate_submit(args: Dict[str, Any]) -> Dict[str, Any]:
         return {"success": False, "error": str(exc)}
 
 
+async def _call_video_workflow_plan(args: Dict[str, Any]) -> Dict[str, Any]:
+    import asyncio
+    from functools import partial
+
+    from aria_code.video_workflow import VideoWorkflowError, plan_video
+    from aria_code.video_workflow.google_models import GoogleModelError
+
+    script = str(args.get("script", "")).strip()
+    paths = args.get("asset_paths") or []
+    project_dir = str(args.get("project_dir", "")).strip()
+    if not script or not isinstance(paths, list) or not paths or not project_dir:
+        return {"success": False, "error": "script, asset_paths (non-empty list) and project_dir are required"}
+    fn = partial(
+        plan_video, script, [str(p) for p in paths], project_dir,
+        platform=str(args.get("platform") or "douyin"),
+        aspect_ratio=args.get("aspect_ratio"),
+        language=str(args.get("language") or "zh"),
+        target_seconds=int(args.get("target_seconds") or 30),
+        allow_generation=bool(args.get("allow_generation")),
+    )
+    try:
+        return {"success": True, **await asyncio.get_event_loop().run_in_executor(None, fn)}
+    except (VideoWorkflowError, GoogleModelError) as exc:
+        return {"success": False, "error": str(exc)}
+
+
+async def _call_video_workflow_render(args: Dict[str, Any]) -> Dict[str, Any]:
+    import asyncio
+    from functools import partial
+
+    from aria_code.video_workflow import VideoWorkflowError, render_video
+    from aria_code.video_workflow.google_models import GoogleModelError
+
+    project_dir = str(args.get("project_dir", "")).strip()
+    if not project_dir:
+        return {"success": False, "error": "project_dir is required"}
+    fn = partial(render_video, project_dir, confirm_generation=args.get("confirm_generation") is True)
+    try:
+        return {"success": True, **await asyncio.get_event_loop().run_in_executor(None, fn)}
+    except (VideoWorkflowError, GoogleModelError) as exc:
+        return {"success": False, "error": str(exc)}
+
+
 async def _call_video_generate_status(args: Dict[str, Any]) -> Dict[str, Any]:
     provider = str(args.get("provider", "")).strip().lower()
     module_name = _VIDEO_GEN_PROVIDERS.get(provider)
@@ -1175,6 +1379,19 @@ async def _call_video_generate_status(args: Dict[str, Any]) -> Dict[str, Any]:
         return await loop.run_in_executor(None, client.poll_video, task_id)
     except Exception as exc:
         return {"success": False, "error": str(exc)}
+
+
+async def _call_video_engine_config(args: Dict[str, Any]) -> Dict[str, Any]:
+    from aria_code.tools.video_tools import tool_configure_video_engine
+    return tool_configure_video_engine(args)
+
+
+async def _call_video_produce_from_script(args: Dict[str, Any]) -> Dict[str, Any]:
+    import asyncio
+    from functools import partial
+    from aria_code.tools.video_tools import tool_produce_video_from_script
+    fn = partial(tool_produce_video_from_script, args)
+    return await asyncio.get_event_loop().run_in_executor(None, fn)
 
 
 async def _call_report_docx(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1400,6 +1617,9 @@ _HANDLERS: Dict[str, Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]] = {
     "aria.report.docx": _call_report_docx,
     "aria.report.pptx": _call_report_pptx,
     "aria.figma.read_file": _call_figma_read_file,
+    "aria.figma.nodes": _call_figma_nodes,
+    "aria.figma.export_images": _call_figma_export_images,
+    "aria.figma.variables": _call_figma_variables,
     "aria.figma.comments": _call_figma_comments,
     "aria.video.probe": _call_video_probe,
     "aria.video.trim": _call_video_trim,
@@ -1413,6 +1633,10 @@ _HANDLERS: Dict[str, Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]] = {
     "aria.video.generate_estimate": _call_video_generate_estimate,
     "aria.video.generate_submit": _call_video_generate_submit,
     "aria.video.generate_status": _call_video_generate_status,
+    "aria.video.workflow_plan": _call_video_workflow_plan,
+    "aria.video.workflow_render": _call_video_workflow_render,
+    "aria.video.engine_config": _call_video_engine_config,
+    "aria.video.produce_from_script": _call_video_produce_from_script,
     "aria.report.generate": _call_report_generate,
     "aria.backtest.run": _call_backtest_run,
 }

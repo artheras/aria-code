@@ -167,6 +167,9 @@ def default_exposures() -> List[MCPExposure]:
         MCPExposure("aria.report.docx", "tool:report_docx", "Render Markdown text to an editable Word document.", read_only=False),
         MCPExposure("aria.report.pptx", "tool:report_pptx", "Render Markdown text to an editable slide deck (one slide per heading).", read_only=False),
         MCPExposure("aria.figma.read_file", "tool:figma_read_file", "Read a Figma file's page/frame structure (depth-limited summary, not the full node tree). Read-only — Figma has no API for writing designs."),
+        MCPExposure("aria.figma.nodes", "tool:figma_nodes", "Inspect detailed node structure, layout, typography, fills, strokes, and effects for specific node IDs or a Figma URL."),
+        MCPExposure("aria.figma.export_images", "tool:figma_export_images", "Export and render Figma components/frames/vectors as image URLs (SVG, PNG, JPG, PDF)."),
+        MCPExposure("aria.figma.variables", "tool:figma_variables", "Extract local Figma variables and token collections (colors, typography, dimensions)."),
         MCPExposure("aria.figma.comments", "tool:figma_comments", "List comments on a Figma file."),
         MCPExposure("aria.video.probe", "tool:video_probe", "Read a video's duration/resolution/codec info."),
         MCPExposure("aria.video.trim", "tool:video_trim", "Cut a [start, end] second range out of a local video.", read_only=False),
@@ -197,5 +200,34 @@ def default_exposures() -> List[MCPExposure]:
             "tool:video_generate_status",
             "Check a submitted cloud video generation job's status; downloads the result once "
             "succeeded. Checking status costs nothing beyond the original submission.",
+        ),
+        MCPExposure(
+            "aria.video.workflow_plan",
+            "tool:video_workflow_plan",
+            "Plan a short video from a script and image/clip files with Google Cloud Gemini: describes every "
+            "asset, then writes an edit plan (beats with narration, captions, camera moves) into project_dir. "
+            "Show the plan to the user before rendering; they may edit edit_plan.json. Creates nothing paid.",
+            read_only=False,
+        ),
+        MCPExposure(
+            "aria.video.workflow_render",
+            "tool:video_workflow_render",
+            "Render the edit plan in project_dir into a finished video: Gemini TTS narration, ffmpeg render, "
+            "captions, and file checks (duration, frame size, audio, black frames, silence). Beats marked "
+            "source=generate use Veo, billed per second — without confirm_generation=true it returns "
+            "needs_confirmation with the seconds instead of rendering.",
+            read_only=False,
+        ),
+        MCPExposure(
+            "aria.video.engine_config",
+            "tool:video_engine_config",
+            "Inspect, switch, or configure the active video generation engine (Google Cloud Veo, custom private model endpoint, or local).",
+            read_only=False,
+        ),
+        MCPExposure(
+            "aria.video.produce_from_script",
+            "tool:video_produce_from_script",
+            "Produce a finished video from script and images end-to-end via the active video engine, with storyboard planning, audio ducking, and subtitles.",
+            read_only=False,
         ),
     ]

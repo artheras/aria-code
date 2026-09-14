@@ -598,3 +598,35 @@ async def test_skill_get_no_references_dir_returns_empty_list(tmp_path, monkeypa
 
     result = await _call_skill_get({"name": "my-skill"})
     assert result["references"] == []
+
+
+def test_figma_tools_registered_in_tools_list():
+    tool_names = {t["name"] for t in TOOLS}
+    assert "aria.figma.read_file" in tool_names
+    assert "aria.figma.nodes" in tool_names
+    assert "aria.figma.export_images" in tool_names
+    assert "aria.figma.variables" in tool_names
+    assert "aria.figma.comments" in tool_names
+
+
+@pytest.mark.asyncio
+async def test_call_figma_nodes_parses_url_and_invokes_client(monkeypatch):
+    from aria_code.packages.aria_mcp.server import _call_figma_nodes
+    import aria_code.figma_client as fc
+
+    captured = {}
+    def fake_get_file_nodes(file_key, node_ids, depth=None):
+        captured["file_key"] = file_key
+        captured["node_ids"] = node_ids
+        captured["depth"] = depth
+        return {"success": True, "nodes": {"1:23": {"name": "TestNode"}}}
+
+    monkeypatch.setattr(fc, "get_file_nodes", fake_get_file_nodes)
+
+    res = await _call_figma_nodes({
+        "file_key": "https://www.figma.com/design/Key123/MyFile?node-id=1-23",
+    })
+    assert res["success"] is True
+    assert captured["file_key"] == "Key123"
+    assert captured["node_ids"] == ["1:23"]
+

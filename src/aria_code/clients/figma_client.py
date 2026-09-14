@@ -98,3 +98,116 @@ def list_comments(file_key: str) -> Dict[str, Any]:
             for c in comments
         ],
     }
+
+
+def parse_figma_url(url_or_key: str) -> Dict[str, Optional[str]]:
+    """Extract file_key and optional node_id from a Figma URL or raw file key.
+
+    Supported formats:
+      - https://www.figma.com/design/<file_key>/<title>?node-id=1-23
+      - https://www.figma.com/file/<file_key>/<title>?node-id=1:23
+      - <file_key>
+    """
+    import re
+    from urllib.parse import parse_qs, urlparse
+
+    raw = (url_or_key or "").strip()
+    if not raw.startswith("http://") and not raw.startswith("https://"):
+        return {"file_key": raw, "node_id": None}
+
+    parsed = urlparse(raw)
+    path_parts = [p for p in parsed.path.split("/") if p]
+
+    file_key = ""
+    for i, part in enumerate(path_parts):
+        if part in ("file", "design") and i + 1 < len(path_parts):
+            file_key = path_parts[i + 1]
+            break
+
+    if not file_key and path_parts:
+        file_key = path_parts[0]
+
+    qs = parse_qs(parsed.query)
+    raw_node_id = qs.get("node-id", [None])[0]
+    node_id = raw_node_id.replace("-", ":") if raw_node_id else None
+
+    return {"file_key": file_key, "node_id": node_id}
+
+
+def get_file_nodes(file_key: str, node_ids: List[str], *, depth: Optional[int] = None) -> Dict[str, Any]:
+    """Fetch exact node trees and styles for specific node IDs in a Figma file."""
+    import requests
+
+    if not node_ids:
+        return {"success": False, "error": "node_ids is required"}
+
+    # Figma API expects colon-separated IDs like '1:23'
+    normalized_ids = [nid.replace("-", ":") for nid in node_ids]
+    params: Dict[str, Any] = {"ids": ",".join(normalized_ids)}
+    if depth is not None:
+        params["depth"] = int(depth)
+
+    resp = requests.get(f"{API_BASE}/files/{file_key}/nodes", headers=_headers(), params=params, timeout=25)
+    if resp.status_code != 200:
+        return {"success": False, "error": f"Figma API error {resp.status_code}: {resp.text[:300]}"}
+
+    data = resp.json()
+    return {
+        "success": True,
+        "name": data.get("name", ""),
+        "last_modified": data.get("lastModified", ""),
+        "nodes": data.get("nodes", {}),
+    }
+
+
+def export_images(
+    file_key: str,
+    node_ids: List[str],
+    *,
+    format: str = "svg",
+    scale: float = 1.0,
+) -> Dict[str, Any]:
+    """Render and export Figma nodes (components, frames, vectors) as image URLs (SVG, PNG, JPG, PDF)."""
+    import requests
+
+    if not node_ids:
+        return {"success": False, "error": "node_ids is required"}
+
+    fmt = (format or "svg").lower()
+    if fmt not in ("svg", "png", "jpg", "pdf"):
+        return {"success": False, "error": f"Unsupported format: {fmt}. Use svg, png, jpg, or pdf."}
+
+    normalized_ids = [nid.replace("-", ":") for nid in node_ids]
+    params: Dict[str, Any] = {
+        "ids": ",".join(normalized_ids),
+        "format": fmt,
+        "scale": scale,
+    }
+
+    resp = requests.get(f"{API_BASE}/images/{file_key}", headers=_headers(), params=params, timeout=30)
+    if resp.status_code != 200:
+        return {"success": False, "error": f"Figma API error {resp.status_code}: {resp.text[:300]}"}
+
+    data = resp.json()
+    return {
+        "success": True,
+        "format": fmt,
+        "images": data.get("images", {}),
+    }
+
+
+def get_local_variables(file_key: str) -> Dict[str, Any]:
+    """Fetch Figma local variables (design tokens for colors, numbers, typography, spacing)."""
+    import requests
+
+    resp = requests.get(f"{API_BASE}/files/{file_key}/variables/local", headers=_headers(), timeout=25)
+    if resp.status_code != 200:
+        return {"success": False, "error": f"Figma API error {resp.status_code}: {resp.text[:300]}"}
+
+    data = resp.json()
+    meta = data.get("meta", {})
+    return {
+        "success": True,
+        "variables": meta.get("variables", {}),
+        "variable_collections": meta.get("variableCollections", {}),
+    }
