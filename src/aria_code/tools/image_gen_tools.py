@@ -24,10 +24,28 @@ from typing import Any, Dict, List
 
 
 def tool_generate_image(params: Dict[str, Any]) -> Dict[str, Any]:
-    """LOCAL_TOOLS entry. params: {prompt, width?, height?}."""
+    """LOCAL_TOOLS entry. params: {prompt, width?, height?, aspect_ratio?, model?, provider?}."""
     prompt = str(params.get("prompt") or "").strip()
     if not prompt:
         return {"success": False, "error": "缺少 prompt"}
+
+    # If Google Cloud credentials are configured and provider is not forced to local, prefer Google Cloud Gemini image models
+    provider = str(params.get("provider") or "").lower()
+    if provider != "local":
+        try:
+            from aria_code.providers.google_imagen_provider import (
+                has_google_imagen_config,
+                generate_image_google,
+            )
+            if has_google_imagen_config() or provider in ("google", "vertex", "imagen"):
+                aspect_ratio = str(params.get("aspect_ratio") or "1:1")
+                model = str(params.get("model") or "gemini-3.1-flash-image")
+                res = generate_image_google(prompt, model=model, aspect_ratio=aspect_ratio)
+                if res.get("success"):
+                    return res
+        except Exception:
+            pass
+
     try:
         from aria_code.local_image_provider import generate_image_local
     except Exception as exc:
@@ -58,16 +76,17 @@ IMAGE_TOOL_SCHEMAS: List[Dict[str, Any]] = [
             "name": "generate_image",
             "description": (
                 "生成一张真实图片——照片风格、插画、风景图等任意主题，不限于股票/金融图表。"
-                "完全本地运行，免费，无需 API key（首次调用会下载约 4GB 的 SDXL-Turbo 权重，"
-                "之后很快，约几秒到十几秒）。如果用户要的是K线图/行情图表，用 stock_chart，"
-                "不要用这个。"
+                "支持 Google Cloud Imagen 3 原生高画质生成（配置 GCP/Gemini 时）及本地 SDXL-Turbo 生成。"
+                "如果用户要的是K线图/行情图表，用 stock_chart，不要用这个。"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "prompt": {"type": "string", "description": "图片内容的文字描述"},
-                    "width": {"type": "integer", "description": "默认 1024"},
-                    "height": {"type": "integer", "description": "默认 1024"},
+                    "aspect_ratio": {"type": "string", "enum": ["1:1", "16:9", "9:16", "4:3", "3:4"], "description": "画面宽高比，默认 1:1"},
+                    "model": {"type": "string", "description": "可选 gemini-3.1-flash-image（默认）、gemini-3.1-flash-lite-image（更快）或 gemini-3-pro-image"},
+                    "width": {"type": "integer", "description": "本地模型宽度，默认 1024"},
+                    "height": {"type": "integer", "description": "本地模型高度，默认 1024"},
                 },
                 "required": ["prompt"],
             },
