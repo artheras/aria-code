@@ -16,28 +16,41 @@ MODELS = {
     # ════════════════════════════════════════════════════════════════════
     # ── Google Gemini 平台核心默认模型（Google Cloud）───────────────────────
     # ════════════════════════════════════════════════════════════════════
-    "gemini-pro": {
-        "id": "google/gemini-2.5-pro",
-        "name": "Gemini Pro",
-        "version": "2.5",
+    "gemini-flash": {
+        "id": "google/gemini-3.8-flash",
+        "name": "Gemini Flash",
+        "version": "3.8",
         "tag": "Platform",
         "speed": "★★★★★",
         "intelligence": "★★★★★",
-        "description": "平台内置：Google Cloud 旗舰多模态、百万级上下文、量化核心",
-        "capabilities": ["multimodal", "1M context", "tool calls", "quant", "code"],
+        "description": "推荐：日常与代码，速度快，需要时会深入思考",
+        "capabilities": ["multimodal", "1M context", "tool calls", "code", "thinking"],
         "thinking": True, "tools": True,
         "max_tokens": 8192, "num_ctx": 1048576, "temperature": 0.2,
         "badge": "Default",
     },
-    "gemini-flash": {
-        "id": "google/gemini-2.5-flash",
-        "name": "Gemini Flash",
-        "version": "2.5",
+    "gemini-pro": {
+        "id": "google/gemini-3.1-pro-preview",
+        "name": "Gemini Pro",
+        "version": "3.1",
+        "tag": "Platform",
+        "speed": "★★★",
+        "intelligence": "★★★★★",
+        "description": "深度：复杂分析与大型代码改动，较慢（预览版）",
+        "capabilities": ["multimodal", "1M context", "tool calls", "code", "thinking"],
+        "thinking": True, "tools": True,
+        "max_tokens": 8192, "num_ctx": 1048576, "temperature": 0.2,
+        "badge": "Deep",
+    },
+    "gemini-lite": {
+        "id": "google/gemini-3.5-flash-lite",
+        "name": "Gemini Flash-Lite",
+        "version": "3.5",
         "tag": "Platform",
         "speed": "★★★★★",
-        "intelligence": "★★★★",
-        "description": "极速默认：超低延迟、毫秒级响应、代码与实时行情",
-        "capabilities": ["fast inference", "1M context", "tool calls", "low latency"],
+        "intelligence": "★★★",
+        "description": "最快：简单问答与小改动，成本最低",
+        "capabilities": ["multimodal", "1M context", "tool calls", "low latency"],
         "thinking": False, "tools": True,
         "max_tokens": 8192, "num_ctx": 1048576, "temperature": 0.2,
         "badge": "Fast",
@@ -341,8 +354,9 @@ MODELS = {
 # Model aliases: short names / Ollama IDs → MODELS key
 MODEL_ALIASES = {
     # ── Google Gemini ─────────────────────────────────────────────────
-    "gemini": "gemini-pro", "gemini-pro": "gemini-pro", "gemini2.5": "gemini-pro", "gpro": "gemini-pro",
+    "gemini": "gemini-flash", "gemini-pro": "gemini-pro", "gpro": "gemini-pro",
     "gemini-flash": "gemini-flash", "gflash": "gemini-flash", "flash": "gemini-flash",
+    "gemini-lite": "gemini-lite", "glite": "gemini-lite", "flash-lite": "gemini-lite",
     # ── Qwen 2.5 ──────────────────────────────────────────────────────
     "qwen7b": "qwen7b",   "q7": "qwen7b",   "sonata": "qwen7b",   "s": "qwen7b",
     "qwen14b": "qwen14b", "q14": "qwen14b",
@@ -438,3 +452,29 @@ _MODEL_FALLBACK_PREFIXES = [
     "gpt-oss",
     "deepseek-v3.1",
 ]
+
+
+# Gemini models Google retired or Aria stopped serving, and their replacement
+# (the same table as Arthera's aria_model_registry.RETIRED_MODELS).
+RETIRED_GEMINI_MODELS = {
+    "gemini-2.5-flash": "gemini-3.8-flash",
+    "gemini-2.5-pro": "gemini-3.1-pro-preview",
+    "gemini-2.5-flash-lite": "gemini-3.5-flash-lite",
+    "gemini-2.0-flash": "gemini-3.8-flash",
+    "gemini-2.0-flash-exp": "gemini-3.8-flash",
+    "gemini-1.5-flash": "gemini-3.8-flash",
+    "gemini-1.5-pro": "gemini-3.1-pro-preview",
+    "gemini-3-flash-preview": "gemini-3.8-flash",
+    "gemini-3.5-flash": "gemini-3.8-flash",
+    "gemini-3.1-flash-lite": "gemini-3.5-flash-lite",
+    "gemini-3-pro-preview": "gemini-3.1-pro-preview",
+}
+
+
+def current_gemini_model(model: str) -> str:
+    """The model that serves `model` now, keeping any provider prefix ("google/")."""
+    prefix, _, bare = model.rpartition("/")
+    replacement = RETIRED_GEMINI_MODELS.get(bare)
+    if not replacement:
+        return model
+    return f"{prefix}/{replacement}" if prefix else replacement

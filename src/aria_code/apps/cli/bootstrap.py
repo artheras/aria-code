@@ -98,7 +98,7 @@ def initialize_cli_environment() -> None:
 # Provider configuration is the user's to make (that is what `/model` and
 # `.ariarc` are for); the code's job is to have a sane default and then get
 # out of the way.
-DEFAULT_MODEL = os.getenv("ARIA_DEFAULT_MODEL", "google/gemini-2.5-pro")
+DEFAULT_MODEL = os.getenv("ARIA_DEFAULT_MODEL", "google/gemini-3.8-flash")
 
 
 def default_config() -> dict:

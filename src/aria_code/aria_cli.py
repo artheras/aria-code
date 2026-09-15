@@ -602,17 +602,16 @@ _PROVIDER_GUIDE: Dict[str, str] = {
         "1. 打开 aistudio.google.com/app/apikey\n"
         "2. 用 Google 账号登录 → 「Create API key」\n"
         "3. 复制 AIzaSy... 格式的密钥\n\n"
-        "解锁: Gemini 2.5 Pro · Gemini 2.0 Flash · 多模态视觉\n"
-        "用法: /model google/gemini-2.0-flash-exp\n"
-        "免费额度: Flash 每分钟 15次，每天 1500次"
+        "解锁: Gemini 3.8 Flash · Gemini 3.1 Pro · Gemini 3.5 Flash-Lite · 多模态视觉\n"
+        "用法: /model google/gemini-3.8-flash"
     ),
     "gemini": (
         "同 google provider，填入 Google AI Studio 的 API Key\n\n"
         "推荐模型:\n"
-        "  gemini-2.5-pro        — 最强推理，128K 上下文\n"
-        "  gemini-2.0-flash-exp  — 超快，每分钟 15 次免费\n"
-        "  gemini-1.5-flash      — 稳定版，适合生产\n\n"
-        "用法: /model gemini/gemini-2.5-pro"
+        "  gemini-3.8-flash        — 推荐，速度快，需要时深入思考\n"
+        "  gemini-3.1-pro-preview  — 深度推理，较慢（预览版）\n"
+        "  gemini-3.5-flash-lite   — 最快、最省\n\n"
+        "用法: /model gemini/gemini-3.8-flash"
     ),
     "xai": (
         "1. 打开 console.x.ai → 注册/登录\n"
@@ -1000,7 +999,7 @@ _MODEL_ID_INDEX: dict[str, str] | None = None
 def _model_id_index() -> dict[str, str]:
     """Lazily build a lowercase {model id → MODELS key} index.
 
-    The config stores the provider-qualified *id* ("google/gemini-2.5-pro"),
+    The config stores the provider-qualified *id* ("google/gemini-3.8-flash"),
     while MODELS is keyed by short name ("gemini-pro").  Without this index a
     registered cloud model looks unregistered and silently falls through to the
     conservative unknown-model defaults (no tools, 4K context).
@@ -1012,8 +1011,14 @@ def _model_id_index() -> dict[str, str]:
             model_id = str(cfg.get("id") or "").strip().lower()
             if model_id and model_id not in index:
                 index[model_id] = key
+            # The bare id ("gemini-3.8-flash") names the same model.
+            if "/" in model_id:
+                index.setdefault(model_id.rsplit("/", 1)[-1], key)
         _MODEL_ID_INDEX = index
     return _MODEL_ID_INDEX
+
+
+from aria_code.apps.cli.model_catalog import current_gemini_model  # noqa: E402
 
 
 def resolve_model_key(model_str: str) -> str:
@@ -1035,7 +1040,7 @@ def resolve_model_key(model_str: str) -> str:
         return normalized
     if normalized in MODEL_ALIASES:
         return MODEL_ALIASES[normalized]
-    mapped = _model_id_index().get(normalized)
+    mapped = _model_id_index().get(normalized) or _model_id_index().get(current_gemini_model(normalized))
     if mapped:
         return mapped
     # Community/custom Ollama model — not in registry

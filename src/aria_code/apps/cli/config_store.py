@@ -73,6 +73,11 @@ def load_cli_config(
         apply_to_config(config)
     except Exception:
         pass
+    # A model Google retired (a saved 2.5 Pro, say) runs as its replacement.
+    from aria_code.apps.cli.model_catalog import current_gemini_model
+
+    if isinstance(config.get("model"), str):
+        config["model"] = current_gemini_model(config["model"])
     return config
 
 

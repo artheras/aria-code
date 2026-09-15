@@ -112,8 +112,11 @@ class ModelKeyResolutionTests(unittest.TestCase):
     def test_registered_id_resolves_to_its_catalogue_entry(self):
         from aria_code.aria_cli import get_model_cfg, resolve_model_key
 
+        self.assertEqual(resolve_model_key("google/gemini-3.1-pro-preview"), "gemini-pro")
+        # A retired id still finds the model that replaced it.
         self.assertEqual(resolve_model_key("google/gemini-2.5-pro"), "gemini-pro")
-        cfg = get_model_cfg("google/gemini-2.5-pro")
+        self.assertEqual(resolve_model_key("gemini-2.5-flash"), "gemini-flash")
+        cfg = get_model_cfg("google/gemini-3.8-flash")
         self.assertTrue(cfg.get("tools"))
         self.assertGreaterEqual(int(cfg.get("num_ctx", 0)), 1_000_000)
 
@@ -121,7 +124,8 @@ class ModelKeyResolutionTests(unittest.TestCase):
         from aria_code.aria_cli import resolve_model_key
 
         self.assertEqual(resolve_model_key("gemini-pro"), "gemini-pro")
-        self.assertEqual(resolve_model_key("gemini"), "gemini-pro")
+        self.assertEqual(resolve_model_key("gemini"), "gemini-flash")
+        self.assertEqual(resolve_model_key("flash-lite"), "gemini-lite")
 
     def test_unregistered_model_still_reports_community(self):
         from aria_code.aria_cli import resolve_model_key

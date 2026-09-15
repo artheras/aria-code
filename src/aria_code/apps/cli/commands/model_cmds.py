@@ -1398,7 +1398,7 @@ class ModelCommandsMixin:
             ("deepseek",    "DeepSeek",      "deepseek/deepseek-chat"),
             ("anthropic",   "Anthropic",     "anthropic/claude-sonnet-4-6"),
             ("openai",      "OpenAI",        "openai/gpt-4.5"),
-            ("google",      "Google Gemini", "google/gemini-2.0-flash-exp"),
+            ("google",      "Google Gemini", "google/gemini-3.8-flash"),
             ("xai",         "xAI Grok",      "xai/grok-3-fast"),
             ("groq",        "Groq",          "groq/llama-3.3-70b-versatile"),
             ("mistral",     "Mistral",       "mistral/mistral-large-latest"),

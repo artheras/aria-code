@@ -71,7 +71,7 @@ _DEFAULT_FALLBACK_CHAIN = [
     ("dashscope",    "DASHSCOPE_API_KEY",     "qwen-plus"),
     ("moonshot",     "MOONSHOT_API_KEY",      "moonshot-v1-8k"),
     ("zhipu",        "ZHIPUAI_API_KEY",       "glm-4-flash"),
-    ("google",       "GEMINI_API_KEY",        "gemini-2.5-flash"),
+    ("google",       "GEMINI_API_KEY",        "gemini-3.8-flash"),
     ("openai",       "OPENAI_API_KEY",        "gpt-4o-mini"),
     ("anthropic",    "ANTHROPIC_API_KEY",     "claude-3-5-haiku-latest"),
     ("groq",         "GROQ_API_KEY",          "llama-3.3-70b-versatile"),

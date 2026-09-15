@@ -243,7 +243,7 @@ class AriaGeneralAgentRenderer:
         status_y = HEIGHT - 55
         draw.ellipse([self.term_x + 12, status_y + 4, self.term_x + 24, status_y + 16], fill=self.status_dot_color)
         
-        status_text = "  google/gemini-2.5-pro   ·   ~/my-app   ·   rw   ·   Context <1%"
+        status_text = "  google/gemini-3.8-flash ·   ~/my-app   ·   rw   ·   Context <1%"
         draw.text((self.term_x + 28, status_y), status_text, fill=TEXT_MUTED, font=FONT_TEXT_BASE)
 
         return img

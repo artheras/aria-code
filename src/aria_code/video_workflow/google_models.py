@@ -26,7 +26,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-DEFAULT_PLANNER_MODEL = "gemini-2.5-flash"
+DEFAULT_PLANNER_MODEL = "gemini-3.8-flash"
 DEFAULT_TTS_MODEL = "gemini-2.5-flash-tts"
 DEFAULT_TTS_VOICE = "Aoede"
 # Listed in the Vertex publisher catalog (checked 2026-09-14). Generation itself

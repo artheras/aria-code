@@ -196,11 +196,11 @@ _CAPABILITY_TABLE: Dict[str, ModelCapability] = {
     # Registered here as well as in the MODELS catalogue: callers such as the
     # tool-routing check in aria_cli use get_model_capability() directly, and a
     # missing entry silently degrades the model to text_only / 4K context.
-    "gemini-2.5-pro":           ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="large",  vision=True, thinking=True, notes="Gemini 2.5 Pro — 1M context"),
-    "gemini-2.5-flash":         ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="medium", vision=True,                notes="Gemini 2.5 Flash — 1M context"),
-    "gemini-2.0-flash":         ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="medium", vision=True),
-    "gemini-1.5-pro":           ModelCapability(tool_calls=True, format="openai_native", context_window=2097152, temperature=0.2, size_class="large",  vision=True),
-    "gemini-1.5-flash":         ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="medium", vision=True),
+    "gemini-3.8-flash":         ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="large",  vision=True, thinking=True, notes="Gemini 3.8 Flash — 1M context, default"),
+    "gemini-3.1-pro-preview":   ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="large",  vision=True, thinking=True, notes="Gemini 3.1 Pro (preview) — 1M context"),
+    "gemini-3.5-flash-lite":    ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="medium", vision=True,                notes="Gemini 3.5 Flash-Lite — fastest"),
+    "gemini-3.7-flash":         ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="large",  vision=True, thinking=True),
+    "gemini-3.6-flash":         ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="large",  vision=True, thinking=True),
     "gemini":                   ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="large",  vision=True),
     # ── OpenAI (cloud, via providers/llm/openai_compat.py) ────────────────
     "gpt-5":                    ModelCapability(tool_calls=True, format="openai_native", context_window=400000, temperature=0.2, size_class="large",  vision=True, thinking=True),
