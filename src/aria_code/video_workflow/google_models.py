@@ -23,6 +23,7 @@ import shutil
 import struct
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -42,8 +43,33 @@ class GoogleModelError(RuntimeError):
     """A Google Cloud model call failed; the message says which and why."""
 
 
+def _adc_config_project() -> str:
+    """The project named on disk by `gcloud auth application-default login`.
+
+    `google.auth.default()` finds the project for a user credential by running
+    `gcloud`, so it returns nothing whenever gcloud is not on PATH — which is
+    every run launched from a desktop app rather than a shell. Both files it
+    would consult are plain text, so they are read directly instead.
+    """
+    config = Path(os.getenv("CLOUDSDK_CONFIG") or Path.home() / ".config" / "gcloud")
+    try:
+        adc = json.loads((config / "application_default_credentials.json").read_text())
+        if adc.get("quota_project_id"):
+            return str(adc["quota_project_id"])
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        for line in (config / "configurations" / "config_default").read_text().splitlines():
+            name, _, value = line.partition("=")
+            if name.strip() == "project" and value.strip():
+                return value.strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
 def vertex_project() -> str:
-    """The Google Cloud project: VERTEX_PROJECT, GOOGLE_CLOUD_PROJECT, then the one ADC names.
+    """The Google Cloud project: VERTEX_PROJECT, GOOGLE_CLOUD_PROJECT, then what ADC names.
 
     A desktop app launches this workflow without the shell's environment, so
     the project configured with `gcloud` is the useful last resort.
@@ -55,9 +81,11 @@ def vertex_project() -> str:
         import google.auth
 
         _, project = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        if project:
+            return str(project)
     except Exception:  # noqa: BLE001
-        return ""
-    return project or ""
+        pass
+    return _adc_config_project()
 
 
 def _access_token() -> str:
@@ -74,21 +102,40 @@ def _access_token() -> str:
     return creds.token
 
 
+# Vertex's shared endpoints shed load: 429 and 503 mean "busy now", not
+# "wrong request", and a plan that took a minute to set up should not be
+# thrown away because of one of them.
+_BUSY_STATUSES = frozenset({429, 503})
+_BUSY_ATTEMPTS = 4
+_BUSY_BACKOFF = (2.0, 6.0, 15.0)
+
+
 def _post(url: str, body: Dict[str, Any], timeout: float) -> Dict[str, Any]:
     import requests
 
     project = vertex_project()
     if not project:
-        raise GoogleModelError("Set VERTEX_PROJECT (or GOOGLE_CLOUD_PROJECT) to use Google Cloud models")
-    response = requests.post(
-        url,
-        headers={"Authorization": f"Bearer {_access_token()}", "Content-Type": "application/json", "x-goog-user-project": project},
-        json=body,
-        timeout=timeout,
-    )
-    if response.status_code != 200:
-        raise GoogleModelError(f"HTTP {response.status_code} from {url.rsplit('/', 1)[-1]}: {response.text[:300]}")
-    return response.json()
+        raise GoogleModelError(
+            "No Google Cloud project: run `gcloud auth application-default login` "
+            "or set VERTEX_PROJECT"
+        )
+    model = url.rsplit("/", 1)[-1]
+    for attempt in range(_BUSY_ATTEMPTS):
+        response = requests.post(
+            url,
+            headers={"Authorization": f"Bearer {_access_token()}", "Content-Type": "application/json", "x-goog-user-project": project},
+            json=body,
+            timeout=timeout,
+        )
+        if response.status_code == 200:
+            return response.json()
+        if response.status_code in _BUSY_STATUSES and attempt < _BUSY_ATTEMPTS - 1:
+            time.sleep(_BUSY_BACKOFF[attempt])
+            continue
+        if response.status_code in _BUSY_STATUSES:
+            raise GoogleModelError(f"{model} is busy right now (HTTP {response.status_code}); try again in a minute")
+        raise GoogleModelError(f"HTTP {response.status_code} from {model}: {response.text[:300]}")
+    raise GoogleModelError(f"{model} is busy right now; try again in a minute")
 
 
 def _generate_content_url(model: str) -> str:

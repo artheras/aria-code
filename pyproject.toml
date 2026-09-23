@@ -91,7 +91,10 @@ files = [                          # /file load + /file analyze document parsing
     "beautifulsoup4>=4.12.3",
     "Pillow>=10.4.0",
 ]
-video = ["opencv-python>=4.8.0"]   # analyze_file video keyframe extraction; also video_analysis.detect_scenes
+video = [
+    "opencv-python>=4.8.0",       # analyze_file keyframes; also video_analysis.detect_scenes
+    "google-auth>=2.30.0",        # video_workflow talks to Vertex with ADC, never an API key
+]
 video_analysis = ["faster-whisper>=1.0.0"]   # video_analysis.transcribe_video (local, no API key)
 
 # ── Google Agent Development Kit ─────────────────────────────────────────────
