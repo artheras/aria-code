@@ -196,13 +196,11 @@ def make_provider_fn(
     it: cloud via ``user_context['system_role_override']``, Ollama via the
     provider's ``system_override`` argument.
     """
-    # Bare root on purpose: this is the module the tests patch, and the two
-    # roots are distinct module objects — importing the packaged one made
-    # monkeypatched providers silently unused.
-    from apps.cli.providers.base import AriaSSEProvider, ConfiguredProvider, OllamaProvider
-    # Bare root: the tests patch packages.aria_sdk.streaming, and the packaged
-    # root is a different module object, so the patch would not apply.
-    from packages.aria_sdk.streaming import stream_provider_result
+    # Event identity is part of the streaming contract. Importing the bare
+    # compatibility root creates a second LLMToken/LLMDone class, which the
+    # SDK's isinstance checks silently discard even when the API answered.
+    from aria_code.apps.cli.providers.base import AriaSSEProvider, ConfiguredProvider, OllamaProvider
+    from aria_code.packages.aria_sdk.streaming import stream_provider_result
 
     _cloud_uctx = dict(user_context or {})
     if system_override:

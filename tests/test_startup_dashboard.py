@@ -4,7 +4,7 @@ from contextlib import redirect_stdout
 from rich import box
 from rich.console import Console
 
-import ui.robot as robot
+import aria_code.ui.robot as robot
 from aria_code.ui.banner import control_status_label, render_startup_dashboard
 from aria_code.ui.startup_dashboard import StartupDashboardViewModel, select_dashboard_layout
 
@@ -43,7 +43,8 @@ def test_layout_breakpoints_are_stable():
     assert select_dashboard_layout(55) == "minimal"
     assert select_dashboard_layout(70) == "stacked"
     assert select_dashboard_layout(70, height=24) == "minimal"
-    assert select_dashboard_layout(80) == "wide"
+    assert select_dashboard_layout(80, height=24) == "minimal"
+    assert select_dashboard_layout(80, height=40) == "stacked"
     assert select_dashboard_layout(120) == "wide"
 
 
@@ -57,13 +58,13 @@ def test_wide_first_run_uses_two_section_dashboard():
     assert "╭" in rendered
 
 
-def test_80_column_layout_is_compact_two_column_dashboard():
+def test_80_column_short_terminal_keeps_model_and_runtime_visible():
     rendered = _render(80)
 
-    assert "Runtime" in rendered
+    assert "GPT-OSS 120B" in rendered
     assert "Quick start" not in rendered
-    assert "Local: Ollama 3" in rendered
-    assert "│" in rendered
+    assert "Ollama online" in rendered
+    assert "workspace-write" in rendered
     assert len(rendered.splitlines()) <= 11
     assert all(len(line) <= 80 for line in rendered.splitlines())
 
@@ -77,8 +78,7 @@ def test_80_column_first_run_does_not_wrap():
         mcp_server_count=1,
     )
 
-    assert "Quick start" in rendered
-    assert "main · dirty" in rendered
+    assert "Describe the task naturally" in rendered
     assert "MCP 1 · 71 tools" in rendered
     assert len(rendered.splitlines()) <= 11
 
@@ -90,7 +90,12 @@ def test_minimal_layout_drops_panel_chrome():
     assert "71 tools · 14 skills" in rendered
     assert "╭" not in rendered
     assert "Runtime" not in rendered
-    assert "▄▄▄▄▄▄▄▄▄▄▄" in rendered
+    assert "▀" in rendered
+
+
+def test_narrow_terminal_keeps_update_reminder_visible():
+    rendered = _render(55, update_notice="Update available: aria update")
+    assert "Update available: aria update" in rendered
 
 
 def test_plain_terminal_also_shows_robot():
@@ -99,7 +104,7 @@ def test_plain_terminal_also_shows_robot():
         render_startup_dashboard(
             _view(), console=None, has_rich=False, rich_box=None,
         )
-    assert "▄▄▄▄▄▄▄▄▄▄▄" in output.getvalue()
+    assert "▀" in output.getvalue()
 
 
 def test_chinese_view_model_localizes_sections():

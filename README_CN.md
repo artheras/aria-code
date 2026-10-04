@@ -54,6 +54,19 @@ aria
 
 也可以选择包管理器：`npm install -g @artheras/aria-code`（需要 npm），或 `python3 -m pip install --upgrade aria-code`（需要 Python 3.10+）。源码开发方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
+### 更新
+
+Aria 启动时会在后台自动检查稳定版本，每天最多检查一次。已有的更新提醒立即显示，网络检查不会阻塞输入。独立安装使用 GitHub Releases，npm 安装使用 `@artheras/aria-code`，pip 安装使用 PyPI。
+
+```bash
+aria update --check  # 只检查，不安装
+aria update          # 按当前安装方式更新到最新稳定版本
+```
+
+交互界面内可用 `/update --check` 或 `/update`，更新后重新启动 Aria。独立安装先验证 SHA-256 和下载程序的版本，再切换启动命令；下载或校验失败会保留原命令。启动检查只提醒，不会自动替换程序。要关闭启动检查，可将 `~/.aria-code/config.json` 中的 `check_for_update_on_startup` 设为 `false`。
+
+也可打开[本仓库](https://github.com/artheras/aria-code)，选择 **Watch → Custom → Releases** 并保存，GitHub 会按你的通知设置提醒发布。所有平台安装包及包管理器发布完成后，稳定版本会出现在[发布页面](https://github.com/artheras/aria-code/releases/latest)。
+
 使用本地模型时，先安装 [Ollama](https://ollama.com/download)，拉取一个编码模型，再以仅本地模式启动：
 
 ```bash

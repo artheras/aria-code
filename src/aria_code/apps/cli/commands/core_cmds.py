@@ -39,6 +39,12 @@ from typing import Dict, Any, Optional
 
 
 class CoreCommandsMixin:
+    async def cmd_update(self, args: str):
+        """Use the same updater from the REPL and the shell."""
+        from aria_code.apps.cli.updater import main
+
+        await asyncio.to_thread(main, shlex.split(args))
+
     def _cmd_rewind_unavailable(self, args: str):
         # cmd_rewind lands with the checkpoint store (runtime/checkpoints.py,
         # still a separate, uncommitted change) — degrade instead of crashing
@@ -194,7 +200,7 @@ class CoreCommandsMixin:
                 ("Session", ["/help","/clear","/compact","/cost","/status","/health",
                              "/regen","/undo","/rewind","/copy","/recap","/btw",
                              "/save","/load","/sessions","/export","/export-pdf"]),
-                ("Config",  ["/model","/thinking","/config","/privacy","/local",
+                ("Config",  ["/model","/thinking","/config","/privacy","/local","/update",
                              "/setup","/apikey","/doctor","/mcp"]),
                 ("Data",    ["/alert","/journal","/watch","/note","/todo","/memory",
                              "/artifacts","/strategy","/accuracy"]),

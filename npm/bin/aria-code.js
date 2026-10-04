@@ -57,7 +57,10 @@ if (process.platform === "darwin" && process.stderr.isTTY) {
   }
 }
 
-const result = spawnSync(binary, process.argv.slice(2), { stdio: "inherit" });
+const result = spawnSync(binary, process.argv.slice(2), {
+  stdio: "inherit",
+  env: { ...process.env, ARIA_CODE_INSTALL_CHANNEL: "npm" },
+});
 
 if (marker && !result.error) {
   try {

@@ -32,6 +32,9 @@ from aria_code._version import __version__  # noqa: F401
 
 # Fast path before loading agent, finance, and terminal modules.
 import sys as _early_sys
+if _early_sys.argv[1:2] == ["update"]:
+    from aria_code.apps.cli.updater import main as _update_main
+    raise SystemExit(_update_main(_early_sys.argv[2:]))
 if _early_sys.argv[1:] in (["--version"], ["-V"]):
     print(f"aria-code {__version__}")
     raise SystemExit(0)
@@ -3463,6 +3466,7 @@ class SlashCommands(
             "/accuracy":  (self.cmd_accuracy, "Prediction track record vs live prices"),
             "/artifacts": (self.cmd_artifacts,"Manage generated files: /artifacts [limit|open|reveal|path|copy-path|stats|prune]"),
             "/canvas":    (self.cmd_canvas,   "Live preview server: /canvas [stop] — reports/charts update in a browser tab in real time"),
+            "/update":    (self.cmd_update, "Check or install the latest Aria Code release: /update [--check]"),
             # ── Code & project ────────────────────────────────────────────────
             "/project":   (self.cmd_project,  "Project: /project load|tree|grep|ask|task|status"),
             "/init":      (self.cmd_init,     "Generate ARIA.md for current project: /init [--force]"),
@@ -6599,7 +6603,7 @@ Examples:
     try:
         from apps.cli.update_check import start_update_check
         _ui_lang_early = config.get("ui_lang", "en") or "en"
-        start_update_check(__version__, lang=_ui_lang_early)
+        start_update_check(__version__, lang=_ui_lang_early, enabled=bool(config.get("check_for_update_on_startup", True)))
     except Exception:
         pass
 

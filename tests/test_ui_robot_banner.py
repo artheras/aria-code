@@ -21,45 +21,29 @@ class RobotBannerTests(unittest.TestCase):
         set_robot_state(RobotState.IDLE)
         robot._theme_cache = None
 
-    def test_robot_idle_face_is_compact_and_open_eyed(self):
-        set_robot_state(RobotState.IDLE)
+    def test_robot_preserves_reference_proportions_and_transparent_outline(self):
+        rows = robot._art_rows(28)
+        self.assertEqual(len(rows), 13)
+        self.assertTrue(all(sum(len(text) for _, text in row) == 28 for row in rows))
+        self.assertEqual(rows[0][0][0], "")
+        # Black screen, cream shell and amber details come from RGB pixels.
+        from rich.style import Style
+        colours = [Style.parse(style).color.triplet for row in rows for style, _ in row if style]
+        self.assertTrue(any(max(rgb) < 30 for rgb in colours))
+        self.assertTrue(any(min(rgb) > 210 for rgb in colours))
+        self.assertTrue(any(rgb[0] > 200 and 110 < rgb[1] < 205 and rgb[2] < 130 for rgb in colours))
 
-        rows = ["".join(text for _, text in get_robot_row(2, row)) for row in range(ROBOT_ROW_COUNT)]
-
-        self.assertEqual(rows, [
-            "  ▄▄▄▄▄▄▄▄▄▄▄  ",
-            "               ",
-            "               ",
-            "▪    █   ▬    ▪",
-            "               ",
-            "               ",
-            " ▂▂▂▂▂▂▂▂▂▂▂▂▂ ",
-            "  ▀▀ ▀▀ ▀▀ ▀▀  ",
-        ])
-
-    def test_robot_uses_distinct_styles_for_screen_and_accents(self):
-        set_robot_state(RobotState.IDLE)
-
-        styles = [style for row in range(ROBOT_ROW_COUNT) for style, _ in get_robot_row(2, row)]
-
-        self.assertIn("on #0d1117", styles)          # dark screen
-        self.assertIn("#f6f2ea on #0d1117", styles)  # light square eye
-        self.assertIn("#C08050 on #0d1117", styles)  # copper dash
-        self.assertIn("on #e8e2d4", styles)          # light shell body
-
-    def test_robot_palette_follows_theme(self):
+    def test_robot_does_not_recolour_the_supplied_artwork(self):
         robot._theme_cache = "light"
-        light = [s for row in range(ROBOT_ROW_COUNT) for s, _ in get_robot_row(2, row)]
+        light = [get_robot_row(2, row) for row in range(ROBOT_ROW_COUNT)]
         robot._theme_cache = "dark"
-        dark = [s for row in range(ROBOT_ROW_COUNT) for s, _ in get_robot_row(2, row)]
+        dark = [get_robot_row(2, row) for row in range(ROBOT_ROW_COUNT)]
+        self.assertEqual(light, dark)
 
-        self.assertNotEqual(light, dark)
-        self.assertIn("#E7E1D3", light)  # warm top cap
-        self.assertIn("on #0D1117", light)  # dark screen on light terminal too
-        self.assertIn("#F6F2EA on #0D1117", light)  # light eye on dark screen
-        self.assertIn("on #E7E1D3", light)  # warm shell on a light terminal
-        self.assertIn("#9A6700 on #0D1117", light)  # copper face accent on dark screen
-        self.assertIn("on #e8e2d4", dark)   # light shell on a dark terminal
+    def test_compact_robot_keeps_the_original_aspect_ratio(self):
+        rows = robot._art_rows(20)
+        self.assertEqual(len(rows), 9)
+        self.assertTrue(all(sum(len(text) for _, text in row) == 20 for row in rows))
 
     def test_idle_status_dot_does_not_blink_to_dim_dot(self):
         set_robot_state(RobotState.IDLE)

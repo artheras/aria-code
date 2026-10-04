@@ -191,16 +191,17 @@ def _console_width(console) -> int:
         return max(20, shutil.get_terminal_size((80, 24)).columns)
 
 
-def _robot_text():
+def _robot_text(columns: int = 28):
     from rich.text import Text
 
-    from .robot import ROBOT_ROW_COUNT, get_robot_row
+    from .robot import _art_rows, get_robot_row
 
     face = Text()
-    for idx in range(ROBOT_ROW_COUNT):
-        for style, value in get_robot_row(2, idx):
+    row_count = len(_art_rows(columns))
+    for idx in range(row_count):
+        for style, value in get_robot_row(2, idx, columns):
             face.append(value, style=style)
-        if idx < ROBOT_ROW_COUNT - 1:
+        if idx < row_count - 1:
             face.append("\n")
     return face
 
@@ -331,27 +332,34 @@ def render_startup_dashboard(
     width = terminal_width or _console_width(console)
     height = terminal_height or terminal_size.lines
     layout = select_dashboard_layout(width, height)
+    mascot_columns = 28 if width >= 110 else 20
 
     if layout == "minimal":
         identity = Table.grid(padding=(0, 1))
         identity.add_column(no_wrap=True, vertical="top")
         identity.add_column(vertical="top")
         identity.add_row(
-            _robot_text(),
+            _robot_text(mascot_columns),
             Text.from_markup(
                 f"{_mark('primary', 'Aria Code')} {_mark('subtle', f'v{view.version}')}\n"
                 f"{_normalize_dim_markup(view.runtime_label)}\n"
                 f"{_mark('muted', escape(view.cwd))}\n"
-                f"{_mark('muted', escape(view.capabilities))}"
+                f"{_mark('muted', escape(view.capabilities))}\n"
+                f"{_normalize_dim_markup(view.control_status)}\n"
+                f"{_normalize_dim_markup(view.health_status)}"
             ),
         )
         console.print(identity)
+        if view.first_run:
+            console.print(_mark("muted", " · ".join(view.getting_started_lines)))
+        if view.update_notice:
+            console.print(view.update_notice)
         return
 
     identity = Table.grid(padding=(0, 2))
     identity.add_column(no_wrap=True, vertical="top")
     identity.add_column(vertical="top")
-    identity.add_row(_robot_text(), Text.from_markup(_identity_markup(view)))
+    identity.add_row(_robot_text(mascot_columns), Text.from_markup(_identity_markup(view)))
 
     border_style = _banner_style("dim")
     panel_box = getattr(rich_box, "ROUNDED", None)
@@ -369,8 +377,8 @@ def render_startup_dashboard(
     body.add_column(ratio=5, vertical="top")
     body.add_column(width=1, vertical="top")
     body.add_column(ratio=6, vertical="top")
-    from .robot import ROBOT_ROW_COUNT
-    divider = Text("\n".join("│" for _ in range(ROBOT_ROW_COUNT)), style=_banner_style("dim"))
+    from .robot import _art_rows
+    divider = Text("\n".join("│" for _ in _art_rows(mascot_columns)), style=_banner_style("dim"))
     body.add_row(identity, divider, Text.from_markup(_compact_guidance_markup(view)))
     console.print(Panel(body, title=panel_title, title_align="left", box=panel_box, border_style=border_style, padding=(0, 1)))
 

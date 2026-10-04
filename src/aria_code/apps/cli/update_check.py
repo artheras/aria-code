@@ -1,7 +1,7 @@
 """Background version checker for the active Aria Code install channel.
 
 Checks GitHub, scoped npm, or PyPI once per 24 hours in a daemon thread so startup is
-never blocked.  The result is cached to ~/.arthera/update_check.json and read
+never blocked. The result is cached in the Aria home directory and read
 at banner render time.
 
 Public API
@@ -17,6 +17,7 @@ Public API
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import time
@@ -70,6 +71,9 @@ def _write_cache(data: dict) -> None:
 
 def _install_channel() -> str:
     """Infer which update channel owns the running executable."""
+    override = os.environ.get("ARIA_CODE_INSTALL_CHANNEL", "").lower()
+    if override in ("npm", "native", "pip"):
+        return override
     executable = str(getattr(sys, "executable", "") or "").lower()
     if "node_modules" in executable and "aria" in executable:
         return "npm"
@@ -89,7 +93,7 @@ def _update_command(channel: str) -> str:
 def _build_notice(latest: str, current: str, lang: str, channel: str = "native") -> str:
     latest = latest.removeprefix("v")
     current = current.removeprefix("v")
-    cmd = _update_command(channel)
+    cmd = "aria update"
     if lang == "zh":
         return (
             f"[yellow]⬆  新版本可用[/yellow] "
@@ -137,7 +141,7 @@ def _worker(current: str, lang: str, channel: str = "native") -> None:
             if channel == "pip":
                 latest = latest["version"]
     except Exception:
-        return   # network error → silently skip, try again next day
+        return   # background checks never interrupt the user's work
 
     # 3. Persist to cache
     if _parse(latest) is None:
@@ -152,26 +156,33 @@ def _worker(current: str, lang: str, channel: str = "native") -> None:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def start_update_check(current_version: str, lang: str = "en") -> None:
+def start_update_check(current_version: str, lang: str = "en", enabled: bool = True) -> None:
     """Start background version check. Call once, early in startup."""
     global _notice
     with _lock:
         _notice = None
+    if not enabled:
+        return
+    channel = _install_channel()
+    source = {"native": _RELEASE_URL, "npm": _NPM_URL, "pip": _PYPI_URL}[channel]
+    cache = _read_cache()
+    if cache.get("source") == source and _newer(cache.get("latest", ""), current_version):
+        with _lock:
+            _notice = _build_notice(cache["latest"], current_version, lang, channel)
     t = threading.Thread(
         target=_worker,
-        args=(current_version, lang, _install_channel()),
+        args=(current_version, lang, channel),
         daemon=True,
         name="aria-update-check",
     )
     t.start()
 
 
-def get_update_notice(wait_ms: int = 1200) -> Optional[str]:
+def get_update_notice(wait_ms: int = 0) -> Optional[str]:
     """Return Rich-markup update notice, or None if up to date / not yet known.
 
-    Waits up to *wait_ms* ms for the background thread so the notice can appear
-    on the same run (not just next run).  Startup already takes >1s so this
-    almost never adds real delay.
+    Read the cached notice immediately. An explicit wait is supported for
+    callers outside startup, but startup never waits for a network request.
     """
     deadline = time.monotonic() + wait_ms / 1000
     while time.monotonic() < deadline:

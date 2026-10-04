@@ -54,6 +54,19 @@ The installer downloads the binary for your OS from the latest [GitHub release](
 
 Alternative package-manager installs: `npm install -g @artheras/aria-code` (requires npm) or `python3 -m pip install --upgrade aria-code` (requires Python 3.10+). For development from source, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+### Updates
+
+Aria checks for a newer stable version in the background at startup, at most once per day. Cached notices appear immediately; network checks never delay the prompt. It checks the source for your install: GitHub Releases for standalone binaries, scoped npm for npm, or PyPI for pip.
+
+```bash
+aria update --check  # check without installing
+aria update          # install the newest stable version for this install channel
+```
+
+In an interactive session, use `/update --check` or `/update`, then restart Aria. Native updates verify SHA-256 and the downloaded binary's version before switching the command; a failed download or verification leaves the existing command in place. Startup checks only notify. To disable them, set `check_for_update_on_startup` to `false` in `~/.aria-code/config.json`.
+
+For GitHub notifications, open [this repository](https://github.com/artheras/aria-code), select **Watch → Custom → Releases**, and save. Notifications follow your GitHub notification settings. Published stable releases appear on the [release page](https://github.com/artheras/aria-code/releases/latest) once the platform assets and package publishing have completed.
+
 To use a local model, install [Ollama](https://ollama.com/download), pull a coding model, and start Aria in local-only mode:
 
 ```bash

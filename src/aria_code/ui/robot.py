@@ -5,9 +5,9 @@ States
   The mascot stays visually stable at startup. Runtime state is shown by the
   compact status dot so the banner keeps the same low-noise feel as Claude Code.
 
-The canonical pixel artwork is ``assets/aria-robot.png``. This character-cell
-silhouette follows its cap, recessed screen, asymmetric eyes, ear nubs, copper
-base and four feet for terminals that cannot render inline images.
+The canonical artwork is ``assets/aria-robot.png``. Its sampled RGB pixels
+are rendered as paired half blocks with transparent space around the original
+silhouette. The mascot does not change colour with the terminal theme.
 """
 
 from __future__ import annotations
@@ -16,6 +16,9 @@ import os
 import sys
 import threading
 import time
+import base64
+import zlib
+from functools import lru_cache
 from enum import Enum
 
 
@@ -77,36 +80,6 @@ _STATUS = {
     RobotState.DONE:      "done",
 }
 
-# ── Theme-aware palette ───────────────────────────────────────────────────────
-# Every region is a BACKGROUND fill — a space painted with an `on <colour>` style.
-# The terminal paints a cell background across the whole line height (including the
-# inter-row gap), so fills join into a solid shape with no horizontal striping.
-# Two palettes (light/dark) are swapped from the OS/terminal theme so the robot
-# inverts (white-on-dark ↔ dark-on-light) and never disappears into the background.
-# The copper accent reads on both, so it is shared (just darkened a touch on light).
-_PALETTES = {
-    "dark": {
-        "shelltop": "#e8e2d4",             # thin top cap (▄): fg only → transparent above
-        "shell":    "on #e8e2d4",          # light shell body
-        "screen":   "on #0d1117",          # dark screen
-        "eye":      "#f6f2ea on #0d1117",  # light square eye (▀)
-        "dash":     "#C08050 on #0d1117",  # copper dash (▬)
-        "ear":      "#C08050 on #9d9488",  # copper dot on a gray ear nub (▪)
-        "strip":    "#C08050 on #e8e2d4",  # copper strip on the body bottom (▬)
-        "leg":      "#8a8176",             # gray legs (▀)
-    },
-    "light": {
-        "shelltop": "#E7E1D3",             # warm cap, matching the light shell
-        "shell":    "on #E7E1D3",          # warm shell, distinct from white terminal bg
-        "screen":   "on #0D1117",          # same dark screen as dark mode
-        "eye":      "#F6F2EA on #0D1117",  # light eye on dark screen
-        "dash":     "#9A6700 on #0D1117",  # dark copper on dark screen
-        "ear":      "#9A6700 on #6E7781",  # copper dot on gray side nub
-        "strip":    "#9A6700 on #E7E1D3",  # copper strip on warm shell
-        "leg":      "#6E7781",             # medium gray legs
-    },
-}
-
 _theme_cache: str | None = None
 
 
@@ -148,27 +121,38 @@ def detect_theme() -> str:
     return _theme_cache
 
 
-# 15 columns × 8 rows. The extra screen and shell rows restore the proportions
-# of the supplied artwork. Each cell is (palette-role, text).
-_MASCOT_TEMPLATE = [
-    [("", "  "), ("shelltop", "▄▄▄▄▄▄▄▄▄▄▄"), ("", "  ")],
-    [("", " "), ("shell", "             "), ("", " ")],
-    [("", " "), ("shell", " "), ("screen", "           "), ("shell", " "), ("", " ")],
-    [
-        ("ear", "▪"), ("shell", " "), ("screen", "   "),
-        ("eye", "█"), ("screen", "   "), ("dash", "▬"),
-        ("screen", "   "), ("shell", " "), ("ear", "▪"),
-    ],
-    [("", " "), ("shell", " "), ("screen", "           "), ("shell", " "), ("", " ")],
-    [("", " "), ("shell", "             "), ("", " ")],
-    [("", " "), ("strip", "▂▂▂▂▂▂▂▂▂▂▂▂▂"), ("", " ")],
-    [
-        ("", "  "), ("leg", "▀▀"), ("", " "), ("leg", "▀▀"), ("", " "),
-        ("leg", "▀▀"), ("", " "), ("leg", "▀▀"), ("", "  "),
-    ],
-]
+ROBOT_COLUMN_COUNT = 28
+ROBOT_ROW_COUNT = 13
 
-ROBOT_ROW_COUNT = len(_MASCOT_TEMPLATE)
+
+@lru_cache(maxsize=2)
+def _art_rows(columns: int) -> tuple:
+    from .robot_pixels import PIXELS
+
+    height, encoded = PIXELS[columns]
+    pixels = memoryview(zlib.decompress(base64.b85decode(encoded)))
+    rows = []
+    for y in range(0, height, 2):
+        fragments = []
+        for x in range(columns):
+            top = pixels[(y * columns + x) * 4:(y * columns + x) * 4 + 4]
+            bottom = pixels[((y + 1) * columns + x) * 4:((y + 1) * columns + x) * 4 + 4]
+            tc = "#%02x%02x%02x" % tuple(top[:3])
+            bc = "#%02x%02x%02x" % tuple(bottom[:3])
+            if top[3] and bottom[3]:
+                style, glyph = f"{tc} on {bc}", "▀"
+            elif top[3]:
+                style, glyph = tc, "▀"
+            elif bottom[3]:
+                style, glyph = bc, "▄"
+            else:
+                style, glyph = "", " "
+            if fragments and fragments[-1][0] == style:
+                fragments[-1] = (style, fragments[-1][1] + glyph)
+            else:
+                fragments.append((style, glyph))
+        rows.append(tuple(fragments))
+    return tuple(rows)
 
 
 def _resolve_eyes(state: RobotState, tick: int) -> tuple[str, str]:
@@ -184,16 +168,15 @@ def _resolve_eyes(state: RobotState, tick: int) -> tuple[str, str]:
     return el, er
 
 
-def get_robot_row(tick: int, row: int) -> list:
-    """Return FormattedText fragments for a single robot row, themed.
+def get_robot_row(tick: int, row: int, columns: int = ROBOT_COLUMN_COUNT) -> list:
+    """Return one row of the original artwork as true-colour half blocks.
 
     Rows: cap, shell top, recessed screen, eyes and ears, screen bottom,
-    shell bottom, copper base, four feet. Roles follow the active light/dark
-    theme (see detect_theme()).
+    shell bottom, copper base, four feet. Colours stay faithful to the reference
+    on both light and dark terminals.
     """
     del tick
-    pal = _PALETTES[detect_theme()]
-    return [(pal[key] if key else "", text) for key, text in _MASCOT_TEMPLATE[row]]
+    return list(_art_rows(columns)[row])
 
 
 def get_robot_frame(tick: int) -> list:
