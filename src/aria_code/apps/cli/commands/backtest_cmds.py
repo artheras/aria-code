@@ -5,6 +5,8 @@ Extracted from aria_cli.py. Module globals imported lazily inside method bodies.
 
 from __future__ import annotations
 
+from typing import Any
+
 from ._ui import has_rich, print_error
 
 
@@ -2520,7 +2522,7 @@ class BacktestCommandsMixin:
             self.context.console.print(f"  [dim]{traceback.format_exc()}[/dim]") if self.context.has_rich else print(traceback.format_exc())
 
 
-def _print_sparkline(label: str, nav: "pd.Series", color: str = "white", width: int = 40):
+def _print_sparkline(label: str, nav: Any, color: str = "white", width: int = 40):
     """打印 ASCII sparkline。"""
     try:
         import sys
