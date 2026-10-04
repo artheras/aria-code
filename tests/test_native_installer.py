@@ -79,7 +79,7 @@ class NativeInstallerTest(unittest.TestCase):
     def test_installs_the_onedir_build_and_links_it_onto_path(self) -> None:
         result = self.run_installer(self.publish_onedir())
         self.assertEqual(result.returncode, 0, result.stderr)
-        app = self.root / ".local/share/aria-code/aria-code-bin"
+        app = self.command.resolve().parent
         self.assertTrue((app / "_internal" / "base_library.zip").is_file(),
                         "the executable's libraries must sit beside it")
         self.assertTrue(self.command.is_symlink())
@@ -95,12 +95,24 @@ class NativeInstallerTest(unittest.TestCase):
     def test_reinstalling_replaces_the_previous_build(self) -> None:
         archive = self.publish_onedir()
         self.assertEqual(self.run_installer(archive).returncode, 0)
-        stale = self.root / ".local/share/aria-code/aria-code-bin/_internal/stale.so"
+        old_app = self.command.resolve().parent
+        stale = old_app / "_internal/stale.so"
         stale.write_bytes(b"old")
         result = self.run_installer(archive)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(stale.exists(), "a library from the previous version survived")
-        self.assertFalse((self.root / ".local/share/aria-code/aria-code-bin.old").exists())
+        self.assertNotEqual(self.command.resolve().parent, old_app)
+        self.assertFalse((self.command.resolve().parent / "_internal/stale.so").exists())
+        self.assertTrue(stale.exists(), "the previous release should remain available for rollback")
+
+    def test_failed_update_keeps_the_previous_build_runnable(self) -> None:
+        archive = self.publish_onedir()
+        self.assertEqual(self.run_installer(archive).returncode, 0)
+        old_target = self.command.resolve()
+        result = self.run_installer(archive, valid_checksum=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.command.resolve(), old_target)
+        run = subprocess.run([str(self.command), "--version"], capture_output=True, text=True)
+        self.assertEqual(run.stdout.strip(), "v0.55.0")
 
     def test_replaces_a_single_file_install_from_before_onedir(self) -> None:
         self.command.parent.mkdir(parents=True)
@@ -154,15 +166,16 @@ class WindowsInstallerMatchesTheRelease(unittest.TestCase):
 
     def test_keeps_the_libraries_beside_the_executable(self) -> None:
         self.assertIn("Join-Path $build 'aria-code-bin.exe'", self.script)
-        self.assertIn("Move-Item (Join-Path $build '_internal') $libraries", self.script)
+        self.assertIn("Copy-Item -Recurse (Join-Path $build '_internal') (Join-Path $stage '_internal')", self.script)
         self.assertIn("$libraries = Join-Path $installDir '_internal'", self.script)
-        self.assertIn("Copy-Item -Force $destination (Join-Path $installDir 'aria.exe')", self.script)
+        self.assertIn("Copy-Item (Join-Path $stage 'aria-code.exe') (Join-Path $stage 'aria.exe')", self.script)
 
     def test_verifies_before_replacing_anything(self) -> None:
         checked = self.script.index("Checksum mismatch")
-        self.assertLess(checked, self.script.index("Remove-Item -Force $destination"))
+        self.assertLess(checked, self.script.index("Move-Item $current (Join-Path $backup $name)"))
         self.assertLess(self.script.index("& $exe --version"),
-                        self.script.index("Remove-Item -Force $destination"))
+                        self.script.index("Move-Item $current (Join-Path $backup $name)"))
+        self.assertIn("Move-Item $previous $current", self.script)
 
 
 if __name__ == "__main__":

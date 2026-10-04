@@ -27,13 +27,14 @@ fi
 asset="aria-code-$platform-$arch"
 install_dir=${ARIA_CODE_INSTALL_DIR:-"$HOME/.local/bin"}
 # Releases ship a PyInstaller --onedir build: the executable plus the
-# libraries beside it. It lives here and install_dir gets a symlink to it.
+# libraries beside it. Install immutable directories and switch one symlink;
+# a failed replacement must leave the previous version runnable.
 # (--onefile re-unpacked ~400 libraries on every launch, which macOS re-scanned
 # each time: ~90 s per command. The first launch after install is still slow
 # while macOS scans them once.)
 app_root=${ARIA_CODE_HOME:-"$HOME/.local/share/aria-code"}
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/aria-code-install.XXXXXX") || fail 'could not create a temporary directory'
-trap 'rm -rf "$tmp_dir"' EXIT HUP INT TERM
+trap 'rm -rf "$tmp_dir"; if [ -n "${staged:-}" ]; then rm -rf "$staged"; fi' EXIT HUP INT TERM
 
 curl -fLsS --retry 3 --connect-timeout 10 -o "$tmp_dir/SHA256SUMS" "$release_url/SHA256SUMS" || fail 'could not download release checksums'
 
@@ -77,18 +78,19 @@ else
   printf 'Checking the build (the first launch is slow while macOS scans it)...\n'
   "$tmp_dir/unpacked/aria-code-bin/aria-code-bin" --version >/dev/null || fail 'downloaded binary failed its version check'
 
-  # Swap the whole directory, so a half-copied build is never what runs.
-  mkdir -p "$app_root"
-  rm -rf "$app_root/aria-code-bin.new" "$app_root/aria-code-bin.old"
-  mv "$tmp_dir/unpacked/aria-code-bin" "$app_root/aria-code-bin.new" 2>/dev/null \
-    || cp -R "$tmp_dir/unpacked/aria-code-bin" "$app_root/aria-code-bin.new" \
+  mkdir -p "$app_root/releases"
+  app_root=$(cd "$app_root" && pwd -P)
+  staged=$(mktemp -d "$app_root/releases/.staging.XXXXXX") || fail "could not stage in $app_root"
+  cp -R "$tmp_dir/unpacked/aria-code-bin" "$staged/aria-code-bin" \
     || fail "could not write to $app_root"
-  [ -e "$app_root/aria-code-bin" ] && mv "$app_root/aria-code-bin" "$app_root/aria-code-bin.old"
-  mv "$app_root/aria-code-bin.new" "$app_root/aria-code-bin"
-  rm -rf "$app_root/aria-code-bin.old"
+  [ -x "$staged/aria-code-bin/aria-code-bin" ] || fail "staged build is incomplete"
+  # The staged directory is on the same filesystem as the release directory.
+  # Keep the old directory so a running process and a rollback both work.
+  installed="$app_root/releases/$expected-$$"
+  mv "$staged" "$installed" || fail "could not activate the staged build"
 
-  # Replaces a previous single-file install at the same path, too.
-  ln -s "$app_root/aria-code-bin/aria-code-bin" "$install_dir/.aria-code-new-$$"
+  # Replaces an old single-file install or an older onedir symlink atomically.
+  ln -s "$installed/aria-code-bin/aria-code-bin" "$install_dir/.aria-code-new-$$"
   mv -f "$install_dir/.aria-code-new-$$" "$install_dir/aria-code"
 fi
 

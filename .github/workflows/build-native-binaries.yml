@@ -29,6 +29,10 @@ on:
         required: true
         type: string
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build (e.g. v0.68.0)"
+        required: true
 
 env:
   PYTHON_VERSION: "3.13"
@@ -276,7 +280,8 @@ jobs:
             gh release create "${{ inputs.tag || github.ref_name }}" \
               --repo "${{ github.repository }}" \
               --title "${{ inputs.tag || github.ref_name }}" \
-              --generate-notes
+              --generate-notes --draft || \
+              gh release view "${{ inputs.tag || github.ref_name }}" --repo "${{ github.repository }}" >/dev/null
           fi
           gh release upload "${{ inputs.tag || github.ref_name }}" release/* --clobber --repo "${{ github.repository }}"
 

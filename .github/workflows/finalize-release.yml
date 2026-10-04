@@ -1,0 +1,30 @@
+name: Finalize a staged release
+
+# For manually pushed tags or a recovered publish run. The automatic
+# release-on-merge workflow calls the same checked script after both reusable
+# publishing workflows finish.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing staged tag (e.g. v0.68.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Verify artifacts and publish the draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: bash scripts/finalize_release.sh "$RELEASE_TAG"

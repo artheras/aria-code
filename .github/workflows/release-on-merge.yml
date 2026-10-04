@@ -14,10 +14,8 @@
 # when a shipped release needs a fix, and it is run by hand on purpose so this
 # workflow cannot produce one by accident.
 #
-# This workflow only creates the tag. publish.yml already owns everything after
-# that: it verifies the three version files agree with the tag, refuses to
-# publish a commit that is not an ancestor of main, creates the GitHub release,
-# and publishes to npm, PyPI and GitHub Packages.
+# This workflow tags, builds, publishes packages, and finally makes the draft
+# GitHub Release public. An incomplete release must never become /releases/latest.
 name: Release on merge
 
 on:
@@ -237,3 +235,22 @@ jobs:
     secrets: inherit
     with:
       tag: ${{ needs.tag-next-patch.outputs.tag }}
+
+  finalize-release:
+    name: Publish the verified GitHub Release
+    needs: [tag-next-patch, binaries, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag-next-patch.outputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Verify artifacts and publish the draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.tag-next-patch.outputs.tag }}
+        run: bash scripts/finalize_release.sh "$RELEASE_TAG"

@@ -17,9 +17,9 @@ on:
         type: string
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version to publish (e.g. 4.1.1)"
-        required: false
+      tag:
+        description: "Existing tag to publish (e.g. v0.68.0)"
+        required: true
 
 jobs:
   # Every checkout below pins `ref` to the tag being released. Without it,
@@ -48,12 +48,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: pyproject / package.json / _version.py must agree with the tag
-        run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            python scripts/bump_version.py --check "${{ inputs.tag || github.ref_name }}"
-          else
-            python scripts/bump_version.py --check ${{ github.event.inputs.version }}
-          fi
+        run: python scripts/bump_version.py --check "${{ inputs.tag || github.ref_name }}"
 
   create-release:
     # 2026-08-20：这个 job 以前不存在，后果是 Releases 页停在 v4.2.0。
@@ -61,7 +56,7 @@ jobs:
     # 要求 release 已经存在——没有任何一步创建它，于是 v4.2.0 一个产物都没有、
     # v4.3.0 干脆没有 release。这里创建，且刻意排在最前：二进制要构建好几分钟，
     # 等它们跑完时 release 早就在了。
-    name: Create GitHub Release
+    name: Stage GitHub Release
     if: startsWith(inputs.tag || github.ref_name, 'v')
     needs: verify-version
     runs-on: ubuntu-latest
@@ -72,18 +67,20 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref_name }}
           fetch-depth: 0   # --generate-notes 需要完整历史才能算出上一次 release 以来的提交
-      - name: Create the release if it does not exist
+      - name: Create a draft release if it does not exist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 幂等：重跑 workflow 或手工先建过都不该失败
+          # A release must not become latest until every platform asset and
+          # registry package is available. The orchestrator publishes it last.
           if gh release view "${{ inputs.tag || github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             echo "Release ${{ inputs.tag || github.ref_name }} already exists — leaving it as is."
           else
             gh release create "${{ inputs.tag || github.ref_name }}" \
               --repo "${{ github.repository }}" \
               --title "${{ inputs.tag || github.ref_name }}" \
-              --generate-notes
+              --generate-notes --draft || \
+              gh release view "${{ inputs.tag || github.ref_name }}" --repo "${{ github.repository }}" >/dev/null
           fi
 
   publish-npm:

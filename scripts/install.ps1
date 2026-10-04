@@ -50,11 +50,14 @@ try {
     New-Item -ItemType Directory -Force -Path $installDir | Out-Null
     $destination = Join-Path $installDir 'aria-code.exe'
     $libraries = Join-Path $installDir '_internal'
+    $stage = Join-Path $installDir ('.aria-code-stage-' + [guid]::NewGuid().ToString('N'))
+    $backup = Join-Path $installDir ('.aria-code-backup-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $stage | Out-Null
 
     if ($file -like '*.exe') {
         & $download --version | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'Downloaded binary failed its version check.' }
-        Copy-Item -Force $download $destination
+        Copy-Item $download (Join-Path $stage 'aria-code.exe')
     } else {
         $unpacked = Join-Path $tempDir 'unpacked'
         Expand-Archive -Path $download -DestinationPath $unpacked
@@ -69,14 +72,45 @@ try {
         if ((Test-Path $libraries) -and -not (Test-Path $destination)) {
             throw "$installDir already has an _internal folder that is not Aria Code's; set ARIA_CODE_INSTALL_DIR to an empty folder."
         }
-        # Fails, rather than half-replacing, if aria-code is running.
-        if (Test-Path $destination) { Remove-Item -Force $destination }
-        if (Test-Path $libraries) { Remove-Item -Recurse -Force $libraries }
-        Move-Item (Join-Path $build '_internal') $libraries
-        # The bootloader finds _internal beside itself whatever the exe is called.
-        Move-Item $exe $destination
+        Copy-Item -Recurse (Join-Path $build '_internal') (Join-Path $stage '_internal')
+        Copy-Item $exe (Join-Path $stage 'aria-code.exe')
     }
-    Copy-Item -Force $destination (Join-Path $installDir 'aria.exe')
+    Copy-Item (Join-Path $stage 'aria-code.exe') (Join-Path $stage 'aria.exe')
+
+    # Stage everything before touching the installed build. Keep the old files
+    # until the replacement completes, and restore them if a move fails (for
+    # example because Windows has the old executable open).
+    New-Item -ItemType Directory -Path $backup | Out-Null
+    $names = @('aria-code.exe', 'aria.exe', '_internal')
+    $movedNew = @()
+    try {
+        foreach ($name in $names) {
+            $current = Join-Path $installDir $name
+            if (Test-Path $current) { Move-Item $current (Join-Path $backup $name) }
+        }
+        foreach ($name in $names) {
+            $prepared = Join-Path $stage $name
+            if (Test-Path $prepared) {
+                Move-Item $prepared (Join-Path $installDir $name)
+                $movedNew += $name
+            }
+        }
+    } catch {
+        foreach ($name in $names) {
+            $current = Join-Path $installDir $name
+            $previous = Join-Path $backup $name
+            if (Test-Path $previous) {
+                if (Test-Path $current) { Remove-Item -Recurse -Force $current }
+                Move-Item $previous $current
+            } elseif (($movedNew -contains $name) -and (Test-Path $current)) {
+                Remove-Item -Recurse -Force $current
+            }
+        }
+        throw
+    } finally {
+        Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+    }
+    Remove-Item -Recurse -Force $backup
 
     if (-not $env:ARIA_CODE_INSTALL_DIR) {
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -90,5 +124,8 @@ try {
     Write-Host "Installed $destination"
     Write-Host "Run it now: & '$destination' --help"
 } finally {
+    if ($stage -and (Test-Path $stage)) {
+        Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+    }
     Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
 }
