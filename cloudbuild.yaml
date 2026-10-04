@@ -1,56 +1,39 @@
-# Cloud Build: build the relay server image and deploy it to Cloud Run.
-#
-# The managed trigger currently auto-detects the root Dockerfile. That image
-# now starts the relay server when Cloud Run supplies PORT, so its existing
-# deployment works. This file is the smaller, explicit relay-only alternative
-# using Dockerfile.relay; its server binds 0.0.0.0 on $PORT.
-#
-# To use this, point the trigger at this file:
-#   Cloud Build → Triggers → edit the trigger →
-#   Configuration: "Cloud Build configuration file (yaml or json)" →
-#   Location: /cloudbuild.yaml
-#
-# Check the substitutions below against what the trigger currently uses —
-# _IMAGE in particular, since the existing trigger already pushes somewhere and
-# this has to keep matching it (Artifact Registry looks like
-# europe-west1-docker.pkg.dev/$PROJECT_ID/<repo>/<name>).
-
-substitutions:
-  _SERVICE_NAME: aria-relay-server
-  _REGION: europe-west1
-  _IMAGE: gcr.io/$PROJECT_ID/aria-relay-server
+# Production relay deployment in arthera-prod/europe-west2.
+# The aria-code push trigger uses this file. Keep its existing Artifact Registry
+# path, service name, region, labels, and Cloud Run environment configuration.
+# A commit SHA tag makes each deployment traceable and avoids mutable "latest".
 
 steps:
-  - id: build
+  - id: Build
     name: gcr.io/cloud-builders/docker
     args:
       - build
       - --file=Dockerfile.relay
-      - --tag=${_IMAGE}:$COMMIT_SHA
-      - --tag=${_IMAGE}:latest
+      - --tag=$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
       - .
 
-  - id: push
+  - id: Push
     name: gcr.io/cloud-builders/docker
-    args: [push, --all-tags, "${_IMAGE}"]
+    args:
+      - push
+      - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
 
-  - id: deploy
-    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+  - id: Deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: gcloud
     args:
       - run
-      - deploy
-      - ${_SERVICE_NAME}
-      - --image=${_IMAGE}:$COMMIT_SHA
-      - --region=${_REGION}
-      - --platform=managed
-      # The server reads $PORT itself; Cloud Run's default is 8080, so nothing
-      # here has to match Dockerfile.relay's EXPOSE 8765.
+      - services
+      - update
+      - $_SERVICE_NAME
+      - --platform=$_PLATFORM
+      - --image=$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+      - --labels=managed-by=gcp-cloud-build-deploy-cloud-run,commit-sha=$COMMIT_SHA,gcb-build-id=$BUILD_ID,gcb-trigger-id=$_TRIGGER_ID
+      - --region=$_DEPLOY_REGION
       - --quiet
 
 images:
-  - ${_IMAGE}:$COMMIT_SHA
-  - ${_IMAGE}:latest
+  - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
 
 options:
   logging: CLOUD_LOGGING_ONLY
