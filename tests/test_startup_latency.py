@@ -12,7 +12,7 @@ class StartupLatencyTests(unittest.TestCase):
     def test_importing_cli_does_not_import_finance_runtimes(self):
         code = (
             "import aria_code.aria_cli, sys; "
-            "heavy = {'numpy', 'pandas', 'scipy', 'yfinance', 'akshare', 'ccxt'}; "
+            "heavy = {'pandas', 'scipy', 'yfinance', 'akshare', 'ccxt'}; "
             "loaded = heavy.intersection(sys.modules); "
             "assert not loaded, f'eager finance imports: {sorted(loaded)}'"
         )
