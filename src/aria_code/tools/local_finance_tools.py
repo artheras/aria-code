@@ -1708,7 +1708,7 @@ def _cloud_backtest(params: dict) -> dict:
 # Helper: format dataframe tail for display
 # ---------------------------------------------------------------------------
 
-def _df_tail(df: pd.DataFrame, n: int = 5) -> List[Dict]:
+def _df_tail(df: Any, n: int = 5) -> List[Dict]:
     cols = [c for c in ["date", "Close", "Open", "High", "Low", "Volume"]
             if c in df.columns]
     sub  = df[cols].tail(n)
