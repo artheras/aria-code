@@ -36,6 +36,14 @@ from typing import Any, Dict, List, Optional, Tuple
 from aria_code.packages.aria_core.paths import aria_home
 
 
+def _dependency_available(name: str) -> bool:
+    """Treat broken optional package metadata as an unavailable dependency."""
+    try:
+        return find_spec(name) is not None
+    except Exception:
+        return False
+
+
 class _LazyModule:
     """Load a finance dependency only when its tool is invoked."""
 
@@ -76,8 +84,8 @@ except ImportError:
 # Optional dependency guards
 # ---------------------------------------------------------------------------
 
-_HAS_YF = find_spec("yfinance") is not None
-_HAS_AK = find_spec("akshare") is not None
+_HAS_YF = _dependency_available("yfinance")
+_HAS_AK = _dependency_available("akshare")
 yf = _LazyModule("yfinance")
 ak = _LazyModule("akshare")
 
@@ -115,15 +123,15 @@ def _ak_retry(fn, *args, _tries: int = 3, _delay: float = 0.8, **kwargs):
                 _os.environ[_v] = _val
     raise last_exc
 
-_HAS_CCXT = find_spec("ccxt") is not None
+_HAS_CCXT = _dependency_available("ccxt")
 ccxt = _LazyModule("ccxt")
 
-_HAS_TA = find_spec("pandas_ta") is not None
+_HAS_TA = _dependency_available("pandas_ta")
 
-_HAS_VBT = find_spec("vectorbt") is not None
+_HAS_VBT = _dependency_available("vectorbt")
 vbt = _LazyModule("vectorbt")
 
-_HAS_SCIPY = find_spec("scipy") is not None
+_HAS_SCIPY = _dependency_available("scipy")
 sp_stats = _LazyModule("scipy.stats")
 
 
