@@ -45,6 +45,11 @@ def test_check_only_never_installs(monkeypatch, capsys):
     assert "aria update" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("args,code", [(["--help"], 0), (["--unknown"], 2)])
+def test_updater_argument_handling_does_not_exit_the_repl(args, code):
+    assert updater.main(args) == code
+
+
 def test_checksum_failure_keeps_the_current_cli(monkeypatch, tmp_path):
     command = tmp_path / "bin/aria-code"
     command.parent.mkdir()

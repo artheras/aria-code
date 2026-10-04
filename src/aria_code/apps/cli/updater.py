@@ -144,7 +144,12 @@ def install_native(latest: str, release: dict) -> Path:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="aria update", description="Check for or install a verified Aria Code update")
     parser.add_argument("--check", action="store_true", help="Check and report without installing")
-    args = parser.parse_args(argv)
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exit_request:
+        # The same entrypoint runs inside /update: help and invalid arguments
+        # must return to the prompt instead of terminating the whole session.
+        return int(exit_request.code or 0)
     from aria_code.apps.cli.bootstrap import initialize_cli_environment
 
     initialize_cli_environment()
