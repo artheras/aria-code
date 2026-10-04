@@ -32,6 +32,18 @@ def test_npm_launcher_channel_wins_over_frozen_executable(monkeypatch):
     assert update_check._install_channel() == "npm"
 
 
+def test_pip_update_selects_github_version_and_checks_the_pinned_package(monkeypatch):
+    calls = []
+    def fetch(url):
+        calls.append(url)
+        return {"tag_name": "v0.75.0"} if url == update_check._RELEASE_URL else {"info": {"version": "0.75.0"}}
+    monkeypatch.setattr(updater, "_fetch_json", fetch)
+    monkeypatch.setattr(updater, "_write_cache", lambda data: None)
+    latest, _ = updater.check_update("pip")
+    assert latest == "0.75.0"
+    assert calls == [update_check._RELEASE_URL, "https://pypi.org/pypi/aria-code/0.75.0/json"]
+
+
 def test_manual_check_reports_a_network_error(monkeypatch, capsys):
     monkeypatch.setattr(updater, "check_update", lambda channel: (_ for _ in ()).throw(OSError("offline")))
     assert updater.main(["--check"]) == 1

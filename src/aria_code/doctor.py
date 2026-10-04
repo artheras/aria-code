@@ -67,7 +67,7 @@ class DoctorReport:
 # hint only applies to a repo checkout.
 VENV_REBUILD_HINT = (
     "Rebuild the venv with your current Python: bash install.sh --rebuild "
-    "(repo checkout), or reinstall with pip install -U aria-code."
+    "(repo checkout), or reinstall with pip install -U \"aria-code<4\"."
 )
 
 # What the npm package is today: a zero-dependency launcher that execs a
@@ -430,7 +430,7 @@ def _platform_package_check(npm: Optional[str]) -> Optional[DoctorCheck]:
             "npm_runtime:binary",
             "skip",
             f"no prebuilt binary for {platform.system()}/{platform.machine()}",
-            "Install with pip instead: pip install -U aria-code",
+            "Install with pip instead: pip install -U \"aria-code<4\"",
         )
     pkg = f"@artheras/aria-code-{key}"
     if not npm:
@@ -736,7 +736,7 @@ def run_doctor(
             checks.append(_check(f"package:{module}", "ok", purpose))
         else:
             checks.append(_check(f"package:{module}", "err", f"{purpose} missing",
-                                 "Reinstall: pip install -U aria-code"))
+                                 "Reinstall: pip install -U \"aria-code<4\""))
 
     for module, purpose, extra in _iter_optional_modules():
         if _has_module(module):

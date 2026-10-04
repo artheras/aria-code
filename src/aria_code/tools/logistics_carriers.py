@@ -53,6 +53,10 @@ def wilson_lower_bound(successes: int, trials: int, confidence: float = 0.95) ->
     return (centre - margin) / denominator
 
 
+def _count(n: int, one: str, many: str) -> str:
+    return f"{n} {one if n == 1 else many}"
+
+
 def _lane(record: Dict[str, Any], row: int) -> str:
     origin = text(record, "origin", row)
     destination = text(record, "destination", row)
@@ -214,8 +218,9 @@ def tool_score_carriers(params: Dict[str, Any]) -> Dict[str, Any]:
         total_saving = round(sum(s["estimated_saving"] for s in savings), 2)
         summary = (
             f"{len(records)} waybills across {len({c['lane'] for c in scorecard})} lanes and "
-            f"{len({c['carrier'] for c in scorecard})} carriers ({source}); {len(anomalies)} anomalies "
-            f"to check; {len(savings)} savings opportunities, estimated {total_saving:,.2f} in total."
+            f"{len({c['carrier'] for c in scorecard})} carriers ({source}); {_count(len(anomalies), 'anomaly', 'anomalies')} "
+            f"to check; {_count(len(savings), 'savings opportunity', 'savings opportunities')}, "
+            f"estimated {total_saving:,.2f} in total."
         )
         return {
             "success": True,

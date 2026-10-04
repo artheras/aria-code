@@ -19,8 +19,8 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-64748b?style=flat-square" alt="Apache License 2.0"></a>
 </p>
 
-<p align="center"><img src="docs/assets/demo-coding-workflow.gif" alt="Aria Code 真实终端录制：测试失败、读取代码、修改代码、测试通过" width="860"></p>
-<p align="center"><sub>录制来自 Aria Code 在临时测试项目中的真实终端输出，仅缩短了等待时间。演示使用 CLI 命令直接操作，不代表模型自主修改。<a href="docs/assets/demo-coding-workflow.png">查看静态截图</a> · <a href="scripts/render_terminal_capture.py">查看录制渲染脚本</a>。</sub></p>
+<p align="center"><img src="docs/assets/demo-logistics.gif" alt="Aria Code 真实终端录制：单个货主的补货点、拒绝混合两个货主的数据、承运商评分及一项可节省金额和两条异常" width="860"></p>
+<p align="center"><sub>录制自 Aria Code 的真实会话，数据为 <code>evals/fixtures</code> 中的示例 3PL 数据。全程不调用模型，屏幕上的数字都来自工具本身，仅缩短了停顿。<a href="docs/assets/demo-logistics.png">静态截图</a> · <a href="scripts/record_logistics_demo.py">录制脚本</a> · <a href="scripts/render_logistics_demo.py">渲染脚本</a>。</sub></p>
 
 ## Aria Code 能做什么
 
@@ -32,7 +32,7 @@
 
 **要花钱的动作由人来批。** 在飞书里，每个货主群每天收到补货、呆滞库存和运费异常提醒。`/补货` 会把补货清单变成一张采购单草稿审批卡片；审批人点「批准」之前什么都不会发生，执行的正是卡片上展示的内容。草稿是交给你们自己采购系统的文件——Aria Code 不会自动下单。
 
-底层是一个终端编程助手：检查项目文件、修改代码、运行命令和测试并解释改动，可使用本地 Ollama 模型或受支持的云端模型。新安装不带任何实时业务数据；物流工具读取你们导出的 CSV 或 JSON，聊天功能需要飞书应用或 Aria 中继。
+底层是一个终端编程助手：检查项目文件、修改代码、运行命令和测试并解释改动（[录屏](docs/assets/demo-coding-workflow.gif)），可使用本地 Ollama 模型或受支持的云端模型。新安装不带任何实时业务数据；物流工具读取你们导出的 CSV 或 JSON，聊天功能需要飞书应用或 Aria 中继。
 
 ## 快速开始
 
@@ -52,11 +52,11 @@ aria
 
 安装脚本从最新的 [GitHub Release](https://github.com/artheras/aria-code/releases/latest) 下载对应平台的二进制文件，校验 SHA-256 后安装到当前用户目录。重新打开终端后，可用 `aria`、`aria code` 或 `aria-code` 打开交互界面。设置 `ARIA_CODE_VERSION=v0.55.0` 可固定版本。
 
-也可以选择包管理器：`npm install -g @artheras/aria-code`（需要 npm），或 `python3 -m pip install --upgrade aria-code`（需要 Python 3.10+）。源码开发方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+也可以选择包管理器：`npm install -g @artheras/aria-code`（需要 npm），或 `python3 -m pip install --upgrade "aria-code<4"`（需要 Python 3.10+；`<4` 用来跳过 PyPI 上仍保留的旧 4.x 版本号）。源码开发方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ### 更新
 
-Aria 启动时会在后台自动检查稳定版本，每天最多检查一次。已有的更新提醒立即显示，网络检查不会阻塞输入。独立安装使用 GitHub Releases，npm 安装使用 `@artheras/aria-code`，pip 安装使用 PyPI。
+Aria 启动时会在后台自动检查稳定版本，每天最多检查一次。已有的更新提醒立即显示，网络检查不会阻塞输入。版本来自 GitHub Releases；npm 安装使用 `@artheras/aria-code`。pip 更新会固定 GitHub 版本并确认该版本已在 PyPI 发布，避免误装 PyPI 仍标为最新版的旧 4.x 系列。源码安装会显示 Git 更新指引。
 
 ```bash
 aria update --check  # 只检查，不安装

@@ -16,7 +16,7 @@ import urllib.request
 
 from aria_code._version import __version__
 from aria_code.apps.cli.update_check import (
-    _RELEASE_URL, _NPM_URL, _PYPI_URL, _install_channel, _newer,
+    _RELEASE_URL, _NPM_URL, _install_channel, _newer,
     _parse, _write_cache,
 )
 
@@ -33,15 +33,19 @@ def _fetch_json(url: str) -> dict:
 def check_update(channel: str) -> tuple[str, dict]:
     import time
 
-    source = {"native": _RELEASE_URL, "npm": _NPM_URL, "pip": _PYPI_URL}[channel]
+    source = _NPM_URL if channel == "npm" else _RELEASE_URL
     data = _fetch_json(source)
-    latest = data.get("tag_name") if channel == "native" else (
-        data.get("info", {}).get("version") if channel == "pip" else data.get("version")
-    )
+    latest = data.get("version") if channel == "npm" else data.get("tag_name")
     if not isinstance(latest, str) or _parse(latest) is None:
         raise ValueError("The update source did not return a stable Aria Code version")
-    if channel == "native" and (data.get("draft") or data.get("prerelease")):
+    if channel != "npm" and (data.get("draft") or data.get("prerelease")):
         raise ValueError("The release is not a stable published version")
+    if channel == "pip":
+        # The old 4.x numbering is still PyPI's largest version. Never use its
+        # /json latest endpoint to select a replacement for the current 0.x line.
+        package = _fetch_json(f"https://pypi.org/pypi/aria-code/{latest.removeprefix('v')}/json")
+        if package.get("info", {}).get("version") != latest.removeprefix("v"):
+            raise ValueError("This GitHub release is not ready on PyPI; your installed version is kept")
     _write_cache({"source": source, "latest": latest, "checked_at": time.time()})
     return latest.removeprefix("v"), data
 
@@ -162,6 +166,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.check:
             print("Update available. Run: aria update")
+            return 0
+        if channel == "source":
+            print("Source checkout: update your Git branch, then run: python3 -m pip install -e .")
             return 0
         if channel == "native":
             command = install_native(latest, release)

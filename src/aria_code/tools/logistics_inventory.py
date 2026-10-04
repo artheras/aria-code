@@ -207,7 +207,7 @@ def tool_plan_inventory_policy(params: Dict[str, Any]) -> Dict[str, Any]:
             assumptions.insert(0, scope["marker"])
 
         summary = (
-            f"{len(items)} SKUs analysed ({source}): {counts['reorder']} to reorder, "
+            f"{len(items)} {'SKU' if len(items) == 1 else 'SKUs'} analysed ({source}): {counts['reorder']} to reorder, "
             f"{counts['insufficient_history']} with too little history, {counts['no_demand']} "
             f"with no demand; {dead} dead and {slow} slow-moving."
         )

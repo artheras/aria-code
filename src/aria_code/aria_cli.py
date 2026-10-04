@@ -4330,6 +4330,9 @@ class ArtheraTerminal:
                         console.print(
                             "  [dim]隐私：反馈默认[bold]仅存本地[/bold]，不上传。"
                             "opt-in 后可用于改进金融模型 · /privacy 查看与开关 · /bug 报告问题[/dim]"
+                            if str(_ui_lang).lower().startswith("zh") else
+                            "  [dim]Privacy: feedback stays [bold]on this machine[/bold] unless you opt in; "
+                            "opted-in feedback may improve Aria's finance model · /privacy · /bug[/dim]"
                         )
         else:
             if _banner_mode != "off":

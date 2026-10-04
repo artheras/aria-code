@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.75.0] — 2026-10-04
+
+- Merge pull request #89 from Cinsoul/fix/cli-output-language
+
 ## [0.74.0] — 2026-10-04
 
 - Build the production relay with minimal runtime dependencies

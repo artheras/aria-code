@@ -351,15 +351,17 @@ if __name__ == "__main__":
 import asyncio  # noqa: E402
 import contextlib  # noqa: E402
 import io  # noqa: E402
+import re  # noqa: E402
 from types import SimpleNamespace  # noqa: E402
 
 
 class _Cli:
-    def __init__(self):
+    def __init__(self, lang: str = "zh"):
         from aria_code.apps.cli.commands.warehouse_cmds import LogisticsCommandsMixin
 
         class Stub(LogisticsCommandsMixin):
             context = SimpleNamespace(has_rich=False, console=None)
+            terminal = SimpleNamespace(config={"ui_lang": lang})
 
         self.stub = Stub()
 
@@ -416,6 +418,24 @@ class DirectCommands(unittest.TestCase):
         out = self.cli.run("carriers", str(waybills))
         self.assertIn("可节省 900.00", out)
         self.assertIn("#1 CHEAP", out)
+
+    def test_english_ui_prints_english_labels(self) -> None:
+        """The labels were Chinese whatever ui_lang said, inside an English summary."""
+        out = _Cli("en").run("inventory", f'"{self.skus}" --owner ACME')
+        self.assertIn("Reorder A: order 133 · reorder point", out)
+        self.assertIn("ABC/XYZ –/X", out)        # no unit cost, so ABC is unknown — not "-X"
+        self.assertIn("Dead stock OLD", out)
+        self.assertIn("Basis: service level", out)
+        self.assertIsNone(re.search(r"[\u4e00-\u9fff]", out), out)
+        self.assertIn("Usage: /carriers", _Cli("en").run("carriers", "--owner"))
+
+    def test_counts_are_not_pluralised_blindly(self) -> None:
+        waybills = pathlib.Path(self.tmp.name) / "waybills.json"
+        waybills.write_text(json.dumps(
+            _waybills("PRICEY", 30, 27, 8.0) + _waybills("CHEAP", 30, 29, 5.0)), encoding="utf-8")
+        out = _Cli("en").run("carriers", str(waybills))
+        self.assertIn("1 savings opportunity,", out)
+        self.assertIn("Save 900.00: ", out)
 
     def test_both_are_registered_in_the_cli(self) -> None:
         from aria_code import aria_cli

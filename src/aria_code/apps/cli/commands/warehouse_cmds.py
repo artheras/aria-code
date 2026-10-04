@@ -118,6 +118,56 @@ def _parse_logistics_args(args: str, usage: str) -> dict | None:
     return params
 
 
+_LABELS = {
+    "en": {
+        "inventory_usage": "Usage: /inventory <skus.csv|json> [--owner SHIPPER | --all-owners] "
+                           "[--service-level 0.95] [--review-days 7] [--json]",
+        "carriers_usage": "Usage: /carriers <waybills.csv|json> [--owner SHIPPER | --all-owners] "
+                          "[--min-shipments 20] [--json]",
+        "reorder": "  Reorder {sku}: order {qty} · reorder point {rop} · safety stock {ss} · {cover} days of cover · {cls}",
+        "dead": "  Dead stock {sku}: {on_hand:g} on hand",
+        "slow": "  Slow-moving {sku}: {on_hand:g} on hand",
+        "basis": "Basis: ",
+        "sep": "; ",
+        "too_few": "too few shipments",
+        "on_time": "{rate:.0%} (lower bound {low:.0%})",
+        "no_on_time": "no on-time data",
+        "carrier": "  {lane} {rank} {carrier}: {n} shipments · on time {on_time} · {cost}",
+        "saving": "  Save {amount:,.2f}: {lane}, move {src} → {dst} ({diff:.2f}/kg cheaper)",
+        "check": "  Check {waybill} ({carrier}): {detail}",
+    },
+    "zh": {
+        "inventory_usage": "用法: /inventory <skus.csv|json> [--owner 货主ID | --all-owners] "
+                           "[--service-level 0.95] [--review-days 7] [--json]",
+        "carriers_usage": "用法: /carriers <waybills.csv|json> [--owner 货主ID | --all-owners] "
+                          "[--min-shipments 20] [--json]",
+        "reorder": "  补货 {sku}: 建议 {qty} 件 · 补货点 {rop} · 安全库存 {ss} · 可用 {cover} 天 · {cls}",
+        "dead": "  呆滞 {sku}: 在库 {on_hand:g}",
+        "slow": "  慢动 {sku}: 在库 {on_hand:g}",
+        "basis": "依据: ",
+        "sep": "；",
+        "too_few": "样本不足",
+        "on_time": "{rate:.0%}（下界 {low:.0%}）",
+        "no_on_time": "无准时记录",
+        "carrier": "  {lane} {rank} {carrier}: {n} 单 · 准时 {on_time} · {cost}",
+        "saving": "  可节省 {amount:,.2f}: {lane} 由 {src} 转 {dst}（每 kg 低 {diff:.2f}）",
+        "check": "  核实 {waybill} ({carrier}): {detail}",
+    },
+}
+
+
+def _labels(self) -> dict:
+    """Labels in the UI language. The tools' summaries and formulas stay English."""
+    config = getattr(getattr(self, "terminal", None), "config", None) or {}
+    lang = str(config.get("ui_lang", "en") or "en").lower()
+    return _LABELS["zh" if lang.startswith("zh") else "en"]
+
+
+def _abc_xyz(item: dict) -> str:
+    # ABC needs a unit cost; without one it is unknown, which a bare "-X" hid.
+    return f"ABC/XYZ {item['abc'] or '–'}/{item['xyz'] or '–'}"
+
+
 def _emit(self, text: str, style: str = "") -> None:
     if self.context.has_rich and style:
         self.context.console.print(f"[{style}]{text}[/{style}]")
@@ -137,16 +187,12 @@ class LogisticsCommandsMixin:
     tool; a 3PL operator needs a way in that does not depend on that.
     """
 
-    _INVENTORY_USAGE = ("用法: /inventory <skus.csv|json> [--owner 货主ID | --all-owners] "
-                        "[--service-level 0.95] [--review-days 7] [--json]")
-    _CARRIERS_USAGE = ("用法: /carriers <waybills.csv|json> [--owner 货主ID | --all-owners] "
-                       "[--min-shipments 20] [--json]")
-
     async def cmd_inventory(self, args: str):
         """Reorder points, safety stock, ABC/XYZ and dead stock for one shipper."""
-        params = _parse_logistics_args(args, self._INVENTORY_USAGE)
+        text = _labels(self)
+        params = _parse_logistics_args(args, text["inventory_usage"])
         if params is None:
-            _emit(self, self._INVENTORY_USAGE, "yellow")
+            _emit(self, text["inventory_usage"], "yellow")
             return
         from aria_code.tools.logistics_inventory import tool_plan_inventory_policy
 
@@ -165,20 +211,20 @@ class LogisticsCommandsMixin:
         for item in data["items"]:
             if item["action"] != "reorder":
                 continue
-            _emit(self, f"  补货 {item['sku']}: 建议 {item['suggested_order_qty']} 件 · "
-                        f"补货点 {item['reorder_point']} · 安全库存 {item['safety_stock']} · "
-                        f"可用 {item['days_of_cover']} 天 · {item['abc'] or '-'}{item['xyz'] or ''}")
+            _emit(self, text["reorder"].format(
+                sku=item["sku"], qty=item["suggested_order_qty"], rop=item["reorder_point"],
+                ss=item["safety_stock"], cover=item["days_of_cover"], cls=_abc_xyz(item)))
         for item in data["items"]:
             if item["movement"] in ("dead", "slow"):
-                label = "呆滞" if item["movement"] == "dead" else "慢动"
-                _emit(self, f"  {label} {item['sku']}: 在库 {item['on_hand']:g}", "yellow")
-        _emit(self, "依据: " + "；".join(data["assumptions"]), "dim")
+                _emit(self, text[item["movement"]].format(sku=item["sku"], on_hand=item["on_hand"]), "yellow")
+        _emit(self, text["basis"] + text["sep"].join(data["assumptions"]), "dim")
 
     async def cmd_carriers(self, args: str):
         """Carrier scorecard by lane, cost anomalies and like-for-like savings."""
-        params = _parse_logistics_args(args, self._CARRIERS_USAGE)
+        text = _labels(self)
+        params = _parse_logistics_args(args, text["carriers_usage"])
         if params is None:
-            _emit(self, self._CARRIERS_USAGE, "yellow")
+            _emit(self, text["carriers_usage"], "yellow")
             return
         from aria_code.tools.logistics_carriers import tool_score_carriers
 
@@ -195,14 +241,17 @@ class LogisticsCommandsMixin:
             _emit(self, data["scope"]["marker"], "bold red")
         _emit(self, result["summary"], "bold")
         for entry in data["scorecard"]:
-            rank = f"#{entry['rank_in_lane']}" if entry["rank_in_lane"] else "样本不足"
-            on_time = (f"{entry['on_time_rate']:.0%}（下界 {entry['on_time_lower_bound']:.0%}）"
-                       if entry["on_time_rate"] is not None else "无准时记录")
+            rank = f"#{entry['rank_in_lane']}" if entry["rank_in_lane"] else text["too_few"]
+            on_time = (text["on_time"].format(rate=entry["on_time_rate"], low=entry["on_time_lower_bound"])
+                       if entry["on_time_rate"] is not None else text["no_on_time"])
             cost = f"{entry['median_cost_per_kg']:.2f}/kg" if entry["median_cost_per_kg"] is not None else "-"
-            _emit(self, f"  {entry['lane']} {rank} {entry['carrier']}: {entry['shipments']} 单 · 准时 {on_time} · {cost}")
+            _emit(self, text["carrier"].format(lane=entry["lane"], rank=rank, carrier=entry["carrier"],
+                                               n=entry["shipments"], on_time=on_time, cost=cost))
         for saving in data["savings"]:
-            _emit(self, f"  可节省 {saving['estimated_saving']:,.2f}: {saving['lane']} 由 {saving['from_carrier']} "
-                        f"转 {saving['to_carrier']}（每 kg 低 {saving['rate_difference_per_kg']:.2f}）", "green")
+            _emit(self, text["saving"].format(amount=saving["estimated_saving"], lane=saving["lane"],
+                                              src=saving["from_carrier"], dst=saving["to_carrier"],
+                                              diff=saving["rate_difference_per_kg"]), "green")
         for anomaly in data["anomalies"]:
-            _emit(self, f"  核实 {anomaly['waybill_no']} ({anomaly['carrier']}): {anomaly['detail']}", "yellow")
-        _emit(self, "依据: " + "；".join(data["assumptions"]), "dim")
+            _emit(self, text["check"].format(waybill=anomaly["waybill_no"], carrier=anomaly["carrier"],
+                                             detail=anomaly["detail"]), "yellow")
+        _emit(self, text["basis"] + text["sep"].join(data["assumptions"]), "dim")

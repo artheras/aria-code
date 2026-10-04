@@ -35,7 +35,9 @@ class UpdateAndHealthTests(unittest.TestCase):
 
     def test_each_install_channel_has_its_own_source_and_command(self):
         self.assertEqual(update_check._update_command("npm"), "npm install -g @artheras/aria-code@latest")
-        self.assertIn("pip install --upgrade aria-code", update_check._update_command("pip"))
+        self.assertEqual(update_check._update_command("pip", "0.74.0"),
+                         'python3 -m pip install --upgrade "aria-code==0.74.0"')
+        self.assertTrue(update_check._update_command("source").startswith("git pull"))
         self.assertIn("%2Faria-code", update_check._NPM_URL)
         with patch.object(update_check, "_read_cache", return_value={}), \
                 patch.object(update_check, "_write_cache") as save, \
@@ -45,6 +47,22 @@ class UpdateAndHealthTests(unittest.TestCase):
         self.assertEqual(fetch.call_args.args[0].full_url, update_check._NPM_URL)
         self.assertEqual(save.call_args.args[0]["source"], update_check._NPM_URL)
         self.assertIn("aria update", update_check._notice)
+
+    def test_pypi_s_old_4x_line_is_never_offered_as_an_update(self):
+        """PyPI's latest is 4.4.2, an older numbering; v0.73.0 users were told to 'upgrade' to it."""
+        self.assertFalse(hasattr(update_check, "_PYPI_URL"))
+        for channel in ("pip", "source", "native"):
+            with self.subTest(channel=channel), \
+                    patch.object(update_check, "_read_cache", return_value={}), \
+                    patch.object(update_check, "_write_cache"), \
+                    patch("urllib.request.urlopen",
+                          return_value=io.BytesIO(b'{"tag_name":"v0.73.0"}')) as fetch:
+                update_check._notice = None
+                update_check._worker("0.73.0", "en", channel)
+            self.assertEqual(fetch.call_args.args[0].full_url, update_check._RELEASE_URL)
+            self.assertIsNone(update_check._notice)
+        self.assertNotIn("4.4.2", update_check._update_command("pip"))
+        self.assertIn('"aria-code<4"', update_check._update_command("pip"))
 
     def test_health_checks_only_the_active_cloud_backend(self):
         targets, message = _health_targets({
