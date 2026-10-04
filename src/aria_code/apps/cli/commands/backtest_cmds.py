@@ -116,7 +116,6 @@ def _tool_run_command(*args, **kwargs):
 def _get__HAS_VAULT():
     from aria_cli import _HAS_VAULT as val
     return val
-import pandas as pd
 def _get__HAS_MDC():
     from .._optional import HAS_MDC as val
     return val

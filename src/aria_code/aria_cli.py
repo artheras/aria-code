@@ -30,6 +30,12 @@ Usage:
 # importing the whole CLI. Re-exported here; aria_cli.__version__ still works.
 from aria_code._version import __version__  # noqa: F401
 
+# Fast path before loading agent, finance, and terminal modules.
+import sys as _early_sys
+if _early_sys.argv[1:] in (["--version"], ["-V"]):
+    print(f"aria-code {__version__}")
+    raise SystemExit(0)
+
 from aria_code.apps.cli.commands.core_cmds import CoreCommandsMixin
 # Stateless helpers now live in apps/cli/helpers.py; re-exported here so
 # aria_cli's own callers keep working unchanged.
@@ -346,13 +352,17 @@ try:
 except ImportError:
     _HAS_LOCAL_FINANCE = False
 
-try:
-    from market_data_client import MarketDataClient as _MDC, get_mdc as _get_mdc
-    _HAS_MDC = True
-except ImportError:
-    _MDC = None
-    _get_mdc = None
-    _HAS_MDC = False
+# Market data imports pandas and NumPy; coding-only sessions do not need it.
+from importlib.util import find_spec as _find_spec
+_HAS_MDC = _find_spec("market_data_client") is not None
+_MDC = None
+
+
+def _get_mdc():
+    if not _HAS_MDC:
+        return None
+    from market_data_client import get_mdc
+    return get_mdc()
 
 # Session-level TA cache: persists across multiple /analyze calls in a session,
 # so a single yfinance rate-limit hit doesn't wipe all indicator data.
@@ -4238,7 +4248,7 @@ class ArtheraTerminal:
                 from ui.banner import render_compact_banner as _rcb
                 try:
                     from apps.cli.update_check import get_update_notice as _gun
-                    _update_notice = _gun(wait_ms=1200)
+                    _update_notice = _gun(wait_ms=0)
                 except Exception:
                     _update_notice = None
                 _rcb(
@@ -4274,7 +4284,7 @@ class ArtheraTerminal:
                 from ui.startup_dashboard import StartupDashboardViewModel as _StartupDashboardViewModel
                 try:
                     from apps.cli.update_check import get_update_notice as _gun
-                    _update_notice = _gun(wait_ms=1200)
+                    _update_notice = _gun(wait_ms=0)
                 except Exception:
                     _update_notice = None
                 _first_run = not bool(self.config.get("first_run_seen"))
@@ -5962,31 +5972,36 @@ class ArtheraTerminal:
         return True
 
     async def _startup_health_check(self):
-        """Async Ollama + cloud connectivity probe displayed after the header."""
+        """Probe only the selected local runtime; cloud startup stays offline."""
         if not HAS_RICH:
             return
+        from apps.cli.providers.chat_routing import first_round_route
+        active_route = first_round_route(
+            str(self.config.get("model") or ""), self.config, self.api_url,
+        )
         try:
-            import aiohttp as _aio
             parts = []
-            ollama_url = self.config.get("ollama_url", "http://localhost:11434")
-            try:
-                async with _aio.ClientSession() as s:
-                    async with s.get(
-                        f"{ollama_url}/api/tags",
-                        timeout=_aio.ClientTimeout(total=2),
-                    ) as r:
-                        if r.status == 200:
-                            _tags = await r.json()
-                            _n = len(_tags.get("models", []))
-                            self._ollama_alive = True
-                            parts.append(
-                                f"[dim]Ollama · {_n} models[/dim]"
-                                if _n else "[dim]Ollama[/dim]"
-                            )
-                        else:
-                            parts.append("[dim]Ollama offline[/dim]")
-            except Exception:
-                parts.append("[dim]Ollama offline[/dim]")
+            if active_route == "ollama":
+                import aiohttp as _aio
+                ollama_url = self.config.get("ollama_url", "http://localhost:11434")
+                try:
+                    async with _aio.ClientSession() as s:
+                        async with s.get(
+                            f"{ollama_url}/api/tags",
+                            timeout=_aio.ClientTimeout(total=2),
+                        ) as r:
+                            if r.status == 200:
+                                _tags = await r.json()
+                                _n = len(_tags.get("models", []))
+                                self._ollama_alive = True
+                                parts.append(
+                                    f"[dim]Ollama · {_n} models[/dim]"
+                                    if _n else "[dim]Ollama[/dim]"
+                                )
+                            else:
+                                parts.append("[dim]Ollama offline[/dim]")
+                except Exception:
+                    parts.append("[dim]Ollama offline[/dim]")
 
             # Cloud provider check (only if API key is set)
             if self.config.get("auth_token") or os.getenv("ANTHROPIC_API_KEY"):

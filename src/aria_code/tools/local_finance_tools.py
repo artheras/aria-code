@@ -28,13 +28,29 @@ import json
 import logging
 import os
 import traceback
+from importlib import import_module
 from importlib.util import find_spec
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-import numpy as np
-import pandas as pd
 from aria_code.packages.aria_core.paths import aria_home
+
+
+class _LazyModule:
+    """Load a finance dependency only when its tool is invoked."""
+
+    def __init__(self, name: str):
+        self.name = name
+        self.module = None
+
+    def __getattr__(self, attribute: str):
+        if self.module is None:
+            self.module = import_module(self.name)
+        return getattr(self.module, attribute)
+
+
+np = _LazyModule("numpy")
+pd = _LazyModule("pandas")
 
 logger = logging.getLogger(__name__)
 
@@ -60,20 +76,10 @@ except ImportError:
 # Optional dependency guards
 # ---------------------------------------------------------------------------
 
-try:
-    import yfinance as yf
-    _HAS_YF = True
-except ImportError:
-    _HAS_YF = False
-
-try:
-    import akshare as ak
-    _HAS_AK = True
-# Not just ImportError: akshare reads bundled data files and calendars on
-# import, and a partial install (or a frozen binary without its data) raises
-# FileNotFoundError or worse. Optional means optional — never crash the CLI.
-except Exception:  # noqa: BLE001
-    _HAS_AK = False
+_HAS_YF = find_spec("yfinance") is not None
+_HAS_AK = find_spec("akshare") is not None
+yf = _LazyModule("yfinance")
+ak = _LazyModule("akshare")
 
 
 def _ak_retry(fn, *args, _tries: int = 3, _delay: float = 0.8, **kwargs):
@@ -109,25 +115,16 @@ def _ak_retry(fn, *args, _tries: int = 3, _delay: float = 0.8, **kwargs):
                 _os.environ[_v] = _val
     raise last_exc
 
-try:
-    import ccxt
-    _HAS_CCXT = True
-except ImportError:
-    _HAS_CCXT = False
+_HAS_CCXT = find_spec("ccxt") is not None
+ccxt = _LazyModule("ccxt")
 
 _HAS_TA = find_spec("pandas_ta") is not None
 
-try:
-    import vectorbt as vbt
-    _HAS_VBT = True
-except ImportError:
-    _HAS_VBT = False
+_HAS_VBT = find_spec("vectorbt") is not None
+vbt = _LazyModule("vectorbt")
 
-try:
-    from scipy import stats as sp_stats
-    _HAS_SCIPY = True
-except ImportError:
-    _HAS_SCIPY = False
+_HAS_SCIPY = find_spec("scipy") is not None
+sp_stats = _LazyModule("scipy.stats")
 
 
 # ---------------------------------------------------------------------------

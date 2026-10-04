@@ -34,12 +34,18 @@ def _quote_time_metadata(quote: dict) -> dict[str, str]:
     return {"retrieved_at": retrieved_at, "time_quality": "retrieval_time_only"}
 
 # ── Optional: market data client ────────────────────────────────────────────
-try:
-    from market_data_client import get_mdc as _get_mdc   # noqa: E402
-    _HAS_MDC = True
-except ImportError:
-    _HAS_MDC = False
-    _get_mdc = None  # type: ignore[assignment]
+# Loading this client imports pandas, NumPy, and requests. The coding REPL does
+# not need any of them until a market tool is actually invoked.
+from importlib.util import find_spec
+
+_HAS_MDC = find_spec("market_data_client") is not None
+
+
+def _get_mdc():
+    if not _HAS_MDC:
+        return None
+    from market_data_client import get_mdc
+    return get_mdc()
 
 # ── Unified data service (MDC primary + DataRouter fallback) ──────────────────
 # DataService bridges MarketDataClient with the configured DataRouter, which
