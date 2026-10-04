@@ -85,6 +85,7 @@ jobs:
 
   publish-npm:
     name: Publish to npmjs.com
+    timeout-minutes: 75
     needs: verify-version
     runs-on: ubuntu-latest
     permissions:
@@ -134,8 +135,11 @@ jobs:
           fi
           PACKAGES=()
           while IFS= read -r pkg; do PACKAGES+=("$pkg"); done <<< "$PACKAGE_LINES"
-          # Native builds and five large npm uploads can exceed 15 minutes.
-          DEADLINE=$(( $(date +%s) + 1800 ))
+          # Builds, ten large uploads and registry visibility share this budget.
+          # v0.76.0 Linux uploads succeeded, but npm exposed their versions
+          # after the old 30-minute gate expired. Keep checking the real
+          # versions for up to an hour; never publish an incomplete dispatcher.
+          DEADLINE=$(( $(date +%s) + 3600 ))
           while :; do
             MISSING=()
             for pkg in "${PACKAGES[@]}"; do

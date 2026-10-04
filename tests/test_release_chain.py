@@ -168,9 +168,9 @@ class NpmDispatcherGate(unittest.TestCase):
         script = next(step["run"] for step in steps
                       if step.get("name") == "Wait for this version's platform packages")
         # Keep the real shell logic, but expire its wait immediately in the
-        # missing-package case instead of making the test sleep 30 minutes.
-        self.assertIn("+ 1800", script)
-        script = script.replace("+ 1800", "+ 0", 1)
+        # missing-package case instead of making the test sleep an hour.
+        self.assertIn("+ 3600", script)
+        script = script.replace("+ 3600", "+ 0", 1)
         with tempfile.TemporaryDirectory() as tmp:
             bin_dir = pathlib.Path(tmp)
             node = bin_dir / "node"
