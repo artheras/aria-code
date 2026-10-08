@@ -139,7 +139,7 @@ def _worker(current: str, lang: str, channel: str = "native") -> None:
         import urllib.request
         req = urllib.request.Request(
             source_url,
-            headers={"Accept": "application/vnd.github+json", "User-Agent": "aria-code-update-check"},
+            headers={"Accept": "application/json", "User-Agent": "aria-code-update-check"},
         )
         with urllib.request.urlopen(req, timeout=_FETCH_TIMEOUT) as resp:
             data   = json.loads(resp.read())

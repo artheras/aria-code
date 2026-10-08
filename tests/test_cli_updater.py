@@ -5,6 +5,7 @@ from pathlib import Path
 import tarfile
 import time
 from types import SimpleNamespace
+from urllib.error import HTTPError
 
 import pytest
 
@@ -30,6 +31,45 @@ def test_npm_launcher_channel_wins_over_frozen_executable(monkeypatch):
     monkeypatch.setenv("ARIA_CODE_INSTALL_CHANNEL", "npm")
     monkeypatch.setattr(update_check.sys, "frozen", True, raising=False)
     assert update_check._install_channel() == "npm"
+
+
+@pytest.mark.parametrize("background", [False, True])
+def test_npm_updates_survive_registry_content_negotiation(monkeypatch, tmp_path, background):
+    """npm rejects the GitHub-only media type with 406, including /latest."""
+    monkeypatch.setattr(update_check, "_CACHE_FILE", tmp_path / "update.json")
+    monkeypatch.setattr(update_check, "_notice", None)
+    requests = []
+
+    def registry(request, **kwargs):
+        requests.append(request)
+        if request.get_header("Accept") != "application/json":
+            raise HTTPError(request.full_url, 406, "Not Acceptable", {}, None)
+        return io.BytesIO(b'{"version":"0.108.1"}')
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", registry)
+    if background:
+        update_check._worker("0.108.0", "en", "npm")
+        assert "v0.108.1" in update_check.get_update_notice()
+    else:
+        latest, _ = updater.check_update("npm")
+        assert latest == "0.108.1"
+    assert len(requests) == 1
+    assert requests[0].full_url == update_check._NPM_URL
+    assert update_check._read_cache()["latest"] == "0.108.1"
+
+
+def test_update_downloads_request_the_raw_asset(monkeypatch, tmp_path):
+    payload = b"release checksum or archive bytes"
+
+    def asset(request, **kwargs):
+        if request.get_header("Accept") != "*/*":
+            raise HTTPError(request.full_url, 406, "Not Acceptable", {}, None)
+        return io.BytesIO(payload)
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", asset)
+    target = tmp_path / "SHA256SUMS"
+    updater._download("https://github.com/artheras/aria-code/releases/download/v0.108.1/SHA256SUMS", target)
+    assert target.read_bytes() == payload
 
 
 def test_pip_update_selects_github_version_and_checks_the_pinned_package(monkeypatch):

@@ -21,8 +21,8 @@ from aria_code.apps.cli.update_check import (
 )
 
 
-def _request(url: str) -> urllib.request.Request:
-    return urllib.request.Request(url, headers={"User-Agent": "aria-code-updater", "Accept": "application/vnd.github+json"})
+def _request(url: str, *, accept: str = "application/json") -> urllib.request.Request:
+    return urllib.request.Request(url, headers={"User-Agent": "aria-code-updater", "Accept": accept})
 
 
 def _fetch_json(url: str) -> dict:
@@ -51,7 +51,7 @@ def check_update(channel: str) -> tuple[str, dict]:
 
 
 def _download(url: str, target: Path) -> None:
-    with urllib.request.urlopen(_request(url), timeout=60) as response, target.open("wb") as output:
+    with urllib.request.urlopen(_request(url, accept="*/*"), timeout=60) as response, target.open("wb") as output:
         shutil.copyfileobj(response, output)
 
 
