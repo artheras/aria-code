@@ -27,6 +27,7 @@ def build_chat_payload(
     This is deliberately pure: it gives CLI, desktop, and iOS an auditable
     parity point without forcing the local-first CLI to use cloud services.
     """
+    payload: dict
     if use_react_gateway:
         context = dict(user_context or {})
         if project_context:
@@ -47,7 +48,7 @@ def build_chat_payload(
             payload.update(tools=list(tool_schemas or []), tool_execution="client", tool_protocol="aria-local-v1")
         return "/api/v2/chat/react", payload
 
-    payload: dict = {
+    payload = {
         "message": message,
         "conversation_history": history[-20:],
         "model": model,
