@@ -74,6 +74,7 @@ async def probe_model(config: dict, api_url: str = "", *, tools: bool = False,
         issue = classify_provider_error(provider_name or route, error)
         suggestions = {
             "auth": "Check credentials and project permissions; for Google Cloud, verify gcloud/ADC authorization.",
+            "configuration": "Set your Google Cloud project: /config set gcp_project=<project-id> or GOOGLE_CLOUD_PROJECT.",
             "model_unavailable": "Check the selected model ID, project and serving region with /model.",
             "rate_limited": "Wait for the quota cooldown or check the provider quota.",
             "timeout": "Check network and provider latency; increase --timeout if needed.",

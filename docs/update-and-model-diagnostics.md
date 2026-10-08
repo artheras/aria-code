@@ -85,6 +85,7 @@ accepts 1–60. Expiration cancels the active request.
 | Category | Next step |
 | --- | --- |
 | `auth` | Check credentials and project permissions; verify Google Cloud login/ADC. |
+| `configuration` | Set `gcp_project` in Aria or `GOOGLE_CLOUD_PROJECT` for your Google Cloud project. |
 | `model_unavailable` | Check the model ID and serving region with `/model`. |
 | `rate_limited` | Check quota or wait for the cooldown. |
 | `timeout` | Check network/provider latency or increase the probe deadline. |

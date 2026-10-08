@@ -111,7 +111,7 @@ def public_service_status(
             f"{label}已自动切换到可用服务。",
             True,
         )
-    elif any(category in {"auth", "model_unavailable"} for category in categories):
+    elif any(category in {"auth", "configuration", "model_unavailable"} for category in categories):
         state, message, can_retry = (
             "unavailable",
             f"{label}暂不可用，需要检查连接设置。",
@@ -162,9 +162,12 @@ def classify_provider_error(provider: str, error: Any) -> ProviderIssue:
         any(token in low for token in (
             "unauthorized", "forbidden", "missing_api_key", "invalid credentials",
             "needs_credentials", "permission_denied", "unauthenticated",
+            "vertex_not_logged_in",
         )) or re.search(r"(?:invalid|missing|expired).*api[ _]key|api[ _]key.*(?:invalid|missing|expired)", low)
     )):
         return ProviderIssue(provider, "auth", "provider authentication failed", False, 0)
+    if "vertex_needs_project" in low:
+        return ProviderIssue(provider, "configuration", "Google Cloud project is not configured", False, 0)
     if (status == 404 and any(token in low for token in ("model", "generatecontent"))) or (status is None and re.search(
         r"\bmodel\b.*\b(?:not found|unavailable|does not exist|not supported)\b", low
     )):

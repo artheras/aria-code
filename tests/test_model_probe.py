@@ -76,6 +76,14 @@ async def test_failure_report_hides_raw_provider_error(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_missing_google_project_has_an_actionable_setup_hint(monkeypatch):
+    fake_provider(monkeypatch, [[base.LLMDone("", success=False, error="vertex_needs_project: missing setup")]])
+    report = await model_probe.probe_model({"model": "google/gemini-2.5-flash"})
+    assert not report.success and report.category == "configuration"
+    assert "gcp_project" in report.suggestion
+
+
+@pytest.mark.asyncio
 async def test_total_probe_timeout_cancels_the_transport(monkeypatch):
     cancelled = []
     class Slow:
