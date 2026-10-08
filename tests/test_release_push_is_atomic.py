@@ -69,6 +69,8 @@ class _Sandbox(unittest.TestCase):
         (self.work / "src" / "aria_code").mkdir(parents=True)
         (self.work / "src" / "aria_code" / "_version.py").write_text("x = 1\n")
         (self.work / "CHANGELOG.md").write_text("# changelog\n")
+        for name in ("README.md", "README_CN.md"):
+            (self.work / name).write_text("# release badge fixture\n")
         _git("add", "-A", cwd=self.work)
         _git("commit", "-m", "base", cwd=self.work)
         _git("push", "origin", "main", cwd=self.work)

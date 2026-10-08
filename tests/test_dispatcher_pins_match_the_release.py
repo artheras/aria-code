@@ -75,7 +75,7 @@ class BumpingTheVersionMovesThePins(unittest.TestCase):
     def test_bump_version_rewrites_the_pins_too(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             work = pathlib.Path(tmp)
-            # A minimal tree with the three files bump_version writes.
+            # A minimal tree with the version sources and release badges.
             (work / "npm").mkdir()
             (work / "src" / "aria_code").mkdir(parents=True)
             (work / "scripts").mkdir()
@@ -92,6 +92,9 @@ class BumpingTheVersionMovesThePins(unittest.TestCase):
             }, indent=2) + "\n")
             (work / "scripts" / "bump_version.py").write_text(
                 BUMP.read_text(encoding="utf-8"), encoding="utf-8")
+            for name in ("README.md", "README_CN.md"):
+                (work / name).write_text(
+                    (ROOT / name).read_text(encoding="utf-8"), encoding="utf-8")
 
             proc = subprocess.run(
                 [sys.executable, str(work / "scripts" / "bump_version.py"), "0.48.0"],

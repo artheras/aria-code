@@ -157,11 +157,24 @@ def test_market_snapshot_handles_multi_symbol_company_names(monkeypatch):
 
 def test_market_snapshot_resolves_sidike_without_inheriting_previous_symbol(monkeypatch):
     import aria_cli
+    import local_finance_tools
     from apps.cli.utils.market_detect import _extract_market_symbol
 
     monkeypatch.setattr(aria_cli, "_HAS_MDC", True)
     monkeypatch.setattr(aria_cli, "_get_mdc", lambda: _SnapshotMDC())
     monkeypatch.setattr(aria_cli, "_get_provider_key", lambda _provider: "")
+
+    # Forecasting is another data call, separate from the mocked snapshot MDC.
+    # Keep this rendering test offline and verify the forecast gets this symbol.
+    prediction_symbols = []
+
+    def fake_predictions(params):
+        prediction_symbols.extend(params["symbols"])
+        return {"predictions": [{
+            "direction": "bullish", "predicted_return": 0.01, "confidence": 0.6,
+        }]}
+
+    monkeypatch.setattr(local_finance_tools, "_get_predictions", fake_predictions)
 
     assert _extract_market_symbol("斯迪克的走势和预测") == "300806"
     history = [{"role": "user", "content": "紫金矿业走势"}]
@@ -174,6 +187,7 @@ def test_market_snapshot_resolves_sidike_without_inheriting_previous_symbol(monk
     assert "601899" not in text
     assert "预测参考" in text
     assert "信号拆解" in text
+    assert prediction_symbols == ["sz300806"]
 
 
 def test_market_snapshot_repeat_notice_compresses_identical_cache():
