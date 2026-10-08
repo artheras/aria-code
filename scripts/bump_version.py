@@ -55,12 +55,12 @@ PACKAGE_JSON = ROOT / "npm" / "package.json"
 VERSION_FILE = ROOT / "src" / "aria_code" / "_version.py"
 
 # PyPI's project JSON still chooses legacy 4.4.2 over newer 0.x releases.
-# Read the exact release endpoint, and keep the badge's click target on that
-# same release. This makes an unpublished version show as unavailable rather
-# than advertising it as a published package.
+# Read the exact release JSON with a short-cache dynamic badge (the standard
+# PyPI badge caches even a missing release for 12 hours). Keep its click target
+# on that release too, so an unpublished version is shown as unavailable.
 README_FILES = (ROOT / "README.md", ROOT / "README_CN.md")
 README_VERSION_PATTERNS = {
-    "PyPI badge": re.compile(r'(https://img\.shields\.io/pypi/v/aria-code/)([^?"\s]+)'),
+    "PyPI badge": re.compile(r'(https%3A%2F%2Fpypi\.org%2Fpypi%2Faria-code%2F)([^%&"\s]+)'),
     "PyPI link": re.compile(r'(https://pypi\.org/project/aria-code/)([^/"\s]+)'),
 }
 

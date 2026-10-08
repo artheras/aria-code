@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import html
 import re
 import shlex
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -50,7 +52,11 @@ def test_next_release_updates_and_stages_both_pypi_badges(release_tree):
     assert checked.returncode == 0, checked.stdout + checked.stderr
     for relative in ("README.md", "README_CN.md"):
         text = (tree / relative).read_text(encoding="utf-8")
-        assert f"https://img.shields.io/pypi/v/aria-code/{version}?" in text
+        badge = re.search(r'<img src="([^"]+)" alt="PyPI', text).group(1)
+        params = parse_qs(urlsplit(html.unescape(badge)).query)
+        assert params["url"] == [f"https://pypi.org/pypi/aria-code/{version}/json"]
+        assert params["query"] == ["$.info.version"]
+        assert params["cacheSeconds"] == ["300"]
         assert f"https://pypi.org/project/aria-code/{version}/" in text
 
     # Run the actual workflow's staging command: updating files is insufficient
@@ -67,7 +73,7 @@ def test_next_release_updates_and_stages_both_pypi_badges(release_tree):
 
 @pytest.mark.parametrize("readme", ["README.md", "README_CN.md"])
 @pytest.mark.parametrize("endpoint", [
-    "https://img.shields.io/pypi/v/aria-code/",
+    "https%3A%2F%2Fpypi.org%2Fpypi%2Faria-code%2F",
     "https://pypi.org/project/aria-code/",
 ])
 def test_release_check_refuses_stale_badge_or_click_target(release_tree, readme, endpoint):
@@ -75,7 +81,7 @@ def test_release_check_refuses_stale_badge_or_click_target(release_tree, readme,
     assert checked.returncode == 0, checked.stdout + checked.stderr
     path = release_tree / readme
     text = path.read_text(encoding="utf-8")
-    text = re.sub(re.escape(endpoint) + r'[^/?"\s]+', endpoint + "4.4.2", text, count=1)
+    text = re.sub(re.escape(endpoint) + r'[^%/?"\s]+', endpoint + "4.4.2", text, count=1)
     path.write_text(text, encoding="utf-8")
     checked = run_bump(release_tree, "--check")
     assert checked.returncode == 1
