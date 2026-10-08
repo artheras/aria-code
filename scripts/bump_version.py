@@ -10,8 +10,9 @@ separate publish source:
 
 `publish.yml` triggers on a `vX.Y.Z` tag and publishes whatever these files say,
 so a mismatch ships a wrong/duplicate version or makes --version lie. This script
-is the single entry point: it sets all three, verifies they agree, and prints the
-tag command. The companion check (`--check`) is what CI runs to refuse a release
+is the single entry point: it sets all three plus the README PyPI badge and link,
+verifies they agree, and prints the tag command. The companion check (`--check`)
+is what CI runs to refuse a release
 whose files disagree with the tag.
 
 Usage:
@@ -53,6 +54,16 @@ PACKAGE_JSON = ROOT / "npm" / "package.json"
 # instead. tests/test_version_consistency.py follows the same file.
 VERSION_FILE = ROOT / "src" / "aria_code" / "_version.py"
 
+# PyPI's project JSON still chooses legacy 4.4.2 over newer 0.x releases.
+# Read the exact release endpoint, and keep the badge's click target on that
+# same release. This makes an unpublished version show as unavailable rather
+# than advertising it as a published package.
+README_FILES = (ROOT / "README.md", ROOT / "README_CN.md")
+README_VERSION_PATTERNS = {
+    "PyPI badge": re.compile(r'(https://img\.shields\.io/pypi/v/aria-code/)([^?"\s]+)'),
+    "PyPI link": re.compile(r'(https://pypi\.org/project/aria-code/)([^/"\s]+)'),
+}
+
 SEMVER = re.compile(r"^\d+\.\d+\.\d+([.-][0-9A-Za-z.]+)?$")
 
 
@@ -68,6 +79,11 @@ def read_versions() -> dict[str, str]:
     out["aria_code/_version.py"] = m.group(1) if m else "<missing>"
 
     out["npm/package.json"] = json.loads(PACKAGE_JSON.read_text()).get("version", "<missing>")
+    for readme in README_FILES:
+        text = readme.read_text(encoding="utf-8")
+        for label, pattern in README_VERSION_PATTERNS.items():
+            match = pattern.search(text)
+            out[f"{readme.name} {label}"] = match.group(2) if match else "<missing>"
     return out
 
 
@@ -94,6 +110,11 @@ def write_version(new: str) -> None:
     text = re.sub(r'("@artheras/aria-code-[a-z0-9-]+":\s*")[^"]+(")',
                   rf"\g<1>{new}\g<2>", text)
     PACKAGE_JSON.write_text(text)
+    for readme in README_FILES:
+        text = readme.read_text(encoding="utf-8")
+        for pattern in README_VERSION_PATTERNS.values():
+            text = pattern.sub(lambda match: match.group(1) + new, text, count=1)
+        readme.write_text(text, encoding="utf-8")
 
 
 def cmd_check(expected: str | None) -> int:

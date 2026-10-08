@@ -13,8 +13,9 @@
 <p align="center">简体中文 · <a href="README.md">English</a></p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@artheras/aria-code"><img src="https://img.shields.io/npm/v/@artheras/aria-code?style=flat-square&logo=npm&label=npm" alt="npm 版本"></a>
-  <a href="https://pypi.org/project/aria-code/"><img src="https://img.shields.io/pypi/v/aria-code?style=flat-square&logo=pypi&label=PyPI" alt="PyPI 版本"></a>
+  <a href="https://www.npmjs.com/package/@artheras/aria-code"><img src="https://img.shields.io/npm/v/@artheras/aria-code/latest?style=flat-square&logo=npm&label=npm" alt="npm 版本"></a>
+  <!-- Release automation pins PyPI: the default endpoint still selects legacy 4.x. -->
+  <a href="https://pypi.org/project/aria-code/0.110.0/"><img src="https://img.shields.io/pypi/v/aria-code/0.110.0?style=flat-square&logo=pypi&label=PyPI" alt="PyPI 版本"></a>
   <a href="https://github.com/artheras/aria-code/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/artheras/aria-code/ci.yml?branch=main&style=flat-square&logo=githubactions&label=CI" alt="CI 状态"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-64748b?style=flat-square" alt="Apache License 2.0"></a>
 </p>

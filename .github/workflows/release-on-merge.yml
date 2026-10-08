@@ -87,10 +87,10 @@ jobs:
             exit 1
           fi
 
-      - name: Set the version in all three files
+      - name: Set release versions and PyPI badges
         run: python scripts/bump_version.py "${{ steps.next.outputs.version }}"
 
-      - name: Confirm the three files agree
+      - name: Confirm release versions agree
         run: python scripts/bump_version.py --check "v${{ steps.next.outputs.version }}"
 
       # tests/test_version_consistency.py requires an entry for the current
@@ -147,7 +147,7 @@ jobs:
           # rather than by a login that anyone could have registered.
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pyproject.toml npm/package.json src/aria_code/_version.py CHANGELOG.md
+          git add pyproject.toml npm/package.json src/aria_code/_version.py CHANGELOG.md README.md README_CN.md
           VERSION="${{ steps.next.outputs.version }}"
           BRANCH="${{ github.ref_name }}"
           git commit -m "release: v$VERSION"
