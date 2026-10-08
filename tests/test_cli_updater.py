@@ -1,4 +1,5 @@
 import hashlib
+import base64
 import io
 import json
 from pathlib import Path
@@ -6,6 +7,7 @@ import tarfile
 import time
 from types import SimpleNamespace
 from urllib.error import HTTPError
+from urllib.error import URLError
 
 import pytest
 
@@ -171,3 +173,90 @@ def test_native_update_verifies_binary_before_switching(monkeypatch, tmp_path, v
             updater.install_native("0.75.0", {"assets": assets})
         assert not command.is_symlink()
         assert command.read_text() == "previous working CLI"
+
+
+def test_pinned_release_does_not_replace_the_latest_cache(monkeypatch):
+    calls = []
+    def fetch(url):
+        calls.append(url)
+        return {"tag_name": "v0.109.0"} if "github.com" in url else {"info": {"version": "0.109.0"}}
+    monkeypatch.setattr(updater, "_fetch_json", fetch)
+    monkeypatch.setattr(updater, "_write_cache", lambda _: pytest.fail("pinned version is not latest"))
+    latest, _ = updater.check_update("pip", version="v0.109.0")
+    assert latest == "0.109.0"
+    assert calls == ["https://api.github.com/repos/artheras/aria-code/releases/tags/v0.109.0",
+                     "https://pypi.org/pypi/aria-code/0.109.0/json"]
+
+
+@pytest.mark.parametrize("valid_integrity", [True, False])
+def test_native_network_fallback_verifies_official_npm_artifact(monkeypatch, tmp_path, valid_integrity):
+    command = tmp_path / "bin/aria-code"
+    command.parent.mkdir()
+    command.write_text("previous")
+    monkeypatch.setattr(updater, "_install_dir", lambda: command.parent)
+    monkeypatch.setenv("ARIA_CODE_HOME", str(tmp_path / "app"))
+    monkeypatch.setattr(updater.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(updater.platform, "machine", lambda: "arm64")
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w:gz") as bundle:
+        entry = tarfile.TarInfo("package/bin/aria-code-bin/aria-code-bin")
+        entry.size, entry.mode = 6, 0o755
+        bundle.addfile(entry, io.BytesIO(b"binary"))
+    payload = archive.getvalue()
+    name = "aria-code-macos-arm64"
+    url = f"https://registry.npmjs.org/@artheras/{name}/-/{name}-0.110.0.tgz"
+    checksum = hashlib.sha512(payload if valid_integrity else b"wrong").digest()
+    metadata = {"name": f"@artheras/{name}", "version": "0.110.0",
+                "dist": {"tarball": url, "integrity": "sha512-" + base64.b64encode(checksum).decode()}}
+    monkeypatch.setattr(updater, "_fetch_json", lambda requested: metadata)
+    def download(requested, target):
+        if "github.com" in requested:
+            raise URLError("CDN unavailable")
+        assert requested == url
+        target.write_bytes(payload)
+    monkeypatch.setattr(updater, "_download", download)
+    def check(*args, **kwargs):
+        assert command.read_text() == "previous"
+        return SimpleNamespace(stdout="aria-code 0.110.0")
+    monkeypatch.setattr(updater.subprocess, "run", check)
+    assets = [{"name": n, "browser_download_url": f"https://github.com/artheras/aria-code/releases/download/v0.110.0/{n}"}
+              for n in ("aria-code-macos-arm64.tar.gz", "SHA256SUMS")]
+    if valid_integrity:
+        updater.install_native("0.110.0", {"assets": assets})
+        assert command.read_bytes() == b"binary"
+    else:
+        with pytest.raises(ValueError, match="checksum"):
+            updater.install_native("0.110.0", {"assets": assets})
+        assert command.read_text() == "previous"
+
+
+def test_native_rollback_checks_previous_binary_and_switches_without_network(monkeypatch, tmp_path):
+    app_root = tmp_path / "app"
+    old = app_root / "releases/old/aria-code-bin/aria-code-bin"
+    current = app_root / "releases/current/aria-code-bin/aria-code-bin"
+    for binary in (old, current):
+        binary.parent.mkdir(parents=True)
+        binary.write_text("binary")
+        binary.chmod(0o755)
+    command = tmp_path / "bin/aria-code"
+    command.parent.mkdir()
+    command.symlink_to(current)
+    (app_root / "previous.json").write_text(json.dumps({"previous": str(old.relative_to(app_root / "releases"))}))
+    monkeypatch.setenv("ARIA_CODE_HOME", str(app_root))
+    monkeypatch.setattr(updater, "_install_dir", lambda: command.parent)
+    monkeypatch.setattr(updater, "_fetch_json", lambda _: pytest.fail("rollback must be offline"))
+    monkeypatch.setattr(updater.subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout="aria-code 0.109.0"))
+    assert updater.rollback_native() == command
+    assert command.resolve() == old
+    state = json.loads((app_root / "previous.json").read_text())
+    assert (app_root / "releases" / state["previous"]).resolve() == current
+
+
+def test_rollback_rejects_paths_outside_managed_releases(monkeypatch, tmp_path):
+    app_root = tmp_path / "app"
+    app_root.mkdir()
+    (app_root / "previous.json").write_text('{"previous":"../../outside"}')
+    monkeypatch.setenv("ARIA_CODE_HOME", str(app_root))
+    monkeypatch.setattr(updater.subprocess, "run", lambda *a, **kw: pytest.fail("must not run an untrusted path"))
+    with pytest.raises(ValueError, match="No previous"):
+        updater.rollback_native()

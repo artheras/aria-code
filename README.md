@@ -75,11 +75,15 @@ Aria checks for a newer stable version in the background at startup, at most onc
 ```bash
 aria update --check  # check without installing
 aria update          # install the newest stable version for this install channel
+aria update --to 0.110.0  # choose a specific stable release
+aria update --rollback   # native macOS/Linux: restore the previous managed release offline
 ```
 
 In an interactive session, use `/update --check` or `/update`, then restart Aria. Native updates verify SHA-256 and the downloaded binary's version before switching the command; a failed download or verification leaves the existing command in place. Startup checks only notify. To disable them, set `check_for_update_on_startup` to `false` in `~/.aria-code/config.json`.
 
 For GitHub notifications, open [this repository](https://github.com/artheras/aria-code), select **Watch → Custom → Releases**, and save. Notifications follow your GitHub notification settings. Published stable releases appear on the [release page](https://github.com/artheras/aria-code/releases/latest) once the platform assets and package publishing have completed.
+
+Native macOS/Linux updates retain interrupted transfers and can use the verified official npm platform artifact when GitHub downloads fail. For recovery and a model generation check (`aria health --model --tools --json`), see [updates and model diagnostics](docs/update-and-model-diagnostics.md).
 
 To use a local model, install [Ollama](https://ollama.com/download), pull a coding model, and start Aria in local-only mode:
 

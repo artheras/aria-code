@@ -9,6 +9,18 @@ import unittest
 
 
 class StartupLatencyTests(unittest.TestCase):
+    def test_model_probe_help_does_not_load_agent_or_finance(self):
+        code = (
+            "import runpy, sys; sys.argv = ['aria-code', 'health', '--help']; "
+            "\ntry: runpy.run_module('aria_code.aria_cli', run_name='__main__')"
+            "\nexcept SystemExit as exc: assert exc.code == 0"
+            "\nassert not {'pandas', 'scipy', 'yfinance', 'aria_code.runtime.agent_loop'}.intersection(sys.modules)"
+        )
+        result = subprocess.run([sys.executable, "-c", code],
+                                env=os.environ.copy(), capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--tools", result.stdout)
+
     def test_importing_cli_does_not_import_finance_runtimes(self):
         code = (
             "import aria_code.aria_cli, sys; "

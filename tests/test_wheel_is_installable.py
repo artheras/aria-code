@@ -173,6 +173,14 @@ class InstalledWheel(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr[-600:])
         self.assertIn("aria-code", proc.stdout.lower())
 
+    def test_model_diagnostic_is_in_the_installed_wheel(self):
+        exe = self.bin / ("aria-code.exe" if os.name == "nt" else "aria-code")
+        proc = subprocess.run([str(exe), "health", "--help"], capture_output=True, text=True,
+                              cwd=str(self.tmp), timeout=30, env=_installed_env())
+        self.assertEqual(proc.returncode, 0, proc.stderr[-600:])
+        self.assertIn("--tools", proc.stdout)
+        self.assertIn("--model-id", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

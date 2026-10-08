@@ -31,6 +31,14 @@ _CACHE_FILE    = aria_home() / "update_check.json"
 _CACHE_TTL_S   = 86_400      # 24 hours
 _FETCH_TIMEOUT = 4           # seconds — fail cleanly on slow networks
 
+# These are the project's historical PyPI releases (June–August 2026),
+# published before the current 0.x line. Do not treat arbitrary future 4.x
+# versions as legacy, or recommend these old artifacts to a current install.
+_LEGACY_VERSIONS = frozenset({
+    (4, 1, 3), (4, 1, 4), (4, 1, 7), (4, 2, 0),
+    (4, 3, 0), (4, 4, 0), (4, 4, 1), (4, 4, 2),
+})
+
 _notice: Optional[str] = None
 _lock   = threading.Lock()
 
@@ -46,7 +54,13 @@ def _parse(v: str) -> tuple[int, int, int] | None:
 
 def _newer(latest: str, current: str) -> bool:
     parsed_latest, parsed_current = _parse(latest), _parse(current)
-    return parsed_latest is not None and parsed_current is not None and parsed_latest > parsed_current
+    if parsed_latest is None or parsed_current is None:
+        return False
+    if parsed_current in _LEGACY_VERSIONS and parsed_latest[0] == 0:
+        return True
+    if parsed_latest in _LEGACY_VERSIONS and parsed_current[0] == 0:
+        return False
+    return parsed_latest > parsed_current
 
 
 # ── Cache helpers ─────────────────────────────────────────────────────────────

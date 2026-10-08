@@ -227,6 +227,29 @@ class DiagnosticCommandsMixin:
             print()
 
     async def cmd_health(self, args: str):
+        try:
+            parts = shlex.split(args)
+        except ValueError:
+            message = "Usage: /health [--model] [--tools] [--json]"
+            self.context.console.print(message) if self.context.has_rich else print(message)
+            return
+        if parts:
+            if any(part not in {"--model", "--tools", "--json"} for part in parts):
+                message = "Usage: /health [--model] [--tools] [--json]"
+                self.context.console.print(message) if self.context.has_rich else print(message)
+                return
+            if not any(part in {"--model", "--tools"} for part in parts):
+                message = "Run /health --model --json to explicitly test model generation."
+                self.context.console.print(message) if self.context.has_rich else print(message)
+                return
+            from aria_code.apps.cli.model_probe import probe_model
+            report = await probe_model(self.terminal.config, self.terminal.api_url, tools="--tools" in parts)
+            message = json.dumps(report.to_dict(), ensure_ascii=False) if "--json" in parts else (
+                f"{report.model} · {report.route} · {report.category}: {report.message}"
+                + (f"\n{report.suggestion}" if report.suggestion else "")
+            )
+            self.context.console.print(message, markup=False) if self.context.has_rich else print(message)
+            return
         import aiohttp
         if self.context.has_rich:
             self.context.console.print()
@@ -251,10 +274,12 @@ class DiagnosticCommandsMixin:
                             self.context.console.print(f"  [green]●[/green] [dim]{label}[/dim]  {detail}")
                         else:
                             print(f"  + {label}  {detail}")
-            except Exception:
+            except Exception as exc:
+                from aria_code.packages.aria_services.provider_health import classify_provider_error
+                category = classify_provider_error(label, exc).category
                 if self.context.has_rich:
-                    self.context.console.print(f"  [red]●[/red] [dim]{label}[/dim]  offline")
+                    self.context.console.print(f"  [red]●[/red] [dim]{label}[/dim]  {category}")
                 else:
-                    print(f"  - {label}  offline")
+                    print(f"  - {label}  {category}")
         if self.context.has_rich:
             self.context.console.print()

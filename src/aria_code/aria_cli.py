@@ -35,6 +35,9 @@ import sys as _early_sys
 if _early_sys.argv[1:2] == ["update"]:
     from aria_code.apps.cli.updater import main as _update_main
     raise SystemExit(_update_main(_early_sys.argv[2:]))
+if _early_sys.argv[1:2] == ["health"]:
+    from aria_code.apps.cli.model_probe import main as _health_main
+    raise SystemExit(_health_main(_early_sys.argv[2:]))
 if _early_sys.argv[1:] in (["--version"], ["-V"]):
     print(f"aria-code {__version__}")
     raise SystemExit(0)
@@ -3469,7 +3472,7 @@ class SlashCommands(
             "/history":   (self.cmd_history,  "Show conversation history"),
             "/cost":      (self.cmd_cost,     "Token usage and estimated cost"),
             "/status":    (self.cmd_status,   "Runtime: engine · model · tools · context"),
-            "/health":    (self.cmd_health,   "Check backend health"),
+            "/health":    (self.cmd_health,   "Check connection; --model tests text, --tools tests function calling"),
             "/trace":     (self.cmd_trace,    "Show tool call trace"),
             "/context":   (self.cmd_context,  "Show AI context and session info"),
             "/regen":     (self.cmd_regen,    "Regenerate last response"),
@@ -3540,7 +3543,7 @@ class SlashCommands(
             "/accuracy":  (self.cmd_accuracy, "Prediction track record vs live prices"),
             "/artifacts": (self.cmd_artifacts,"Manage generated files: /artifacts [limit|open|reveal|path|copy-path|stats|prune]"),
             "/canvas":    (self.cmd_canvas,   "Live preview server: /canvas [stop] — reports/charts update in a browser tab in real time"),
-            "/update":    (self.cmd_update, "Check or install the latest Aria Code release: /update [--check]"),
+            "/update":    (self.cmd_update, "Check or install Aria Code: /update [--check | --to VERSION | --rollback]"),
             # ── Code & project ────────────────────────────────────────────────
             "/project":   (self.cmd_project,  "Project: /project load|tree|grep|ask|task|status"),
             "/init":      (self.cmd_init,     "Generate ARIA.md for current project: /init [--force]"),
@@ -3815,7 +3818,7 @@ class SlashCommands(
         "/hooks":           ("Usage: /hooks [list|enable|disable]", ["/hooks list", "/hooks enable pre_trade"]),
         "/logout":          ("Usage: /logout", ["/logout"]),
         "/status":          ("Usage: /status", ["/status"]),
-        "/health":          ("Usage: /health", ["/health"]),
+        "/health":          ("Usage: /health [--model] [--tools] [--json]", ["/health", "/health --model", "/health --model --tools --json"]),
     }
 
 

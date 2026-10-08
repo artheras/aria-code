@@ -12,6 +12,7 @@ Implement the protocol on any class or pass a coroutine that matches
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import AsyncGenerator, Optional, Protocol, runtime_checkable
 
@@ -129,27 +130,34 @@ async def _stream_callback_provider(invoke, *, done_provider: str) -> AsyncGener
     task = asyncio.create_task(
         invoke(_on_token, _on_thinking, _on_tool_call, _on_tool_result, _on_status)
     )
-    while not task.done() or not queue.empty():
-        try:
-            yield await asyncio.wait_for(queue.get(), timeout=0.05)
-        except asyncio.TimeoutError:
-            continue
-
     try:
-        result = await task
-    except Exception as exc:
-        yield LLMDone(response="", provider=done_provider, success=False, error=str(exc))
-        return
+        while not task.done() or not queue.empty():
+            try:
+                yield await asyncio.wait_for(queue.get(), timeout=0.05)
+            except asyncio.TimeoutError:
+                continue
+        try:
+            result = await task
+        except Exception as exc:
+            yield LLMDone(response="", provider=done_provider, success=False, error=str(exc))
+            return
 
-    yield LLMDone(
-        response=result.get("response", ""),
-        tool_calls_pending=result.get("tool_calls_pending", []),
-        usage=result.get("usage", {}),
-        provider=result.get("provider", done_provider),
-        success=result.get("success", False),
-        cancelled=result.get("cancelled", False),
-        error=result.get("error", ""),
-    )
+        yield LLMDone(
+            response=result.get("response", ""),
+            tool_calls_pending=result.get("tool_calls_pending", []),
+            usage=result.get("usage", {}),
+            provider=result.get("provider", done_provider),
+            success=result.get("success", False),
+            cancelled=result.get("cancelled", False),
+            error=result.get("error", ""),
+        )
+    finally:
+        # A deadline or an early-closing consumer must also stop the request
+        # behind this callback adapter, rather than leave it running invisibly.
+        if not task.done():
+            task.cancel()
+        with suppress(asyncio.CancelledError, Exception):
+            await task
 
 
 # ── Protocol ─────────────────────────────────────────────────────────────────

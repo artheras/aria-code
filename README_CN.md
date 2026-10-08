@@ -75,11 +75,15 @@ Aria 启动时会在后台自动检查稳定版本，每天最多检查一次。
 ```bash
 aria update --check  # 只检查，不安装
 aria update          # 按当前安装方式更新到最新稳定版本
+aria update --to 0.110.0  # 安装指定稳定版本
+aria update --rollback   # macOS/Linux 独立安装：离线恢复上一个受管理版本
 ```
 
 交互界面内可用 `/update --check` 或 `/update`，更新后重新启动 Aria。独立安装先验证 SHA-256 和下载程序的版本，再切换启动命令；下载或校验失败会保留原命令。启动检查只提醒，不会自动替换程序。要关闭启动检查，可将 `~/.aria-code/config.json` 中的 `check_for_update_on_startup` 设为 `false`。
 
 也可打开[本仓库](https://github.com/artheras/aria-code)，选择 **Watch → Custom → Releases** 并保存，GitHub 会按你的通知设置提醒发布。所有平台安装包及包管理器发布完成后，稳定版本会出现在[发布页面](https://github.com/artheras/aria-code/releases/latest)。
+
+macOS/Linux 独立安装的更新器会保留中断下载；GitHub 下载失败时，可自动尝试同版本的官方 npm 平台包并校验完整性。用 `aria health --model --tools --json` 可验证当前模型的文本输出和工具调用。详见[更新、恢复及模型诊断](docs/update-and-model-diagnostics.md)。
 
 使用本地模型时，先安装 [Ollama](https://ollama.com/download)，拉取一个编码模型，再以仅本地模式启动：
 

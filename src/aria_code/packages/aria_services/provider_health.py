@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import re
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List
 
@@ -110,7 +111,7 @@ def public_service_status(
             f"{label}已自动切换到可用服务。",
             True,
         )
-    elif "auth" in categories:
+    elif any(category in {"auth", "model_unavailable"} for category in categories):
         state, message, can_retry = (
             "unavailable",
             f"{label}暂不可用，需要检查连接设置。",
@@ -129,21 +130,53 @@ def public_service_status(
     )
 
 
+def _error_status(error: Any, text: str) -> int | None:
+    """Prefer structured HTTP/SDK status over incidental words in a URL."""
+    for source in (error, getattr(error, "response", None)):
+        for key in ("status_code", "status", "code"):
+            value = source.get(key) if isinstance(source, dict) else getattr(source, key, None)
+            if callable(value):
+                try:
+                    value = value()
+                except Exception:
+                    continue
+            if isinstance(value, int) and 400 <= value <= 599:
+                return value
+            name = str(getattr(value, "name", value) or "").upper()
+            mapped = {"UNAUTHENTICATED": 401, "PERMISSION_DENIED": 403,
+                      "NOT_FOUND": 404, "RESOURCE_EXHAUSTED": 429,
+                      "DEADLINE_EXCEEDED": 504}.get(name)
+            if mapped:
+                return mapped
+    match = re.search(r"(?:^\s*|\b(?:http|status(?:_code)?|code)\s*[:=]?\s*)([45]\d{2})\b", text, re.I)
+    return int(match.group(1)) if match else None
+
+
 def classify_provider_error(provider: str, error: Any) -> ProviderIssue:
     text = str(error or "").strip()
     low = text.lower()
     if not text:
         return ProviderIssue(provider, "unavailable", "provider returned no usable data", True, 30)
-    if any(token in low for token in ("429", "rate", "too many", "limit")):
+    status = _error_status(error, text)
+    if status in {401, 403} or (status is None and (
+        any(token in low for token in (
+            "unauthorized", "forbidden", "missing_api_key", "invalid credentials",
+            "needs_credentials", "permission_denied", "unauthenticated",
+        )) or re.search(r"(?:invalid|missing|expired).*api[ _]key|api[ _]key.*(?:invalid|missing|expired)", low)
+    )):
+        return ProviderIssue(provider, "auth", "provider authentication failed", False, 0)
+    if (status == 404 and any(token in low for token in ("model", "generatecontent"))) or (status is None and re.search(
+        r"\bmodel\b.*\b(?:not found|unavailable|does not exist|not supported)\b", low
+    )):
+        return ProviderIssue(provider, "model_unavailable", "selected model is unavailable", False, 0)
+    if status == 429 or (status is None and re.search(r"\brate[\s_-]*limit(?:ed|ing)?\b|\btoo many requests\b|\bquota (?:exceeded|exhausted)\b", low)):
         return ProviderIssue(provider, "rate_limited", "provider rate limited the request", True, 60)
-    if any(token in low for token in ("timeout", "timed out", "curl: (28)", "read timed out")):
+    if status in {408, 504} or any(token in low for token in ("timeout", "timed out", "curl: (28)", "read timed out")):
         return ProviderIssue(provider, "timeout", "provider request timed out", True, 30)
     if any(token in low for token in ("connection", "network", "refused", "remote", "dns", "name resolution")):
         return ProviderIssue(provider, "network", "provider network connection failed", True, 30)
-    if any(token in low for token in ("empty", "no data", "not found", "none", "null")):
+    if any(token in low for token in ("empty", "no data", "no market data", "not found", "none", "null")):
         return ProviderIssue(provider, "no_data", "provider returned no market data", True, 15)
-    if any(token in low for token in ("unauthorized", "forbidden", "api key", "401", "403")):
-        return ProviderIssue(provider, "auth", "provider authentication failed", False, 0)
     # Do not retain raw provider errors here. They can contain URLs, request
     # headers, or tokens and this state is consumed by product diagnostics.
     return ProviderIssue(provider, "error", "provider request failed", True, 30)

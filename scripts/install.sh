@@ -3,6 +3,15 @@
 set -eu
 
 fail() { printf 'Aria Code install: %s\n' "$*" >&2; exit 1; }
+download() {
+  # Resume across retries. A total deadline and low-speed limit stop a stalled
+  # CDN transfer; connection timeout alone never limited an active trickle.
+  progress=--silent
+  [ ! -t 2 ] || progress=--progress-bar
+  curl -fL "$progress" --show-error --retry 3 --retry-max-time 300 \
+    --connect-timeout 10 --max-time 300 --speed-time 30 --speed-limit 1024 \
+    --continue-at - -o "$2" "$1"
+}
 command -v curl >/dev/null 2>&1 || fail 'curl is required'
 
 case "$(uname -s)" in
@@ -36,7 +45,7 @@ app_root=${ARIA_CODE_HOME:-"$HOME/.local/share/aria-code"}
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/aria-code-install.XXXXXX") || fail 'could not create a temporary directory'
 trap 'rm -rf "$tmp_dir"; if [ -n "${staged:-}" ]; then rm -rf "$staged"; fi' EXIT HUP INT TERM
 
-curl -fLsS --retry 3 --connect-timeout 10 -o "$tmp_dir/SHA256SUMS" "$release_url/SHA256SUMS" || fail 'could not download release checksums'
+download "$release_url/SHA256SUMS" "$tmp_dir/SHA256SUMS" || fail 'could not download release checksums; retry or use npm install -g @artheras/aria-code@latest'
 
 # Releases before the --onedir switch have a single-file binary instead.
 if awk -v name="$asset.tar.gz" '$2 == name { found = 1 } END { exit !found }' "$tmp_dir/SHA256SUMS"; then
@@ -48,7 +57,7 @@ else
 fi
 
 printf 'Downloading %s...\n' "$file"
-curl -fLsS --retry 3 --connect-timeout 10 -o "$tmp_dir/$file" "$release_url/$file" || fail "could not download $file"
+download "$release_url/$file" "$tmp_dir/$file" || fail "could not download $file; retry or use npm install -g @artheras/aria-code@latest"
 
 expected=$(awk -v name="$file" '$2 == name { print $1 }' "$tmp_dir/SHA256SUMS")
 [ -n "$expected" ] || fail "checksum for $file is missing from this release"

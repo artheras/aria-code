@@ -10,6 +10,25 @@ from aria_code.apps.cli.commands.diagnostic_cmds import _health_targets
 
 
 class UpdateAndHealthTests(unittest.TestCase):
+    def test_known_legacy_releases_migrate_without_breaking_future_versions(self):
+        for version in ("4.1.3", "4.1.4", "4.1.7", "4.2.0", "4.3.0", "4.4.0", "4.4.1", "4.4.2"):
+            with self.subTest(version=version):
+                self.assertTrue(update_check._newer("v0.110.0", version))
+                self.assertFalse(update_check._newer(version, "0.110.0"))
+        self.assertTrue(update_check._newer("0.110.0", "0.79.0"))
+        self.assertFalse(update_check._newer("0.110.0", "0.110.0"))
+        self.assertFalse(update_check._newer("0.110.0", "4.5.0"))
+        self.assertTrue(update_check._newer("5.0.0", "4.4.2"))
+
+    def test_legacy_user_receives_the_current_release_notice(self):
+        with patch.object(update_check, "_read_cache", return_value={
+            "source": update_check._RELEASE_URL,
+            "checked_at": time.time(), "latest": "v0.110.0",
+        }):
+            update_check._notice = None
+            update_check._worker("4.4.2", "en", "pip")
+        self.assertIn("v0.110.0", update_check._notice)
+
     def test_old_unscoped_registry_cache_is_ignored(self):
         with patch.object(update_check, "_read_cache", return_value={
             "checked_at": time.time(), "latest": "4.1.0",
