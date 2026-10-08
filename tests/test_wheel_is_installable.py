@@ -41,6 +41,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 pytestmark = __import__("pytest").mark.slow_packaging
 
 
+def _installed_env():
+    # Test runners may put the source tree on PYTHONPATH. Do not let pip mistake
+    # source metadata for an installed wheel, or let import checks use source.
+    return {key: value for key, value in os.environ.items()
+            if key not in {"PYTHONPATH", "PYTHONHOME"}}
+
+
 def _build_wheel(into: pathlib.Path) -> pathlib.Path:
     # setuptools writes its scratch into <source>/build regardless of -w, so this
     # dirties the repository. Left behind it makes the next lint run report 52
@@ -114,7 +121,7 @@ class InstalledWheel(unittest.TestCase):
         cls.py = venv / ("Scripts" if os.name == "nt" else "bin") / "python"
         cls.bin = venv / ("Scripts" if os.name == "nt" else "bin")
         proc = subprocess.run([str(cls.py), "-m", "pip", "install", "-q", str(wheel)],
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, cwd=cls.tmp, env=_installed_env())
         if proc.returncode != 0:  # pragma: no cover
             raise unittest.SkipTest(f"could not install into a venv: {proc.stderr[-400:]}")
 
@@ -127,7 +134,7 @@ class InstalledWheel(unittest.TestCase):
         # let the bare imports resolve from the working directory and hide the
         # very thing being tested.
         return subprocess.run([str(self.py), *args], capture_output=True, text=True,
-                              cwd=cwd or str(self.tmp), timeout=180)
+                              cwd=cwd or str(self.tmp), timeout=180, env=_installed_env())
 
     def test_the_package_imports(self):
         proc = self._run("-c", "import aria_code; print(aria_code.__file__)")
@@ -162,7 +169,7 @@ class InstalledWheel(unittest.TestCase):
         exe = self.bin / ("aria-code.exe" if os.name == "nt" else "aria-code")
         self.assertTrue(exe.exists(), f"{exe} was not installed")
         proc = subprocess.run([str(exe), "--version"], capture_output=True, text=True,
-                              cwd=str(self.tmp), timeout=180)
+                              cwd=str(self.tmp), timeout=180, env=_installed_env())
         self.assertEqual(proc.returncode, 0, proc.stderr[-600:])
         self.assertIn("aria-code", proc.stdout.lower())
 

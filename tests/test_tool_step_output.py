@@ -99,11 +99,26 @@ def test_without_a_measurement_the_announcement_time_is_used(monkeypatch):
 
 
 def test_the_gateway_passes_the_measured_time_on():
-    import inspect
+    import asyncio
+    from aria_code.runtime.gateway import run_turn
+    from aria_code.runtime.tool_executor import ToolExecutor
 
-    from aria_code.runtime import gateway
+    rounds = iter([
+        {"success": True, "tool_calls_pending": [{"tool": "ping", "params": {}}]},
+        {"success": True, "response": "done"},
+    ])
 
-    assert "with_measured_elapsed" in inspect.getsource(gateway)
+    async def provider(*args, **kwargs):
+        return next(rounds)
+
+    seen = []
+    original = {"success": True, "data": {"message": "pong"}}
+    result = asyncio.run(run_turn("ping", [], provider_fn=provider,
+                     tool_executor=ToolExecutor({"ping": (lambda p: original, "")}),
+                     on_tool_result=lambda tool, data: seen.append(data)))
+    assert result.ok
+    assert isinstance(seen[0]["_elapsed_s"], float) and seen[0]["_elapsed_s"] >= 0
+    assert "_elapsed_s" not in original
 
 
 def test_an_approval_collapses_to_what_was_approved(monkeypatch):
@@ -144,4 +159,3 @@ def test_the_coding_prompt_asks_for_a_short_summary():
 
     assert "## FINAL SUMMARY" in CODING_SYSTEM_PROMPT
     assert "Do NOT paste file contents" in CODING_SYSTEM_PROMPT
-

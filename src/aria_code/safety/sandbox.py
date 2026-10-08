@@ -91,11 +91,12 @@ def profile(roots: Sequence[str], network: bool) -> str:
 
 
 def wrap(command: str | Sequence[str], *, use_shell: bool, mode: str, network: bool,
-         cwd: Path | str | None = None, setting: object = None) -> list[str] | None:
+         cwd: Path | str | None = None, setting: object = None,
+         workspace: Path | str | None = None, extra: Iterable[Path | str] = ()) -> list[str] | None:
     """The argv that runs ``command`` in the sandbox, or None to run it as is."""
     if mode not in CONFINED_MODES or not enabled(setting) or not available():
         return None
-    rules = profile(writable_roots(mode, cwd), network)
+    rules = profile(writable_roots(mode, workspace or cwd, extra), network)
     if use_shell or isinstance(command, str):
         shell = shutil.which("sh") or "/bin/sh"
         body = command if isinstance(command, str) else " ".join(command)

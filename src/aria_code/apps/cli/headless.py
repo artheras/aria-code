@@ -100,8 +100,9 @@ class HeadlessMixin:
         # The route counts as much as the model: on backend_chat the model gets
         # no local tools whatever it could do with them. This only looked at the
         # model, so the deterministic chain skipped its data pre-fetch there.
-        from aria_code.apps.cli.workspace_route import no_tools_message, needs_workspace, route_has_tools
-        _model_has_tools_p = route_has_tools(_curr_model_id_p, self.config, self.api_url)
+        from aria_code.apps.cli.workspace_route import no_tools_message, needs_workspace, route_has_tools, workspace_config
+        _runtime_config = workspace_config(prompt, _curr_model_id_p, self.config, self.api_url)
+        _model_has_tools_p = route_has_tools(_curr_model_id_p, _runtime_config, self.api_url)
 
         # ── Broker guide intent: broad discovery should not start an add wizard ──
         if _is_broker_guide_intent(prompt):
@@ -171,7 +172,7 @@ class HeadlessMixin:
                 _turn = await run_chat_via_runtime(
                     prompt=prompt, history=[],
                     local_tools=LOCAL_TOOLS, tool_schemas=LOCAL_TOOL_SCHEMAS,
-                    model=model, config=self.config, api_url=self.api_url,
+                    model=model, config=_runtime_config, api_url=self.api_url,
                     ollama_url=self.config.get("ollama_url", "http://localhost:11434"),
                     thinking_mode=thinking_mode, user_context=user_context,
                     auth_token=auth_token, project_context=_PROJECT_CONTEXT,
@@ -194,13 +195,11 @@ class HeadlessMixin:
                     return_result=True,
                 )
                 _tools_used = list(getattr(_turn.final, "tools", []) or [])
-                # An empty closing message after the tools already ran is not a
-                # failed turn. The model did the work and then said nothing;
-                # exiting 1 there told a script the task failed while the edit
-                # sat finished on disk. Narrow on purpose — any other error,
-                # and a turn that ran no tools at all, still fails.
+                # A missing closing message can count as success only with
+                # passing acceptance evidence, never merely because a tool ran.
                 _empty_after_work = (
                     _turn.error == "empty_response" and bool(_tools_used)
+                    and (getattr(_turn.final, "acceptance", None) or {}).get("verified") is True
                 )
                 result = {
                     "success": _turn.ok or _empty_after_work,
@@ -213,6 +212,7 @@ class HeadlessMixin:
                     "provider": getattr(_turn.final, "provider", ""),
                     "tools_used": _tools_used,
                     "acceptance": getattr(_turn.final, "acceptance", None),
+                    "stop_reason": getattr(_turn.final, "stop_reason", "") or _turn.error or "completed",
                 }
             finally:
                 if _prompt_spinner is not None:
@@ -238,6 +238,10 @@ class HeadlessMixin:
         # its checks must say so on stderr rather than print a confident summary
         # and exit 0.
         _acceptance = (result or {}).get("acceptance") or {}
+        if _acceptance.get("verified") is False:
+            result["success"] = False
+            result["error"] = result.get("error") or "checks_failed"
+            result["stop_reason"] = "checks_failed"
         if _acceptance.get("verified") is False and not quiet:
             _zh = str(self.config.get("ui_lang", "en")).lower().startswith("zh")
             print(f"⚠ {'验收未通过' if _zh else 'Checks failed'}: {_acceptance.get('headline', '')}",

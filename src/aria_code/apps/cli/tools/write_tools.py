@@ -118,7 +118,10 @@ def _print_lsp_diags(diags: list, console, has_rich: bool, limit: int = 6) -> No
         console.print(f"  [dim]… +{extra} more[/dim]") if has_rich else print(f"  ... +{extra} more")
 
 
-def _is_safe(p: pathlib.Path) -> bool:
+def _is_safe(p: pathlib.Path, params: dict | None = None) -> bool:
+    if params and params.get("_workspace"):
+        from aria_code.workspace.files import WorkspaceSecurity
+        return WorkspaceSecurity.from_tool_params(params).is_safe_path(p, write=True)
     return _ac()._is_safe_path(p)
 
 
@@ -458,7 +461,7 @@ def tool_write_file(params: dict) -> dict:
         if not raw_path.is_absolute():
             raw_path = _relative_write_base() / raw_path
         p = raw_path.resolve()
-        if not _is_safe(p):
+        if not _is_safe(p, params):
             return {"success": False, "error": f"Access denied: path '{p}' is outside allowed directories"}
 
         existed = p.exists()
@@ -694,7 +697,7 @@ def tool_edit_file(params: dict) -> dict:
         p = pathlib.Path(path).expanduser().resolve()
         if not p.exists():
             return {"success": False, "error": f"File not found: {p}"}
-        if not _is_safe(p):
+        if not _is_safe(p, params):
             return {"success": False, "error": f"Access denied: path '{p}' is outside allowed directories"}
 
         content = p.read_text(errors="replace")
@@ -813,7 +816,7 @@ def tool_multi_edit(params: dict) -> dict:
         p = pathlib.Path(path).expanduser().resolve()
         if not p.exists():
             return {"success": False, "error": f"File not found: {p}"}
-        if not _is_safe(p):
+        if not _is_safe(p, params):
             return {"success": False, "error": f"Access denied: path '{p}' is outside allowed directories"}
 
         content = p.read_text(errors="replace")

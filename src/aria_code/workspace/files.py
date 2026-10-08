@@ -34,11 +34,15 @@ class WorkspaceSecurity:
         cwd: str | pathlib.Path | None = None,
         *,
         allowed_roots: List[str | pathlib.Path] | None = None,
+        write_roots: List[str | pathlib.Path] | None = None,
         allow_home: bool | None = None,
     ) -> None:
         self.cwd = pathlib.Path(cwd or pathlib.Path.cwd()).expanduser().resolve()
         self._configured_roots = tuple(
             pathlib.Path(root).expanduser().resolve() for root in (allowed_roots or ())
+        )
+        self._write_roots = tuple(
+            pathlib.Path(root).expanduser().resolve() for root in (write_roots or ())
         )
         if allow_home is None:
             # Local CLI keeps its historical convenience. Remote/API workers must
@@ -48,7 +52,7 @@ class WorkspaceSecurity:
         self.allow_home = bool(allow_home)
 
     def allowed_roots(self) -> List[pathlib.Path]:
-        roots = [self.cwd, *self._configured_roots]
+        roots = [self.cwd, *self._configured_roots, *self._write_roots]
         if self.allow_home:
             roots.append(pathlib.Path.home().resolve())
         # Temporary roots are required by the local CLI, but a remote worker is
@@ -72,10 +76,32 @@ class WorkspaceSecurity:
                 pass
         return roots
 
-    def resolve(self, path: str | pathlib.Path) -> pathlib.Path:
-        return pathlib.Path(path).expanduser().resolve()
+    @classmethod
+    def from_tool_params(cls, params: dict):
+        unrestricted = params.get("_permission_mode") == "full-access" and not params.get("_workspace_restricted")
+        return cls(
+            cwd=params.get("_workspace") or os.getcwd(),
+            allowed_roots=["/"] if unrestricted else params.get("_allowed_read_roots", ()),
+            write_roots=["/"] if unrestricted else params.get("_allowed_write_roots", ()),
+            allow_home=False if params.get("_workspace_restricted") else None,
+        )
 
-    def is_safe_path(self, path: str | pathlib.Path) -> bool:
+    def writable_roots(self) -> List[pathlib.Path]:
+        roots = [self.cwd, *self._write_roots]
+        if self.allow_home:
+            roots += [pathlib.Path("/tmp").resolve(), pathlib.Path(tempfile.gettempdir()).resolve()]
+            try:
+                from aria_code.artifacts import artifact_root, user_output_root
+                roots += [pathlib.Path(artifact_root()).resolve(), pathlib.Path(user_output_root()).resolve()]
+            except ImportError:
+                pass
+        return list(dict.fromkeys(roots))
+
+    def resolve(self, path: str | pathlib.Path) -> pathlib.Path:
+        target = pathlib.Path(path).expanduser()
+        return (target if target.is_absolute() else self.cwd / target).resolve()
+
+    def is_safe_path(self, path: str | pathlib.Path, *, write: bool = False) -> bool:
         resolved = self.resolve(path)
         for blocked in self.BLOCKED_ROOTS:
             try:
@@ -83,7 +109,7 @@ class WorkspaceSecurity:
                 return False
             except ValueError:
                 pass
-        for root in self.allowed_roots():
+        for root in self.writable_roots() if write else self.allowed_roots():
             try:
                 resolved.relative_to(root)
                 return True
@@ -91,9 +117,9 @@ class WorkspaceSecurity:
                 pass
         return False
 
-    def require_safe(self, path: str | pathlib.Path) -> pathlib.Path:
+    def require_safe(self, path: str | pathlib.Path, *, write: bool = False) -> pathlib.Path:
         resolved = self.resolve(path)
-        if not self.is_safe_path(resolved):
+        if not self.is_safe_path(resolved, write=write):
             raise PermissionError(f"Access denied: path '{resolved}' is outside allowed directories")
         return resolved
 

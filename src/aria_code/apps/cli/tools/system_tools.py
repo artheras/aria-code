@@ -218,6 +218,8 @@ def tool_run_command(
                 argv if (argv and not use_shell) else command,
                 use_shell=use_shell, mode=mode, network=network, cwd=cwd,
                 setting=params.get("os_sandbox"),
+                workspace=params.get("_workspace"),
+                extra=params.get("_allowed_write_roots", ()),
             )
             result = subprocess.run(
                 confined or (argv if (argv and not use_shell) else command),
@@ -285,7 +287,8 @@ def _start_background(params, command, argv, use_shell, cwd, mode, network, *, d
 
     target = argv if (argv and not use_shell) else command
     confined = _os_sandbox.wrap(target, use_shell=use_shell, mode=mode, network=network, cwd=cwd,
-                                setting=params.get("os_sandbox"))
+                                setting=params.get("os_sandbox"), workspace=params.get("_workspace"),
+                                extra=params.get("_allowed_write_roots", ()))
     result = processes.start(confined or target, shell=use_shell and not confined, cwd=cwd,
                              label=command, wait=min(float(params.get("wait_seconds", 3) or 0), 30.0),
                              until=params.get("until"))
@@ -639,4 +642,3 @@ def tool_ask_user(params: dict, *, console=None, has_rich: bool = True) -> dict:
             return {"success": False, "error": "User cancelled the input."}
             
     return {"success": True, "data": {"user_answer": answer}}
-

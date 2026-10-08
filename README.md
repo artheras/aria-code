@@ -90,10 +90,12 @@ aria-code --local
 Or run a single task in an existing project:
 
 ```bash
-aria-code -p "Inspect this project, fix the failing tests, run them, and summarize the diff."
+aria-code -C ~/Projects/my-app -p "Inspect this project, fix the failing tests, run them, and summarize the diff."
 ```
 
 Aria may request approval before editing files or running commands, according to the configured permission mode. Review changes and test results before committing them.
+
+Google Cloud models can use Aria's local file and command tools: inference stays in the cloud while edits and tests run on your computer. Use `--read-dir DIR` for additional file-reading locations and `--add-dir DIR` for additional writable directories. Command-line directory grants last for this invocation only. See [local projects and file access](docs/local-workspace.md) for permissions and Google authentication.
 
 In a script or CI job, `--json` prints one JSON result and `--format jsonl` prints one JSON event per line as the turn runs (`turn.started`, `tool.started`, `tool.completed`, `turn.completed`). Only JSON goes to stdout, and a failed turn exits 1. With no one there to approve, pass `--allow-tools edit_file,run_command` for the tools the job may use.
 

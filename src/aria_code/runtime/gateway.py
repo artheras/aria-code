@@ -53,7 +53,12 @@ class TurnResult:
 
     @property
     def ok(self) -> bool:
-        return self.error is None and not self.cancelled
+        return (
+            self.error is None and not self.cancelled and self.final is not None
+            and bool(getattr(self.final, "success", False))
+            and not getattr(self.final, "cancelled", False)
+            and (getattr(self.final, "acceptance", None) or {}).get("verified") is not False
+        )
 
 
 async def run_turn(
@@ -126,9 +131,9 @@ async def run_turn(
                 on_tool_call(ev.tool, dict(ev.params))
         elif isinstance(ev, AgentEventToolResult):
             if on_tool_result is not None:
-                from aria_code.apps.cli.runtime_consumer import with_measured_elapsed
-
-                on_tool_result(ev.tool, with_measured_elapsed(dict(ev.result), getattr(ev, "elapsed", None)))
+                result = dict(ev.result)
+                result["_elapsed_s"] = float(getattr(ev, "elapsed", 0.0))
+                on_tool_result(ev.tool, result)
         elif isinstance(ev, AgentEventStatus):
             if on_status is not None:
                 phase = getattr(ev, "phase", "") or getattr(ev, "state", "") or ""
@@ -147,6 +152,8 @@ async def run_turn(
             break
 
     text = "".join(acc)
+    if final is not None and not getattr(final, "success", False):
+        error = error or getattr(final, "error", "") or getattr(final, "stop_reason", "incomplete")
     if not text and final is not None:
         text = getattr(final, "final_text", "") or ""
     return TurnResult(text=text, final=final, error=error, cancelled=cancelled)

@@ -253,6 +253,7 @@ class AriaSSEProvider:
         system_override: Optional[str] = None,
         project_context: str = "",
         use_react_gateway: bool = False,
+        local_tools: bool = False,
     ) -> None:
         self.api_url = api_url
         self.model = model
@@ -262,6 +263,7 @@ class AriaSSEProvider:
         self.system_override = system_override
         self.project_context = project_context
         self.use_react_gateway = use_react_gateway
+        self.local_tools = local_tools
 
     async def stream(
         self,
@@ -296,6 +298,8 @@ class AriaSSEProvider:
                 cancel_event=cancel_event,
                 project_context=self.project_context,
                 use_react_gateway=self.use_react_gateway,
+                tool_schemas=list(tools or []) if self.local_tools else None,
+                local_tool_execution=self.local_tools,
             )
 
         async for event in _stream_callback_provider(_invoke, done_provider="aria_sse"):

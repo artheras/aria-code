@@ -96,7 +96,7 @@ def extract_mutated_paths(
 ) -> tuple[str, ...]:
     """Paths this tool result actually wrote to disk.
 
-    Returns nothing for a failed call and nothing for a *staged* change.  The
+    Returns nothing for a failed call or an unapplied staged change.  The
     distinction matters: ``write_file`` in review mode returns success with
     ``applied: False`` and the file on disk is untouched, so running the test
     suite would verify the previous state and report a green that means
@@ -111,7 +111,9 @@ def extract_mutated_paths(
         return ()
 
     data = _as_dict(payload.get("data")) or payload
-    if data.get("applied") is False or data.get("staged") is True:
+    if data.get("applied") is False or (
+        data.get("staged") is True and data.get("applied") is not True
+    ):
         return ()
 
     found: List[str] = []
@@ -316,7 +318,7 @@ def _read_run_result(raw: Any) -> tuple[int, str, str]:
             except (TypeError, ValueError):
                 continue
     else:
-        exit_code = 0
+        return 1, "", "runner returned no exit status"
 
     stdout = str(data.get("stdout") or data.get("output") or "")
     stderr = str(data.get("stderr") or "")
@@ -471,11 +473,12 @@ class AcceptanceGate:
         last = self.reports[-1] if self.reports else None
         verified: Optional[bool] = None
         if last is not None and last.ran:
-            verified = last.passed
+            verified = last.passed and not self.armed
         return {
             "verified": verified,
             "attempts": self.attempts,
             "paths": list(self._all_paths),
             "reports": [report.summary() for report in self.reports],
-            "headline": last.headline() if last is not None else "",
+            "pending_paths": list(self._pending),
+            "headline": "改动后尚未重新验收" if self.armed else (last.headline() if last is not None else ""),
         }

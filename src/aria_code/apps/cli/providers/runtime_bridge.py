@@ -110,22 +110,23 @@ def build_acceptance_gate(executor, config: Optional[dict] = None, message: str 
 
     import os
     from aria_code.runtime.acceptance import AcceptanceGate
+    from aria_code.runtime.approval import ApprovalDecision
 
     timeout = int(cfg.get("acceptance_timeout", 300) or 300)
+    root = cfg.get("_session_workspace_root") or cfg.get("workspace_root") or os.getcwd()
+    if getattr(executor, "execution_context", None) is not None:
+        root = dict(executor.execution_context() or {}).get("_workspace") or root
 
     def _runner(command: str) -> dict:
         return executor.execute_local("run_command", {
             "command": command,
-            "policy": "balanced",
-            "permission_mode": mode,
-            "network_enabled": bool(cfg.get("network_enabled", True)),
-            "user_approved": True,
+            "cwd": str(root),
             "timeout": timeout,
-        })
+        }, approval=ApprovalDecision.allow(policy="balanced", user_approved=True))
 
     return AcceptanceGate(
         runner=_runner,
-        root=os.getcwd(),
+        root=root,
         max_attempts=int(cfg.get("acceptance_max_attempts", 2) or 2),
         commands=_declared_acceptance_commands(cfg, message),
     )
@@ -259,6 +260,7 @@ def make_provider_fn(
                     user_context=_cloud_uctx, auth_token=auth_token,
                     project_context=project_context,
                     use_react_gateway=bool(config.get("arthera_react_gateway")),
+                    local_tools=bool(config.get("backend_local_tools")),
                 ),
                 _on_token,
             )
@@ -340,6 +342,9 @@ async def run_chat_via_runtime(
     usage metadata during final rendering.
     """
     from aria_code.runtime.gateway import run_turn
+    from aria_code.apps.cli.workspace_route import workspace_config
+
+    config = workspace_config(prompt, model, config, api_url)
 
     provider_fn = make_provider_fn(
         model=model, config=config, api_url=api_url, ollama_url=ollama_url,

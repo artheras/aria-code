@@ -203,6 +203,8 @@ class ChatTurnMixin:
         # 识别公司名 → ticker 并调 get_market_data，不需要硬编码字典。
         # 本地小模型（<14B）工具调用不稳定，保留确定性路由作降级。
         _curr_model_id = self.config.get("model", "")
+        from aria_code.apps.cli.workspace_route import workspace_config
+        _runtime_config = workspace_config(message, _curr_model_id, self.config, self.api_url)
         _model_has_tools = False
         if _HAS_MODEL_CAP:
             try:
@@ -213,7 +215,7 @@ class ChatTurnMixin:
         if _model_has_tools:
             try:
                 from apps.cli.providers.chat_routing import model_receives_local_tools
-                _model_has_tools = model_receives_local_tools(_curr_model_id, self.config, self.api_url)
+                _model_has_tools = model_receives_local_tools(_curr_model_id, _runtime_config, self.api_url)
             except Exception:
                 pass
 
@@ -505,9 +507,8 @@ class ChatTurnMixin:
                 print(f"{_agent_name}{' · ' + _answer_model if _answer_model else ''}")
         # A task about this folder on a model that cannot open it gets a guess
         # that reads like a result (backend_chat answered "5" for a function
-        # that returns -1). Say so before the answer, once a session; the
-        # person can still read it, and knows what it is.
-        if not _model_has_tools and not getattr(self, "_no_tools_notice_shown", False):
+        # that returns -1). Stop this task before generating a guessed result.
+        if not _model_has_tools:
             from apps.cli.workspace_route import needs_workspace, no_tools_message
             if needs_workspace(message):
                 self._no_tools_notice_shown = True
@@ -518,6 +519,7 @@ class ChatTurnMixin:
                     print_hanging(console, "  ! ", _why, style="yellow")
                 else:
                     print(f"  ! {_why}")
+                return
         # ── Single-shot turn through the shared runtime Gateway ─────────────
         # The per-round inline agent loop that used to live here was removed
         # (2026-07) after the runtime path was validated with real turns:
@@ -619,7 +621,7 @@ class ChatTurnMixin:
                 _rt_turn = await run_chat_via_runtime(
                     prompt=current_message, history=self.conversation[:-1],
                     local_tools=LOCAL_TOOLS, tool_schemas=LOCAL_TOOL_SCHEMAS,
-                    model=model, config=self.config, api_url=self.api_url,
+                    model=model, config=_runtime_config, api_url=self.api_url,
                     ollama_url=self.config.get("ollama_url", "http://localhost:11434"),
                     cancel_event=self.cancel_event,
                     on_token=on_token, on_thinking=on_thinking,
@@ -686,8 +688,11 @@ class ChatTurnMixin:
                 or str(self.config.get("local_provider") or "ollama")
             )
             result = {
-                "success": True,
+                "success": bool(getattr(_rt_turn, "ok", False)),
                 "response": _rt_text,
+                "error": getattr(_rt_turn, "error", None) or getattr(_rt_final, "error", ""),
+                "stop_reason": getattr(_rt_final, "stop_reason", "completed"),
+                "acceptance": getattr(_rt_final, "acceptance", None),
                 "provider": _rt_provider,
                 "cancelled": False,
                 "usage": {

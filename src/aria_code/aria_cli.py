@@ -4963,6 +4963,11 @@ Examples:
     parser.add_argument("--banner", choices=["full", "compact", "off"], help="Banner mode: full|compact|off")
     parser.add_argument("--resume", action="store_true", help="Resume last session")
     parser.add_argument("--session", help="Load specific session ID")
+    parser.add_argument("-C", "--cd", metavar="DIR", help="Open a local project directory")
+    parser.add_argument("--add-dir", action="append", default=[], metavar="DIR",
+                        help="Allow reads and writes in an additional directory (repeatable)")
+    parser.add_argument("--read-dir", action="append", default=[], metavar="DIR",
+                        help="Allow reads in an additional directory (repeatable)")
     parser.add_argument(
         "--dangerously-skip-permissions",
         action="store_true",
@@ -4977,6 +4982,14 @@ Examples:
     parser.add_argument("args", nargs="*", help="Command arguments")
 
     args = parser.parse_args()
+    # Resolve every path relative to the invocation directory before changing it.
+    _write_roots = [str(pathlib.Path(p).expanduser().resolve()) for p in args.add_dir]
+    _read_roots = [str(pathlib.Path(p).expanduser().resolve()) for p in args.read_dir]
+    if args.cd:
+        _project_dir = pathlib.Path(args.cd).expanduser().resolve()
+        if not _project_dir.is_dir():
+            parser.error(f"Project directory does not exist: {_project_dir}")
+        os.chdir(_project_dir)
 
     # Machine-readable -p output: stdout carries only JSON. Everything else —
     # banners, tool steps, warnings, anything a tool prints — goes to stderr.
@@ -4988,6 +5001,9 @@ Examples:
         sys.stdout = sys.stderr
 
     config = load_config()
+    config["_session_workspace_root"] = str(pathlib.Path.cwd().resolve())
+    config["_session_write_roots"] = _write_roots
+    config["_session_read_roots"] = _read_roots
 
     # ── Start background update check (non-blocking, daemon thread) ──────────
     try:
@@ -5006,9 +5022,13 @@ Examples:
         raw_model = str(args.model).strip()
         if "/" in raw_model and not raw_model.startswith("http"):
             provider_name, selected_model = raw_model.split("/", 1)
-            from apps.cli.providers.chat_routing import normalize_provider_name
+            from apps.cli.providers.chat_routing import normalize_provider_name, KNOWN_MODEL_PROVIDERS
 
             provider_name = normalize_provider_name(provider_name)
+            if provider_name in KNOWN_MODEL_PROVIDERS:
+                # --model names the inference provider explicitly, just as /model
+                # does. A stale backend_chat flag must not override that choice.
+                config["backend_chat"] = False
             config["local_provider"] = provider_name
             config["model"] = selected_model
             config["local_mode"] = provider_name in {

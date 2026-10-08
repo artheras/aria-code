@@ -100,3 +100,25 @@ def test_full_access_is_not_confined(tmp_path, outside, monkeypatch):
     monkeypatch.setenv("ARIA_ARTIFACT_ROOT", str(tmp_path / "artifacts"))
     run(f"echo out > {outside}/free.txt", tmp_path, mode="full-access")
     assert (outside / "free.txt").exists()
+
+
+@needs_seatbelt
+def test_command_cwd_cannot_grant_write_access_but_host_add_dir_can(tmp_path, outside, monkeypatch):
+    from aria_code.apps.cli.tools.system_tools import tool_run_command
+    monkeypatch.setenv("ARIA_ARTIFACT_ROOT", str(tmp_path / "artifacts"))
+    project, sibling = outside / "project", outside / "sibling"
+    project.mkdir()
+    sibling.mkdir()
+    params = {"command": "echo modified > app.txt", "policy": "full", "cwd": str(sibling),
+              "_workspace": str(project), "permission_mode": "workspace-write", "network_enabled": False}
+    try:
+        blocked = tool_run_command(params, has_rich=False)
+        assert blocked["data"]["exit_code"] != 0
+        assert not (sibling / "app.txt").exists()
+        granted = tool_run_command({**params, "_allowed_write_roots": [str(sibling)]}, has_rich=False)
+        assert granted["data"]["exit_code"] == 0
+        assert (sibling / "app.txt").read_text() == "modified\n"
+    finally:
+        (sibling / "app.txt").unlink(missing_ok=True)
+        sibling.rmdir()
+        project.rmdir()

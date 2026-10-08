@@ -31,7 +31,8 @@ _RUN_EN = re.compile(r"\b(?:run|execute)\s+(?:`|python3?\b|pytest\b|npm\b|npx\b|
 _RUN_ZH = re.compile(r"(?:运行|执行|跑一下|跑)\s*(?:`|python|pytest|npm|node|git|make|命令|脚本|测试)", re.I)
 _IMPORT = re.compile(r"\b(?:import|from)\s+([A-Za-z_]\w*)")
 _HERE_ZH = ("这个项目", "该项目", "当前项目", "这个仓库", "当前仓库", "这个目录", "当前目录", "这个文件夹",
-            "当前文件夹", "这个代码库", "本项目", "本仓库", "失败的测试", "我的代码")
+            "当前文件夹", "这个代码库", "本项目", "本仓库", "失败的测试", "我的代码",
+            "我的项目", "本地项目", "本地文件", "电脑文件", "桌面文件", "创建项目", "新建项目")
 
 
 def needs_workspace(text: str, cwd: Path | str | None = None) -> bool:
@@ -41,13 +42,18 @@ def needs_workspace(text: str, cwd: Path | str | None = None) -> bool:
         return True
     if _HERE_EN.search(message) or any(word in message for word in _HERE_ZH):
         return True
+    if re.search(r"\b(?:create|build|scaffold|initialize)\s+(?:a\s+|an\s+|new\s+)?(?:react\s+|next\.js\s+)?(?:app|project|website)\b", message, re.I):
+        return True
     if _RUN_EN.search(message) or _RUN_ZH.search(message):
         return True
     base = Path(cwd or Path.cwd())
     for module in _IMPORT.findall(message):
         if (base / f"{module}.py").is_file() or (base / module / "__init__.py").is_file():
             return True
-    for token in _PATH_TOKEN.findall(message):
+    tokens = _PATH_TOKEN.findall(message)
+    # Chinese prose can touch an ASCII filename without whitespace (修改calc.py).
+    tokens += re.findall(r"[A-Za-z0-9_./~-]+\.[A-Za-z0-9]{1,6}\b", message)
+    for token in tokens:
         candidate = token.strip("./") if token.startswith("./") else token
         try:
             if candidate and (base / candidate).exists():
@@ -92,4 +98,24 @@ def no_tools_message(config: dict, *, lang: str = "en") -> str:
             "qwen2.5-coder), or start with aria-code --local.")
 
 
-__all__ = ["needs_workspace", "route_has_tools", "no_tools_message"]
+def workspace_config(text: str, model: str, config: dict, api_url: str | None) -> dict:
+    """Choose authenticated Google inference with local tools for workspace tasks.
+
+    Change only this turn's inference transport, never the saved config or
+    the user's model. A backend chat setting must not turn edits into guesses.
+    """
+    from aria_code.apps.cli.providers.chat_routing import force_backend, model_provider, normalize_provider_name
+    if not needs_workspace(text) or not force_backend(config, api_url):
+        return config
+    if config.get("backend_local_tools"):
+        return config
+    provider = model_provider(model) or normalize_provider_name(config.get("local_provider", ""))
+    if provider not in {"google", "vertexai", "vertex-ai", "google-genai"}:
+        return config
+    from aria_code.apps.cli.providers.base import google_readiness
+    if google_readiness(config):
+        return config
+    return {**config, "backend_chat": False, "_workspace_transport": "google"}
+
+
+__all__ = ["needs_workspace", "route_has_tools", "no_tools_message", "workspace_config"]

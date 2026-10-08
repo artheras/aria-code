@@ -354,6 +354,7 @@ class AgentTurnState:
         cancelled: bool = False,
         error: str = "",
         acceptance: Optional[dict] = None,
+        stop_reason: str = "completed",
     ) -> "AgentTurnResult":
         metadata = self.build_metadata(
             elapsed=elapsed,
@@ -370,6 +371,7 @@ class AgentTurnState:
             tools=metadata.tools,
             sources=list(self.sources),
             acceptance=acceptance,
+            stop_reason=stop_reason,
         )
 
     def build_cancelled_result(
@@ -387,6 +389,7 @@ class AgentTurnState:
             thinking_tokens=thinking_tokens,
             success=True,
             cancelled=True,
+            stop_reason="cancelled",
         )
 
     def build_error_result(
@@ -406,6 +409,7 @@ class AgentTurnState:
             success=False,
             cancelled=False,
             error=error or "Unknown error",
+            stop_reason="failed",
         )
 
 
@@ -441,6 +445,7 @@ class AgentTurnResult:
     # 验收证据。None = 本轮没有验收(只读回合,或没有可推断的检查命令);
     # 有值时 ``acceptance["verified"]`` 才是「做完了」这句话的凭据。
     acceptance: Optional[dict] = None
+    stop_reason: str = "completed"
 
     @classmethod
     def cancelled_result(
@@ -455,6 +460,7 @@ class AgentTurnResult:
             error="",
             final_text=final_text,
             metadata=metadata or AgentTurnMetadata(parts=[]),
+            stop_reason="cancelled",
         )
 
     @classmethod
@@ -471,11 +477,13 @@ class AgentTurnResult:
             error=error,
             final_text=final_text,
             metadata=metadata or AgentTurnMetadata(parts=[]),
+            stop_reason="failed",
         )
 
     def to_dict(self) -> dict:
         return {
             "success": self.success,
+            "stop_reason": self.stop_reason,
             "cancelled": self.cancelled,
             "error": self.error,
             "final_text": self.final_text,
@@ -1344,6 +1352,7 @@ async def run_agent(
     result: dict = {}
     loop_guard = LoopGuard()
     grounded_results = 1 if opts.evidence_already_grounded else 0
+    stop_reason = "max_rounds"
 
     for round_num in range(opts.max_rounds):
         # ── 预算闸门 ─────────────────────────────────────────────────────────
@@ -1370,6 +1379,8 @@ async def run_agent(
                     "per_provider": dict(opts.budget.state.per_provider),
                 }, None)
             result["budget_summary"] = opts.budget.summary()
+            stop_reason = "budget_exhausted"
+            yield AgentEventStatus(state=stop_reason, message=reason)
             break
 
         if opts.budget is not None:
@@ -1460,6 +1471,7 @@ async def run_agent(
                     )
                 )
                 return
+            stop_reason = "completed"
             break
         for tool_call in pending:
             yield AgentEventToolCall(
@@ -1538,6 +1550,10 @@ async def run_agent(
         turn_state.reset_response()
 
         if loop_guard.should_break:
+            stop_reason = "loop_guard"
+            yield AgentEventStatus(
+                state=stop_reason, message="Repeated failing tool calls; task remains incomplete"
+            )
             turn_state.append_response(
                 "\n\nRepeated failing tool calls were detected and the agent stopped retrying."
             )
@@ -1545,15 +1561,20 @@ async def run_agent(
 
     # ── Build final result ───────────────────────────────────────────────────
     elapsed = time.time() - start_time
+    acceptance_summary = (
+        opts.acceptance.summary()
+        if opts.acceptance is not None and opts.acceptance.reports else None
+    )
+    if stop_reason == "completed" and acceptance_summary and acceptance_summary.get("verified") is False:
+        stop_reason = "checks_failed"
     turn_result = turn_state.build_result(
         elapsed=elapsed,
+        success=stop_reason == "completed",
+        error="" if stop_reason == "completed" else stop_reason,
+        stop_reason=stop_reason,
         fallback_response=result.get("response", ""),
         token_count=token_count,
         thinking_tokens=thinking_tokens,
-        acceptance=(
-            opts.acceptance.summary()
-            if opts.acceptance is not None and opts.acceptance.reports
-            else None
-        ),
+        acceptance=acceptance_summary,
     )
     yield AgentEventComplete(result=turn_result)

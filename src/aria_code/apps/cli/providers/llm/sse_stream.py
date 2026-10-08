@@ -19,6 +19,8 @@ def build_chat_payload(
     user_context: Optional[dict],
     project_context: str,
     use_react_gateway: bool,
+    tool_schemas: Optional[list] = None,
+    local_tool_execution: bool = False,
 ) -> tuple[str, dict]:
     """Build either the legacy chat payload or the shared ReAct envelope.
 
@@ -30,7 +32,7 @@ def build_chat_payload(
         if project_context:
             context["project_context"] = project_context
         mode = str(context.pop("workspace_mode", "code"))
-        return "/api/v2/chat/react", {
+        payload = {
             "message": {
                 "role": "user",
                 "content": [{"type": "text", "text": message}],
@@ -41,6 +43,9 @@ def build_chat_payload(
             "model": {"id": model or "auto", "effort": thinking_mode or "auto"},
             "context": context,
         }
+        if local_tool_execution:
+            payload.update(tools=list(tool_schemas or []), tool_execution="client", tool_protocol="aria-local-v1")
+        return "/api/v2/chat/react", payload
 
     payload: dict = {
         "message": message,
@@ -53,6 +58,10 @@ def build_chat_payload(
         if project_context:
             user_context = {**user_context, "project_context": project_context}
         payload["user_context"] = user_context
+    elif project_context:
+        payload["user_context"] = {"project_context": project_context}
+    if local_tool_execution:
+        payload.update(tools=list(tool_schemas or []), tool_execution="client", tool_protocol="aria-local-v1")
     return "/api/v2/ai/chat/stream", payload
 
 
@@ -72,6 +81,8 @@ async def stream_chat(
     cancel_event: Optional[asyncio.Event] = None,
     project_context: str = "",
     use_react_gateway: bool = False,
+    tool_schemas: Optional[list] = None,
+    local_tool_execution: bool = False,
 ) -> dict:
     """Stream AI chat via SSE with cancel support and user context.
 
@@ -88,6 +99,7 @@ async def stream_chat(
         message, history, model=model, thinking_mode=thinking_mode,
         user_context=user_context, project_context=project_context,
         use_react_gateway=use_react_gateway,
+        tool_schemas=tool_schemas, local_tool_execution=local_tool_execution,
     )
     url = f"{base_url.rstrip('/')}{endpoint}"
 
@@ -117,6 +129,7 @@ async def stream_chat(
         tools_used = []
         sources = []
         tool_calls_pending = []
+        local_tools_acknowledged = False
         usage = {"prompt_tokens": 0, "completion_tokens": 0, "thinking_tokens": 0}
 
         try:
@@ -178,6 +191,17 @@ async def stream_chat(
                                 return {"success": False, "error": f"Backend: {err_msg}"}
 
                             evt = data.get("type", event_type)
+                            if local_tool_execution:
+                                local_tools_acknowledged = local_tools_acknowledged or (
+                                    data.get("tool_protocol") == "aria-local-v1"
+                                    and data.get("tool_execution") == "client"
+                                )
+                                if evt == "tool_call" and not local_tools_acknowledged:
+                                    return {"success": False, "error": "backend_local_tools_unsupported",
+                                            "response": full_response}
+                                if evt == "tool_result":
+                                    return {"success": False, "error": "backend_executed_client_tool",
+                                            "response": full_response}
 
                             if evt == "delta":
                                 token = data.get("text", data.get("content", ""))
@@ -222,6 +246,9 @@ async def stream_chat(
                             elif evt == "error":
                                 return {"success": False, "error": data.get("message", data.get("error", "Unknown error"))}
 
+            if local_tool_execution and not local_tools_acknowledged:
+                return {"success": False, "error": "backend_local_tools_unsupported",
+                        "response": full_response}
             return {
                 "success": True,
                 "response": full_response,

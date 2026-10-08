@@ -1,5 +1,6 @@
 import unittest
 import asyncio
+from pathlib import Path
 
 from aria_code.runtime import (
     AgentEventComplete,
@@ -707,7 +708,7 @@ class RuntimeAgentLoopAsyncTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(set(done.keys()), {0, 2})
-        self.assertEqual(done[0]["data"]["path"], "a.py")
+        self.assertEqual(done[0]["data"]["path"], str(Path.cwd() / "a.py"))
         self.assertEqual(done[2]["data"]["tool"], "remote_tool")
         self.assertNotIn(("local", "write_file"), calls)
 

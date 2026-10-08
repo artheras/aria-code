@@ -42,6 +42,10 @@ class ToolExecutor:
         """Execute a local tool synchronously."""
         if tool_name not in self.local_tools:
             return {"success": False, "error": f"Unknown local tool: {tool_name}"}
+        if approval is not None and not approval.approved:
+            reason = approval.reason or "Tool approval denied."
+            self.trace.emit("tool_denied", {"tool": tool_name, "reason": reason})
+            return {"success": False, "error": reason}
         handler = self.local_tools[tool_name][0]
         params = self._prepare_params(
             tool_name,
@@ -114,6 +118,10 @@ class ToolExecutor:
         approval: ApprovalDecision | None = None,
     ) -> dict:
         prepared = dict(params or {})
+        # A model cannot grant itself directories or replace the host workspace.
+        for key in tuple(prepared):
+            if key.startswith("_"):
+                prepared.pop(key)
         if tool_name == "run_command":
             # Tool arguments come from the model. Only the host configuration and
             # a typed approval decision may set execution controls.
@@ -122,16 +130,20 @@ class ToolExecutor:
                 "user_approved", "_upgrade_policy", "sandbox", "os_sandbox",
             ):
                 prepared.pop(key, None)
+        workspace_tools = {"read_file", "write_file", "edit_file", "multi_edit", "list_files",
+                           "search_code", "glob", "analyze_file", "notebook_read", "notebook_edit",
+                           "apply_patch", "run_command", "github"}
+        context = {
+            "_workspace": self.config.get("_session_workspace_root") or self.config.get("workspace_root") or str(Path.cwd()),
+            "_allowed_read_roots": [*(self.config.get("read_roots") or ()), *(self.config.get("_session_read_roots") or ())],
+            "_allowed_write_roots": [*(self.config.get("write_roots") or ()), *(self.config.get("_session_write_roots") or ())],
+            "_permission_mode": self.config.get("permission_mode", "workspace-write"),
+        } if tool_name in workspace_tools else {}
         if self.execution_context is not None and (
             include_execution_context or bind_research_context
         ):
             try:
-                context = dict(self.execution_context() or {})
-                if include_execution_context:
-                    for key, value in context.items():
-                        if str(key).startswith("_") and value is not None:
-                            prepared[str(key)] = value
-                    self._bind_workspace(tool_name, prepared, context)
+                context.update(dict(self.execution_context() or {}))
                 if bind_research_context:
                     self._bind_research_run(tool_name, prepared, context)
             except Exception as exc:
@@ -139,6 +151,15 @@ class ToolExecutor:
                     prepared["_execution_context_error"] = (
                         f"Execution context unavailable: {exc}"
                     )
+        if include_execution_context:
+            for key, value in context.items():
+                if key.startswith("_") and value is not None:
+                    prepared[key] = value
+            self._bind_workspace(tool_name, prepared, context)
+            self._check_file_permission(tool_name, prepared)
+            if tool_name in {"write_file", "edit_file", "multi_edit", "notebook_edit"}:
+                if approval is not None and approval.approved:
+                    prepared["_skip_confirm"] = True
         if tool_name == "run_command":
             prepared["policy"] = self.config.get("command_policy", "safe")
             prepared["permission_mode"] = self.config.get("permission_mode", "workspace-write")
@@ -148,6 +169,30 @@ class ToolExecutor:
             if approval is not None and approval.approved:
                 apply_approval_decision(prepared, approval)
         return prepared
+
+    def _check_file_permission(self, tool_name: str, prepared: dict) -> None:
+        if prepared.get("_execution_context_error"):
+            return
+        from aria_code.workspace.files import WorkspaceSecurity
+        write_tools = {"write_file", "edit_file", "multi_edit", "apply_patch", "notebook_edit"}
+        read_tools = {"read_file", "list_files", "search_code", "glob", "analyze_file", "notebook_read"}
+        canonical = tool_name.rsplit("__", 1)[-1]
+        mode = str(self.config.get("permission_mode", "workspace-write"))
+        if canonical in write_tools and mode in {"read-only", "readonly", "read_only", "plan"}:
+            prepared["_execution_context_error"] = "Writes are blocked in read-only mode."
+            return
+        if canonical not in write_tools | read_tools or mode == "full-access":
+            return
+        security = WorkspaceSecurity.from_tool_params(prepared)
+        try:
+            security.require_safe(
+                prepared.get("root" if canonical == "glob" else "path") or ".",
+                write=canonical in write_tools,
+            )
+        except PermissionError as exc:
+            prepared["_execution_context_error"] = (
+                f"{exc}. Add --add-dir for writes or --read-dir for reads."
+            )
 
     @staticmethod
     def _bind_research_run(
@@ -180,12 +225,14 @@ class ToolExecutor:
             "multi_edit",
             "list_files",
             "search_code",
+            "glob",
             "analyze_file",
             "notebook_read",
             "notebook_edit",
         }
         if tool_name in path_tools:
-            raw_path = str(prepared.get("path") or ".")
+            path_key = "root" if tool_name == "glob" else "path"
+            raw_path = str(prepared.get(path_key) or ".")
             target = Path(raw_path).expanduser()
             if not target.is_absolute():
                 target = workspace / target
@@ -195,7 +242,7 @@ class ToolExecutor:
                     f"Tool path is outside the isolated workspace: {target}"
                 )
                 return
-            prepared["path"] = str(target)
+            prepared[path_key] = str(target)
         if tool_name in {"run_command", "github"}:
             raw_cwd = str(prepared.get("cwd") or workspace)
             cwd = Path(raw_cwd).expanduser()

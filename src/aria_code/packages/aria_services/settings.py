@@ -27,7 +27,10 @@ from typing import Any, Optional
 STALE_ARIA_MODEL_PREFIXES = ("aria-opus", "aria-prelude", "aria-sonata:3", "aria-sonata:4")
 
 # Keys that are session state, not configuration — never persisted.
-NEVER_PERSIST = frozenset({"conversation_history"})
+NEVER_PERSIST = frozenset({
+    "conversation_history", "_session_workspace_root", "_session_write_roots",
+    "_session_read_roots", "_workspace_transport",
+})
 
 
 @dataclass

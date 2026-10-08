@@ -455,6 +455,8 @@ class TerminalRuntimeEventConsumer:
         )
         if can_live:
             now = time.time()
+            if self.live_display is not None and now - self.last_live_update < self.live_update_interval:
+                return
             md = self.markdown_cls(self.strip_latex(self.response_text))
             if self.live_display is None:
                 self.live_display = self.live_cls(
@@ -610,6 +612,12 @@ class TerminalRuntimeEventConsumer:
                 self.console.print(f"  [{colour}]{'✓' if passed else '✗'} {message}[/{colour}]")
             else:
                 print(f"  {'✓' if passed else '✗'} {message}")
+            return
+        if state in {"max_rounds", "budget_exhausted", "loop_guard", "checks_failed"}:
+            if self.has_rich and self.console is not None:
+                self.console.print(f"  [yellow]Task incomplete: {message}[/yellow]")
+            else:
+                print(f"  Task incomplete: {message}")
             return
         if state != "fallback":
             return

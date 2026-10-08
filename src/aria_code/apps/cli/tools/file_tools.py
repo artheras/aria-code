@@ -28,7 +28,7 @@ from aria_code.workspace import WorkspaceFiles  # noqa: E402
 from aria_code.workspace.files import WorkspaceSecurity
 import os
 
-def _get_workspace_files():
+def _get_workspace_files(params=None):
     """Reads for the local CLI: cwd, home, and the temp dirs.
 
     ``allow_home=False`` used to be hardcoded here to "force restrict to the
@@ -42,7 +42,7 @@ def _get_workspace_files():
     everywhere else: ARIA_RUNTIME_SCOPE=remote, which Dockerfile.review sets.
     Leaving the flag unset here honours it without disabling the local paths.
     """
-    security = WorkspaceSecurity(cwd=os.getcwd())
+    security = WorkspaceSecurity.from_tool_params(params or {})
     return WorkspaceFiles(security=security)
 
 
@@ -57,7 +57,7 @@ def tool_read_file(params: dict) -> dict:
         limit  = int(params.get("limit",  0) or 0)
         if not offset and not limit:
             limit = 160
-        result = _get_workspace_files().read_file(path, offset=offset, limit=limit)
+        result = _get_workspace_files(params).read_file(path, offset=offset, limit=limit)
         content = result.content
         if limit and result.lines >= limit and "use offset/limit to read more" not in content:
             content += "\n... [default read limit applied — use offset/limit to read more]"
@@ -75,7 +75,7 @@ def tool_list_files(params: dict) -> dict:
     path    = params.get("path", ".")
     pattern = params.get("pattern", "*")
     try:
-        data = _get_workspace_files().list_files(path, pattern)
+        data = _get_workspace_files(params).list_files(path, pattern)
         return {"success": True, "data": {
             "path":    data["path"],
             "pattern": data["pattern"],
@@ -94,7 +94,7 @@ def tool_search_code(params: dict) -> dict:
     if not pattern:
         return {"success": False, "error": "Missing 'pattern' parameter"}
     try:
-        data = _get_workspace_files().search_code(pattern, path, file_glob)
+        data = _get_workspace_files(params).search_code(pattern, path, file_glob)
         return {"success": True, "data": {
             "pattern": data["pattern"],
             "path":    data["path"],
@@ -114,13 +114,14 @@ def tool_glob(params: dict) -> dict:
     root    = (params.get("path", ".") or ".").strip()
     limit   = min(int(params.get("limit", 200)), 1000)
     try:
-        p = pathlib.Path(root).expanduser().resolve()
+        security = WorkspaceSecurity.from_tool_params(params)
+        p = security.require_safe(root)
         if not p.is_dir():
             return {"success": False, "error": f"Directory not found: {p}"}
         results = sorted(
             str(fp.relative_to(p) if fp.is_relative_to(p) else fp)
             for fp in p.glob(pattern)
-            if fp.is_file()
+            if fp.is_file() and security.is_safe_path(fp)
         )[:limit]
         return {"success": True, "data": {
             "pattern": pattern,
