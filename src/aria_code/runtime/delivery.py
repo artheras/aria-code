@@ -79,6 +79,7 @@ class DeliveryReport:
     refused: tuple = ()
     stop_reason: str = "completed"
     next: str = ""
+    impact: str = ""                     # what depends on the changed files (project graph)
 
     @property
     def worth_showing(self) -> bool:
@@ -107,6 +108,7 @@ class DeliveryReport:
             "refused": [dict(item) for item in self.refused],
             "stop_reason": self.stop_reason,
             "next": self.next,
+            "impact": self.impact,
         }
 
     @classmethod
@@ -128,6 +130,7 @@ class DeliveryReport:
             refused=tuple(dict(item) for item in data.get("refused") or ()),
             stop_reason=str(data.get("stop_reason") or "completed"),
             next=str(data.get("next") or ""),
+            impact=str(data.get("impact") or ""),
         )
 
     def render(self, *, rewind_hint: str = "", root: Optional[Path | str] = None) -> str:
@@ -148,12 +151,20 @@ class DeliveryReport:
                     lines.append(f"      tested by {shown}{more}")
             if len(self.changed) > 1:
                 lines.append(f"  {len(self.changed)} files · +{self.added} / -{self.removed}")
+            if self.impact:
+                lines.append(f"  impact {self.impact}")
         lines += ["", "Verified"]
         if self.checks:
             for check in self.checks:
                 ok = check.get("passed")
                 tail = "" if ok else f"  (exit {check.get('exit_code')})"
+                if not ok and check.get("preexisting"):
+                    tail += " — already failing before this change"
                 lines.append(f"  {'✓' if ok else '✗'} {check.get('command', '')}{tail}")
+                new = check.get("new_failures") or ()
+                if new:
+                    shown = ", ".join(new[:3]) + (f" … +{len(new) - 3}" if len(new) > 3 else "")
+                    lines.append(f"      new failures: {shown}")
             if self.verified is None and self.changed:
                 lines.append("  ⚠ changed again after the last check")
         else:
@@ -297,6 +308,18 @@ class DeliveryLedger:
             found |= {f for f in files if _is_test_path(f)}
         return tuple(sorted(found))
 
+    @staticmethod
+    def _impact(changed) -> str:
+        sources = [item.path for item in changed if not _is_test_path(item.path)]
+        if not sources:
+            return ""
+        try:
+            from .project_graph import impact_line, impact_of_paths
+
+            return impact_line(impact_of_paths(sources))
+        except Exception:
+            return ""
+
     def diff_text(self) -> str:
         """Every applied change's diff, in order — what a reviewer reads."""
         return "".join(self._diffs)
@@ -313,7 +336,9 @@ class DeliveryLedger:
         reports = list((acceptance or {}).get("reports") or [])
         if reports:
             checks = [
-                {"command": c.get("command", ""), "passed": bool(c.get("passed")), "exit_code": c.get("exit_code")}
+                {"command": c.get("command", ""), "passed": bool(c.get("passed")), "exit_code": c.get("exit_code"),
+                 **({"preexisting": True} if c.get("preexisting") else {}),
+                 **({"new_failures": list(c["new_failures"])} if c.get("new_failures") else {})}
                 for c in reports[-1].get("checks") or []
             ]
         verified = (acceptance or {}).get("verified")
@@ -333,6 +358,10 @@ class DeliveryLedger:
                 "checks_failed": "Fix the failing checks",
                 "text_tool_calls": "The model wrote tool calls as text — retry the turn",
             }.get(stop_reason, f"Stopped: {stop_reason}")
+        elif verified is False and checks and all(c["passed"] or c.get("preexisting") for c in checks):
+            # Red only where it was red before this change (runtime/baseline.py).
+            status = "done"
+            next_step = "Ready to commit — the failing checks already failed before this change"
         elif verified is False or any(not c["passed"] for c in checks):
             status = "incomplete"
             next_step = "Fix the failing checks"
@@ -357,6 +386,7 @@ class DeliveryLedger:
             changed=changed,
             checks=tuple(checks),
             verified=verified,
+            impact=self._impact(changed),
             review=str((review or {}).get("headline") or "Not reviewed"),
             review_lines=tuple((review or {}).get("lines") or ()),
             behaviour=(review or {}).get("behaviour") or None,

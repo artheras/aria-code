@@ -226,6 +226,10 @@ def tool_run_command(
                 workspace=params.get("_workspace"),
                 extra=params.get("_allowed_write_roots", ()),
             )
+            # In a task worktree, the worktree's own source comes first on
+            # PYTHONPATH, so an editable install of the user's checkout does
+            # not answer imports meant for the task's edits.
+            from aria_code.runtime.task_worktree import worktree_command_env
             result = subprocess.run(
                 confined or (argv if (argv and not use_shell) else command),
                 shell=use_shell and not confined,
@@ -233,6 +237,7 @@ def tool_run_command(
                 text=True,
                 timeout=timeout,
                 cwd=cwd,
+                env=worktree_command_env(params.get("_workspace") or "", params.get("_workspace_origin") or ""),
             )
             if confined and "sandbox-exec: sandbox_apply" in (result.stderr or ""):
                 # Never fall back to running it unconfined.

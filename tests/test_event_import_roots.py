@@ -1,7 +1,7 @@
 """Provider events are read whichever import root built them.
 
 The CLI's modules import under two roots, ``aria_code.apps.cli…`` and the bare
-``apps.cli…``, and each root has its own copy of every event class.
+``apps.cli…``, and each root had its own copy of every event class.
 runtime_bridge builds providers from the bare root; the stream consumers
 checked events against the packaged root with isinstance. Every event failed
 the check, so a provider streamed "ready", the consumer saw nothing, and the
@@ -18,8 +18,10 @@ import apps.cli.providers.base as bare
 import aria_code.packages.aria_sdk.streaming as streaming
 
 
-def test_the_two_roots_really_hold_different_classes():
-    assert bare.LLMDone is not streaming.LLMDone
+def test_the_two_roots_now_hold_the_same_classes():
+    # aria_code/__init__.py aliases the bare root onto the packaged one; the
+    # stream below is still read whichever root built it.
+    assert bare.LLMDone is streaming.LLMDone
 
 
 def test_a_stream_from_the_bare_root_is_read():

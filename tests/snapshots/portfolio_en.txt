@@ -8,5 +8,5 @@
   • Overall: NEEDS_ATTENTION
 
    !   NEEDS_ATTENTION  confidence 65%
-   5 symbols, equal weight (no real positions recorded, so not your actual
-   exposure) · Annualised portfolio volatility 22.0% (medium)
+   5 symbols, equal weight (no real positions recorded, so not your actual exposure) · Annualised
+   portfolio volatility 22.0% (medium)

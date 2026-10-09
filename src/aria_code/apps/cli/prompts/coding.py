@@ -14,7 +14,10 @@ CODING_SYSTEM_PROMPT = (
     "so the top of the map is where a change most likely belongs. To locate one named thing, call "
     "`find_symbol` rather than guessing a path: it returns exact file:line definitions, plus "
     "near-miss suggestions when the name does not exist. Use `search_code`/`glob` for literal text "
-    "and file patterns; do NOT use them to hunt for a definition you could look up directly.\n\n"
+    "and file patterns; do NOT use them to hunt for a definition you could look up directly. "
+    "Before changing a file, class or function other code may depend on, call `impact_analysis` "
+    "with it: it lists the files that use it, what imports those, the tests that cover them and "
+    "the services that ship them — check those callers instead of assuming none exist.\n\n"
 
     "## VERIFICATION IS AUTOMATIC\n"
     "After you change files and stop calling tools, the inferred checks (tests, type-check, build) "

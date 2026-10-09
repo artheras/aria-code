@@ -37,6 +37,11 @@ INSPECT → PLAN → (approval if needed) → EXECUTE → VERIFY → REVIEW → 
 | **Semantic diff** (definitions touched, behaviour, tested by) | `runtime/semantic_diff.py` | **phase 3** |
 | **Detail on demand** (output tail, ctrl+o) | `ui/render/actions.py` | **phase 3** |
 | **Edit by symbol** (`edit_file` with `symbol`) | `runtime/symbol_edit.py` | **phase 3** |
+| **Worktree per task**, applied on approval | `runtime/task_worktree.py`, `apps/cli/task_isolation.py` | **phase 4** |
+| **Transaction rewind** (files, conversation, tasks, approvals, verdict) | `runtime/transactions.py`, `apps/cli/transactions.py` | **phase 4** |
+| **Project graph**, impact analysis before editing | `runtime/project_graph.py` | **phase 4** |
+| **User workflows** (`.aria/workflows/*.yaml`) | `runtime/workflows.py`, `apps/cli/workflow_runner.py` | **phase 4** |
+| **Test baseline** — pre-existing failures are not repaired | `runtime/baseline.py` | **phase 4** |
 
 ## Risk levels
 
@@ -160,6 +165,19 @@ blocking.
 
 It costs one model call per reviewed change, so it is off by default.
 
+## Test baseline
+
+A red check is compared with the code before the change before the model is
+sent to repair it. The failed command runs once more — on the task's
+starting snapshot in a task worktree, otherwise on the working tree with
+this turn's checkpointed edits undone — in a scratch worktree removed
+afterwards. pytest failures are compared by test id, other commands by exit
+status. A check red only where it was already red is not sent back; when
+some failures are new, the repair directive lists the old ones as not this
+task's. The delivery report shows them (`✗ pytest -q (exit 1) — already
+failing before this change`) and calls the turn done; the rewind verdict is
+`≈`. `test_baseline: false` turns it off.
+
 ## The transcript
 
 Tool calls are shown as actions:
@@ -219,6 +237,149 @@ flush-left is indented to the definition's level.
 With the review gate on, the reviewer also describes the change as behaviour —
 *Before / After / Why / Impact* — shown above its findings.
 
+## Worktree per task
+
+In the REPL, inside a git repository, a coding task works on a copy. Before a
+turn that may write, the working tree — uncommitted and untracked files
+included, ignored ones not — is recorded as a commit through a scratch index
+(the user's index and files are not touched) and a detached worktree is
+checked out from it. The turn's tools act there: relative paths resolve in
+the worktree, and an absolute path into the repository, or a command that
+`cd`s into it, is taken to mean the same place in the worktree. Ignored
+dependency directories (`node_modules`, `.venv`, `venv`, `env`, `.tox`) are
+linked in so checks can run.
+
+After a turn that changed files:
+
+```text
+  Task 1a2b3c4d changed 2 files in its worktree; your files are unchanged.
+    M src/session.py
+    A tests/test_session.py
+  Apply this task?
+  ❯ Apply to my files (a)   Keep working (k)   Discard (d)
+```
+
+*Apply* is `git apply` of the task's diff against its starting snapshot,
+checked first: if the user has since changed the same lines it refuses and
+keeps the worktree, so nothing is overwritten. Applied files get checkpoints
+(`/rewind list`). *Keep working* (or Esc) leaves the task open and the next
+message continues in it, across restarts. A task with no changes follows the
+workspace, rebuilt when the user's files move; one with nothing in it is
+removed at exit.
+
+`/task` shows the open task; `/task diff`, `/task apply`, `/task discard`.
+`task_isolation: off` (or `ARIA_TASK_ISOLATION=off`) edits in place as
+before. Read-only and plan modes never isolate, and headless `-p` runs edit
+in place: a script expects the change on disk when the command exits.
+
+Commands run in a worktree get its Python source roots first on
+`PYTHONPATH` (pytest's `pythonpath`, setuptools' `package-dir`, a `src/`
+layout), so a project installed with `pip install -e` imports the task's
+edits rather than the user's checkout. Background commands are not covered
+yet.
+
+Background tasks (`spawn_task`) with `isolation: worktree` now run their
+tools in their own worktree. The aria runner previously called the streaming
+helper with arguments it does not take, so those tasks failed on start.
+
+## Rewinding a turn
+
+Before each REPL turn a transaction point records the session as it stands:
+the conversation, the task list, the approvals in force (allow-all, per tool,
+per command prefix), the newest file checkpoint, whether the code had passed
+its checks, and the open task worktree with its unapplied diff.
+
+```text
+/rewind turns          list points, newest first, with ✓ / ✗ / · for checks
+/rewind turn [N|id]    back to before the Nth-last turn (default 1)
+/rewind green          back to the newest point whose checks passed
+```
+
+A rewind undoes every file change checkpointed after the point, newest first
+and all or nothing (a task worktree is instead reset to the point's
+snapshot plus its saved patch, which also undoes what shell commands
+changed there): a file edited by hand since stops it before anything else
+changes. Then the conversation, task list and approvals are put back —
+grants given since are revoked and listed — background tasks spawned since
+are cancelled, and a task worktree that was open then but has since gone is
+reopened with its changes. The undone turns leave the history.
+
+Points are kept per session (`<aria home>/transactions`, newest 50), each
+storing only the messages added since the previous one. Files changed by a
+shell command rather than an edit tool have no checkpoint and are not undone;
+`/rewind code|conversation|both|list` work as before.
+
+## Impact before editing
+
+The project graph holds the repository's files, the symbols they define,
+the imports between them (Python through `ast`, JS/TS relative specifiers),
+references to symbols defined elsewhere, which files are tests, and which
+service ships each file (a `docker-compose` build context, or a directory
+with its own `pyproject.toml`, `package.json`, `go.mod` or `Cargo.toml`).
+It is saved per repository under `<aria home>/graphs` and reused while no
+file has changed; otherwise only changed files are re-parsed.
+
+The model calls `impact_analysis` with paths or symbols before changing
+code others depend on; the coding prompt tells it to. `/impact` shows the
+same:
+
+```text
+/impact CheckpointStore.restore_since
+Impact of CheckpointStore.restore_since: moderate
+  Used directly by (2)
+    src/aria_code/apps/cli/transactions.py
+    tests/test_checkpoints_since.py
+  Reached through imports (9)
+    src/aria_code/apps/cli/chat_turn.py
+    …
+  Tests (7)
+  Services  aria-local
+```
+
+Edit approval cards carry an `Impact` row and the delivery report an
+`impact` line, from a graph already in memory or on disk — never built on
+the spot, so an approval cannot stall on a scan.
+
+A symbol reaches the files that name it, not every importer of the file
+that defines it. Imports are followed three hops, but not through a package
+`__init__` or a file importing more than twenty others — past those,
+everything reaches everything.
+
+## Workflows
+
+`.aria/workflows/<name>.yaml` defines a pipeline run as `/<name> [args]`
+(or `/workflow run <name>`):
+
+```yaml
+description: Test, build, review, changelog, PR
+steps:
+  - name: Tests
+    run: python -m pytest -q
+  - name: Build
+    run: python -m build
+    timeout: 600
+  - name: Security review
+    command: /review --base main
+  - name: Changelog
+    prompt: Add a CHANGELOG.md entry for the changes since the last tag. {{args}}
+  - name: Open the PR
+    run: gh pr create --fill
+    confirm: true
+```
+
+`run` goes through the `run_command` tool (policy, sandbox, output),
+`prompt` is a full turn (tools, approvals, checks, task worktree, rewind
+point), `command` any slash command. A step fails on a non-zero exit, on a
+turn that leaves checks failing that passed before, or on an unknown
+command; the first failure stops the run unless the step has
+`continue_on_error`, and declining a `confirm` step stops it too. The run
+ends with one line per step.
+
+The file comes with the repository, so its first run — and the first after
+it changes — lists every step and asks; the answer is kept by content hash.
+Built-in commands and skills win over a workflow of the same name.
+`/workflow list`, `/workflow show <name>`, `/workflow new <name>`.
+
 ## How Codex and Claude Code present the same things
 
 From the Codex TUI source (`codex-rs/tui`, its render snapshots) and the
@@ -241,12 +402,9 @@ Claude Code changelog, October 2026:
 
 ## Roadmap
 
-**Phase 4 — transactions and project knowledge**
-
-- Worktree per task by default, merged on approval.
-- Transaction checkpoints that also restore task graph, approvals, test
-  baseline and conversation, not only files.
-- Persistent project graph (files, symbols, tests, services and their edges)
-  for impact analysis before editing.
-- `.aria/workflows/*.yaml` for user-defined pipelines (`/release` → test →
-  build → security review → changelog → PR).
+Phase 4 — worktree per task, transaction rewind, project graph and user
+workflows, test baseline — is in. Open: outside a task worktree, files
+changed by shell commands are outside checkpoints and so outside a rewind;
+the graph's imports cover Python and JS/TS, other languages rely on
+references. Behaviour with real models is measured by the scenarios in
+`artheras/evals`.

@@ -372,12 +372,6 @@ def _get_mdc():
     from market_data_client import get_mdc
     return get_mdc()
 
-# Session-level TA cache: persists across multiple /analyze calls in a session,
-# so a single yfinance rate-limit hit doesn't wipe all indicator data.
-# Structure: {symbol: {"data": <ti_dict>, "ts": float}}
-_TA_SESSION_CACHE: dict = {}
-_TA_SESSION_CACHE_TTL = 600  # 10 minutes
-
 # (legacy financial_agents fallback removed — the agents/ package is the sole path)
 
 try:
@@ -1113,6 +1107,14 @@ except Exception as _exc:
     logger.debug("Repo-map tools init error: %s", _exc)
     REPO_MAP_SCHEMAS: list = []  # type: ignore[no-redef]
 
+# ── Register the project graph (impact analysis before editing) ──────────────
+try:
+    from aria_code.runtime.project_graph import PROJECT_GRAPH_TOOLS, PROJECT_GRAPH_SCHEMAS
+    LOCAL_TOOLS.update(PROJECT_GRAPH_TOOLS)
+except Exception as _exc:
+    logger.debug("Project graph tools init error: %s", _exc)
+    PROJECT_GRAPH_SCHEMAS: list = []  # type: ignore[no-redef]
+
 # ── Register artifact publishing (model-facing canvas tool) ───────────────────
 try:
     from aria_code.tools.artifact_tools import ARTIFACT_TOOLS, ARTIFACT_TOOL_SCHEMAS
@@ -1268,6 +1270,7 @@ LOCAL_TOOL_SCHEMAS.extend(_wrap_bare_schemas(LSP_SCHEMAS))
 # hides them from the model instead of gating them — the same defect
 # tests/test_tool_scope.py caught for the code-audit tools.
 LOCAL_TOOL_SCHEMAS.extend(_wrap_bare_schemas(REPO_MAP_SCHEMAS))
+LOCAL_TOOL_SCHEMAS.extend(_wrap_bare_schemas(PROJECT_GRAPH_SCHEMAS))
 LOCAL_TOOL_SCHEMAS.extend(_wrap_bare_schemas(ARTIFACT_TOOL_SCHEMAS))
 
 
@@ -3490,7 +3493,7 @@ class SlashCommands(
             "/regen":     (self.cmd_regen,    "Regenerate last response"),
             "/undo":      (self.cmd_undo,     "Undo last message pair"),
             "/rewind":    (getattr(self, "cmd_rewind", self._cmd_rewind_unavailable),
-                           "Restore code/chat: /rewind code|conversation|both|list"),
+                           "Restore code/chat: /rewind code|conversation|both|list, or a whole turn: /rewind turn [N]|turns|green"),
             "/fork":      (self.cmd_fork,     "Fork conversation: /fork [name]"),
             "/load-fork": (self.cmd_load_fork,"Restore forked conversation: /load-fork <id>"),
             "/copy":      (self.cmd_copy,     "Copy last response to clipboard"),
@@ -3619,6 +3622,9 @@ class SlashCommands(
             "/apply-plan":   (self.cmd_apply_plan,   "Execute a saved plan: /apply-plan [--resume] [--from N]"),
             "/plan-report":  (self.cmd_plan_report,  "Plan run report: /plan-report [md|json] [file] [--open]"),
             "/tasks":        (self.cmd_tasks,         "Background tasks: /tasks [list|cancel <id>]"),
+            "/task":         (self.cmd_task,          "Current coding task's worktree: /task [diff|apply|discard]"),
+            "/impact":       (self.cmd_impact,        "What a change reaches: /impact <path|symbol> [...]"),
+            "/workflow":     (self.cmd_workflow,      "Project workflows in .aria/workflows: /workflow list|show|run|new <name>"),
             "/delegate":     (self.cmd_delegate,      'Delegate to another agent CLI: /delegate claude|codex "<prompt>"'),
             "/canva":        (self.cmd_canva,         "Canva Connect: /canva connect <client_id> <client_secret> | status"),
             "/optimize-port":(self.cmd_optimize_port,"Portfolio optimization: /optimize-port [SYMBOL...]"),
@@ -4109,15 +4115,14 @@ class ArtheraTerminal(_ChatTurn, _Chrome, _HeadlessMixin):
             )
             _terminal_ref = self
 
-            async def _subagent_runner(prompt: str) -> str:
-                """Run prompt through the same provider in isolated history."""
-                result = await stream_provider_result(
-                    prompt,
-                    history=[],
-                    config=_terminal_ref.config,
-                    local_tools=LOCAL_TOOLS,
+            async def _subagent_runner(prompt: str, task=None) -> str:
+                """Run a task through the chat runtime, in the task's own workspace."""
+                from apps.cli.providers.runtime_bridge import run_subagent_turn
+
+                return await run_subagent_turn(
+                    prompt, task, local_tools=LOCAL_TOOLS, tool_schemas=LOCAL_TOOL_SCHEMAS,
+                    config=_terminal_ref.config, api_url=_terminal_ref.api_url,
                 )
-                return result.get("response", "") if result.get("success") else ""
 
             _register_subagent_runner(_subagent_runner)
             _restore_subagent_tasks()

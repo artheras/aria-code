@@ -16,24 +16,22 @@ import inspect
 import sys
 
 
-def test_each_aria_cli_binds_its_own_copy():
+def test_both_roots_are_one_aria_cli_with_its_methods_bound_to_it():
     import importlib
 
     sys.argv = ["aria-code"]
-    # Both roots on purpose: this test is about the two module objects.
-    # test_single_import_root forbids it for ordinary tests, where it means a
-    # patch lands on the copy nobody calls.
+    # Both roots on purpose: they used to be two module objects, each binding
+    # its own copy of the mixins. aria_code/__init__.py now aliases the bare
+    # root onto the packaged one.
     bare = importlib.import_module("aria_cli")
     packaged = importlib.import_module("aria_code.aria_cli")
+    assert bare is packaged
 
-    for module in (bare, packaged):
-        for name in ("run_prompt", "_run_prompt_turn", "_finish_prompt", "run_watch", "send_message",
-                     "print_header", "_status_line", "_build_keybindings", "_workspace_git_state",
-                     "_bottom_toolbar"):
-            method = getattr(module.ArtheraTerminal, name)
-            assert method.__globals__ is vars(module), (module.__name__, name)
-    assert bare.ArtheraTerminal.run_prompt is not packaged.ArtheraTerminal.run_prompt
-    assert bare.ArtheraTerminal.send_message is not packaged.ArtheraTerminal.send_message
+    for name in ("run_prompt", "_run_prompt_turn", "_finish_prompt", "run_watch", "send_message",
+                 "print_header", "_status_line", "_build_keybindings", "_workspace_git_state",
+                 "_bottom_toolbar"):
+        method = getattr(packaged.ArtheraTerminal, name)
+        assert method.__globals__ is vars(packaged), name
 
 
 def test_the_code_lives_in_its_own_modules():

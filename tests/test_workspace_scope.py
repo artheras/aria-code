@@ -14,6 +14,8 @@ import pathlib
 import tempfile
 import unittest
 
+import pytest
+
 from aria_code.workspace import WorkspaceSecurity
 
 
@@ -25,6 +27,7 @@ class LocalScopeTests(unittest.TestCase):
         scratch = pathlib.Path(tempfile.gettempdir()) / "aria-scope-probe.txt"
         self.assertTrue(self._security().is_safe_path(scratch))
 
+    @pytest.mark.usefixtures("fake_home")
     def test_home_and_cwd_are_allowed_by_default(self):
         self.assertTrue(self._security().is_safe_path(pathlib.Path.home() / "x.txt"))
         self.assertTrue(self._security().is_safe_path(pathlib.Path.cwd() / "x.py"))

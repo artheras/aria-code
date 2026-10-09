@@ -9,6 +9,8 @@ import unittest
 import json
 import tempfile
 
+import pytest
+
 # Allow importing from parent directory
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -97,6 +99,7 @@ class TestStripMarkdownFences(unittest.TestCase):
 # ============================================================================
 
 class TestIsSafePath(unittest.TestCase):
+    @pytest.mark.usefixtures("fake_home")
     def test_home_directory_is_safe(self):
         p = pathlib.Path.home().resolve() / "test.txt"
         self.assertTrue(_is_safe_path(p))
@@ -655,6 +658,11 @@ class TestWritePolicy(unittest.TestCase):
     def test_desktop_write_skips_confirm(self):
         """Writes to ~/Desktop should always succeed without user interaction."""
         import pathlib
+        from unittest import mock
+        # Its own home, so the test never writes to the real Desktop.
+        home = mock.patch.dict(os.environ, {"HOME": self.tmpdir, "USERPROFILE": self.tmpdir})
+        home.start()
+        self.addCleanup(home.stop)
         desktop = pathlib.Path.home() / "Desktop"
         target = str(desktop / "_aria_test_write_policy_xyz.py")
         _ACTIVE_WRITE_POLICY[0] = "desktop_only"

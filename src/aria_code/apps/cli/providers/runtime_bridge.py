@@ -136,7 +136,43 @@ def build_acceptance_gate(executor, config: Optional[dict] = None, message: str 
         root=root,
         max_attempts=int(cfg.get("acceptance_max_attempts", 2) or 2),
         commands=_declared_acceptance_commands(cfg, message),
+        baseline=_build_baseline(executor, cfg, timeout),
     )
+
+
+def _build_baseline(executor, cfg: dict, timeout: int):
+    """Reruns a failed check on the code before the change; None when off.
+
+    In a task worktree the "before" is the task's starting snapshot, in the
+    user's own repository. Otherwise it is the working tree with this turn's
+    edits undone from the checkpoints recorded after this point.
+    """
+    if not cfg.get("test_baseline", True):
+        return None
+    try:
+        import os
+
+        from aria_code.packages.aria_core.paths import aria_home
+        from aria_code.runtime.approval import ApprovalDecision
+        from aria_code.runtime.baseline import Baseline
+        from aria_code.runtime.checkpoints import CheckpointStore
+
+        context = dict(executor.execution_context() or {}) if getattr(executor, "execution_context", None) else {}
+        base_commit = str(context.get("_task_base") or "")
+        workspace = cfg.get("_session_workspace_root") or os.getcwd()
+
+        def run(command: str, cwd: str) -> dict:
+            return executor.execute_local("run_command", {"command": command, "cwd": cwd, "timeout": timeout},
+                                          approval=ApprovalDecision.allow(policy="balanced", user_approved=True))
+
+        return Baseline(
+            workspace, run=run, base_commit=base_commit,
+            undo_since=None if base_commit else CheckpointStore().max_sequence(),
+            session_id=str(context.get("_session_id") or ""),
+            scratch_root=aria_home() / "worktrees" / "baselines",
+        )
+    except Exception:
+        return None
 
 
 def build_change_contract(config: Optional[dict] = None, message: str = "", executor=None):
@@ -435,3 +471,40 @@ async def run_chat_via_runtime(
         review=review,
     )
     return result if return_result else result.text
+
+
+def subagent_run_options(config: dict, task: Any) -> tuple[dict, dict]:
+    """The config and execution context a background task's turn runs under.
+
+    A task names its own workspace (its worktree, for an isolated one) and its
+    own mode; the session's are not its. Without this the runner sent every
+    task's tools to the session's directory, whatever the task said.
+    """
+    cfg = dict(config or {})
+    mode = str(getattr(task, "mode", "") or "read-only")
+    cfg["permission_mode"] = "read-only" if mode == "read-only" else "workspace-write"
+    context: dict = {"_session_id": str(getattr(task, "session_id", "") or "")}
+    workspace = str(getattr(task, "workspace", "") or "")
+    if workspace:
+        cfg["_session_workspace_root"] = workspace
+        context["_workspace"] = workspace
+    spec = getattr(task, "worktree_spec", None)
+    if spec is not None:
+        context["_workspace_origin"] = str(spec.repository)
+        context["_workspace_restricted"] = True
+    return cfg, context
+
+
+async def run_subagent_turn(prompt: str, task: Any, *, local_tools, tool_schemas: List[dict],
+                            config: dict, api_url: Optional[str]) -> str:
+    """Run one background task through the same runtime as a chat turn."""
+    cfg, context = subagent_run_options(config, task)
+    result = await run_chat_via_runtime(
+        prompt=prompt, history=[], local_tools=local_tools, tool_schemas=tool_schemas,
+        model=str(cfg.get("model") or ""), config=cfg, api_url=api_url,
+        ollama_url=str(cfg.get("ollama_url") or "http://localhost:11434"),
+        execution_context=lambda: dict(context), return_result=True,
+    )
+    if getattr(result, "error", None) and not str(getattr(result, "text", "") or "").strip():
+        raise RuntimeError(str(result.error))
+    return str(getattr(result, "text", "") or "")

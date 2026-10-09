@@ -43,7 +43,11 @@ from typing import Optional
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
-_LOG_DIR = Path.home() / ".aria" / "logs"
+# Importing this module creates the log file and daemon.db and loads .env into
+# os.environ (aria_feishu_bot relies on that), so the directory can be moved:
+# the test suite points it at a scratch directory instead of the user's own.
+_ARIA_DIR = Path(os.environ.get("ARIA_DAEMON_DIR") or (Path.home() / ".aria")).expanduser()
+_LOG_DIR = _ARIA_DIR / "logs"
 _LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
@@ -58,7 +62,6 @@ logger = logging.getLogger("aria.daemon")
 
 # ── Paths & config ────────────────────────────────────────────────────────────
 
-_ARIA_DIR  = Path.home() / ".aria"
 _DB_PATH   = _ARIA_DIR / "daemon.db"
 _PID_FILE  = _ARIA_DIR / "daemon.pid"
 _ENV_FILE  = _ARIA_DIR / ".env"

@@ -1576,7 +1576,9 @@ async def run_agent(
                     )
                     if hook is not None:
                         hook("acceptance", "verify", report.summary(), None)
-                    if report.ran and not report.passed:
+                    # A check red only where it was red before the change
+                    # (runtime/baseline.py) is not this task's to repair.
+                    if report.ran and not report.passed and report.regressed:
                         # 把失败输出当成下一轮的用户消息回灌。走和工具结果
                         # 完全相同的通道,模型不需要认识一种新的消息类型。
                         history = list(history) + [
