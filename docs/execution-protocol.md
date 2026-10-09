@@ -406,5 +406,12 @@ Phase 4 — worktree per task, transaction rewind, project graph and user
 workflows, test baseline — is in. Open: outside a task worktree, files
 changed by shell commands are outside checkpoints and so outside a rewind;
 the graph's imports cover Python and JS/TS, other languages rely on
-references. Behaviour with real models is measured by the scenarios in
-`artheras/evals`.
+references.
+
+How a real model uses these pieces is measured by `evals/suites/behavior.yaml`
+— tasks scored by their checks like every suite, plus `behavior` checks on the
+run's tool calls (did it call `impact_analysis` before editing a shared
+function, edit by `symbol`, leave an already failing test alone) — and by
+`python -m aria_code.evals.review_probe evals/review/cases.yaml`, which gives
+the reviewer fixed diffs and counts false positives and misses. Both run in
+the weekly evals workflow.

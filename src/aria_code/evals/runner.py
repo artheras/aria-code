@@ -100,7 +100,7 @@ def check_only_solver(prompt: str, workspace: Path) -> None:
 
 
 def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = False,
-                       trajectories: "Trajectories | None" = None):
+                       trajectories: "Trajectories | None" = None, events: bool = False):
     """Drive the real Aria agent over one task, in the task's own workspace.
 
     The agent is invoked as a subprocess in headless mode rather than in this
@@ -123,9 +123,10 @@ def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = Fal
             "--dangerously-skip-permissions",
             "--no-banner",
         ]
-        if trajectories is not None:
+        if trajectories is not None or events:
             # One JSON event per tool call on stdout; the screen output stays
-            # on stderr, which is what a failed task's log tail shows.
+            # on stderr, which is what a failed task's log tail shows. Behaviour
+            # checks read these events too.
             command.extend(["--format", "jsonl"])
         if model:
             command.extend(["--model", model])
@@ -133,7 +134,7 @@ def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = Fal
             command.append("--local")
         try:
             env = None
-            if trajectories is not None:
+            if trajectories is not None or events:
                 import os
                 env = {**os.environ, "ARIA_EVENTS_FULL": "1"}
             done = subprocess.run(
@@ -176,6 +177,8 @@ def _print_result(result: TaskResult) -> None:
     if result.detail:
         line += f"  — {result.detail}"
     print(line)
+    for item in result.behavior:
+        print(f"      {'✓' if item['passed'] else '✗'} {item['check']} — {item['detail']}")
     if result.outcome == FAIL and result.changed:
         print(f"      changed: {', '.join(result.changed)}")
     if result.outcome in (FAIL, INVALID, ERROR) and result.log:
@@ -224,6 +227,7 @@ def main(argv: list[str] | None = None) -> int:
                     if args.trajectories and not args.check else None)
     solver = check_only_solver if args.check else build_agent_solver(
         model=args.model, timeout=args.solve_timeout, local=args.local, trajectories=trajectories,
+        events=any(task.behavior for task in tasks),
     )
     mode = "pre-flight only" if args.check else f"agent{f' ({args.model})' if args.model else ''}"
     print(f"\n{name} — {len(tasks)} task(s), {mode}\n")

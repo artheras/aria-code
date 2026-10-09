@@ -205,6 +205,7 @@ jobs:
           python -m aria_code.evals.runner evals/suites/operations.yaml --check
           python -m aria_code.evals.runner evals/suites/hard.yaml --check
           python -m aria_code.evals.runner evals/suites/projects.yaml --check
+          python -m aria_code.evals.runner evals/suites/behavior.yaml --check
 
   # ── The release artifact must actually install and run ──────────────────────
   # Nothing here ever built a wheel and looked inside it, and three defects lived

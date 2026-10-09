@@ -109,6 +109,12 @@ jobs:
 
           python -m aria_code.evals.runner evals/suites/projects.yaml --model "$MODEL" \
             --solve-timeout 600 --repeat "$REPEAT" --report evals-projects.json --trajectories trajectories || true
+          # How the agent works, not only whether it ends up right (behavior checks).
+          python -m aria_code.evals.runner evals/suites/behavior.yaml --model "$MODEL" \
+            --solve-timeout 600 --repeat "$REPEAT" --report evals-behavior.json --trajectories trajectories || true
+          # The independent reviewer on fixed diffs: false positives and misses.
+          python -m aria_code.evals.review_probe evals/review/cases.yaml --model "$MODEL" \
+            --repeat "$REPEAT" --report evals-review.json || true
 
       - name: Check out the holdout suites
         if: env.READY == 'true' && env.HOLDOUT == 'true'
@@ -135,7 +141,7 @@ jobs:
         run: |
           shopt -s nullglob
           private=(.holdout-reports/*.json)
-          python -m aria_code.evals.summary --model "$MODEL" evals-core.json evals-operations.json evals-hard.json evals-projects.json \
+          python -m aria_code.evals.summary --model "$MODEL" evals-core.json evals-operations.json evals-hard.json evals-projects.json evals-behavior.json \
             ${private:+--private "${private[@]}"} | tee -a "$GITHUB_STEP_SUMMARY"
           if [ ${#private[@]} -gt 0 ]; then
             python -m aria_code.evals.gap --markdown --public evals-core.json evals-operations.json evals-hard.json evals-projects.json \
