@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tarfile
 import time
+import subprocess
 from types import SimpleNamespace
 from urllib.error import HTTPError
 from urllib.error import URLError
@@ -134,8 +135,8 @@ def test_archive_traversal_is_rejected(tmp_path):
     assert not (tmp_path / "escape").exists()
 
 
-@pytest.mark.parametrize("version_matches", [True, False])
-def test_native_update_verifies_binary_before_switching(monkeypatch, tmp_path, version_matches):
+@pytest.mark.parametrize("failure", [None, "version", "imports", "timeout"])
+def test_native_update_verifies_binary_before_switching(monkeypatch, tmp_path, failure):
     command = tmp_path / "bin/aria-code"
     command.parent.mkdir()
     command.write_text("previous working CLI")
@@ -156,23 +157,39 @@ def test_native_update_verifies_binary_before_switching(monkeypatch, tmp_path, v
     monkeypatch.setenv("ARIA_CODE_HOME", str(tmp_path / "app"))
     monkeypatch.setattr(updater.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(updater.platform, "machine", lambda: "arm64")
+    probes = []
     def probe(argv, **kwargs):
         assert command.read_text() == "previous working CLI"
+        probes.append(argv)
+        assert kwargs["check"]
+        if argv[-1] == "--help":
+            binary = Path(argv[0])
+            assert binary.parents[1].name.startswith("v0.75.0-")
+            assert kwargs["cwd"] == binary.parents[1]
+            assert kwargs["timeout"] == 120
+            if failure == "imports":
+                raise subprocess.CalledProcessError(1, argv, stderr="ModuleNotFoundError")
+            if failure == "timeout":
+                raise subprocess.TimeoutExpired(argv, 120)
+            return SimpleNamespace(stdout="usage: aria-code")
         assert argv[-1] == "--version"
-        return SimpleNamespace(stdout="aria-code " + ("0.75.0" if version_matches else "0.74.0"))
+        return SimpleNamespace(stdout="aria-code " + ("0.74.0" if failure == "version" else "0.75.0"))
     monkeypatch.setattr(updater.subprocess, "run", probe)
     names = ["aria-code-macos-arm64.tar.gz", "SHA256SUMS"]
     assets = [{"name": n, "browser_download_url": "https://github.com/artheras/aria-code/releases/download/v0.75.0/" + n} for n in names]
-    if version_matches:
+    if failure is None:
         assert updater.install_native("0.75.0", {"assets": assets}) == command
         assert command.is_symlink()
         assert command.read_bytes() == b"binary"
         assert (command.parent / "aria").is_file()
+        assert [argv[-1] for argv in probes] == ["--version", "--help"]
     else:
-        with pytest.raises(ValueError, match="version"):
+        with pytest.raises(ValueError, match="version" if failure == "version" else "startup check"):
             updater.install_native("0.75.0", {"assets": assets})
         assert not command.is_symlink()
         assert command.read_text() == "previous working CLI"
+        assert not (tmp_path / "app/previous.json").exists()
+        assert not list((tmp_path / "app/releases").glob("v0.75.0-*"))
 
 
 def test_pinned_release_does_not_replace_the_latest_cache(monkeypatch):

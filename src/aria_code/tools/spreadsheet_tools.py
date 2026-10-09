@@ -26,20 +26,32 @@ spreadsheet_tools.py — 结构化 Excel 工作簿生成 + 独立校验
 from __future__ import annotations
 
 import logging
+import importlib.util
 import re
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
 
-try:
+if TYPE_CHECKING:
     from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-    from openpyxl.utils import get_column_letter, column_index_from_string
-    HAS_OPENPYXL = True
-except ImportError:  # pragma: no cover - openpyxl 在 pyproject 基础依赖中
+try:
+    # Tool registration only needs availability, not the Excel runtime.
+    HAS_OPENPYXL = importlib.util.find_spec("openpyxl") is not None
+except (ImportError, ValueError):
     HAS_OPENPYXL = False
+_OPENPYXL = None
+
+
+def _excel_runtime():
+    global _OPENPYXL
+    if not HAS_OPENPYXL:
+        raise RuntimeError("openpyxl 未安装（应随基础依赖提供）")
+    if _OPENPYXL is None:
+        import openpyxl
+        _OPENPYXL = openpyxl
+    return _OPENPYXL
 
 # ── 样式约定（全局统一，勿逐表覆盖） ─────────────────────────────────────────
 _FONT = "Arial"
@@ -58,16 +70,17 @@ _TOTAL_TYPES = ("sum", "sumif", "count", "countif", "average")
 
 
 def _styles():
-    thin = Side(style="thin", color=_BORDER_COLOR)
+    styles = _excel_runtime().styles
+    thin = styles.Side(style="thin", color=_BORDER_COLOR)
     return {
-        "hdr_font": Font(name=_FONT, bold=True, color="FFFFFF", size=11),
-        "hdr_fill": PatternFill("solid", fgColor=_HDR_FILL),
-        "body": Font(name=_FONT, size=10),
-        "bold": Font(name=_FONT, bold=True, size=10),
-        "border": Border(left=thin, right=thin, top=thin, bottom=thin),
-        "hl_fill": PatternFill("solid", fgColor=_HIGHLIGHT_FILL),
-        "center": Alignment(horizontal="center", vertical="center"),
-        "wrap": Alignment(vertical="center", wrap_text=True),
+        "hdr_font": styles.Font(name=_FONT, bold=True, color="FFFFFF", size=11),
+        "hdr_fill": styles.PatternFill("solid", fgColor=_HDR_FILL),
+        "body": styles.Font(name=_FONT, size=10),
+        "bold": styles.Font(name=_FONT, bold=True, size=10),
+        "border": styles.Border(left=thin, right=thin, top=thin, bottom=thin),
+        "hl_fill": styles.PatternFill("solid", fgColor=_HIGHLIGHT_FILL),
+        "center": styles.Alignment(horizontal="center", vertical="center"),
+        "wrap": styles.Alignment(vertical="center", wrap_text=True),
     }
 
 
@@ -82,7 +95,7 @@ def _coerce_cell(value: Any) -> Any:
 
 
 def _col_idx(letter: str) -> int:
-    return column_index_from_string(letter.upper())
+    return _excel_runtime().utils.column_index_from_string(letter.upper())
 
 
 # ── 合计公式：生成 + Python 复核（同一份声明，两条独立路径） ────────────────
@@ -153,11 +166,9 @@ def build_workbook(spec: Dict[str, Any]) -> Tuple["Workbook", List[Dict[str, Any
                        value_col: "F", key_col: "E", key: "GBP",
                        label_col: "D"}
     """
-    if not HAS_OPENPYXL:
-        raise RuntimeError("openpyxl 未安装（应随基础依赖提供）")
-
+    library = _excel_runtime()
     st = _styles()
-    wb = Workbook()
+    wb = library.Workbook()
     wb.remove(wb.active)
     verifications: List[Dict[str, Any]] = []
 
@@ -222,7 +233,7 @@ def build_workbook(spec: Dict[str, Any]) -> Tuple["Workbook", List[Dict[str, Any
 
         widths = sheet.get("col_widths") or []
         for i, w in enumerate(widths[:len(headers)], start=1):
-            ws.column_dimensions[get_column_letter(i)].width = int(w)
+            ws.column_dimensions[library.utils.get_column_letter(i)].width = int(w)
         if sheet.get("freeze_header", True):
             ws.freeze_panes = "A2"
 

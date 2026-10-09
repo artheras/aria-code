@@ -18,7 +18,18 @@ import unittest
 
 
 INSTALLER = Path(__file__).resolve().parents[1] / "scripts" / "install.sh"
-VERSION_SCRIPT = "#!/bin/sh\n[ \"$1\" = --version ] && echo v0.55.0\n"
+VERSION_SCRIPT = '''#!/bin/sh
+case "$1" in
+  --version) echo v0.55.0 ;;
+  --help)
+    [ -z "${ARIA_TEST_FAIL_STARTUP:-}" ] || exit 1
+    case "$0" in */releases/*/aria-code-bin/aria-code-bin) ;; *) exit 2 ;; esac
+    [ -z "${ARIA_TEST_RELEASES:-}" ] || printf '%s\\n' "$0" >> "$ARIA_TEST_RELEASES"
+    echo 'usage: aria-code'
+    ;;
+  *) exit 2 ;;
+esac
+'''
 
 
 class NativeInstallerTest(unittest.TestCase):
@@ -46,7 +57,7 @@ class NativeInstallerTest(unittest.TestCase):
         binary.chmod(0o755)
         return binary
 
-    def run_installer(self, asset: Path, *, valid_checksum: bool = True) -> subprocess.CompletedProcess[str]:
+    def run_installer(self, asset: Path, *, valid_checksum: bool = True, fail_startup: bool = False) -> subprocess.CompletedProcess[str]:
         digest = hashlib.sha256(asset.read_bytes()).hexdigest() if valid_checksum else "0" * 64
         (self.release / "SHA256SUMS").write_text(f"{digest}  {asset.name}\n", encoding="utf-8")
         fake_bin = self.root / "fake-bin"
@@ -69,6 +80,8 @@ class NativeInstallerTest(unittest.TestCase):
             PATH=f"{fake_bin}:{env['PATH']}",
             ARIA_TEST_RELEASE=str(self.release),
             ARIA_CODE_VERSION="v0.55.0",
+            ARIA_TEST_FAIL_STARTUP="1" if fail_startup else "",
+            ARIA_TEST_RELEASES=str(self.root / "startup-probes.txt"),
         )
         return subprocess.run(["/bin/sh", str(INSTALLER)], env=env, text=True, capture_output=True)
 
@@ -84,6 +97,7 @@ class NativeInstallerTest(unittest.TestCase):
                         "the executable's libraries must sit beside it")
         self.assertTrue(self.command.is_symlink())
         self.assertEqual(self.command.resolve(), (app / "aria-code-bin").resolve())
+        self.assertEqual((self.root / "startup-probes.txt").read_text().strip(), str(self.command.resolve()))
         run = subprocess.run([str(self.command), "--version"], capture_output=True, text=True)
         self.assertEqual(run.stdout.strip(), "v0.55.0")
         alias = self.command.with_name("aria")
@@ -120,6 +134,22 @@ class NativeInstallerTest(unittest.TestCase):
         result = self.run_installer(self.publish_onedir())
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(self.command.is_symlink())
+
+    def test_failed_startup_check_keeps_the_previous_cli_and_removes_the_new_build(self) -> None:
+        archive = self.publish_onedir()
+        self.assertEqual(self.run_installer(archive).returncode, 0)
+        old_target = self.command.resolve()
+        old_alias = self.command.with_name("aria").read_bytes()
+        old_profile = (self.root / ".zprofile").read_bytes()
+        releases = self.root / ".local/share/aria-code/releases"
+        old_releases = set(releases.iterdir())
+        result = self.run_installer(archive, fail_startup=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("startup check", result.stderr)
+        self.assertEqual(self.command.resolve(), old_target)
+        self.assertEqual(self.command.with_name("aria").read_bytes(), old_alias)
+        self.assertEqual((self.root / ".zprofile").read_bytes(), old_profile)
+        self.assertEqual(set(releases.iterdir()), old_releases)
 
     def test_a_release_from_before_onedir_still_installs(self) -> None:
         result = self.run_installer(self.publish_single_file())
