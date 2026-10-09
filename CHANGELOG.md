@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.126.0] — 2026-10-09
+
+- Merge pull request #167 from artheras/feat/behavior-evals
+
 ## [0.125.0] — 2026-10-09
 
 - Merge pull request #166 from artheras/fix/redact-run-history
