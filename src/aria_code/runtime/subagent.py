@@ -114,6 +114,7 @@ def restore_tasks() -> int:
     explicit interrupted task rather than silently disappearing.
     """
     restored = 0
+    interrupted = []
     for record in _ledger().restore():
         task_id = str(record.get("task_id") or "").strip()
         if not task_id or task_id in _TASKS:
@@ -141,8 +142,16 @@ def restore_tasks() -> int:
             handoff=dict(record.get("handoff") or {}),
         )
         _TASKS[task_id] = task
-        _persist(task)
+        if status == "interrupted" and record.get("status") == "running":
+            interrupted.append(task.snapshot())
         restored += 1
+    if interrupted:
+        # Completed/queued records have not changed. Persist all interrupted
+        # records together; per-task upserts made restoration quadratic.
+        try:
+            _ledger().upsert_many(interrupted)
+        except Exception:
+            pass  # Persistence failure must not discard restored live state.
     return restored
 
 

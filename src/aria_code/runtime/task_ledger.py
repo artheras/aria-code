@@ -69,18 +69,32 @@ class TaskLedger:
                 os.unlink(temp_name)
 
     def upsert(self, record: Mapping[str, Any]) -> None:
-        task_id = str(record.get("task_id") or "").strip()
-        if not task_id:
-            raise ValueError("Task record requires task_id")
-        records = self.load()
-        snapshot = dict(record)
-        snapshot["updated_at"] = time.time()
-        result = str(snapshot.get("result") or "")
-        if len(result) > MAX_RESULT_CHARS:
-            snapshot["result"] = result[:MAX_RESULT_CHARS] + "\n…[truncated in task ledger]"
-            snapshot["result_truncated"] = True
-        records[task_id] = snapshot
-        self.save(records)
+        self.upsert_many((record,))
+
+    def upsert_many(self, records: Iterable[Mapping[str, Any]]) -> None:
+        """Persist a batch with one read and one atomic replacement.
+
+        Validate the entire batch before touching disk. Restoring interrupted
+        tasks at startup must not rewrite the full ledger for every task.
+        """
+        snapshots = {}
+        updated_at = time.time()
+        for record in records:
+            task_id = str(record.get("task_id") or "").strip()
+            if not task_id:
+                raise ValueError("Task record requires task_id")
+            snapshot = dict(record)
+            snapshot["updated_at"] = updated_at
+            result = str(snapshot.get("result") or "")
+            if len(result) > MAX_RESULT_CHARS:
+                snapshot["result"] = result[:MAX_RESULT_CHARS] + "\n…[truncated in task ledger]"
+                snapshot["result_truncated"] = True
+            snapshots[task_id] = snapshot
+        if not snapshots:
+            return
+        stored = self.load()
+        stored.update(snapshots)
+        self.save(stored)
 
     def restore(self) -> Iterable[dict[str, Any]]:
         return self.load().values()

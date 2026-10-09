@@ -16,7 +16,7 @@ from aria_code.runtime.task_ledger import TaskLedger
 
 
 @pytest.fixture(autouse=True)
-def clear_tasks():
+def clear_tasks(tmp_path):
     """Clear the task registry and runner between tests."""
     # Same module object the names at the top of this file come from:
     # `runtime.subagent` (via src/aria_code) and `aria_code.runtime.subagent`
@@ -28,6 +28,7 @@ def clear_tasks():
     _orig_runner = _sa._RUNNER
     _orig_ledger = _sa._LEDGER
     _sa._RUNNER = None  # ensure no runner is registered during tests
+    _sa._LEDGER = TaskLedger(tmp_path / "tasks.json")
     yield
     _TASKS.clear()
     _sa._RUNNER = _orig_runner
