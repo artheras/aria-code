@@ -35,6 +35,8 @@ DEFAULT_MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024
 # What the code was known to be at a point: checks ran green, ran red, files
 # changed with nothing to check them, or nothing has changed yet.
 PASSED, FAILED, UNVERIFIED, UNCHANGED = "passed", "failed", "unverified", ""
+# Red, but only where it was red before the change (runtime/baseline.py).
+PREEXISTING = "preexisting"
 
 
 @dataclass
@@ -72,7 +74,7 @@ def verdict_from_acceptance(acceptance: Any, previous: str) -> str:
     if verified is True:
         return PASSED
     if verified is False:
-        return FAILED
+        return PREEXISTING if acceptance.get("regressions") is False else FAILED
     return UNVERIFIED
 
 

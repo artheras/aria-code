@@ -135,7 +135,13 @@ class RewindOutcome:
 
 
 def _worktree_skip(terminal: Any):
-    """Files in a task worktree that is gone have nowhere to be restored to."""
+    """Files in task worktrees are restored as a whole, not file by file.
+
+    A worktree still open is reset to the point's patch (which also undoes
+    what shell commands changed, which no file checkpoint records); one that
+    is gone has nowhere to be restored to and is reopened from the patch.
+    The user's own files still go back by checkpoint.
+    """
     try:
         from apps.cli import task_isolation
         root = task_isolation.manager().root.resolve()
@@ -144,13 +150,34 @@ def _worktree_skip(terminal: Any):
 
     def skip(path: str) -> bool:
         try:
-            relative = Path(path).resolve().relative_to(root)
+            Path(path).resolve().relative_to(root)
+            return True
         except (ValueError, OSError):
             return False
-        parts = relative.parts
-        return len(parts) >= 2 and not (root / parts[0] / parts[1]).is_dir()
 
     return skip
+
+
+def _settle_open_task(terminal: Any, point: TransactionPoint) -> str:
+    """The task open now, put back to what it was at ``point``."""
+    try:
+        from apps.cli import task_isolation
+
+        tasks = task_isolation.manager()
+        current = tasks.active(task_isolation._workspace(terminal.config))
+    except Exception as exc:
+        logger.debug("task state not restored: %s", exc)
+        return ""
+    if current is None:
+        return ""
+    saved = point.task or {}
+    if saved.get("path") == current.path:
+        tasks.reset_to_patch(current, str(saved.get("patch") or ""))
+        return "worktree reset to this point" if str(saved.get("patch") or "").strip() else ""
+    if current.created_at > point.created_at:
+        tasks.discard(current)
+        return f"discarded {current.task_id}, started after this point"
+    return ""
 
 
 def _restore_task(terminal: Any, point: TransactionPoint) -> str:
@@ -198,7 +225,8 @@ def rewind(terminal: Any, point: TransactionPoint) -> RewindOutcome:
     files = _checkpoints().restore_since(point.checkpoint_sequence, session_id=session_id,
                                          skip=_worktree_skip(terminal))
     outcome = RewindOutcome(point=point, restored_paths=files.restored_paths)
-    outcome.task_note = _restore_task(terminal, point)
+    notes = [_settle_open_task(terminal, point), _restore_task(terminal, point)]
+    outcome.task_note = "; ".join(note for note in notes if note)
 
     outcome.messages_removed = max(0, len(terminal.conversation) - len(point.messages))
     terminal.conversation[:] = list(point.messages)
@@ -231,7 +259,7 @@ def rewind(terminal: Any, point: TransactionPoint) -> RewindOutcome:
 def describe(points: list[TransactionPoint], *, now: Optional[float] = None) -> list[str]:
     """``/rewind turns``: newest first, numbered as ``/rewind turn N`` takes them."""
     now = now or time.time()
-    marks = {"passed": "✓", "failed": "✗", "unverified": "·", "": " "}
+    marks = {"passed": "✓", "failed": "✗", "preexisting": "≈", "unverified": "·", "": " "}
     lines = []
     for index, point in enumerate(points, 1):
         age = now - point.created_at

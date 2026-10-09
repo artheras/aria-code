@@ -153,7 +153,13 @@ class DeliveryReport:
             for check in self.checks:
                 ok = check.get("passed")
                 tail = "" if ok else f"  (exit {check.get('exit_code')})"
+                if not ok and check.get("preexisting"):
+                    tail += " — already failing before this change"
                 lines.append(f"  {'✓' if ok else '✗'} {check.get('command', '')}{tail}")
+                new = check.get("new_failures") or ()
+                if new:
+                    shown = ", ".join(new[:3]) + (f" … +{len(new) - 3}" if len(new) > 3 else "")
+                    lines.append(f"      new failures: {shown}")
             if self.verified is None and self.changed:
                 lines.append("  ⚠ changed again after the last check")
         else:
@@ -313,7 +319,9 @@ class DeliveryLedger:
         reports = list((acceptance or {}).get("reports") or [])
         if reports:
             checks = [
-                {"command": c.get("command", ""), "passed": bool(c.get("passed")), "exit_code": c.get("exit_code")}
+                {"command": c.get("command", ""), "passed": bool(c.get("passed")), "exit_code": c.get("exit_code"),
+                 **({"preexisting": True} if c.get("preexisting") else {}),
+                 **({"new_failures": list(c["new_failures"])} if c.get("new_failures") else {})}
                 for c in reports[-1].get("checks") or []
             ]
         verified = (acceptance or {}).get("verified")
@@ -333,6 +341,10 @@ class DeliveryLedger:
                 "checks_failed": "Fix the failing checks",
                 "text_tool_calls": "The model wrote tool calls as text — retry the turn",
             }.get(stop_reason, f"Stopped: {stop_reason}")
+        elif verified is False and checks and all(c["passed"] or c.get("preexisting") for c in checks):
+            # Red only where it was red before this change (runtime/baseline.py).
+            status = "done"
+            next_step = "Ready to commit — the failing checks already failed before this change"
         elif verified is False or any(not c["passed"] for c in checks):
             status = "incomplete"
             next_step = "Fix the failing checks"

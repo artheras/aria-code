@@ -32,12 +32,17 @@ import time
 import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 # Ignored at the top of most repositories and needed to run anything: a
 # worktree has none of them, so the task's tests would fail on imports. Linked
 # into the worktree when the workspace has them and git ignores them.
 DEPENDENCY_DIRS = ("node_modules", ".venv", "venv", "env", ".tox")
+
+# Bytecode in a repository that does not ignore it would otherwise be copied
+# into every snapshot. A copied .pyc whose source is then rewritten within the
+# same second at the same size still validates, and Python runs the old code.
+_NEVER_SNAPSHOT = (":(exclude,glob)**/__pycache__/**", ":(exclude,glob)**/*.py[co]")
 
 _SNAPSHOT_IDENTITY = {
     "GIT_AUTHOR_NAME": "Aria Code",
@@ -125,11 +130,51 @@ def snapshot(repository: Path | str) -> tuple[str, str]:
             head = ""
         if head:
             _git("read-tree", head, cwd=repo, env=env)
-        _git("add", "-A", cwd=repo, env=env)
+        _git("add", "-A", "--", ".", *_NEVER_SNAPSHOT, cwd=repo, env=env)
         tree = _text("write-tree", cwd=repo, env=env)
         parents = ["-p", head] if head else []
         commit = _text("commit-tree", tree, *parents, "-m", "aria: task base snapshot", cwd=repo, env=env)
     return commit, tree
+
+
+def checkout(repo: Path, commit: str, destination: Path) -> list[str]:
+    """A detached worktree of ``commit`` at ``destination``, dependencies linked.
+
+    Returns the dependency directories linked in from ``repo``.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        _git("worktree", "add", "--detach", str(destination), commit, cwd=repo, timeout=300)
+    except TaskWorktreeError:
+        shutil.rmtree(destination, ignore_errors=True)
+        raise
+    linked = []
+    for name in DEPENDENCY_DIRS:
+        source = repo / name
+        if not source.is_dir() or (destination / name).exists():
+            continue
+        try:
+            _git("check-ignore", "-q", name, cwd=repo)
+        except TaskWorktreeError:
+            continue  # tracked or not ignored: it came with the checkout
+        (destination / name).symlink_to(source, target_is_directory=True)
+        linked.append(name)
+    return linked
+
+
+def remove_checkout(repo: Path | str, destination: Path | str, linked: Sequence[str] = ()) -> None:
+    for name in linked:
+        link = Path(destination) / name
+        if link.is_symlink():
+            link.unlink()
+    try:
+        _git("worktree", "remove", "--force", str(destination), cwd=repo)
+    except TaskWorktreeError:
+        shutil.rmtree(destination, ignore_errors=True)
+        try:
+            _git("worktree", "prune", cwd=repo)
+        except TaskWorktreeError:
+            pass
 
 
 def _exclusions(task: TaskWorktree) -> list[str]:
@@ -207,23 +252,7 @@ class TaskWorktrees:
         task_id = uuid.uuid4().hex[:8]
         digest = hashlib.sha1(str(repo).encode("utf-8")).hexdigest()[:8]
         destination = (self.root / f"{repo.name}-{digest}" / task_id).resolve()
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            _git("worktree", "add", "--detach", str(destination), commit, cwd=repo, timeout=300)
-        except TaskWorktreeError:
-            shutil.rmtree(destination, ignore_errors=True)
-            raise
-        linked = []
-        for name in DEPENDENCY_DIRS:
-            source = repo / name
-            if not source.is_dir() or (destination / name).exists():
-                continue
-            try:
-                _git("check-ignore", "-q", name, cwd=repo)
-            except TaskWorktreeError:
-                continue  # tracked or not ignored: it came with the checkout
-            (destination / name).symlink_to(source, target_is_directory=True)
-            linked.append(name)
+        linked = checkout(repo, commit, destination)
         task = TaskWorktree(task_id=task_id, repository=str(repo), path=str(destination),
                             base=commit, base_tree=tree, created_at=time.time(),
                             linked=tuple(linked))
@@ -257,6 +286,16 @@ class TaskWorktrees:
         self._stage(task)
         return _git("diff", "--cached", "--binary", "--no-renames", task.base,
                     cwd=task.path).decode("utf-8", errors="replace")
+
+    def reset_to_patch(self, task: TaskWorktree, patch: str) -> None:
+        """Make the worktree exactly its snapshot plus ``patch``.
+
+        Covers every change since, including those a shell command made, which
+        have no file checkpoint. Linked dependency directories are left alone.
+        """
+        _git("reset", "-q", "--hard", task.base, cwd=task.path)
+        _git("clean", "-fdq", *[arg for name in task.linked for arg in ("-e", name)], cwd=task.path)
+        self.restore_patch(task, patch)
 
     def restore_patch(self, task: TaskWorktree, patch: str) -> None:
         """Put a saved patch back into a task's worktree (a rewound task)."""
@@ -297,18 +336,7 @@ class TaskWorktrees:
 
     def discard(self, task: TaskWorktree) -> None:
         """Remove the worktree and forget the task. The workspace is untouched."""
-        for name in task.linked:
-            link = Path(task.path) / name
-            if link.is_symlink():
-                link.unlink()
-        try:
-            _git("worktree", "remove", "--force", task.path, cwd=task.repository)
-        except TaskWorktreeError:
-            shutil.rmtree(task.path, ignore_errors=True)
-            try:
-                _git("worktree", "prune", cwd=task.repository)
-            except TaskWorktreeError:
-                pass
+        remove_checkout(task.repository, task.path, task.linked)
         self._forget(task)
 
 

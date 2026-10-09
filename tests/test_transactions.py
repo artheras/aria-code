@@ -219,3 +219,58 @@ def test_old_points_are_dropped_and_the_rest_stay_readable(tmp_path):
     points = store.list("s")
     assert [p.turn for p in points] == [8, 7, 6]
     assert points[-1].messages == conversation[:6]
+
+
+def _isolated_repo(tmp_path, monkeypatch):
+    import apps.cli.task_isolation as task_isolation
+    from aria_code.runtime.task_worktree import TaskWorktrees
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init", "-q")
+    (repo / "app.py").write_text("a - b\n")
+    (repo / ".gitignore").write_text("node_modules/\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "init")
+    (repo / "node_modules" / "dep").mkdir(parents=True)
+    monkeypatch.delenv("ARIA_TASK_ISOLATION")
+    tasks = TaskWorktrees(tmp_path / "worktrees")
+    task_isolation.reset_for_tests(tasks)
+    return repo, tasks, task_isolation
+
+
+def test_an_open_worktree_is_reset_to_the_point_including_shell_edits(tx, tmp_path, monkeypatch):
+    repo, tasks, task_isolation = _isolated_repo(tmp_path, monkeypatch)
+    terminal = FakeTerminal(repo)
+    task = tasks.ensure(repo)
+    work = Path(task.path)
+    (work / "app.py").write_text("a + b\n")
+    point = tx.capture(terminal, "next turn")
+
+    # The next turn changes things no checkpoint records: shell edits.
+    (work / "app.py").write_text("sed rewrote this\n")
+    (work / "generated.py").write_text("made by a formatter\n")
+
+    outcome = tx.rewind(terminal, point)
+
+    assert (work / "app.py").read_text() == "a + b\n"
+    assert not (work / "generated.py").exists()
+    assert (work / "node_modules" / "dep").is_dir()
+    assert "reset" in outcome.task_note
+    assert (repo / "app.py").read_text() == "a - b\n"
+    task_isolation.reset_for_tests(None)
+
+
+def test_a_task_started_after_the_point_is_discarded(tx, tmp_path, monkeypatch):
+    repo, tasks, task_isolation = _isolated_repo(tmp_path, monkeypatch)
+    terminal = FakeTerminal(repo)
+    point = tx.capture(terminal, "first turn")
+    time.sleep(0.01)
+    task = tasks.ensure(repo)
+    (Path(task.path) / "app.py").write_text("later work\n")
+
+    outcome = tx.rewind(terminal, point)
+
+    assert tasks.active(repo) is None and not Path(task.path).exists()
+    assert "discarded" in outcome.task_note
+    task_isolation.reset_for_tests(None)

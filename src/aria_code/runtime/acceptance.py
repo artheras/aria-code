@@ -45,7 +45,7 @@ from __future__ import annotations
 import inspect
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional, Sequence, Union
 
@@ -185,19 +185,29 @@ class CheckResult:
     output: str = ""
     duration: float = 0.0
     error: str = ""
+    # Set from the test baseline when the check failed: whether every failure
+    # was already there before the change, and which test ids are which.
+    preexisting: bool = False
+    new_failures: tuple[str, ...] = ()
+    old_failures: tuple[str, ...] = ()
+    baseline_note: str = ""
 
     @property
     def anchors(self) -> tuple[str, ...]:
         return () if self.passed else _anchors(self.output)
 
     def summary(self) -> dict:
-        return {
+        data = {
             "command": self.command,
             "exit_code": self.exit_code,
             "passed": self.passed,
             "duration": round(self.duration, 3),
             "error": self.error,
         }
+        if not self.passed and (self.baseline_note or self.new_failures or self.old_failures):
+            data.update({"preexisting": self.preexisting, "new_failures": list(self.new_failures),
+                         "old_failures": list(self.old_failures), "baseline": self.baseline_note})
+        return data
 
 
 @dataclass(frozen=True)
@@ -227,6 +237,11 @@ class AcceptanceReport:
     def failures(self) -> tuple[CheckResult, ...]:
         return tuple(check for check in self.checks if not check.passed)
 
+    @property
+    def regressed(self) -> bool:
+        """A check failed that was not already failing before the change."""
+        return any(not check.preexisting for check in self.failures)
+
     def headline(self) -> str:
         if not self.ran:
             return "验收未执行：未推断出检查命令"
@@ -234,6 +249,8 @@ class AcceptanceReport:
             names = ", ".join(check.command for check in self.checks)
             return f"验收通过 ({names})"
         first = self.failures[0]
+        if not self.regressed:
+            return f"验收未通过，但失败在改动前就已存在：`{first.command}` exit {first.exit_code}"
         return f"验收失败：`{first.command}` exit {first.exit_code}"
 
     def repair_directive(self) -> str:
@@ -252,7 +269,14 @@ class AcceptanceReport:
             "",
         ]
         for check in self.failures:
+            if check.preexisting:
+                continue
             blocks.append(f"### `{check.command}` → exit {check.exit_code}")
+            if check.new_failures:
+                blocks.append("本次改动新引入的失败：" + ", ".join(f"`{t}`" for t in check.new_failures))
+            if check.old_failures:
+                blocks.append("以下失败在改动前就存在，与本任务无关，不要修改："
+                              + ", ".join(f"`{t}`" for t in check.old_failures))
             if check.error:
                 blocks.append(f"（执行错误：{check.error}）")
             body = _trim(check.output)
@@ -280,6 +304,7 @@ class AcceptanceReport:
         return {
             "attempt": self.attempt,
             "passed": self.passed,
+            "regressed": self.regressed,
             "ran": self.ran,
             "reason": self.reason,
             "paths": list(self.paths),
@@ -339,8 +364,12 @@ class AcceptanceGate:
         mutating_tools: Iterable[str] = DEFAULT_MUTATING_TOOLS,
         enabled: bool = True,
         commands: Optional[Sequence[str]] = None,
+        baseline: Any = None,
     ) -> None:
         self.root = Path(root).expanduser()
+        # ``runtime.baseline.Baseline``: reruns a failed check on the code as
+        # it was before the change, so pre-existing failures are not repaired.
+        self.baseline = baseline
         self.runner = runner
         self.max_attempts = max(0, int(max_attempts))
         self.mutating_tools = frozenset(mutating_tools)
@@ -424,6 +453,19 @@ class AcceptanceGate:
             duration=time.time() - started,
         )
 
+    async def _against_baseline(self, check: CheckResult) -> CheckResult:
+        if check.passed:
+            return check
+        from .baseline import compare
+
+        try:
+            before = await self.baseline.result(check.command)
+        except Exception:
+            return check
+        result = compare(check.output, True, before)
+        return replace(check, preexisting=result.preexisting, new_failures=result.new_failures,
+                       old_failures=result.old_failures, baseline_note=result.note)
+
     async def run(self) -> Optional[AcceptanceReport]:
         """Run the inferred checks once.  ``None`` when the gate is not armed.
 
@@ -447,6 +489,9 @@ class AcceptanceGate:
             # cause, and each extra failing log costs context the repair needs.
             if not check.passed:
                 break
+
+        if self.baseline is not None:
+            checks = [await self._against_baseline(check) for check in checks]
 
         report = AcceptanceReport(
             attempt=self.attempts,
@@ -476,6 +521,9 @@ class AcceptanceGate:
             verified = last.passed and not self.armed
         return {
             "verified": verified,
+            # False when the checks are red only where they were red before
+            # the change; None when nothing ran or nothing failed.
+            "regressions": (last.regressed if last is not None and last.ran and not last.passed else None),
             "attempts": self.attempts,
             "paths": list(self._all_paths),
             "reports": [report.summary() for report in self.reports],

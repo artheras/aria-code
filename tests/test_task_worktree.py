@@ -237,3 +237,14 @@ def test_a_session_started_in_a_subdirectory_works_in_the_same_subdirectory(isol
 def test_the_environment_can_turn_isolation_off(isolation, repo, monkeypatch):
     monkeypatch.setenv("ARIA_TASK_ISOLATION", "off")
     assert isolation.prepare({"_session_workspace_root": str(repo)}) is None
+
+
+def test_bytecode_never_enters_a_snapshot(repo, tasks):
+    # A copied .pyc whose source is rewritten in the same second at the same
+    # size still validates: the baseline once ran the changed code this way.
+    (repo / "__pycache__").mkdir()
+    (repo / "__pycache__" / "app.cpython-313.pyc").write_bytes(b"stale")
+    (repo / "legacy.pyc").write_bytes(b"stale")
+    task = tasks.ensure(repo)
+    assert not (Path(task.path) / "__pycache__").exists()
+    assert not (Path(task.path) / "legacy.pyc").exists()

@@ -373,8 +373,8 @@ class WorkflowCommandsMixin:
             if not points:
                 say("还没有可回退的轮次" if is_zh else "No turns to rewind yet")
                 return
-            say("回退点（✓ 检查通过 ✗ 失败 · 未验证）" if is_zh
-                else "Rewind points (✓ checks passed  ✗ failed  · unverified)", "bold")
+            say("回退点（✓ 检查通过 ✗ 失败 ≈ 仅改动前已有的失败 · 未验证）" if is_zh
+                else "Rewind points (✓ checks passed  ✗ failed  ≈ only failures that predate it  · unverified)", "bold")
             for line in transactions.describe(points):
                 say(line, "")
             say("/rewind turn N  ·  /rewind green")

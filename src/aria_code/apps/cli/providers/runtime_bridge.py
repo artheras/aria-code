@@ -136,7 +136,43 @@ def build_acceptance_gate(executor, config: Optional[dict] = None, message: str 
         root=root,
         max_attempts=int(cfg.get("acceptance_max_attempts", 2) or 2),
         commands=_declared_acceptance_commands(cfg, message),
+        baseline=_build_baseline(executor, cfg, timeout),
     )
+
+
+def _build_baseline(executor, cfg: dict, timeout: int):
+    """Reruns a failed check on the code before the change; None when off.
+
+    In a task worktree the "before" is the task's starting snapshot, in the
+    user's own repository. Otherwise it is the working tree with this turn's
+    edits undone from the checkpoints recorded after this point.
+    """
+    if not cfg.get("test_baseline", True):
+        return None
+    try:
+        import os
+
+        from aria_code.packages.aria_core.paths import aria_home
+        from aria_code.runtime.approval import ApprovalDecision
+        from aria_code.runtime.baseline import Baseline
+        from aria_code.runtime.checkpoints import CheckpointStore
+
+        context = dict(executor.execution_context() or {}) if getattr(executor, "execution_context", None) else {}
+        base_commit = str(context.get("_task_base") or "")
+        workspace = cfg.get("_session_workspace_root") or os.getcwd()
+
+        def run(command: str, cwd: str) -> dict:
+            return executor.execute_local("run_command", {"command": command, "cwd": cwd, "timeout": timeout},
+                                          approval=ApprovalDecision.allow(policy="balanced", user_approved=True))
+
+        return Baseline(
+            workspace, run=run, base_commit=base_commit,
+            undo_since=None if base_commit else CheckpointStore().max_sequence(),
+            session_id=str(context.get("_session_id") or ""),
+            scratch_root=aria_home() / "worktrees" / "baselines",
+        )
+    except Exception:
+        return None
 
 
 def build_change_contract(config: Optional[dict] = None, message: str = "", executor=None):

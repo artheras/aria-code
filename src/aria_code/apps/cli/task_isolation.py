@@ -93,7 +93,7 @@ def execution_context(task: Optional[TaskWorktree], config: dict) -> dict:
     # git does not carry empty or ignored directories; the session's own
     # directory has to exist for commands to run in it.
     target.mkdir(parents=True, exist_ok=True)
-    return {"_workspace": str(target), "_workspace_origin": str(origin)}
+    return {"_workspace": str(target), "_workspace_origin": str(origin), "_task_base": task.base}
 
 
 def summary_lines(task: TaskWorktree, changes) -> list[str]:
