@@ -5,10 +5,17 @@ tests/conftest.py — 共享 fixtures 和 SSE mock 辅助类
 """
 from __future__ import annotations
 
+import atexit
+import ipaddress
 import json
+import os
 import pathlib
+import shutil
+import socket
 import sys
+import tempfile
 from typing import List
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -16,6 +23,82 @@ import pytest
 _CLI_DIR = str(pathlib.Path(__file__).parents[1])
 if _CLI_DIR not in sys.path:
     sys.path.insert(0, _CLI_DIR)
+
+
+# ── 导入之前就隔离用户目录 ───────────────────────────────────────────────────
+#
+# The per-test fixture below sets ARIA_HOME, but only once a test starts. Many
+# modules resolve their paths when they are imported, which happens while
+# pytest collects test files, before any fixture: session_jsonl's
+# _SESSIONS_DIR = aria_home() / "sessions" took the real directory, and test
+# sessions turned up in the user's own session list. Others ignore ARIA_HOME
+# and write to ~/.aria directly: importing aria_daemon created daemon.db and
+# daemon.log there and loaded the user's ~/.aria/.env into the test process.
+# Everything below is set before this file lets any test module import.
+_SESSION_STATE = pathlib.Path(tempfile.mkdtemp(prefix="aria-tests-"))
+atexit.register(shutil.rmtree, _SESSION_STATE, ignore_errors=True)
+for _var, _path in {
+    "ARIA_HOME": "aria_home",
+    "ARIA_DAEMON_DIR": "aria",
+    "ARIA_CACHE_DIR": "aria/cache",
+    "ARIA_TASK_LEDGER_PATH": "aria/task_ledger.json",
+    "ARIA_CONVERSATIONS_DB": "aria/conversations.db",
+    "ARIA_APPROVAL_OUTBOX": "aria/outbox",
+}.items():
+    os.environ[_var] = str(_SESSION_STATE / _path)
+
+
+# ── 测试进程不连外网 ─────────────────────────────────────────────────────────
+#
+# Twelve tests reached real services — SEC EDGAR, football-data, a probe of
+# api.anthropic.com — through paths their fakes did not cover. They passed
+# offline only because each call failed into a fallback, after a timeout.
+# Connections from this process now fail at once unless they stay on this
+# machine. The proxy counts as outside even on loopback, since it forwards.
+# Subprocesses are untouched: the wheel test still lets pip fetch build deps.
+def _proxy_endpoints() -> set[tuple[str, int]]:
+    endpoints = set()
+    for var in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "https_proxy", "http_proxy", "all_proxy"):
+        parts = urlsplit(os.environ.get(var, ""))
+        if parts.hostname and parts.port:
+            endpoints.add((parts.hostname, parts.port))
+    return endpoints
+
+
+def _is_loopback(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host.split("%")[0]).is_loopback
+    except ValueError:
+        return False
+
+
+_PROXIES = _proxy_endpoints()
+_real_connect = socket.socket.connect
+_real_connect_ex = socket.socket.connect_ex
+
+
+def _check_destination(sock: socket.socket, address) -> None:
+    if sock.family not in (socket.AF_INET, socket.AF_INET6):
+        return
+    host, port = str(address[0]), int(address[1])
+    if not _is_loopback(host) or (host, port) in _PROXIES:
+        raise OSError(f"tests may not reach the network: {host}:{port}")
+
+
+def _guarded_connect(self, address):
+    _check_destination(self, address)
+    return _real_connect(self, address)
+
+
+def _guarded_connect_ex(self, address):
+    _check_destination(self, address)
+    return _real_connect_ex(self, address)
+
+
+socket.socket.connect = _guarded_connect
+socket.socket.connect_ex = _guarded_connect_ex
 
 
 # ── 与开发者真实主目录隔离 ────────────────────────────────────────────────────
@@ -48,6 +131,22 @@ def _isolate_user_directories(tmp_path_factory, monkeypatch):
     # The task ledger lives in ~/.aria, not ARIA_HOME. Tests that spawned tasks
     # with no runner registered left them there as pending, a few at a time.
     monkeypatch.setenv("ARIA_TASK_LEDGER_PATH", str(base / "task_ledger.json"))
+    monkeypatch.setenv("ARIA_CACHE_DIR", str(base / "cache"))
+    monkeypatch.setenv("ARIA_CONVERSATIONS_DB", str(base / "conversations.db"))
+    monkeypatch.setenv("ARIA_APPROVAL_OUTBOX", str(base / "outbox"))
+
+
+# A home directory that is neither under a temp root nor under a blocked one.
+# Tests about which paths are safe depend on where home is: run as root it is
+# /root, which is blocked, and under a temp directory it is writable anyway.
+FAKE_HOME = "/home/aria-test-user"
+
+
+@pytest.fixture
+def fake_home(monkeypatch):
+    monkeypatch.setenv("HOME", FAKE_HOME)
+    monkeypatch.setenv("USERPROFILE", FAKE_HOME)
+    return pathlib.Path(FAKE_HOME)
 
 
 @pytest.fixture(autouse=True)

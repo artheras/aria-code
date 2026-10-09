@@ -15,7 +15,7 @@ from aria_code.workspace import WorkspaceSecurity
 from aria_code.apps.cli.workspace_route import workspace_config
 
 
-def test_reads_and_writes_have_distinct_roots():
+def test_reads_and_writes_have_distinct_roots(fake_home):
     security = WorkspaceSecurity(cwd="/work/project", allowed_roots=["/Volumes/Reference"],
                                  write_roots=["/Volumes/Editable"], allow_home=True)
     assert security.is_safe_path("/Volumes/Reference/spec.md")
@@ -34,7 +34,7 @@ def test_model_cannot_grant_itself_roots_or_skip_read_only():
     assert not result["success"] and not called
 
 
-def test_write_outside_project_requires_host_grant():
+def test_write_outside_project_requires_host_grant(fake_home):
     called = []
     outside = Path.home() / "unrelated-project" / "app.py"
     tools = {"write_file": (lambda p: called.append(p) or {"success": True}, "")}
@@ -45,7 +45,7 @@ def test_write_outside_project_requires_host_grant():
     assert called[0]["_allowed_write_roots"] == [str(outside.parent)]
 
 
-def test_symlink_cannot_escape_write_root(tmp_path):
+def test_symlink_cannot_escape_write_root(tmp_path, fake_home):
     outside = Path.home() / "unrelated-project" / "app.py"
     (tmp_path / "escape.py").symlink_to(outside)
     tools = {"write_file": (lambda p: pytest.fail("must not execute escaped write"), "")}

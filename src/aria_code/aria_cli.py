@@ -372,12 +372,6 @@ def _get_mdc():
     from market_data_client import get_mdc
     return get_mdc()
 
-# Session-level TA cache: persists across multiple /analyze calls in a session,
-# so a single yfinance rate-limit hit doesn't wipe all indicator data.
-# Structure: {symbol: {"data": <ti_dict>, "ts": float}}
-_TA_SESSION_CACHE: dict = {}
-_TA_SESSION_CACHE_TTL = 600  # 10 minutes
-
 # (legacy financial_agents fallback removed — the agents/ package is the sole path)
 
 try:
