@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.122.0] — 2026-10-09
+
+- Merge pull request #163 from artheras/claude/sleepy-bohr-sp66yu
+
 ## [0.121.0] — 2026-10-09
 
 - Merge pull request #161 from Cinsoul/feat/execution-protocol-phase2-3
