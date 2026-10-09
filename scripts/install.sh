@@ -99,7 +99,7 @@ else
   mv "$staged" "$installed" || fail "could not activate the staged build"
   staged="$installed"
   printf 'Preparing the CLI for its first startup...\n'
-  "$installed/aria-code-bin/aria-code-bin" --help >/dev/null \
+  (cd "$installed" && "$installed/aria-code-bin/aria-code-bin" --help >/dev/null) \
     || fail 'downloaded CLI failed its startup check; the installed version was kept'
 
   # Replaces an old single-file install or an older onedir symlink atomically.

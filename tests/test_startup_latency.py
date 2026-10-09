@@ -6,9 +6,40 @@ import os
 import subprocess
 import sys
 import unittest
+import tempfile
+from pathlib import Path
 
 
 class StartupLatencyTests(unittest.TestCase):
+    def test_terminal_startup_defers_file_parsers_until_file_command(self):
+        code = '''
+import asyncio, sys
+import aria_code.aria_cli as cli
+from pathlib import Path
+terminal = cli.ArtheraTerminal(dict(cli.DEFAULT_CONFIG))
+assert terminal._file_session is None
+assert not any(name.endswith("file_analysis_tools") for name in sys.modules)
+heavy = {"pandas", "pdfplumber", "pypdf", "docx", "openpyxl"}
+assert not heavy.intersection(sys.modules), heavy.intersection(sys.modules)
+path = Path("notes.txt")
+path.write_text("Hello Aria / 你好", encoding="utf-8")
+async def use_files():
+    await terminal.commands.cmd_file("load " + str(path))
+    session = terminal._file_session
+    assert session is not None
+    assert "Hello Aria / 你好" in session.get_active().content
+    await terminal.commands.cmd_file("list")
+    assert terminal._file_session is session
+asyncio.run(use_files())
+'''
+        with tempfile.TemporaryDirectory(prefix="aria-lazy-files-") as directory:
+            env = dict(os.environ, HOME=directory,
+                       ARIA_HOME=str(Path(directory) / "state"),
+                       ARIA_USER_OUTPUT_ROOT=str(Path(directory) / "output"))
+            result = subprocess.run([sys.executable, "-c", code], cwd=directory,
+                                    env=env, capture_output=True, text=True, timeout=45)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_model_probe_help_does_not_load_agent_or_finance(self):
         code = (
             "import runpy, sys; sys.argv = ['aria-code', 'health', '--help']; "

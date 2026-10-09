@@ -4144,12 +4144,9 @@ class ArtheraTerminal(_ChatTurn, _Chrome, _HeadlessMixin):
         self._pending_market_resolution: Optional[dict] = None
         self._last_preflight_key: str = ""
         self._auto_compact_count: int = 0
-        # ── Multi-file analysis session ──────────────────────────────────────
-        try:
-            from file_analysis_tools import FileSession
-            self._file_session: Optional[Any] = FileSession()
-        except ImportError:
-            self._file_session = None
+        # /file initializes its session when requested. Importing FileSession
+        # here also loads PDF, Excel and pandas parsers before the first prompt.
+        self._file_session: Optional[Any] = None
 
         # ── Project folder analysis session (Claude Code style) ──────────────
         self._project_session: Optional[Any] = None  # set by /project load

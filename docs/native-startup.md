@@ -2,8 +2,9 @@
 
 `aria update` and the macOS/Linux installer verify the release checksum and
 version before replacing the installed command. They also run the full CLI's
-`--help` at its final installation path. This loads the bundled CLI modules
-without starting a session, contacting a model, or accessing project files.
+`--help` at its final installation path, from the managed build directory.
+This loads the bundled CLI modules without starting a session or contacting
+a model, and does not use the user's current project as its working directory.
 The installer displays `Preparing the CLI for its first startup...` during
 this check. A failed check keeps the previous command and removes the new build;
 the updater also limits this check to 120 seconds.
@@ -24,3 +25,5 @@ to distribute signed macOS builds.
 Normal CLI startup restores saved tasks in one read. It does not rewrite every
 finished task; interrupted running tasks are persisted in one batch. A large
 task history therefore no longer adds a full-file rewrite per saved task.
+PDF, Word, Excel and dataframe parsers are loaded when `/file` is first used,
+rather than constructing an unused file-analysis session before the prompt.

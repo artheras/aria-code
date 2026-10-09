@@ -245,7 +245,7 @@ def install_native(latest: str, release: dict) -> Path:
         print("Preparing the CLI for its first startup...")
         try:
             subprocess.run([str(active / "aria-code-bin/aria-code-bin"), "--help"],
-                           capture_output=True, text=True, timeout=120, check=True)
+                           cwd=active, capture_output=True, text=True, timeout=120, check=True)
         except (OSError, subprocess.SubprocessError) as error:
             shutil.rmtree(active)
             raise ValueError("Downloaded CLI failed its startup check; the installed version was kept") from error

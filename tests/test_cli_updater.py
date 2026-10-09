@@ -165,6 +165,7 @@ def test_native_update_verifies_binary_before_switching(monkeypatch, tmp_path, f
         if argv[-1] == "--help":
             binary = Path(argv[0])
             assert binary.parents[1].name.startswith("v0.75.0-")
+            assert kwargs["cwd"] == binary.parents[1]
             assert kwargs["timeout"] == 120
             if failure == "imports":
                 raise subprocess.CalledProcessError(1, argv, stderr="ModuleNotFoundError")
