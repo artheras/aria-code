@@ -547,7 +547,8 @@ async def stream_ollama(ollama_url: str, message: str, history: list,
     elif _intent == "general":
         # 纯知识/概念问题：注入日期，但不注入工具 schema
         from datetime import datetime as _dt2
-        _today_str = _dt2.now().strftime("%Y年%m月%d日")
+        _today = _dt2.now()
+        _today_str = f"{_today.year:04d}年{_today.month:02d}月{_today.day:02d}日"
         _base_prompt = (
             f"你是 Aria，Arthera 的 AI 助手。今天是 {_today_str}。\n"
             "你的能力覆盖：金融量化分析、足球/体育赛事分析与预测（含泊松算法）、编程、通用知识问答。\n\n"

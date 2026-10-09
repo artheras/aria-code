@@ -104,7 +104,8 @@ class TheHookLoads(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             hook = collector.write_hook(pathlib.Path(tmp)) / "hook-aria_code.py"
             tree = ast.parse(hook.read_text(encoding="utf-8"))
-        (assign,) = [n for n in tree.body if isinstance(n, ast.Assign)]
+        (assign,) = [n for n in tree.body if isinstance(n, ast.Assign)
+                    and any(isinstance(t, ast.Name) and t.id == "hiddenimports" for t in n.targets)]
         self.assertEqual(assign.targets[0].id, "hiddenimports")
         self.assertEqual(ast.literal_eval(assign.value), collector.hidden_imports())
 

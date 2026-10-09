@@ -186,7 +186,9 @@ def tool_run_command(
         timeout = min(params.get("timeout", 120), 300)
         use_shell = True
         argv = None
-        if decision.risk == "low":
+        # POSIX shlex strips Windows path backslashes. Keep CMD's own parsing
+        # on Windows, after the same policy and permission checks above.
+        if decision.risk == "low" and os.name != "nt":
             has_shell_meta = any(ch in command for ch in ["|", "&", ";", "<", ">", "$", "`", "\n"])
             if not has_shell_meta:
                 try:

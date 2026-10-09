@@ -9,6 +9,13 @@ from __future__ import annotations
 from datetime import datetime as _dt
 
 
+def _chinese_date() -> str:
+    # Windows strftime passes format strings through the locale's code page;
+    # a Chinese literal in the format can crash import under an English locale.
+    now = _dt.now()
+    return f"{now.year:04d}年{now.month:02d}月{now.day:02d}日"
+
+
 # ── Language utilities ────────────────────────────────────────────────────────
 
 def detect_lang(text: str) -> str:
@@ -70,7 +77,7 @@ def build_response_style_rule(lang: str) -> str:
 
 def build_coding_prompt_lite(user_message: str) -> str:
     """Condensed coding system prompt for small models (<=3B parameters)."""
-    today = _dt.now().strftime("%Y年%m月%d日")
+    today = _chinese_date()
     low = user_message.lower()
     is_financial = any(k in low for k in (
         "股票", "行情", "投资", "量化", "交易", "回测", "策略", "持仓", "组合",
@@ -200,7 +207,7 @@ def build_coding_prompt_lite(user_message: str) -> str:
 
 def build_analysis_prompt_lite(user_message: str) -> str:
     """Condensed analysis prompt for small models (<=3B)."""
-    today = _dt.now().strftime("%Y年%m月%d日")
+    today = _chinese_date()
     lang = detect_lang(user_message)
     lr = LANG_RULE[lang]
     if lang == "en":
@@ -249,7 +256,7 @@ def build_finance_prompt(user_message: str = "") -> str:
     except Exception:
         _fpb = ""
 
-    today = _dt.now().strftime("%Y年%m月%d日")
+    today = _chinese_date()
     weekday = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][_dt.now().weekday()]
     lang = detect_lang(user_message)
     lr = LANG_RULE[lang]
@@ -486,7 +493,7 @@ def build_prefetched_analysis_prompt(nano: bool = False, user_message: str = "")
     nano=True: ultra-minimal prompt for 1-3B models.
     nano=False: structured prompt for 7B+ models.
     """
-    today = _dt.now().strftime("%Y年%m月%d日")
+    today = _chinese_date()
     lang = detect_lang(user_message)
 
     if nano:

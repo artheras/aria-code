@@ -52,7 +52,8 @@ jobs:
         run: >-
           python -m pytest tests/test_background_processes.py tests/test_os_sandbox.py
           tests/test_linux_sandbox_integration.py tests/test_sse_http_roundtrip.py
-          tests/test_robot_artwork.py -q --timeout=60
+          tests/test_robot_artwork.py tests/test_prompt_dates.py tests/test_doctor_sandbox.py
+          tests/test_verification_runner_selection.py -q --timeout=60
 
   test:
     name: Test (Python ${{ matrix.python-version }})

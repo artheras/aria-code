@@ -16,7 +16,7 @@ import pytest
 
 from aria_code.runtime import processes
 
-PY = shlex.quote(sys.executable)
+PY = subprocess.list2cmdline([sys.executable]) if os.name == "nt" else shlex.quote(sys.executable)
 
 
 @pytest.fixture(autouse=True)

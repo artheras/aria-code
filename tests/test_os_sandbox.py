@@ -69,7 +69,7 @@ def test_read_only_does_not_open_the_workspace(tmp_path):
     work = os.path.realpath(tmp_path / "work")
     assert work not in sandbox.writable_roots("read-only", tmp_path / "work")
     roots = sandbox.writable_roots("workspace-write", tmp_path / "work")
-    assert work in roots and "/dev" in roots
+    assert work in roots and os.path.realpath("/dev") in roots
 
 
 def test_the_repository_root_is_writable_from_a_subdirectory(tmp_path):
