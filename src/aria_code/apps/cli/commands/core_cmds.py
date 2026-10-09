@@ -581,7 +581,7 @@ class CoreCommandsMixin:
     def cmd_tasks(self, args: str):
         """Show and manage background subagent tasks."""
         try:
-            from runtime.subagent import _TASKS, tool_task_cancel
+            from runtime.subagent import _TASKS, clear_finished_tasks, tool_task_cancel
         except ImportError:
             msg = "Subagent module not available."
             self.context.console.print(f"[red]{msg}[/red]") if self.context.has_rich else print(msg)
@@ -599,6 +599,11 @@ class CoreCommandsMixin:
                 self.context.console.print(f"[red]{result.get('error', 'Error')}[/red]") if self.context.has_rich else print(result.get("error"))
             return
 
+        if sub == "clear":
+            msg = f"✓ Cleared {clear_finished_tasks()} finished tasks"
+            self.context.console.print(f"[green]{msg}[/green]") if self.context.has_rich else print(msg)
+            return
+
         # Default: list all tasks
         tasks = list(_TASKS.values())
         if not tasks:
@@ -611,7 +616,7 @@ class CoreCommandsMixin:
             self.context.console.print("  [bold]后台任务[/bold]")
             self.context.console.print()
             status_colors = {"pending": "yellow", "running": "cyan", "done": "green",
-                             "failed": "red", "cancelled": "dim"}
+                             "failed": "red", "cancelled": "dim", "interrupted": "dim"}
             for t in tasks:
                 col = status_colors.get(t.status, "white")
                 preview = t.prompt[:60] + ("…" if len(t.prompt) > 60 else "")
@@ -622,6 +627,7 @@ class CoreCommandsMixin:
                 )
             self.context.console.print()
             self.context.console.print("  [dim]/tasks cancel <id>  — 取消任务[/dim]")
+            self.context.console.print("  [dim]/tasks clear        — 清除已结束的任务[/dim]")
             self.context.console.print()
         else:
             print(f"\n  Background Tasks ({len(tasks)}):")

@@ -45,6 +45,26 @@ def _isolate_user_directories(tmp_path_factory, monkeypatch):
     # ARIA_HOME covers config/sessions/credentials for the same reason: an
     # earlier round of this work found tests writing to the real brokers.json.
     monkeypatch.setenv("ARIA_HOME", str(base / "aria_home"))
+    # The task ledger lives in ~/.aria, not ARIA_HOME. Tests that spawned tasks
+    # with no runner registered left them there as pending, a few at a time.
+    monkeypatch.setenv("ARIA_TASK_LEDGER_PATH", str(base / "task_ledger.json"))
+
+
+@pytest.fixture(autouse=True)
+def _clear_market_caches():
+    """Start every test with empty market-data caches.
+
+    market_handlers keeps the indicators and price history it fetched for a
+    symbol for five to ten minutes, keyed by symbol alone. A test that feeds a
+    fake AAPL history therefore hands it to the next test that asks for AAPL:
+    test_market_snapshot_en drew its key levels from test_output_rendering's
+    data whenever the two ran in one process. Cleared only when the module is
+    already loaded, so tests that never touch it don't pay for the import.
+    """
+    handlers = sys.modules.get("aria_code.apps.cli.handlers.market_handlers")
+    if handlers is not None:
+        handlers._TA_SESSION_CACHE.clear()
+        handlers._LEVEL_HISTORY_CACHE.clear()
 
 
 # ── SSE mock 基础结构 ─────────────────────────────────────────────────────────

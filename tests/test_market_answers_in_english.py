@@ -73,7 +73,6 @@ def offline_market(monkeypatch):
     monkeypatch.setattr(market_handlers, "_has_mdc_lazy", lambda: True)
     monkeypatch.setattr(market_handlers, "_get_mdc_lazy", lambda: _MarketData())
     monkeypatch.setattr(market_handlers, "_get_provider_key", lambda _provider: "")
-    market_handlers._TA_SESSION_CACHE.clear()
 
 
 @pytest.mark.parametrize("question", [

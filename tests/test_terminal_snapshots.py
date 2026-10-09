@@ -208,7 +208,6 @@ def test_market_snapshot_en(snapshot, monkeypatch):
     monkeypatch.setattr(market_handlers, "_get_mdc_lazy", lambda: _MarketData())
     monkeypatch.setattr(market_handlers, "_get_provider_key", lambda _provider: "")
     monkeypatch.setattr(market_handlers, "market_session", lambda _symbol: "closed")
-    market_handlers._TA_SESSION_CACHE.clear()
     text = deterministic.run_deterministic_chain("analyze Apple stock", model_has_tools=False)["response"]
     today = datetime.now().strftime("%Y-%m-%d")
     snapshot("market_snapshot_en", re.sub(re.escape(today) + r"( \d{2}:\d{2})?", "<today>", text))

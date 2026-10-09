@@ -96,5 +96,13 @@ class TaskLedger:
         stored.update(snapshots)
         self.save(stored)
 
+    def remove_many(self, task_ids: Iterable[str]) -> None:
+        """Drop records with one read and one atomic replacement."""
+        doomed = {str(task_id) for task_id in task_ids}
+        stored = self.load()
+        if not doomed & stored.keys():
+            return
+        self.save({task_id: record for task_id, record in stored.items() if task_id not in doomed})
+
     def restore(self) -> Iterable[dict[str, Any]]:
         return self.load().values()

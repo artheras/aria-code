@@ -119,11 +119,18 @@ def restore_tasks() -> int:
         task_id = str(record.get("task_id") or "").strip()
         if not task_id or task_id in _TASKS:
             continue
-        status = str(record.get("status") or "pending")
+        saved_status = str(record.get("status") or "pending")
+        status = saved_status
         error = str(record.get("error") or "")
         if status == "running":
             status = "interrupted"
             error = "CLI restarted before this task completed; rerun or delegate it again."
+        elif status == "pending":
+            # Nothing picks up a queued task later: it was spawned with no
+            # runner registered, and the process that queued it is gone. Left
+            # as pending it never changes, and these piled up by the thousand.
+            status = "interrupted"
+            error = "Queued without a runner and never started; rerun or delegate it again."
         task = SubagentTask(
             task_id=task_id, prompt=str(record.get("prompt") or ""),
             context=str(record.get("context") or ""), status=status,
@@ -142,7 +149,7 @@ def restore_tasks() -> int:
             handoff=dict(record.get("handoff") or {}),
         )
         _TASKS[task_id] = task
-        if status == "interrupted" and record.get("status") == "running":
+        if status != saved_status:
             interrupted.append(task.snapshot())
         restored += 1
     if interrupted:
@@ -373,6 +380,21 @@ def tool_task_list(params: dict) -> dict:
         "tasks": tasks,
         "summary": {s: len(v) for s, v in by_status.items()},
     }
+
+
+def clear_finished_tasks() -> int:
+    """Forget every task that can no longer change, in memory and on disk."""
+    finished = [
+        task_id for task_id, task in _TASKS.items()
+        if task.status in ("done", "failed", "cancelled", "interrupted")
+    ]
+    for task_id in finished:
+        del _TASKS[task_id]
+    try:
+        _ledger().remove_many(finished)
+    except Exception:
+        pass
+    return len(finished)
 
 
 def tool_task_cancel(params: dict) -> dict:
