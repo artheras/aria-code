@@ -435,3 +435,40 @@ async def run_chat_via_runtime(
         review=review,
     )
     return result if return_result else result.text
+
+
+def subagent_run_options(config: dict, task: Any) -> tuple[dict, dict]:
+    """The config and execution context a background task's turn runs under.
+
+    A task names its own workspace (its worktree, for an isolated one) and its
+    own mode; the session's are not its. Without this the runner sent every
+    task's tools to the session's directory, whatever the task said.
+    """
+    cfg = dict(config or {})
+    mode = str(getattr(task, "mode", "") or "read-only")
+    cfg["permission_mode"] = "read-only" if mode == "read-only" else "workspace-write"
+    context: dict = {"_session_id": str(getattr(task, "session_id", "") or "")}
+    workspace = str(getattr(task, "workspace", "") or "")
+    if workspace:
+        cfg["_session_workspace_root"] = workspace
+        context["_workspace"] = workspace
+    spec = getattr(task, "worktree_spec", None)
+    if spec is not None:
+        context["_workspace_origin"] = str(spec.repository)
+        context["_workspace_restricted"] = True
+    return cfg, context
+
+
+async def run_subagent_turn(prompt: str, task: Any, *, local_tools, tool_schemas: List[dict],
+                            config: dict, api_url: Optional[str]) -> str:
+    """Run one background task through the same runtime as a chat turn."""
+    cfg, context = subagent_run_options(config, task)
+    result = await run_chat_via_runtime(
+        prompt=prompt, history=[], local_tools=local_tools, tool_schemas=tool_schemas,
+        model=str(cfg.get("model") or ""), config=cfg, api_url=api_url,
+        ollama_url=str(cfg.get("ollama_url") or "http://localhost:11434"),
+        execution_context=lambda: dict(context), return_result=True,
+    )
+    if getattr(result, "error", None) and not str(getattr(result, "text", "") or "").strip():
+        raise RuntimeError(str(result.error))
+    return str(getattr(result, "text", "") or "")

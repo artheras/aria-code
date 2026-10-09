@@ -625,6 +625,19 @@ class ChatTurnMixin:
         # 而不是把"请重试"推给用户(60s 的工具结果/思考不该因一次抽风作废)。
         # 仅对 empty_response 重试;其他错误(配额/鉴权等)走原有 rescue 链。
         _ACTION_VIEW_ACTIVE[0] = _action_view is not None
+        # The task worktree this turn edits instead of the user's files; None
+        # when isolation is off or this is not a git repository.
+        from apps.cli import task_isolation as _task_isolation
+
+        def _task_note(text: str) -> None:
+            if HAS_RICH:
+                from rich.markup import escape as _escape_markup
+                console.print(f"  [dim]{_escape_markup(text)}[/dim]")
+            else:
+                print(f"  {text}")
+
+        _task = _task_isolation.prepare(_runtime_config, notify=_task_note)
+        _task_context = _task_isolation.execution_context(_task, _runtime_config)
         try:
             for _rt_attempt in range(2):
                 try:
@@ -653,6 +666,7 @@ class ChatTurnMixin:
                         execution_context=lambda: {
                             "_run_id": self._active_run_id,
                             "_session_id": self.session_id,
+                            **_task_context,
                         },
                         return_result=True,
                     )
@@ -1055,10 +1069,13 @@ class ChatTurnMixin:
                         console if HAS_RICH else None,
                         _delivery,
                         run_id=str(result.get("run_id") or ""),
-                        root=os.getcwd(),
+                        root=_task_context.get("_workspace") or os.getcwd(),
                     )
                 except Exception as _delivery_err:
                     logger.debug("delivery report not shown: %s", _delivery_err)
+
+            # A turn that changed files in its task worktree: apply, keep, discard.
+            await self._offer_task_apply(_task, _task_note)
 
             # Metadata line — detailed stats
             metadata = turn_result.metadata
@@ -1257,6 +1274,25 @@ class ChatTurnMixin:
                 provider=str(result.get("provider") or provider),
                 data={"elapsed_seconds": elapsed},
             )
+
+    async def _offer_task_apply(self, task, say) -> None:
+        """Ask whether a task's changes should reach the user's files."""
+        if task is None:
+            return
+        from apps.cli import task_isolation
+
+        def _choose(options, title):
+            return _arrow_select(options, selected=0, title=title,
+                                 shortcuts={"a": 0, "k": 1, "d": 2},
+                                 collapse_to="task")
+
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(None, lambda: task_isolation.offer(
+                task, choose=_choose, say=say, session_id=self.session_id))
+        except Exception as exc:
+            logger.debug("task apply offer failed: %s", exc)
+            say(f"Task {task.task_id} kept; /task apply or /task discard.")
 
 
 __all__ = ["ChatTurnMixin"]

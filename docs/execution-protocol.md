@@ -37,6 +37,7 @@ INSPECT → PLAN → (approval if needed) → EXECUTE → VERIFY → REVIEW → 
 | **Semantic diff** (definitions touched, behaviour, tested by) | `runtime/semantic_diff.py` | **phase 3** |
 | **Detail on demand** (output tail, ctrl+o) | `ui/render/actions.py` | **phase 3** |
 | **Edit by symbol** (`edit_file` with `symbol`) | `runtime/symbol_edit.py` | **phase 3** |
+| **Worktree per task**, applied on approval | `runtime/task_worktree.py`, `apps/cli/task_isolation.py` | **phase 4** |
 
 ## Risk levels
 
@@ -219,6 +220,45 @@ flush-left is indented to the definition's level.
 With the review gate on, the reviewer also describes the change as behaviour —
 *Before / After / Why / Impact* — shown above its findings.
 
+## Worktree per task
+
+In the REPL, inside a git repository, a coding task works on a copy. Before a
+turn that may write, the working tree — uncommitted and untracked files
+included, ignored ones not — is recorded as a commit through a scratch index
+(the user's index and files are not touched) and a detached worktree is
+checked out from it. The turn's tools act there: relative paths resolve in
+the worktree, and an absolute path into the repository, or a command that
+`cd`s into it, is taken to mean the same place in the worktree. Ignored
+dependency directories (`node_modules`, `.venv`, `venv`, `env`, `.tox`) are
+linked in so checks can run.
+
+After a turn that changed files:
+
+```text
+  Task 1a2b3c4d changed 2 files in its worktree; your files are unchanged.
+    M src/session.py
+    A tests/test_session.py
+  Apply this task?
+  ❯ Apply to my files (a)   Keep working (k)   Discard (d)
+```
+
+*Apply* is `git apply` of the task's diff against its starting snapshot,
+checked first: if the user has since changed the same lines it refuses and
+keeps the worktree, so nothing is overwritten. Applied files get checkpoints
+(`/rewind list`). *Keep working* (or Esc) leaves the task open and the next
+message continues in it, across restarts. A task with no changes follows the
+workspace, rebuilt when the user's files move; one with nothing in it is
+removed at exit.
+
+`/task` shows the open task; `/task diff`, `/task apply`, `/task discard`.
+`task_isolation: off` (or `ARIA_TASK_ISOLATION=off`) edits in place as
+before. Read-only and plan modes never isolate, and headless `-p` runs edit
+in place: a script expects the change on disk when the command exits.
+
+Background tasks (`spawn_task`) with `isolation: worktree` now run their
+tools in their own worktree. The aria runner previously called the streaming
+helper with arguments it does not take, so those tasks failed on start.
+
 ## How Codex and Claude Code present the same things
 
 From the Codex TUI source (`codex-rs/tui`, its render snapshots) and the
@@ -243,7 +283,6 @@ Claude Code changelog, October 2026:
 
 **Phase 4 — transactions and project knowledge**
 
-- Worktree per task by default, merged on approval.
 - Transaction checkpoints that also restore task graph, approvals, test
   baseline and conversation, not only files.
 - Persistent project graph (files, symbols, tests, services and their edges)

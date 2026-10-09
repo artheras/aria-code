@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Mapping, Optional
@@ -218,6 +219,11 @@ class ToolExecutor:
             return
         workspace = Path(str(workspace_value)).expanduser().resolve()
         restricted = bool(context.get("_workspace_restricted", False))
+        # A task worktree stands in for the repository it was made from. The
+        # model still sees that repository's paths — in the project context,
+        # in earlier turns — so a path into it is taken to mean the same file
+        # in the worktree, and the user's own copy is never written.
+        origins = _origins(context.get("_workspace_origin"), workspace)
         path_tools = {
             "read_file",
             "write_file",
@@ -236,7 +242,7 @@ class ToolExecutor:
             target = Path(raw_path).expanduser()
             if not target.is_absolute():
                 target = workspace / target
-            target = target.resolve()
+            target = _into_workspace(target.resolve(), origins, workspace)
             if restricted and not target.is_relative_to(workspace):
                 prepared["_execution_context_error"] = (
                     f"Tool path is outside the isolated workspace: {target}"
@@ -248,7 +254,9 @@ class ToolExecutor:
             cwd = Path(raw_cwd).expanduser()
             if not cwd.is_absolute():
                 cwd = workspace / cwd
-            cwd = cwd.resolve()
+            cwd = _into_workspace(cwd.resolve(), origins, workspace)
+            if origins and prepared.get("command"):
+                prepared["command"] = _rebase_command(str(prepared["command"]), origins, workspace)
             if restricted and not cwd.is_relative_to(workspace):
                 prepared["_execution_context_error"] = (
                     f"Command cwd is outside the isolated workspace: {cwd}"
@@ -263,3 +271,32 @@ class ToolExecutor:
             self.hook(hook_type, tool_name, params, result)
         except Exception:
             pass
+
+
+def _origins(value: Any, workspace: Path) -> tuple[Path, ...]:
+    """The origin repository as written and as resolved, unless it is the workspace."""
+    if not value:
+        return ()
+    raw = Path(str(value)).expanduser()
+    found = []
+    for candidate in (raw, raw.resolve()):
+        if candidate != workspace and candidate not in found:
+            found.append(candidate)
+    return tuple(found)
+
+
+def _into_workspace(target: Path, origins: tuple[Path, ...], workspace: Path) -> Path:
+    if target.is_relative_to(workspace):
+        return target
+    for origin in origins:
+        if target.is_relative_to(origin):
+            return workspace / target.relative_to(origin)
+    return target
+
+
+def _rebase_command(command: str, origins: tuple[Path, ...], workspace: Path) -> str:
+    """Point absolute paths into the origin at the worktree: ``cd /repo && …``."""
+    for origin in sorted(origins, key=lambda path: len(str(path)), reverse=True):
+        pattern = re.escape(str(origin)) + r"(?=[/\s'\"`;:)|&]|$)"
+        command = re.sub(pattern, lambda _match: str(workspace), command)
+    return command

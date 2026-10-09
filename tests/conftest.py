@@ -46,6 +46,9 @@ for _var, _path in {
     "ARIA_APPROVAL_OUTBOX": "aria/outbox",
 }.items():
     os.environ[_var] = str(_SESSION_STATE / _path)
+# This repository is a git repository, so every REPL turn a test drives would
+# otherwise run in a task worktree of it. Tests of task isolation turn it on.
+os.environ["ARIA_TASK_ISOLATION"] = "off"
 
 
 # ── 测试进程不连外网 ─────────────────────────────────────────────────────────

@@ -3613,6 +3613,7 @@ class SlashCommands(
             "/apply-plan":   (self.cmd_apply_plan,   "Execute a saved plan: /apply-plan [--resume] [--from N]"),
             "/plan-report":  (self.cmd_plan_report,  "Plan run report: /plan-report [md|json] [file] [--open]"),
             "/tasks":        (self.cmd_tasks,         "Background tasks: /tasks [list|cancel <id>]"),
+            "/task":         (self.cmd_task,          "Current coding task's worktree: /task [diff|apply|discard]"),
             "/delegate":     (self.cmd_delegate,      'Delegate to another agent CLI: /delegate claude|codex "<prompt>"'),
             "/canva":        (self.cmd_canva,         "Canva Connect: /canva connect <client_id> <client_secret> | status"),
             "/optimize-port":(self.cmd_optimize_port,"Portfolio optimization: /optimize-port [SYMBOL...]"),
@@ -4103,15 +4104,14 @@ class ArtheraTerminal(_ChatTurn, _Chrome, _HeadlessMixin):
             )
             _terminal_ref = self
 
-            async def _subagent_runner(prompt: str) -> str:
-                """Run prompt through the same provider in isolated history."""
-                result = await stream_provider_result(
-                    prompt,
-                    history=[],
-                    config=_terminal_ref.config,
-                    local_tools=LOCAL_TOOLS,
+            async def _subagent_runner(prompt: str, task=None) -> str:
+                """Run a task through the chat runtime, in the task's own workspace."""
+                from apps.cli.providers.runtime_bridge import run_subagent_turn
+
+                return await run_subagent_turn(
+                    prompt, task, local_tools=LOCAL_TOOLS, tool_schemas=LOCAL_TOOL_SCHEMAS,
+                    config=_terminal_ref.config, api_url=_terminal_ref.api_url,
                 )
-                return result.get("response", "") if result.get("success") else ""
 
             _register_subagent_runner(_subagent_runner)
             _restore_subagent_tasks()

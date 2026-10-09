@@ -634,6 +634,16 @@ class CoreCommandsMixin:
             for t in tasks:
                 preview = t.prompt[:50]
                 print(f"  {t.task_id}  {t.status:10s}  {t.age_str():>5s}  {preview}")
+    def cmd_task(self, args: str):
+        """Show, diff, apply or discard the coding task's worktree."""
+        from apps.cli import task_isolation
+
+        text = task_isolation.command(args, self.terminal.config, session_id=self.terminal.session_id or "")
+        if self.context.has_rich:
+            from rich.markup import escape
+            self.context.console.print(escape(text))
+        else:
+            print(text)
     def cmd_delegate(self, args: str):
         """Delegate a task to the Claude Code or Codex CLI as a background subagent."""
         try:
