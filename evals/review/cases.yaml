@@ -1,0 +1,42 @@
+# Fixed changes for the independent reviewer (runtime/review.py), scored by
+# python -m aria_code.evals.review_probe evals/review/cases.yaml --model <id>.
+# `expect: pass` means a correct change that must not be blocked (false
+# positives); `expect: block` a change that misses its goal and must be
+# (misses), optionally naming something the finding should mention.
+cases:
+  - id: correct-empty-average
+    goal: average() must return 0.0 for an empty list instead of raising.
+    expect: pass
+    diff: |
+      --- a/stats.py
+      +++ b/stats.py
+      @@ -1,4 +1,6 @@
+       def average(values):
+           """Arithmetic mean of values."""
+      +    if not values:
+      +        return 0.0
+           return sum(values) / len(values)
+      --- a/tests/test_stats.py
+      +++ b/tests/test_stats.py
+      @@ -3,3 +3,7 @@ from stats import average
+
+       def test_average():
+           assert average([1, 2, 3]) == 2
+      +
+      +
+      +def test_empty_average_is_zero():
+      +    assert average([]) == 0.0
+
+  - id: empty-average-still-raises
+    goal: average() must return 0.0 for an empty list instead of raising.
+    expect: block
+    mentions_any: [empty, zero, ZeroDivisionError, "len("]
+    diff: |
+      --- a/stats.py
+      +++ b/stats.py
+      @@ -1,4 +1,6 @@
+       def average(values):
+           """Arithmetic mean of values."""
+      +    if values is None:
+      +        return 0.0
+           return sum(values) / len(values)

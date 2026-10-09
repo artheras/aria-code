@@ -68,3 +68,22 @@ Scoped to that one file AND to exactly this value.
 condition = "AND"
 paths = ['''(^|/)tests/test_exec_events\.py$''']
 regexes = ['''abc123def456''']
+
+[[allowlists]]
+description = """
+Made-up secrets in the run-history redaction tests.
+
+tests/test_run_store_redaction.py checks that prompts, errors and events are
+stored with their credentials redacted, so it has to contain credential-shaped
+strings: a Bearer token in a curl header and a ghp_-shaped token. Neither was
+ever a credential. Since that commit (PR #166) the history scan has failed on
+them.
+
+Scoped to that one file AND to exactly these values.
+"""
+condition = "AND"
+paths = ['''(^|/)tests/test_run_store_redaction\.py$''']
+regexes = [
+    '''abc\.def-123''',
+    '''ghp_abcdefghijklmnop1234''',
+]

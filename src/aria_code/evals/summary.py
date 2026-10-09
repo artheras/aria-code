@@ -75,6 +75,10 @@ def summarise(reports: list[dict], model: str = "", private: list[dict] | None =
                 body = "\n".join(tail).replace("```", "` ` `")
                 lines += ["", f"<details><summary>{result.get('task_id')}: last lines of the log</summary>",
                           "", "```", body, "```", "</details>"]
+        checks = report.get("behavior") or {}
+        if checks:
+            lines += ["", "| Behaviour check | Passed |", "|---|---:|"]
+            lines += [f"| {name.replace('|', '/')} | {s['passed']}/{s['runs']} |" for name, s in checks.items()]
         by_tag = report.get("by_tag") or {}
         if by_tag:
             tags = ", ".join(f"{tag} {s['passed']}/{s['scored']}" for tag, s in by_tag.items() if s.get("scored"))

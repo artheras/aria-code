@@ -139,6 +139,9 @@ class TaskSpec:
     # an answer key when it sits in the workspace. gemini-3.5-flash passed 23
     # of the first 24 tasks with every grader in view.
     hidden: tuple[str, ...] = ()
+    # How the agent should go about it, judged on its tool calls and reported
+    # beside the outcome without changing it. See evals/behavior.py.
+    behavior: tuple[dict, ...] = ()
 
     @classmethod
     def from_dict(cls, data: dict) -> "TaskSpec":
@@ -161,7 +164,14 @@ class TaskSpec:
             ),
             allow_green_start=bool(data.get("allow_green_start", False)),
             hidden=tuple(str(g) for g in (data.get("hidden") or ())),
+            behavior=tuple(_validate_behavior(c) for c in (data.get("behavior") or ())),
         )
+
+
+def _validate_behavior(raw) -> dict:
+    from .behavior import validate
+
+    return validate(raw)
 
 
 _SECRET = re.compile(
@@ -199,6 +209,8 @@ class TaskResult:
     # this the two are indistinguishable in a report, and they call for
     # opposite investigations.
     changed: tuple[str, ...] = ()
+    # Behaviour checks on the agent's tool calls: ({check, passed, detail}, …).
+    behavior: tuple = ()
 
     @property
     def counted(self) -> bool:
@@ -217,6 +229,7 @@ class TaskResult:
             # Why it did not pass. The first CI run's report said only "the
             # agent did not complete (exit 1)"; the reason was in the job log.
             "log_tail": _log_tail(self.log) if self.outcome != PASS else [],
+            **({"behavior": [dict(b) for b in self.behavior]} if self.behavior else {}),
         }
 
 
@@ -284,8 +297,19 @@ class SuiteResult:
             "scored": self.scored,
             "by_tag": self.by_tag(),
             "per_task": self.per_task(),
+            **({"behavior": self.behavior()} if any(r.behavior for r in self.results) else {}),
             "results": [r.to_dict() for r in self.results],
         }
+
+    def behavior(self) -> dict:
+        """Passes over runs for each behaviour check, keyed ``task: check``."""
+        out: dict = {}
+        for result in self.results:
+            for item in result.behavior:
+                stats = out.setdefault(f"{result.task_id}: {item['check']}", {"passed": 0, "runs": 0})
+                stats["runs"] += 1
+                stats["passed"] += bool(item["passed"])
+        return out
 
     def merge(self, other: "SuiteResult") -> None:
         """Fold another run of the same suite into this one."""
@@ -318,6 +342,9 @@ class SuiteResult:
             parts.append(f"{self.invalid} invalid")
         if self.errored:
             parts.append(f"{self.errored} error")
+        checks = [item for r in self.results for item in r.behavior]
+        if checks:
+            parts.append(f"behaviour {sum(bool(i['passed']) for i in checks)}/{len(checks)}")
         return " · ".join(parts)
 
 
@@ -539,10 +566,12 @@ def run_task(
     )
     scratch.mkdir(parents=True, exist_ok=True)
 
+    behaviour: list = []   # filled once the agent has had its turn
+
     def _result(outcome: str, **kwargs) -> TaskResult:
         return TaskResult(
             task_id=task.id, outcome=outcome,
-            seconds=time.time() - started, tags=task.tags, **kwargs,
+            seconds=time.time() - started, tags=task.tags, behavior=tuple(behaviour), **kwargs,
         )
 
     # Everything below runs inside this try so the scratch directory is removed
@@ -596,6 +625,12 @@ def run_task(
             # A solver crash is not the agent failing the task; scoring it as
             # a fail would blame the model for a harness or provider outage.
             return _result(ERROR, detail=f"solver raised: {exc}")
+        # Only when the solver ran an agent: the pre-flight solver returns
+        # nothing, and "write_file was never called" would read as a pass.
+        if task.behavior and outcome is not None:
+            from .behavior import evaluate
+
+            behaviour.extend(evaluate(task.behavior, str(getattr(outcome, "stdout", "") or "")))
 
         # ── the score ─────────────────────────────────────────────────────
         # The check runs no matter what the solver reported, because the check
