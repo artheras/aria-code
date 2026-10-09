@@ -41,6 +41,7 @@ INSPECT → PLAN → (approval if needed) → EXECUTE → VERIFY → REVIEW → 
 | **Transaction rewind** (files, conversation, tasks, approvals, verdict) | `runtime/transactions.py`, `apps/cli/transactions.py` | **phase 4** |
 | **Project graph**, impact analysis before editing | `runtime/project_graph.py` | **phase 4** |
 | **User workflows** (`.aria/workflows/*.yaml`) | `runtime/workflows.py`, `apps/cli/workflow_runner.py` | **phase 4** |
+| **Test baseline** — pre-existing failures are not repaired | `runtime/baseline.py` | **phase 4** |
 
 ## Risk levels
 
@@ -164,6 +165,19 @@ blocking.
 
 It costs one model call per reviewed change, so it is off by default.
 
+## Test baseline
+
+A red check is compared with the code before the change before the model is
+sent to repair it. The failed command runs once more — on the task's
+starting snapshot in a task worktree, otherwise on the working tree with
+this turn's checkpointed edits undone — in a scratch worktree removed
+afterwards. pytest failures are compared by test id, other commands by exit
+status. A check red only where it was already red is not sent back; when
+some failures are new, the repair directive lists the old ones as not this
+task's. The delivery report shows them (`✗ pytest -q (exit 1) — already
+failing before this change`) and calls the turn done; the rewind verdict is
+`≈`. `test_baseline: false` turns it off.
+
 ## The transcript
 
 Tool calls are shown as actions:
@@ -258,6 +272,12 @@ removed at exit.
 before. Read-only and plan modes never isolate, and headless `-p` runs edit
 in place: a script expects the change on disk when the command exits.
 
+Commands run in a worktree get its Python source roots first on
+`PYTHONPATH` (pytest's `pythonpath`, setuptools' `package-dir`, a `src/`
+layout), so a project installed with `pip install -e` imports the task's
+edits rather than the user's checkout. Background commands are not covered
+yet.
+
 Background tasks (`spawn_task`) with `isolation: worktree` now run their
 tools in their own worktree. The aria runner previously called the streaming
 helper with arguments it does not take, so those tasks failed on start.
@@ -276,7 +296,9 @@ its checks, and the open task worktree with its unapplied diff.
 ```
 
 A rewind undoes every file change checkpointed after the point, newest first
-and all or nothing: a file edited by hand since stops it before anything else
+and all or nothing (a task worktree is instead reset to the point's
+snapshot plus its saved patch, which also undoes what shell commands
+changed there): a file edited by hand since stops it before anything else
 changes. Then the conversation, task list and approvals are put back —
 grants given since are revoked and listed — background tasks spawned since
 are cancelled, and a task worktree that was open then but has since gone is
@@ -313,6 +335,10 @@ Impact of CheckpointStore.restore_since: moderate
   Tests (7)
   Services  aria-local
 ```
+
+Edit approval cards carry an `Impact` row and the delivery report an
+`impact` line, from a graph already in memory or on disk — never built on
+the spot, so an approval cannot stall on a scan.
 
 A symbol reaches the files that name it, not every importer of the file
 that defines it. Imports are followed three hops, but not through a package
@@ -377,6 +403,8 @@ Claude Code changelog, October 2026:
 ## Roadmap
 
 Phase 4 — worktree per task, transaction rewind, project graph and user
-workflows — is in. What remains open from it: files changed by shell
-commands are outside checkpoints and so outside a rewind, and the graph's
-imports cover Python and JS/TS; other languages rely on references.
+workflows, test baseline — is in. Open: outside a task worktree, files
+changed by shell commands are outside checkpoints and so outside a rewind;
+the graph's imports cover Python and JS/TS, other languages rely on
+references. Behaviour with real models is measured by the scenarios in
+`artheras/evals`.
