@@ -473,6 +473,89 @@ def clear_cache() -> None:
     _CACHE.clear()
 
 
+def cached_graph(root: Path | str) -> Optional[ProjectGraph]:
+    """The graph already in memory or on disk; never builds one.
+
+    For approval cards and reports, which must not stall on a first scan.
+    It may be a little stale, which is fine for a hint.
+    """
+    resolved = Path(root).expanduser().resolve()
+    graph = _CACHE.get(str(resolved))
+    if graph is not None:
+        return graph
+    try:
+        data = json.loads(_graph_file(resolved).read_text(encoding="utf-8"))
+        if data.get("version") == GRAPH_VERSION and data.get("root") == str(resolved):
+            graph = ProjectGraph.from_dict(data)
+            _CACHE[str(resolved)] = graph
+            return graph
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return None
+
+
+def _repository_of(path: Path) -> Optional[tuple[Path, str]]:
+    """``(repository root, path inside it)`` — a task worktree maps to its repository."""
+    import subprocess
+
+    folder = path if path.is_dir() else path.parent
+    while not folder.exists() and folder != folder.parent:
+        folder = folder.parent
+    try:
+        out = subprocess.run(["git", "rev-parse", "--show-toplevel", "--git-common-dir"], cwd=folder,
+                             capture_output=True, text=True, timeout=5, check=True).stdout.splitlines()
+    except (OSError, subprocess.SubprocessError):
+        out = []
+    if len(out) < 2:
+        # Not a git repository: the nearest folder that has a graph.
+        for parent in [folder, *folder.parents]:
+            if str(parent.resolve()) in _CACHE or _graph_file(parent.resolve()).is_file():
+                try:
+                    return parent.resolve(), str(path.resolve().relative_to(parent.resolve()))
+                except ValueError:
+                    return None
+        return None
+    top = Path(out[0]).resolve()
+    common = Path(out[1])
+    common = (folder / common).resolve() if not common.is_absolute() else common.resolve()
+    origin = common.parent if common.name == ".git" else top
+    try:
+        return origin, str(path.resolve().relative_to(top))
+    except ValueError:
+        return None
+
+
+def impact_of_paths(paths: Sequence[str]) -> Optional[Impact]:
+    """Impact of changing these absolute paths, from a cached graph only."""
+    targets: list[str] = []
+    graph: Optional[ProjectGraph] = None
+    for raw in paths:
+        located = _repository_of(Path(raw))
+        if located is None:
+            continue
+        root, relative = located
+        candidate = cached_graph(root)
+        if candidate is None or (graph is not None and candidate.root != graph.root):
+            continue
+        graph = candidate
+        targets.append(relative)
+    if graph is None or not targets:
+        return None
+    return graph.impact(targets)
+
+
+def impact_line(impact: Optional[Impact]) -> str:
+    """One line for a card or report: ``9 files · 7 tests · api``."""
+    if impact is None or not impact.targets or impact.unresolved == impact.targets:
+        return ""
+    reach = len(impact.direct) + len(impact.indirect)
+    parts = [f"{impact.breadth}", f"{reach} file{'s' if reach != 1 else ''} depend on it",
+             f"{len(impact.tests)} test{'s' if len(impact.tests) != 1 else ''}"]
+    if impact.services:
+        parts.append(", ".join(impact.services))
+    return " · ".join(parts)
+
+
 # ── model-facing tool ──────────────────────────────────────────────────────
 
 def tool_impact_analysis(params: dict) -> dict:

@@ -151,3 +151,64 @@ def test_the_model_is_offered_the_tool_and_the_user_has_impact(repo, monkeypatch
     terminal.commands.cmd_impact("app/billing.py")
     assert "Impact of app/billing.py" in out.getvalue()
     assert "tests/test_checkout.py" in out.getvalue()
+
+
+# ── shown on approval cards and delivery reports ────────────────────────────
+
+def _assessment(*files):
+    from types import SimpleNamespace
+    return SimpleNamespace(level=2, name="medium", score=40, reversible=True, hosts=(),
+                           files=tuple(files), systems=(), reasons=("edits a file",))
+
+
+def _git(repo, *args):
+    import subprocess
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=repo,
+                   check=True, capture_output=True)
+
+
+def test_an_edit_card_says_what_depends_on_the_file(repo):
+    from aria_code.ui.render.output import _file_impact, format_risk_card
+
+    pg.clear_cache()
+    pg.load_project_graph(repo)
+    impact = _file_impact(_assessment(str(repo / "app" / "billing.py")))
+    lines = [line for _style, line in format_risk_card(_assessment(), impact=impact)]
+    assert impact.startswith("moderate") or impact.startswith("narrow")
+    assert "2 tests" in impact and "api" in impact
+    assert any(line.startswith("Impact") for line in lines)
+
+
+def test_a_path_in_a_task_worktree_reads_its_repositorys_graph(repo, tmp_path):
+    from aria_code.runtime.task_worktree import TaskWorktrees
+
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "init")
+    pg.clear_cache()
+    pg.load_project_graph(repo)
+    task = TaskWorktrees(tmp_path / "wt").ensure(repo)
+    impact = pg.impact_of_paths([str(Path(task.path) / "app" / "billing.py")])
+    assert impact is not None and "app/checkout.py" in impact.direct
+
+
+def test_no_saved_graph_means_no_line_and_no_scan(repo, monkeypatch):
+    from aria_code.ui.render.output import _file_impact
+
+    pg.clear_cache()
+    monkeypatch.setattr(pg.ProjectGraph, "build", lambda *a, **k: pytest.fail("must not build"))
+    assert _file_impact(_assessment(str(repo / "app" / "billing.py"))) == ""
+
+
+def test_the_delivery_report_names_the_impact(repo):
+    from aria_code.runtime.delivery import DeliveryLedger
+
+    pg.clear_cache()
+    pg.load_project_graph(repo)
+    ledger = DeliveryLedger(root=str(repo))
+    target = repo / "app" / "billing.py"
+    ledger.record("edit_file", {"path": str(target)},
+                  {"success": True, "path": str(target), "diff": "--- a\n+++ b\n-x\n+y\n"})
+    report = ledger.report()
+    assert "test" in report.impact
+    assert "impact" in report.render(root=repo)

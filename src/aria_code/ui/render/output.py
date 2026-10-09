@@ -174,7 +174,7 @@ def tool_display_label(tool_name: str) -> str:
 _RISK_STYLE = {0: "green", 1: "green", 2: "yellow", 3: "bold yellow", 4: "bold red"}
 
 
-def format_risk_card(assessment) -> list[tuple[str, str]]:
+def format_risk_card(assessment, *, impact: str = "") -> list[tuple[str, str]]:
     """What an action touches, as (style, line) pairs, shown above its approval.
 
     The prompt used to ask about a command; this says what the command does:
@@ -194,15 +194,29 @@ def format_risk_card(assessment) -> list[tuple[str, str]]:
 
     _row("Network", assessment.hosts)
     _row("Files", assessment.files)
+    _row("Impact", [impact] if impact else [])
     _row("Affects", assessment.systems)
     _row("Why", assessment.reasons[:2])
     return lines
 
 
+def _file_impact(assessment) -> str:
+    """What depends on the files an edit touches, from the cached project graph."""
+    files = [str(f) for f in (getattr(assessment, "files", None) or ()) if str(f).startswith("/")]
+    if not files:
+        return ""
+    try:
+        from aria_code.runtime.project_graph import impact_line, impact_of_paths
+
+        return impact_line(impact_of_paths(files))
+    except Exception:
+        return ""
+
+
 def print_risk_card(console, assessment) -> None:
     from rich.markup import escape
 
-    for style, line in format_risk_card(assessment):
+    for style, line in format_risk_card(assessment, impact=_file_impact(assessment)):
         if console is None:
             print(f"  {line}")
         else:
