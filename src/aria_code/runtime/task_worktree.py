@@ -177,6 +177,70 @@ def remove_checkout(repo: Path | str, destination: Path | str, linked: Sequence[
             pass
 
 
+def python_source_roots(root: Path | str) -> list[Path]:
+    """Where a Python project's importable code lives, most specific first.
+
+    A project installed with ``pip install -e`` imports from the checkout it
+    was installed from. Run its tests in a task worktree and they import the
+    user's files, not the task's edits, and pass or fail for the wrong code.
+    Putting these roots first on PYTHONPATH makes the worktree's copy win:
+    PYTHONPATH precedes site-packages and the editable install's hooks.
+
+    Read from pytest's ``pythonpath``, setuptools' ``package-dir`` (in
+    pyproject.toml or setup.cfg), a ``src/`` layout, and the root itself.
+    """
+    root = Path(root)
+    found: list[Path] = []
+
+    def add(relative) -> None:
+        for item in ([relative] if isinstance(relative, str) else list(relative or ())):
+            candidate = (root / str(item)).resolve()
+            if candidate.is_dir() and candidate not in found:
+                found.append(candidate)
+
+    try:
+        import tomllib
+
+        data = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+        tool = data.get("tool") or {}
+        add((tool.get("pytest", {}).get("ini_options") or {}).get("pythonpath"))
+        setuptools = tool.get("setuptools") or {}
+        add((setuptools.get("package-dir") or {}).get(""))
+        add(((setuptools.get("packages") or {}).get("find") or {}).get("where") if isinstance(
+            setuptools.get("packages"), dict) else None)
+    except (OSError, ValueError, ImportError, AttributeError):
+        pass
+    try:
+        import configparser
+
+        parser = configparser.ConfigParser()
+        parser.read(root / "setup.cfg", encoding="utf-8")
+        mapping = parser.get("options", "package_dir", fallback="")
+        for line in mapping.splitlines():
+            key, _, value = line.partition("=")
+            if not key.strip() and value.strip():
+                add(value.strip())
+    except (configparser.Error, OSError):
+        pass
+    src = root / "src"
+    if src.is_dir() and any(child.suffix == ".py" or (child / "__init__.py").is_file() for child in src.iterdir()):
+        add("src")
+    add(".")
+    return found
+
+
+def worktree_command_env(workspace: str, origin: str, base_env: Optional[dict] = None) -> Optional[dict]:
+    """The environment for a command run in a task worktree; None elsewhere."""
+    if not workspace or not origin:
+        return None
+    top = repository_root(workspace) or Path(workspace)
+    env = dict(os.environ if base_env is None else base_env)
+    roots = [str(path) for path in python_source_roots(top)]
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = os.pathsep.join([*roots, *([existing] if existing else [])])
+    return env
+
+
 def _exclusions(task: TaskWorktree) -> list[str]:
     return [f":(exclude){name}" for name in task.linked]
 

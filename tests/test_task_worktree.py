@@ -248,3 +248,47 @@ def test_bytecode_never_enters_a_snapshot(repo, tasks):
     task = tasks.ensure(repo)
     assert not (Path(task.path) / "__pycache__").exists()
     assert not (Path(task.path) / "legacy.pyc").exists()
+
+
+# ── commands in a worktree import the worktree's code ───────────────────────
+
+def test_source_roots_come_from_the_project_layout(tmp_path):
+    from aria_code.runtime.task_worktree import python_source_roots
+
+    root = tmp_path / "p"
+    (root / "src" / "pkg").mkdir(parents=True)
+    (root / "src" / "pkg" / "__init__.py").write_text("")
+    (root / "lib").mkdir()
+    (root / "pyproject.toml").write_text('[tool.pytest.ini_options]\npythonpath = ["lib"]\n')
+    assert python_source_roots(root) == [(root / "lib").resolve(), (root / "src").resolve(), root.resolve()]
+
+    other = tmp_path / "q"
+    (other / "code").mkdir(parents=True)
+    (other / "setup.cfg").write_text("[options]\npackage_dir =\n    =code\n")
+    assert python_source_roots(other)[0] == (other / "code").resolve()
+
+
+def test_an_editable_install_does_not_shadow_the_worktree(tmp_path, tasks, monkeypatch):
+    import sys as _sys
+    import aria_code.aria_cli as cli
+    from aria_code.apps.cli.providers.runtime_bridge import build_tool_executor
+    from aria_code.runtime.approval import ApprovalDecision
+
+    repo = tmp_path / "proj"
+    (repo / "src" / "mypkg").mkdir(parents=True)
+    (repo / "src" / "mypkg" / "__init__.py").write_text("VALUE = 'user'\n")
+    git(repo, "init", "-q")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "init")
+    # What `pip install -e .` amounts to: the user's src answers `import mypkg`.
+    monkeypatch.setenv("PYTHONPATH", str(repo / "src"))
+
+    task = tasks.ensure(repo)
+    (Path(task.path) / "src" / "mypkg" / "__init__.py").write_text("VALUE = 'task'\n")
+    executor = build_tool_executor(cli.LOCAL_TOOLS, {"permission_mode": "workspace-write"},
+                                   lambda: {"_workspace": task.path, "_workspace_origin": str(repo)})
+    result = executor.execute_local(
+        "run_command", {"command": f'{_sys.executable} -c "import mypkg; print(mypkg.VALUE)"'},
+        approval=ApprovalDecision.allow(policy="balanced", user_approved=True))
+    assert result["success"], result
+    assert result["data"]["stdout"].strip() == "task"
