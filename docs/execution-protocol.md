@@ -39,6 +39,8 @@ INSPECT → PLAN → (approval if needed) → EXECUTE → VERIFY → REVIEW → 
 | **Edit by symbol** (`edit_file` with `symbol`) | `runtime/symbol_edit.py` | **phase 3** |
 | **Worktree per task**, applied on approval | `runtime/task_worktree.py`, `apps/cli/task_isolation.py` | **phase 4** |
 | **Transaction rewind** (files, conversation, tasks, approvals, verdict) | `runtime/transactions.py`, `apps/cli/transactions.py` | **phase 4** |
+| **Project graph**, impact analysis before editing | `runtime/project_graph.py` | **phase 4** |
+| **User workflows** (`.aria/workflows/*.yaml`) | `runtime/workflows.py`, `apps/cli/workflow_runner.py` | **phase 4** |
 
 ## Risk levels
 
@@ -285,6 +287,73 @@ storing only the messages added since the previous one. Files changed by a
 shell command rather than an edit tool have no checkpoint and are not undone;
 `/rewind code|conversation|both|list` work as before.
 
+## Impact before editing
+
+The project graph holds the repository's files, the symbols they define,
+the imports between them (Python through `ast`, JS/TS relative specifiers),
+references to symbols defined elsewhere, which files are tests, and which
+service ships each file (a `docker-compose` build context, or a directory
+with its own `pyproject.toml`, `package.json`, `go.mod` or `Cargo.toml`).
+It is saved per repository under `<aria home>/graphs` and reused while no
+file has changed; otherwise only changed files are re-parsed.
+
+The model calls `impact_analysis` with paths or symbols before changing
+code others depend on; the coding prompt tells it to. `/impact` shows the
+same:
+
+```text
+/impact CheckpointStore.restore_since
+Impact of CheckpointStore.restore_since: moderate
+  Used directly by (2)
+    src/aria_code/apps/cli/transactions.py
+    tests/test_checkpoints_since.py
+  Reached through imports (9)
+    src/aria_code/apps/cli/chat_turn.py
+    …
+  Tests (7)
+  Services  aria-local
+```
+
+A symbol reaches the files that name it, not every importer of the file
+that defines it. Imports are followed three hops, but not through a package
+`__init__` or a file importing more than twenty others — past those,
+everything reaches everything.
+
+## Workflows
+
+`.aria/workflows/<name>.yaml` defines a pipeline run as `/<name> [args]`
+(or `/workflow run <name>`):
+
+```yaml
+description: Test, build, review, changelog, PR
+steps:
+  - name: Tests
+    run: python -m pytest -q
+  - name: Build
+    run: python -m build
+    timeout: 600
+  - name: Security review
+    command: /review --base main
+  - name: Changelog
+    prompt: Add a CHANGELOG.md entry for the changes since the last tag. {{args}}
+  - name: Open the PR
+    run: gh pr create --fill
+    confirm: true
+```
+
+`run` goes through the `run_command` tool (policy, sandbox, output),
+`prompt` is a full turn (tools, approvals, checks, task worktree, rewind
+point), `command` any slash command. A step fails on a non-zero exit, on a
+turn that leaves checks failing that passed before, or on an unknown
+command; the first failure stops the run unless the step has
+`continue_on_error`, and declining a `confirm` step stops it too. The run
+ends with one line per step.
+
+The file comes with the repository, so its first run — and the first after
+it changes — lists every step and asks; the answer is kept by content hash.
+Built-in commands and skills win over a workflow of the same name.
+`/workflow list`, `/workflow show <name>`, `/workflow new <name>`.
+
 ## How Codex and Claude Code present the same things
 
 From the Codex TUI source (`codex-rs/tui`, its render snapshots) and the
@@ -307,9 +376,7 @@ Claude Code changelog, October 2026:
 
 ## Roadmap
 
-**Phase 4 — transactions and project knowledge**
-
-- Persistent project graph (files, symbols, tests, services and their edges)
-  for impact analysis before editing.
-- `.aria/workflows/*.yaml` for user-defined pipelines (`/release` → test →
-  build → security review → changelog → PR).
+Phase 4 — worktree per task, transaction rewind, project graph and user
+workflows — is in. What remains open from it: files changed by shell
+commands are outside checkpoints and so outside a rewind, and the graph's
+imports cover Python and JS/TS; other languages rely on references.

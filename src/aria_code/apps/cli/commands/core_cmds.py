@@ -58,7 +58,15 @@ class CoreCommandsMixin:
             return False
         # Only match registered commands and skills, not file paths like /Users/...
         cmd = text.split(maxsplit=1)[0].lower()
-        return cmd in self.commands or cmd in self.skill_map
+        return cmd in self.commands or cmd in self.skill_map or self._workflow_named(cmd)
+    def _workflow_named(self, cmd: str) -> bool:
+        """``/release`` when ``.aria/workflows/release.yaml`` exists here."""
+        try:
+            from aria_code.runtime.workflows import names
+            root = self.terminal.config.get("_session_workspace_root") or os.getcwd()
+            return cmd.lstrip("/") in names(root)
+        except Exception:
+            return False
     async def execute(self, text: str):
         from aria_code.apps.cli.helpers import _fuzzy_match
         reference_service = getattr(self.terminal, "_reference_service", None)
@@ -102,6 +110,10 @@ class CoreCommandsMixin:
                     print(f"\n  ✗ {cmd_name} error: {_cmd_err}\n{_tb_str}")
         elif cmd_name in self.skill_map:
             await self._execute_skill(self.skill_map[cmd_name], args)
+        elif self._workflow_named(cmd_name):
+            # After commands and skills: a repository file never shadows a
+            # built-in. /workflow run <name> reaches it either way.
+            await self.cmd_workflow(f"run {cmd_name.lstrip('/')} {args}".rstrip())
         else:
             # Fuzzy match: suggest closest command
             all_cmds = list(self.commands.keys()) + list(self.skill_map.keys())
@@ -639,6 +651,22 @@ class CoreCommandsMixin:
         from apps.cli import task_isolation
 
         text = task_isolation.command(args, self.terminal.config, session_id=self.terminal.session_id or "")
+        if self.context.has_rich:
+            from rich.markup import escape
+            self.context.console.print(escape(text))
+        else:
+            print(text)
+    def cmd_impact(self, args: str):
+        """/impact <path|symbol> [...] — dependents, tests and services of a change."""
+        targets = shlex.split(args)
+        if not targets:
+            msg = "Usage: /impact <path|symbol> [...]   e.g. /impact src/auth/session.py Session.refresh"
+            self.context.console.print(f"[dim]{msg}[/dim]") if self.context.has_rich else print(msg)
+            return
+        from aria_code.runtime.project_graph import load_project_graph
+
+        root = self.terminal.config.get("_session_workspace_root") or os.getcwd()
+        text = load_project_graph(root).impact(targets).render()
         if self.context.has_rich:
             from rich.markup import escape
             self.context.console.print(escape(text))

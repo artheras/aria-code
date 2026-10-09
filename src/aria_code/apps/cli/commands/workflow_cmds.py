@@ -410,6 +410,93 @@ class WorkflowCommandsMixin:
         for index, line in enumerate(outcome.lines()):
             say(line, "green" if index == 0 else "dim")
 
+    def _workflow_workspace(self) -> str:
+        return self.terminal.config.get("_session_workspace_root") or os.getcwd()
+
+    def _wf_say(self, text: str, style: str = "dim") -> None:
+        if self.context.has_rich:
+            from rich.markup import escape
+            self.context.console.print(f"[{style}]{escape(text)}[/{style}]" if style else escape(text))
+        else:
+            print(text)
+
+    def _wf_ask(self, question: str) -> bool:
+        try:
+            answer = (self.context.console.input(question) if self.context.has_rich else input(question))
+        except (EOFError, KeyboardInterrupt):
+            return False
+        return answer.strip().lower() in {"y", "yes"}
+
+    async def cmd_workflow(self, args: str):
+        """/workflow list | show <name> | run <name> [args] | new <name>."""
+        from aria_code.runtime import workflows
+
+        parts = args.strip().split(maxsplit=2)
+        sub = parts[0].lower() if parts else "list"
+        name = parts[1].lstrip("/").lower() if len(parts) > 1 else ""
+        rest = parts[2] if len(parts) > 2 else ""
+        workspace = self._workflow_workspace()
+
+        if sub == "list":
+            found = workflows.names(workspace)
+            if not found:
+                self._wf_say("No workflows. /workflow new <name> creates .aria/workflows/<name>.yaml")
+                return
+            for item in found:
+                try:
+                    workflow = workflows.find(workspace, item)
+                    self._wf_say(f"  /{item:<14} {workflow.description or ''}  ({len(workflow.steps)} steps)", "")
+                except workflows.WorkflowError as exc:
+                    self._wf_say(f"  /{item:<14} invalid: {exc}", "red")
+            return
+        if sub == "new":
+            if not name:
+                self._wf_say("Usage: /workflow new <name>")
+                return
+            target = pathlib.Path(workspace) / ".aria" / "workflows" / f"{name}.yaml"
+            if target.exists():
+                self._wf_say(f"{target} already exists", "yellow")
+                return
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(workflows.TEMPLATE.format(name=name), encoding="utf-8")
+            self._wf_say(f"Created {target}; edit its steps, then run /{name}", "green")
+            return
+        if sub not in {"show", "run"} or not name:
+            self._wf_say("Usage: /workflow list | show <name> | run <name> [args] | new <name>")
+            return
+        try:
+            workflow = workflows.find(workspace, name)
+        except workflows.WorkflowError as exc:
+            self._wf_say(str(exc), "red")
+            return
+        if workflow is None:
+            self._wf_say(f"No workflow '{name}' in .aria/workflows; /workflow list", "yellow")
+            return
+        if sub == "show":
+            for line in workflow.outline():
+                self._wf_say(line, "")
+            return
+        await self._run_workflow(workflow, rest)
+
+    async def _run_workflow(self, workflow, args: str) -> None:
+        from aria_code.runtime.workflows import TrustStore
+        from aria_code.apps.cli.workflow_runner import run_workflow, summary_lines
+
+        trust = TrustStore.load()
+        if not trust.trusted(workflow):
+            self._wf_say("This workflow comes from the repository and has not run here before"
+                      " (or its file changed). It will run:", "yellow")
+            for line in workflow.outline():
+                self._wf_say(line, "")
+            if not self._wf_ask("  Trust and run it? [y/N] "):
+                self._wf_say("Cancelled")
+                return
+            trust.trust(workflow)
+        results = await run_workflow(self.terminal, workflow, args, ask=self._wf_ask, say=self._wf_say)
+        for index, line in enumerate(summary_lines(workflow, results)):
+            style = ("red" if "FAILED" in line else "yellow" if "STOPPED" in line else "green") if index == 0 else "dim"
+            self._wf_say(line, style)
+
     async def cmd_retry(self, args: str):
         last_user_msg = None
         for i in range(len(self.terminal.conversation) - 1, -1, -1):

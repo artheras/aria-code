@@ -1107,6 +1107,14 @@ except Exception as _exc:
     logger.debug("Repo-map tools init error: %s", _exc)
     REPO_MAP_SCHEMAS: list = []  # type: ignore[no-redef]
 
+# ── Register the project graph (impact analysis before editing) ──────────────
+try:
+    from aria_code.runtime.project_graph import PROJECT_GRAPH_TOOLS, PROJECT_GRAPH_SCHEMAS
+    LOCAL_TOOLS.update(PROJECT_GRAPH_TOOLS)
+except Exception as _exc:
+    logger.debug("Project graph tools init error: %s", _exc)
+    PROJECT_GRAPH_SCHEMAS: list = []  # type: ignore[no-redef]
+
 # ── Register artifact publishing (model-facing canvas tool) ───────────────────
 try:
     from aria_code.tools.artifact_tools import ARTIFACT_TOOLS, ARTIFACT_TOOL_SCHEMAS
@@ -1262,6 +1270,7 @@ LOCAL_TOOL_SCHEMAS.extend(_wrap_bare_schemas(LSP_SCHEMAS))
 # hides them from the model instead of gating them — the same defect
 # tests/test_tool_scope.py caught for the code-audit tools.
 LOCAL_TOOL_SCHEMAS.extend(_wrap_bare_schemas(REPO_MAP_SCHEMAS))
+LOCAL_TOOL_SCHEMAS.extend(_wrap_bare_schemas(PROJECT_GRAPH_SCHEMAS))
 LOCAL_TOOL_SCHEMAS.extend(_wrap_bare_schemas(ARTIFACT_TOOL_SCHEMAS))
 
 
@@ -3614,6 +3623,8 @@ class SlashCommands(
             "/plan-report":  (self.cmd_plan_report,  "Plan run report: /plan-report [md|json] [file] [--open]"),
             "/tasks":        (self.cmd_tasks,         "Background tasks: /tasks [list|cancel <id>]"),
             "/task":         (self.cmd_task,          "Current coding task's worktree: /task [diff|apply|discard]"),
+            "/impact":       (self.cmd_impact,        "What a change reaches: /impact <path|symbol> [...]"),
+            "/workflow":     (self.cmd_workflow,      "Project workflows in .aria/workflows: /workflow list|show|run|new <name>"),
             "/delegate":     (self.cmd_delegate,      'Delegate to another agent CLI: /delegate claude|codex "<prompt>"'),
             "/canva":        (self.cmd_canva,         "Canva Connect: /canva connect <client_id> <client_secret> | status"),
             "/optimize-port":(self.cmd_optimize_port,"Portfolio optimization: /optimize-port [SYMBOL...]"),
