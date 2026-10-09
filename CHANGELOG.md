@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.125.0] — 2026-10-09
+
+- Merge pull request #166 from artheras/fix/redact-run-history
+
 ## [0.124.0] — 2026-10-09
 
 - Merge pull request #165 from artheras/feat/sleepy-bohr-sp66yu
