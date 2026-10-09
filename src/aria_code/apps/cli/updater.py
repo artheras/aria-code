@@ -239,6 +239,16 @@ def install_native(latest: str, release: dict) -> Path:
             raise ValueError("Downloaded binary version does not match the release")
         active = releases / f"v{latest}-{os.urandom(4).hex()}"
         unpacked.rename(active)
+        # --version exits before the CLI imports. Validate those imports at
+        # the final path, so missing bundled modules fail before activation
+        # and macOS's first-load checks happen during the visible installation.
+        print("Preparing the CLI for its first startup...")
+        try:
+            subprocess.run([str(active / "aria-code-bin/aria-code-bin"), "--help"],
+                           capture_output=True, text=True, timeout=120, check=True)
+        except (OSError, subprocess.SubprocessError) as error:
+            shutil.rmtree(active)
+            raise ValueError("Downloaded CLI failed its startup check; the installed version was kept") from error
     alias = install_dir / "aria"
     if not alias.exists():
         alias.write_text('#!/bin/sh\nif [ "${1-}" = code ]; then shift; fi\nexec "$(dirname "$0")/aria-code" "$@"\n')

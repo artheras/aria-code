@@ -39,8 +39,8 @@ install_dir=${ARIA_CODE_INSTALL_DIR:-"$HOME/.local/bin"}
 # libraries beside it. Install immutable directories and switch one symlink;
 # a failed replacement must leave the previous version runnable.
 # (--onefile re-unpacked ~400 libraries on every launch, which macOS re-scanned
-# each time: ~90 s per command. The first launch after install is still slow
-# while macOS scans them once.)
+# each time: ~90 s per command. Check the full CLI after placing its files
+# at the final path, before switching the command.)
 app_root=${ARIA_CODE_HOME:-"$HOME/.local/share/aria-code"}
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/aria-code-install.XXXXXX") || fail 'could not create a temporary directory'
 trap 'rm -rf "$tmp_dir"; if [ -n "${staged:-}" ]; then rm -rf "$staged"; fi' EXIT HUP INT TERM
@@ -97,10 +97,15 @@ else
   # Keep the old directory so a running process and a rollback both work.
   installed="$app_root/releases/$expected-$$"
   mv "$staged" "$installed" || fail "could not activate the staged build"
+  staged="$installed"
+  printf 'Preparing the CLI for its first startup...\n'
+  "$installed/aria-code-bin/aria-code-bin" --help >/dev/null \
+    || fail 'downloaded CLI failed its startup check; the installed version was kept'
 
   # Replaces an old single-file install or an older onedir symlink atomically.
   ln -s "$installed/aria-code-bin/aria-code-bin" "$install_dir/.aria-code-new-$$"
   mv -f "$install_dir/.aria-code-new-$$" "$install_dir/aria-code"
+  staged=""
 fi
 
 cat > "$tmp_dir/aria" <<'EOF'
