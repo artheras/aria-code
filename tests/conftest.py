@@ -19,6 +19,10 @@ from urllib.parse import urlsplit
 
 import pytest
 
+# Installs the import finder that makes a bare ``runtime.x`` the same module
+# as ``aria_code.runtime.x``; it has to be in place before any test imports.
+import aria_code  # noqa: F401
+
 # 确保 apps/cli 在 Python 路径上
 _CLI_DIR = str(pathlib.Path(__file__).parents[1])
 if _CLI_DIR not in sys.path:
