@@ -1819,6 +1819,7 @@ class ModelCommandsMixin:
                 for key in ("api_url", "ollama_url", "local_provider", "model",
                             "provider_fallback", "llm_base_url", "thinking_mode",
                             "command_policy", "permission_mode", "network_enabled",
+                            "approval_mode", "auto_approve_level", "review_gate", "delivery_report",
                             "write_policy", "lsp_autocheck", "input_style", "input_theme",
                             "response_footer", "auto_compact_context",
                             "auto_compact_threshold", "auto_save_sessions"):
@@ -1866,6 +1867,7 @@ class ModelCommandsMixin:
                 for key in ("api_url", "ollama_url", "local_provider", "model",
                             "provider_fallback", "llm_base_url", "thinking_mode",
                             "command_policy", "permission_mode", "network_enabled",
+                            "approval_mode", "auto_approve_level", "review_gate", "delivery_report",
                             "write_policy", "lsp_autocheck", "input_style", "input_theme",
                             "response_footer", "auto_compact_context",
                             "auto_compact_threshold"):
@@ -1886,7 +1888,19 @@ class ModelCommandsMixin:
                         msg = "permission_mode must be one of: read-only | workspace-write | full-access"
                         self.context.console.print(f"[red]{msg}[/red]" if self.context.has_rich else msg)
                         return
-                elif key in {"network_enabled", "data_sharing", "feedback_upload"}:
+                elif key == "approval_mode":
+                    if val not in {"manual", "risk"}:
+                        msg = ("approval_mode must be one of: manual | risk "
+                               "(risk: auto-approve actions at or below auto_approve_level)")
+                        self.context.console.print(f"[red]{msg}[/red]" if self.context.has_rich else msg)
+                        return
+                elif key == "auto_approve_level":
+                    if val not in {"0", "1", "2"}:
+                        msg = "auto_approve_level must be 0, 1 or 2 (L3 and L4 always ask)"
+                        self.context.console.print(f"[red]{msg}[/red]" if self.context.has_rich else msg)
+                        return
+                    val = int(val)
+                elif key in {"network_enabled", "data_sharing", "feedback_upload", "review_gate", "delivery_report"}:
                     if val.lower() in {"true", "1", "yes", "on"}:
                         val = True
                     elif val.lower() in {"false", "0", "no", "off"}:

@@ -17,6 +17,9 @@ class ApprovalDecision:
     tool_scope: str = ""
     command_prefix: tuple[str, ...] = ()
     reason: str = ""
+    # What the user said instead of approving. A denial with feedback does
+    # not end the turn: the call is skipped and the model reads this.
+    feedback: str = ""
 
     @classmethod
     def allow(
@@ -42,8 +45,19 @@ class ApprovalDecision:
         )
 
     @classmethod
-    def deny(cls, reason: str = "") -> "ApprovalDecision":
-        return cls(approved=False, reason=reason)
+    def deny(cls, reason: str = "", *, feedback: str = "") -> "ApprovalDecision":
+        return cls(approved=False, reason=reason, feedback=feedback.strip())
+
+    def as_declined_result(self) -> dict:
+        """What the model reads in place of a call the user declined with feedback."""
+        return {
+            "success": False,
+            "error": (
+                "The user declined this call and said: "
+                f"\"{self.feedback}\". Do what they asked instead; do not retry the same call."
+            ),
+            "declined_by_user": True,
+        }
 
 
 def apply_approval_decision(params: dict, decision: ApprovalDecision) -> dict:

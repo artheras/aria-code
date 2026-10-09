@@ -171,7 +171,46 @@ def tool_display_label(tool_name: str) -> str:
     return f"{tool_name} · {tool_display_kind(tool_name)}"
 
 
-_DELIVERY_HEADINGS = {"Changed", "Verified", "Review", "Risk", "Contract", "Checkpoint", "Next"}
+_RISK_STYLE = {0: "green", 1: "green", 2: "yellow", 3: "bold yellow", 4: "bold red"}
+
+
+def format_risk_card(assessment) -> list[tuple[str, str]]:
+    """What an action touches, as (style, line) pairs, shown above its approval.
+
+    The prompt used to ask about a command; this says what the command does:
+    its level and score, whether it can be undone, the hosts, files and
+    systems it reaches, and why it is rated that way.
+    """
+    level = assessment.level
+    head = (f"Risk     L{level} {assessment.name} · {assessment.score}/100 · "
+            f"{'reversible' if assessment.reversible else 'not reversible'}")
+    lines = [(_RISK_STYLE.get(level, ""), head)]
+
+    def _row(label: str, values) -> None:
+        values = [str(v) for v in values if str(v)]
+        if values:
+            shown = ", ".join(values[:4]) + (f" +{len(values) - 4}" if len(values) > 4 else "")
+            lines.append(("dim", f"{label:<9}{shown}"))
+
+    _row("Network", assessment.hosts)
+    _row("Files", assessment.files)
+    _row("Affects", assessment.systems)
+    _row("Why", assessment.reasons[:2])
+    return lines
+
+
+def print_risk_card(console, assessment) -> None:
+    from rich.markup import escape
+
+    for style, line in format_risk_card(assessment):
+        if console is None:
+            print(f"  {line}")
+        else:
+            text = f"  {escape(line)}"
+            console.print(f"[{style}]{text}[/{style}]" if style else text, highlight=False)
+
+
+_DELIVERY_HEADINGS = {"Changed", "Verified", "Behaviour", "Review", "Risk", "Contract", "Checkpoint", "Next"}
 
 
 def format_delivery_report(delivery: dict, *, run_id: str = "", root=None) -> list[tuple[str, str]]:

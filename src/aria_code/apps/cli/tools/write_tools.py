@@ -698,6 +698,13 @@ def tool_edit_file(params: dict) -> dict:
     `except Exception:`) edited the wrong place and reported success.
     multi_edit already refused that.
     """
+    # `symbol` names a definition instead of quoting it (runtime/symbol_edit).
+    # Usually already resolved at approval, so the preview showed the change.
+    from aria_code.runtime.symbol_edit import resolve_symbol_edit
+
+    symbol_error = resolve_symbol_edit(params)
+    if symbol_error:
+        return {"success": False, "error": f"symbol edit: {symbol_error}"}
     path = params.get("path", "")
     old_str = params.get("old_string", params.get("old_str", ""))
     new_str = params.get("new_string", params.get("new_str", ""))

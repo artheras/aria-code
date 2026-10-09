@@ -158,6 +158,39 @@ def build_change_contract(config: Optional[dict] = None, message: str = "", exec
     return contract.with_goal(message) if contract is not None else None
 
 
+def build_review_gate(config: Optional[dict] = None, *, model: str, api_url: Optional[str],
+                      ollama_url: str, thinking_mode: str = "auto", auth_token: Optional[str] = None):
+    """The independent reviewer for this turn, or None unless review_gate is on.
+
+    Same model, fresh context: no history, no tools, no project context — the
+    reviewer judges the diff it is given, not the conversation that made it.
+    """
+    cfg = config or {}
+    if not cfg.get("review_gate", False):
+        return None
+    if str(cfg.get("permission_mode", "workspace-write") or "") in _READ_ONLY_MODES:
+        return None
+    from aria_code.runtime.review import REVIEWER_SYSTEM, ReviewGate
+
+    reviewer_fn = make_provider_fn(
+        model=model, config=cfg, api_url=api_url, ollama_url=ollama_url,
+        tool_schemas=[], thinking_mode=thinking_mode, auth_token=auth_token,
+        system_override=REVIEWER_SYSTEM,
+    )
+
+    async def _review(prompt: str) -> str:
+        result = await reviewer_fn(prompt, [])
+        if not result.get("success", True):
+            raise RuntimeError(result.get("error") or "reviewer call failed")
+        return str(result.get("response") or "")
+
+    try:
+        attempts = int(cfg.get("review_max_attempts", 1))
+    except (TypeError, ValueError):
+        attempts = 1
+    return ReviewGate(reviewer=_review, max_attempts=max(0, attempts))
+
+
 async def run_with_fallback(
     route: str,
     *,
@@ -381,6 +414,8 @@ async def run_chat_via_runtime(
     executor = build_tool_executor(local_tools, config, execution_context)
     gate = build_acceptance_gate(executor, config, prompt)
     contract = build_change_contract(config, prompt, executor)
+    review = build_review_gate(config, model=model, api_url=api_url, ollama_url=ollama_url,
+                               thinking_mode=thinking_mode, auth_token=auth_token)
 
     result = await run_turn(
         prompt, history,
@@ -397,5 +432,6 @@ async def run_chat_via_runtime(
         evidence_already_grounded=evidence_already_grounded,
         acceptance=gate,
         contract=contract,
+        review=review,
     )
     return result if return_result else result.text

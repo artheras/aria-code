@@ -117,11 +117,14 @@ def tool_run_command(
     *,
     console=None,
     has_rich: bool = True,
+    quiet: bool = False,
 ) -> dict:
     """Run a shell command and return output.
 
     ``params`` should contain ``permission_mode`` and ``network_enabled``
     (filled in by the aria_cli.py wrapper from the active globals).
+    ``quiet`` leaves the outcome to the caller: during a chat turn the
+    transcript's Ran cell shows the exit and the output tail itself.
     """
     command = params.get("command", "")
     # LLMs sometimes send command as a list e.g. ['bash', '-lc', '...'] — normalize to string
@@ -255,7 +258,9 @@ def tool_run_command(
         hint = sandbox_hint or (_failure_hint(output + "\n" + stderr) if result.returncode != 0 else "")
 
 
-        if has_rich and console is not None:
+        if quiet:
+            pass
+        elif has_rich and console is not None:
             print_command_outcome(console, result.returncode, output, stderr,
                                   output_artifact.get("full_output_path", ""))
         else:

@@ -22,6 +22,7 @@ from .delivery import DeliveryLedger
 
 if TYPE_CHECKING:
     from .contract import ChangeContract
+    from .review import ReviewGate
 
 
 DEFAULT_SERIAL_TOOLS = {"write_file", "edit_file", "multi_edit", "run_command", "process"}
@@ -1011,6 +1012,14 @@ async def execute_tool_turn(
             decision = await _maybe_await(approval_callback(tool_name, tool_params))
             if decision is None:
                 decision = ApprovalDecision.deny("approval unavailable")
+            if not decision.approved and decision.feedback:
+                # "No, do this instead": the call is skipped and the turn goes
+                # on with the user's words as its result, as Codex does.
+                declined = decision.as_declined_result()
+                tool_batch.add_result(tool_name, declined, formatter)
+                activities.append(ToolExecutionActivity(
+                    tool=tool_name, result=declined, elapsed=0.0, params=tool_params))
+                continue
             if not decision.approved:
                 tool_batch.cancel()
                 break
@@ -1351,6 +1360,11 @@ class AgentOptions:
     # one, the model is shown it before the first round and the runtime
     # refuses every tool call that breaks it (see runtime/contract.py).
     contract: Optional["ChangeContract"] = None
+    # Independent review. None = none. With a ReviewGate, a turn that changed
+    # files is read by a fresh-context reviewer (goal, contract, checks, diff —
+    # not this transcript) once its checks are green; blocking findings go
+    # back to the model like red checks do (see runtime/review.py).
+    review: Optional["ReviewGate"] = None
 
 
 # ── run_agent() ───────────────────────────────────────────────────────────────
@@ -1428,6 +1442,7 @@ async def run_agent(
         request = current_message if opts.requires_evidence else f"[User request]\n{prompt}"
         current_message = f"{opts.contract.prompt_block()}\n\n{request}"
     contract_refusals: List[dict] = []
+    reviewed_diff = ""
     ledger = DeliveryLedger(root=str(
         getattr(opts.acceptance, "root", None) or getattr(opts.contract, "root", None) or "") or None)
     token_count = 0
@@ -1571,6 +1586,38 @@ async def run_agent(
                         current_message = report.repair_directive()
                         turn_state.reset_response()
                         continue
+            # ── Independent review ───────────────────────────────────────────
+            # After the checks, never instead of them: a red run is repaired
+            # first, and reviewing code that does not pass its own tests spends
+            # a model call to learn what the tests already said.
+            if opts.review is not None:
+                diff = ledger.diff_text()
+                acceptance_state = opts.acceptance.summary() if opts.acceptance is not None else {}
+                if acceptance_state.get("verified") is not False and opts.review.should_run(
+                        changed=ledger.changed, reviewed_diff=reviewed_diff, diff=diff):
+                    last_checks = (acceptance_state.get("reports") or [{}])[-1].get("checks") or []
+                    review = await opts.review.run(
+                        goal=prompt,
+                        diff=diff,
+                        checks=last_checks,
+                        contract=opts.contract.render() if opts.contract is not None else "",
+                    )
+                    reviewed_diff = diff
+                    yield AgentEventStatus(
+                        state={"pass": "review_passed", "blocking": "review_blocking"}.get(
+                            review.verdict, "review_error"),
+                        message=review.headline(),
+                    )
+                    if hook is not None:
+                        hook("review", "review", review.as_dict(), None)
+                    if review.blocking and opts.review.can_repair():
+                        history = list(history) + [
+                            {"role": "user", "content": current_message},
+                            {"role": "assistant", "content": turn_state.total_response},
+                        ]
+                        current_message = review.repair_directive()
+                        turn_state.reset_response()
+                        continue
             if opts.requires_evidence and grounded_results == 0:
                 yield AgentEventStatus(
                     state="evidence_required",
@@ -1697,7 +1744,12 @@ async def run_agent(
         }
         if opts.contract is not None else None
     )
-    delivery = ledger.report(acceptance=acceptance_summary, contract=contract_summary, stop_reason=stop_reason)
+    delivery = ledger.report(
+        acceptance=acceptance_summary,
+        contract=contract_summary,
+        review=opts.review.summary() if opts.review is not None else None,
+        stop_reason=stop_reason,
+    )
     turn_result = turn_state.build_result(
         elapsed=elapsed,
         success=stop_reason == "completed",

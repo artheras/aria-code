@@ -83,6 +83,7 @@ async def run_turn(
     evidence_already_grounded: bool = False,
     acceptance=None,
     contract=None,
+    review=None,
 ) -> TurnResult:
     """Drive one ``run_agent`` turn; return its text + lifecycle as a TurnResult.
 
@@ -98,6 +99,7 @@ async def run_turn(
 
     ``contract`` takes a :class:`~aria_code.runtime.contract.ChangeContract`,
     enforced on every tool call the same way for every adapter.
+    ``review`` takes a :class:`~aria_code.runtime.review.ReviewGate`.
     """
     schemas = list(tool_schemas or [])
     acc: List[str] = []
@@ -126,6 +128,7 @@ async def run_turn(
             evidence_already_grounded=bool(evidence_already_grounded),
             acceptance=acceptance,
             contract=contract,
+            review=review,
         ),
         on_token=_on_token,         # streamed live (run_agent emits no token events)
         on_thinking=on_thinking,    # streamed live (no thinking events either)

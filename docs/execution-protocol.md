@@ -30,6 +30,13 @@ INSPECT → PLAN → (approval if needed) → EXECUTE → VERIFY → REVIEW → 
 | **Risk assessment** (L0–L4, capabilities, blast radius) | `safety/risk.py` | **phase 1** |
 | **Change contract**, enforced per tool call | `runtime/contract.py` | **phase 1** |
 | **Delivery report** from evidence | `runtime/delivery.py` | **phase 1** |
+| **Risk-aware approval** (card, `approval_mode: risk`, L4 always asks) | `apps/cli/tool_executor.py` | **phase 2** |
+| **Independent review gate** | `runtime/review.py` | **phase 2** |
+| **Actions transcript** (Explored / Ran / Edit) | `ui/render/actions.py` | **phase 3** |
+| **Approval shortcuts, deny with feedback** | `ui/picker.py`, `runtime/approval.py` | **phase 3** |
+| **Semantic diff** (definitions touched, behaviour, tested by) | `runtime/semantic_diff.py` | **phase 3** |
+| **Detail on demand** (output tail, ctrl+o) | `ui/render/actions.py` | **phase 3** |
+| **Edit by symbol** (`edit_file` with `symbol`) | `runtime/symbol_edit.py` | **phase 3** |
 
 ## Risk levels
 
@@ -110,28 +117,129 @@ Next
 model's last message reads. `delivery_report: false` in the config hides it in
 the REPL; headless (`-p`) results always carry it, and the contract, as data.
 
+## Approval by risk
+
+Every approval prompt opens with the assessment:
+
+```text
+  Risk     L2 medium · 43/100 · reversible
+  Network  registry.npmjs.org
+  Files    package.json, package-lock.json
+  Why      Changes installed dependencies (npm install)
+```
+
+| `approval_mode` | Behaviour |
+|---|---|
+| `manual` (default) | asks as before; the card explains what is being approved |
+| `risk` | runs actions at or below `auto_approve_level` (0–2, default 1) without a prompt, with a dim `✓ auto-approved · L1 low · …` line |
+
+L3 is never automatic. **L4 always asks** — even after "always allow" for the
+tool or the command prefix, which was given for something milder. Deny lists,
+plan mode and PreToolUse hooks apply first.
+
+```text
+/config set approval_mode=risk
+/config set auto_approve_level=2
+```
+
+## Independent review
+
+`/config set review_gate=true` adds a reviewer to coding turns. Once a turn
+that changed files has green checks (or none could be inferred), the same model
+is called again with a **fresh context and no tools**. It sees the goal, the
+contract, the check results and the diff — not the builder's transcript — and
+answers in JSON: findings marked `blocking` or `suggestion`. Style is never
+blocking.
+
+- Blocking findings go back to the builder once (`review_max_attempts`,
+  default 1); the checks run again after it edits, then the new diff is reviewed.
+- Findings that survive the repair leave the delivery report `INCOMPLETE`
+  with *Address the review's blocking findings*.
+- A reviewer that does not answer in JSON never blocks; the report says the
+  review did not complete.
+
+It costs one model call per reviewed change, so it is off by default.
+
+## The transcript
+
+Tool calls are shown as actions:
+
+```text
+⏺  Explored
+   └ Read session.py, refresh.py
+     Search "refresh_token"
+⏺  Edit src/auth/session.py
+   └ ✓ +12 -3 · 14ms
+⏺  Ran python3 -m pytest -q
+   └ ✓ 2.1s · 14 lines
+     … +12 lines (ctrl+o)
+     ........
+     5 passed in 0.31s
+```
+
+Three levels of detail: the cell; the tail of a command's output inside it
+(two lines when it passes, four in red when it fails); and **ctrl+o**, which
+prints every action of the last turn in full — commands with their whole
+output, edits with their whole diff, errors.
+
+Reads, searches, listings, `git status`/`diff` and read-only commands coalesce
+into one *Explored* cell, printed when the next kind of action starts or the
+answer begins. `tool_display: classic` restores one line per call.
+
+Approval prompts are numbered with one-key answers — `y` yes, `a` always for
+this scope, `n` no. *No, tell Aria what to do instead* asks for a sentence: it
+goes to the model as the declined call's result and the turn continues. Enter
+with nothing typed, or Esc, stops the turn.
+
+## Semantic diff
+
+The delivery report names the definitions each file's change touched,
+computed by undoing the turn's diffs on the current file and comparing the
+definitions in both versions (any language `repo_map` parses):
+
+```text
+Changed
+  M src/auth/session.py  +12 -3
+      SessionManager added · Session.refresh() modified · legacy_refresh() removed
+      tested by tests/test_session.py
+```
+
+*Tested by* lists test files that reference an added or modified definition
+(a method only where its class is referenced too).
+
+## Edit by symbol
+
+`edit_file` takes `symbol` — a name or `Class.method` — in place of
+`old_string`; `new_string` is the whole new definition, or with
+`position: "after"` code to insert after it. The definition's full text is
+found and becomes `old_string`, so it is the same tool with the same
+approval, preview, checkpoint, contract and checks. Code written
+flush-left is indented to the definition's level.
+
+With the review gate on, the reviewer also describes the change as behaviour —
+*Before / After / Why / Impact* — shown above its findings.
+
+## How Codex and Claude Code present the same things
+
+From the Codex TUI source (`codex-rs/tui`, its render snapshots) and the
+Claude Code changelog, October 2026:
+
+- **Approvals** (both): a bold question, an italic *Reason*, the permission
+  rule or command, then numbered choices with one-key shortcuts — *yes once*,
+  *yes for this session / this host / don't ask again for this prefix*, *no,
+  and tell the agent what to do differently* (esc). Aria's card adds what
+  neither shows: level, score, reversibility and blast radius.
+- **Transcript** (Codex): actions, not tool calls — consecutive reads and
+  searches coalesce into one `• Explored └ Read a.rs, b.rs` cell; commands
+  are `• Ran <cmd>` with head/tail output and `… +N lines`; edits are
+  `• Edited 2 files (+2 -1)` with per-file counts; plans are
+  `• Updated Plan · 1/4 complete` with ✔ / □.
+- **Detail on demand** (both): the full transcript behind one key
+  (`⌃T` / `ctrl+o`); the default view stays one line per action.
+- **Rewind** (Claude Code): `Esc Esc` / `/rewind` restores code, conversation
+  or both.
+
 ## Roadmap
-
-**Phase 2 — risk-aware approval and independent review**
-
-- Approval card driven by the assessment: action, scope (hosts, files),
-  risk `L2 · 43/100`, reversible, reason; options *allow once / for this
-  project / always for this command prefix / deny*.
-- Auto-approve by level: L0–L1 run, L2 asks with context, L3 asks
-  explicitly, L4 always asks and shows the blast radius.
-- Reviewer sub-agent with a fresh context: sees the goal, the contract, the
-  diff and the check results — not the builder's reasoning — and fills the
-  report's *Review* section; blocking findings send the turn back to REPAIR.
-
-**Phase 3 — semantic diff and the action layer**
-
-- Semantic diff: behaviour before / after / why / impact / tested-by, with the
-  code diff one level down.
-- Actions over tool calls in the terminal: "Inspecting the auth flow" instead
-  of `read_file`, three levels of detail (summary, files and commands, raw
-  events).
-- Symbol-level patches (`replace_symbol`, `insert_after`, …) instead of
-  whole-file writes.
 
 **Phase 4 — transactions and project knowledge**
 

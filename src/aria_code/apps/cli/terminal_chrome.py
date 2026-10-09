@@ -320,7 +320,8 @@ class ChromeMixin:
         def _toggle_transcript(event):
             """Ctrl+O → show/hide recent tool calls + full thinking of last turn."""
             self._transcript_visible = not self._transcript_visible
-            if self._transcript_visible and (self._transcript_log or self._last_thinking):
+            _details = list(getattr(self, "_action_details", None) or [])
+            if self._transcript_visible and (self._transcript_log or self._last_thinking or _details):
                 import sys as _sys
                 _sys.stderr.write("\n")
                 if self._last_thinking:
@@ -329,7 +330,14 @@ class ChromeMixin:
                         # wrap-soft: indent each line, cap very long lines
                         _sys.stderr.write(f"    {tline[:200]}\n")
                     _sys.stderr.write("\n")
-                if self._transcript_log:
+                if _details:
+                    # Every action of the last turn in full: commands with
+                    # their whole output, edits with their whole diff.
+                    from aria_code.ui.render.actions import format_action_details
+                    _sys.stderr.write("  ⏺ Actions\n")
+                    for _style, line in format_action_details(_details):
+                        _sys.stderr.write(f"    {line}\n")
+                elif self._transcript_log:
                     _sys.stderr.write("  ⏺ Tool calls\n")
                     for line in self._transcript_log[-20:]:
                         _sys.stderr.write(f"    {line}\n")

@@ -842,6 +842,13 @@ _ACTIVE_PERMISSION_MODE = ["workspace-write"]
 _PERMISSION_CYCLE = ["read-only", "workspace-write", "full-access"]
 _ACTIVE_NETWORK_ENABLED = [True]
 _ACTIVE_LSP_AUTOCHECK = [False]  # opt-in: run LSP diagnostics after each edit
+# Approval by risk (safety.risk.approval_requirement): "manual" asks as before;
+# "risk" runs calls at or below the auto-approve level without a prompt.
+_ACTIVE_APPROVAL_MODE = ["manual"]
+_ACTIVE_AUTO_APPROVE_LEVEL = [1]
+# True only while a chat turn renders tools as action cells: run_command then
+# leaves its exit line and output tail to the cell instead of printing them.
+_ACTION_VIEW_ACTIVE = [False]
 
 
 def _sync_write_policy(config: dict):
@@ -851,6 +858,11 @@ def _sync_write_policy(config: dict):
     _ACTIVE_PERMISSION_MODE[0] = config.get("permission_mode", "workspace-write")
     _ACTIVE_NETWORK_ENABLED[0] = bool(config.get("network_enabled", True))
     _ACTIVE_LSP_AUTOCHECK[0] = bool(config.get("lsp_autocheck", False))
+    _ACTIVE_APPROVAL_MODE[0] = config.get("approval_mode", "manual")
+    try:
+        _ACTIVE_AUTO_APPROVE_LEVEL[0] = int(config.get("auto_approve_level", 1))
+    except (TypeError, ValueError):
+        _ACTIVE_AUTO_APPROVE_LEVEL[0] = 1
 
 
 def _run_event_hook(event: str, env_extra: dict = None):
@@ -4197,6 +4209,7 @@ class ArtheraTerminal(_ChatTurn, _Chrome, _HeadlessMixin):
         self._transcript_log: list[str] = []
         self._transcript_visible = False
         self._last_thinking: str = ""   # full thinking text of last turn (Ctrl+O)
+        self._action_details: list = []  # every action of the last turn, in full (Ctrl+O)
         # Session recap: timestamp of last completed AI turn
         self._last_turn_ts: float = 0.0
 

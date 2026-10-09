@@ -20,7 +20,9 @@ if _HAS_TERMIOS:
 def arrow_select(options: list, selected: int = 0, title: str = "",
                  max_visible: int = 10,
                  controls_hint: str = "↑↓  Enter  Esc/q Cancel",
-                 collapse_to: str | None = None) -> int:
+                 collapse_to: str | None = None,
+                 shortcuts: dict | None = None,
+                 numbered: bool = False) -> int:
     """Interactive arrow-key selector with scrolling.
 
     Args:
@@ -32,11 +34,21 @@ def arrow_select(options: list, selected: int = 0, title: str = "",
                      line is left in its place — "✓ Yes  fx.py" — instead of
                      the whole menu, as Codex leaves an answered approval.
                      The text names what was being approved.
+        shortcuts:   ``{"y": 0, "n": 3}`` — one key answers with that option
+                     at once; the key is shown after its label, "(y)".
+        numbered:    show "1." … before labels; digits 1–9 answer directly.
     Returns:
         index of chosen option, or -1 if cancelled
     """
     if not options:
         return -1
+    keys = {str(key): index for key, index in (shortcuts or {}).items()
+            if len(str(key)) == 1 and 0 <= index < len(options)}
+    key_of = {index: key for key, index in keys.items()}
+
+    def _label(index: int, label: str) -> str:
+        text = f"{index + 1}. {label}" if numbered else label
+        return f"{text} ({key_of[index]})" if index in key_of else text
 
     if not _HAS_TERMIOS or not sys.stdin.isatty():
         if title:
@@ -44,11 +56,13 @@ def arrow_select(options: list, selected: int = 0, title: str = "",
         for i, opt in enumerate(options):
             label = opt[0] if isinstance(opt, tuple) else opt
             marker = "❯" if i == selected else " "
-            print(f"  {marker} {i + 1:2d}. {label}")
+            print(f"  {marker} {i + 1:2d}. {_label(i, label) if keys else label}")
         try:
             c = input("\n  Enter number (or Enter to keep current): ").strip()
             if not c:
                 return selected
+            if c in keys:
+                return keys[c]
             idx = int(c) - 1
             return idx if 0 <= idx < len(options) else -1
         except (ValueError, EOFError, KeyboardInterrupt):
@@ -108,6 +122,8 @@ def arrow_select(options: list, selected: int = 0, title: str = "",
             opt   = options[idx]
             label = opt[0] if isinstance(opt, tuple) else opt
             desc  = opt[1] if isinstance(opt, tuple) and len(opt) > 1 else ""
+            if not label.strip().startswith("──"):
+                label = _label(idx, label)
             if label.strip().startswith("──"):
                 line = f"  \033[2m{label}\033[0m"
             elif idx == selected:
@@ -160,6 +176,12 @@ def arrow_select(options: list, selected: int = 0, title: str = "",
                     return -1
             elif ch in (b'\r', b'\n'):
                 return selected
+            elif ch.decode(errors="ignore") in keys:
+                selected = keys[ch.decode(errors="ignore")]
+                return selected
+            elif numbered and ch.isdigit() and 1 <= int(ch) <= n:
+                selected = int(ch) - 1
+                return selected
             elif ch == b'q':
                 return -1
             elif ch == b'k':
@@ -198,7 +220,7 @@ def arrow_select(options: list, selected: int = 0, title: str = "",
             if 0 <= result < n:
                 opt = options[result]
                 label = opt[0] if isinstance(opt, tuple) else opt
-            declined = result < 0 or label.strip().lower() in ("no", "否", "取消", "cancel")
+            declined = result < 0 or label.strip().lower().startswith(("no", "否", "拒绝", "取消", "cancel"))
             mark = "\033[31m✗\033[0m" if declined else "\033[32m✓\033[0m"
             shown = label or "Cancelled"
             subject = f"  \033[2m{collapse_to}\033[0m" if collapse_to else ""

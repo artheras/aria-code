@@ -46,7 +46,11 @@ CODING_SYSTEM_PROMPT = (
     "   'playwright not found'), you MUST pip3 install exactly what it says and re-run. "
     "   DO NOT write code to catch the ImportError; install the dependency.\n"
     "5. NEVER suggest applying patches manually or say 'here is the updated code'. "
-    "   YOU must apply the edit using edit_file/multi_edit/write_file tool calls.\n\n"
+    "   YOU must apply the edit using edit_file/multi_edit/write_file tool calls.\n"
+    "6. To rewrite a whole function, method or class, call edit_file with "
+    "   symbol=\"Name\" or \"Class.method\" and the complete new definition as new_string, "
+    "   instead of copying the old text into old_string. position=\"after\" inserts "
+    "   new_string after that definition.\n\n"
 
     "## SUBAGENT DELEGATION\n"
     "If a task is extremely large (e.g., 'Refactor the entire auth system' or 'Write tests for 50 endpoints'), "

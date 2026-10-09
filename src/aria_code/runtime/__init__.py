@@ -34,6 +34,7 @@ from .agent_loop import (
     split_tool_calls,
 )
 from .contract import ChangeContract, ContractError, ContractVerdict
+from .review import ReviewGate, ReviewReport
 from .acceptance import (
     AcceptanceGate,
     AcceptanceReport,
@@ -92,6 +93,8 @@ __all__ = [
     "extract_symbols",
     "AcceptanceGate",
     "ChangeContract",
+    "ReviewGate",
+    "ReviewReport",
     "ContractError",
     "ContractVerdict",
     "AcceptanceReport",

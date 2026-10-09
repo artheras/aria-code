@@ -93,7 +93,14 @@ def build_local_tool_schemas(
         "type": "function",
         "function": {
             "name": "edit_file",
-            "description": "Edit a file by replacing old_string with new_string. Read the file first to get the exact text to replace. old_string must match exactly one place: include enough surrounding lines to make it unique, or set replace_all to change every match.",
+            "description": (
+                "Edit a file by replacing old_string with new_string. Read the file first to get the exact "
+                "text to replace. old_string must match exactly one place: include enough surrounding lines "
+                "to make it unique, or set replace_all to change every match. To change a whole function, "
+                "method or class, pass symbol instead of old_string (e.g. symbol=\"Session.refresh\"): "
+                "new_string is then the complete new definition, or with position=\"after\" the code to "
+                "insert after it."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -101,8 +108,10 @@ def build_local_tool_schemas(
                     "old_string": {"type": "string", "description": "Exact text to find and replace (must match exactly)"},
                     "new_string": {"type": "string", "description": "Replacement text"},
                     "replace_all": {"type": "boolean", "description": "Replace every match instead of requiring exactly one (default false)"},
+                    "symbol": {"type": "string", "description": "Instead of old_string: the definition to edit, by name or Class.method"},
+                    "position": {"type": "string", "enum": ["replace", "after"], "description": "With symbol: replace the definition (default) or insert new_string after it"},
                 },
-                "required": ["path", "old_string", "new_string"],
+                "required": ["path", "new_string"],
             },
         },
     },

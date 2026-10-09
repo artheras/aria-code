@@ -560,13 +560,42 @@ def _gh_read() -> RiskAssessment:
     return draft.freeze()
 
 
+APPROVAL_MODES = ("manual", "risk")
+# The highest level approval_mode=risk may run without asking. L3 (acting
+# outside the repo) and L4 (destructive) are never automatic.
+MAX_AUTO_LEVEL = 2
+
+
+def approval_requirement(assessment: RiskAssessment, *, mode: str = "manual", auto_level: int = 1) -> str:
+    """How an action that would otherwise need approval should get it.
+
+    ``"always"`` — L4: ask, even when this session already allowed the tool or
+    the command prefix. A standing "yes" was given for something milder.
+    ``"auto"``   — ``mode="risk"`` and the action is at or below
+    ``auto_level`` (capped at :data:`MAX_AUTO_LEVEL`): run without asking.
+    ``"ask"``    — everything else: the usual prompt.
+    """
+    if assessment.level >= 4:
+        return "always"
+    try:
+        ceiling = max(0, min(MAX_AUTO_LEVEL, int(auto_level)))
+    except (TypeError, ValueError):
+        ceiling = 1
+    if mode == "risk" and assessment.level <= ceiling:
+        return "auto"
+    return "ask"
+
+
 def unknown_capabilities(names: Iterable[str]) -> list[str]:
     """Names that are not capabilities (a contract typo), in input order."""
     return [name for name in names if name not in CAPABILITIES]
 
 
 __all__ = [
+    "APPROVAL_MODES",
     "CAPABILITIES",
+    "MAX_AUTO_LEVEL",
+    "approval_requirement",
     "LEVEL_NAMES",
     "RiskAssessment",
     "assess_command",

@@ -116,6 +116,8 @@ class TurnLifecycle:
 class TerminalRuntimeEventConsumer:
     """Consume runtime/provider events and render them to a terminal."""
 
+    action_view: Any = None
+
     def __init__(
         self,
         *,
@@ -134,6 +136,7 @@ class TerminalRuntimeEventConsumer:
         ui_lang: str = "en",
         on_response_start: Callable[[], None] | None = None,
         on_phase_change: Callable[[TurnPhase], None] | None = None,
+        action_view: Any = None,
     ) -> None:
         self.terminal = terminal
         self.console = console
@@ -150,6 +153,9 @@ class TerminalRuntimeEventConsumer:
         self.ui_lang = ui_lang or "en"
         self.on_response_start = on_response_start
         self.on_phase_change = on_phase_change
+        # ui.render.actions.ActionView: tool events as Explored / Ran / Edit
+        # cells. None keeps the per-call ⏺ / ✓ lines.
+        self.action_view = action_view
         self.lifecycle = TurnLifecycle()
 
         self.response_text = ""
@@ -242,6 +248,7 @@ class TerminalRuntimeEventConsumer:
             return
         self._finish_thinking()
         self.stop_spinner()
+        self.flush_actions()
         self.response_started = True
         if self.on_response_start is not None:
             self.on_response_start()
@@ -249,7 +256,26 @@ class TerminalRuntimeEventConsumer:
     def finish(self, phase: TurnPhase = TurnPhase.DONE) -> None:
         self._finish_thinking()
         self.stop_spinner()
+        self.close_tool_spinner()
+        self.flush_actions()
         self.set_phase(phase)
+
+    def print_action_lines(self, lines) -> None:
+        rich = self.has_rich and self.console is not None
+        for style, text in lines:
+            if text.startswith("⏺"):  # a new cell: one blank line above it
+                self.console.print() if rich else print()
+            if rich:
+                from rich.markup import escape
+                body = f"  {escape(text)}"
+                self.console.print(f"[{style}]{body}[/{style}]" if style else body, highlight=False)
+            else:
+                print(f"  {text}")
+
+    def flush_actions(self) -> None:
+        """Print a pending Explored cell before anything else reaches the screen."""
+        if self.action_view is not None:
+            self.print_action_lines(self.action_view.flush())
 
     def stop_spinner(self) -> None:
         if self.spinner is not None:
@@ -521,7 +547,9 @@ class TerminalRuntimeEventConsumer:
             self.tool_spinner = self.console.status(label, spinner="dots12", spinner_style="cyan")
             self.tool_spinner.__enter__()
 
-        if self.print_tool_call is not None:
+        if self.action_view is not None:
+            self.print_action_lines(self.action_view.start(tool, params if isinstance(params, dict) else {}))
+        elif self.print_tool_call is not None:
             self.print_tool_call(tool, params if isinstance(params, dict) else {})
 
         self.tool_start_times.setdefault(tool, []).append(time.time())
@@ -557,7 +585,9 @@ class TerminalRuntimeEventConsumer:
         if not params_queue:
             self.tool_params.pop(tool, None)
         ok = not (isinstance(summary, dict) and not summary.get("success", True))
-        if self.print_tool_done is not None:
+        if self.action_view is not None:
+            self.print_action_lines(self.action_view.done(tool, params, summary, elapsed_ms / 1000))
+        elif self.print_tool_done is not None:
             # Surface the failure reason on the ✗ line — a red cross with no
             # explanation leaves both the user and the reviewer blind to WHY
             # (observed in the channels drill: peer_comparison failed 4× with
@@ -612,6 +642,15 @@ class TerminalRuntimeEventConsumer:
                 self.console.print(f"  [{colour}]{'✓' if passed else '✗'} {message}[/{colour}]")
             else:
                 print(f"  {'✓' if passed else '✗'} {message}")
+            return
+        if state in ("review_passed", "review_blocking", "review_error"):
+            mark, colour = {"review_passed": ("✓", "green"), "review_blocking": ("✗", "yellow"),
+                            "review_error": ("⚠", "dim")}[state]
+            if self.has_rich and self.console is not None:
+                from rich.markup import escape
+                self.console.print(f"  [{colour}]{mark} {escape(message)}[/{colour}]")
+            else:
+                print(f"  {mark} {message}")
             return
         if state in {"max_rounds", "budget_exhausted", "loop_guard", "checks_failed"}:
             if self.has_rich and self.console is not None:

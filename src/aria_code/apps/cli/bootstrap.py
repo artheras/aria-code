@@ -176,6 +176,16 @@ def default_config() -> dict:
         "auto_compact_threshold": 0.78,
         "command_policy": "safe",
         "permission_mode": "workspace-write",
+        # Approval by risk level (safety/risk.py): "manual" asks as before;
+        # "risk" runs actions at or below auto_approve_level (0-2) without a
+        # prompt. L4 always asks, even after "always allow".
+        "approval_mode": "manual",
+        "auto_approve_level": 1,
+        # Independent review of a turn's changes by a fresh-context reviewer
+        # before it ends (runtime/review.py). Costs one extra model call.
+        "review_gate": False,
+        # The runtime's DONE/INCOMPLETE report under coding answers.
+        "delivery_report": True,
         "network_enabled": True,
         "data_sharing": False,
         "feedback_upload": False,

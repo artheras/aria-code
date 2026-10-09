@@ -38,6 +38,7 @@ report: questions and read-only exploration end as they always did.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Sequence
@@ -53,6 +54,10 @@ class ChangedFile:
     added: int = 0
     removed: int = 0
     created: bool = False
+    # Definitions touched, from runtime/semantic_diff: "refresh() modified".
+    symbols: tuple = ()
+    # Test files that reference what changed (repo_map), relative to the root.
+    tested_by: tuple = ()
 
     @property
     def mark(self) -> str:
@@ -66,6 +71,8 @@ class DeliveryReport:
     checks: tuple = ()                   # ({"command", "passed", "exit_code"}, …)
     verified: Optional[bool] = None
     review: str = "Not reviewed"
+    review_lines: tuple = ()
+    behaviour: Optional[dict] = None
     risk_level: Optional[int] = None
     risk_summary: str = ""
     checkpoints: tuple = ()
@@ -92,6 +99,8 @@ class DeliveryReport:
             "checks": [dict(item) for item in self.checks],
             "verified": self.verified,
             "review": self.review,
+            "review_lines": list(self.review_lines),
+            "behaviour": dict(self.behaviour) if self.behaviour else None,
             "risk": None if self.risk_level is None else {
                 "level": self.risk_level, "name": LEVEL_NAMES[self.risk_level], "summary": self.risk_summary},
             "checkpoints": list(self.checkpoints),
@@ -105,10 +114,14 @@ class DeliveryReport:
         risk = data.get("risk") or {}
         return cls(
             status=str(data.get("status") or "done"),
-            changed=tuple(ChangedFile(**item) for item in data.get("changed") or ()),
+            changed=tuple(ChangedFile(**{**item, "symbols": tuple(item.get("symbols") or ()),
+                                         "tested_by": tuple(item.get("tested_by") or ())})
+                          for item in data.get("changed") or ()),
             checks=tuple(dict(item) for item in data.get("checks") or ()),
             verified=data.get("verified"),
             review=str(data.get("review") or "Not reviewed"),
+            review_lines=tuple(data.get("review_lines") or ()),
+            behaviour=data.get("behaviour") or None,
             risk_level=risk.get("level"),
             risk_summary=str(risk.get("summary") or ""),
             checkpoints=tuple(data.get("checkpoints") or ()),
@@ -125,6 +138,14 @@ class DeliveryReport:
             for item in self.changed:
                 stats = f"+{item.added}" + (f" -{item.removed}" if item.removed or not item.created else "")
                 lines.append(f"  {item.mark} {_display(item.path, root):<{width}}  {stats}")
+                if item.symbols:
+                    shown = " · ".join(item.symbols[:4])
+                    more = f" · +{len(item.symbols) - 4}" if len(item.symbols) > 4 else ""
+                    lines.append(f"      {shown}{more}")
+                if item.tested_by:
+                    shown = ", ".join(item.tested_by[:3])
+                    more = f" +{len(item.tested_by) - 3}" if len(item.tested_by) > 3 else ""
+                    lines.append(f"      tested by {shown}{more}")
             if len(self.changed) > 1:
                 lines.append(f"  {len(self.changed)} files · +{self.added} / -{self.removed}")
         lines += ["", "Verified"]
@@ -137,7 +158,12 @@ class DeliveryReport:
                 lines.append("  ⚠ changed again after the last check")
         else:
             lines.append("  — no check ran" + (" (none could be inferred)" if self.changed else ""))
-        lines += ["", "Review", f"  {self.review}"]
+        if self.behaviour:
+            lines += ["", "Behaviour"]
+            for key in ("before", "after", "why", "impact"):
+                if self.behaviour.get(key):
+                    lines.append(f"  {key.capitalize():<7}{self.behaviour[key]}")
+        lines += ["", "Review"] + [f"  {line}" for line in (self.review_lines or (self.review,))]
         if self.risk_level is not None:
             lines += ["", "Risk", f"  L{self.risk_level} {LEVEL_NAMES[self.risk_level]}"
                       + (f" · {self.risk_summary}" if self.risk_summary else "")]
@@ -160,6 +186,13 @@ def _display(path: str, root: Optional[Path | str]) -> str:
         except (ValueError, OSError):
             pass
     return path
+
+
+_TEST_PATH = re.compile(r"(^|/)(tests?|__tests__|spec)/|(^|/)test_[^/]+$|_test\.[a-z]+$|\.(test|spec)\.[a-z]+$")
+
+
+def _is_test_path(path: str) -> bool:
+    return bool(_TEST_PATH.search(path.replace("\\", "/")))
 
 
 def _diff_stats(diff: str) -> tuple[int, int, bool]:
@@ -192,6 +225,8 @@ class DeliveryLedger:
     mutating_tools: frozenset = DEFAULT_MUTATING_TOOLS
     _changed: dict = field(default_factory=dict)
     _checkpoints: list = field(default_factory=list)
+    _diffs: list = field(default_factory=list)
+    _file_diffs: dict = field(default_factory=dict)
     _risk: Optional[tuple] = None
 
     def record(self, tool: str, params: Mapping | None, result: Any) -> None:
@@ -205,7 +240,10 @@ class DeliveryLedger:
         if not paths:
             return
         data = _data(result)
-        added, removed, created = _diff_stats(str(data.get("diff") or ""))
+        diff = str(data.get("diff") or "")
+        if diff.strip():
+            self._diffs.append(diff if diff.endswith("\n") else diff + "\n")
+        added, removed, created = _diff_stats(diff)
         action = str(data.get("action") or "").lower()
         created = created or action in {"created", "create", "write new file"}
         for index, path in enumerate(paths):
@@ -215,15 +253,60 @@ class DeliveryLedger:
             if index == 0:  # one diff per call; attribute it to the first path
                 entry.added += added
                 entry.removed += removed
+                if diff.strip():
+                    self._file_diffs.setdefault(path, []).append(diff)
         checkpoint = data.get("checkpoint_id")
         if checkpoint and checkpoint not in self._checkpoints:
             self._checkpoints.append(str(checkpoint))
+
+    @property
+    def changed(self) -> bool:
+        return bool(self._changed)
+
+    def _symbol_changes(self, path: str) -> list:
+        diffs = self._file_diffs.get(path)
+        if not diffs:
+            return []
+        try:
+            from .semantic_diff import file_symbol_changes
+
+            return list(file_symbol_changes(path, diffs) or [])
+        except Exception:
+            return []
+
+    def _tested_by(self, changes: Sequence) -> tuple:
+        """Test files that reference a definition this change added or modified.
+
+        A method counts only where its class is referenced too: "get" alone
+        appears in half the tests of any project.
+        """
+        wanted = [c.name.split(".") for c in changes if c.kind != "removed"]
+        if not wanted or not self.root:
+            return ()
+        try:
+            from .repo_map import get_repo_map
+
+            refs = get_repo_map(self.root).refs
+        except Exception:
+            return ()
+        found: set = set()
+        for parts in wanted:
+            files = set(refs.get(parts[-1], ()))
+            for outer in parts[:-1]:
+                files &= set(refs.get(outer, ()))
+            found |= {f for f in files if _is_test_path(f)}
+        return tuple(sorted(found))
+
+    def diff_text(self) -> str:
+        """Every applied change's diff, in order — what a reviewer reads."""
+        return "".join(self._diffs)
 
     def report(
         self,
         *,
         acceptance: Optional[Mapping] = None,
         contract: Optional[Mapping] = None,
+        review: Optional[Mapping] = None,
         stop_reason: str = "completed",
     ) -> DeliveryReport:
         checks: list = []
@@ -236,6 +319,10 @@ class DeliveryLedger:
         verified = (acceptance or {}).get("verified")
         refused = tuple(dict(item) for item in (contract or {}).get("refused") or ())
         changed = tuple(self._changed.values())
+        for item in changed:
+            changes = self._symbol_changes(item.path)
+            item.symbols = tuple(change.label() for change in changes)
+            item.tested_by = self._tested_by(changes)
 
         if stop_reason != "completed":
             status = "incomplete"
@@ -257,6 +344,10 @@ class DeliveryLedger:
         else:
             status = "done"
             next_step = ""
+        review_blocks = bool(review) and review.get("verdict") == "blocking"
+        if review_blocks and status == "done":
+            status = "incomplete"
+            next_step = "Address the review's blocking findings"
         if refused and status == "done":
             next_step = "Some calls were refused by the change contract — see above" if not changed \
                 else next_step + " · some calls were refused by the contract"
@@ -266,6 +357,9 @@ class DeliveryLedger:
             changed=changed,
             checks=tuple(checks),
             verified=verified,
+            review=str((review or {}).get("headline") or "Not reviewed"),
+            review_lines=tuple((review or {}).get("lines") or ()),
+            behaviour=(review or {}).get("behaviour") or None,
             risk_level=self._risk[0] if self._risk else None,
             risk_summary=self._risk[1] if self._risk else "",
             checkpoints=tuple(self._checkpoints),
@@ -281,12 +375,13 @@ def report_from_activities(
     root: Optional[str] = None,
     acceptance: Optional[Mapping] = None,
     contract: Optional[Mapping] = None,
+    review: Optional[Mapping] = None,
     stop_reason: str = "completed",
 ) -> DeliveryReport:
     ledger = DeliveryLedger(root=root)
     for tool, params, result in activities:
         ledger.record(tool, params, result)
-    return ledger.report(acceptance=acceptance, contract=contract, stop_reason=stop_reason)
+    return ledger.report(acceptance=acceptance, contract=contract, review=review, stop_reason=stop_reason)
 
 
 __all__ = ["ChangedFile", "DeliveryLedger", "DeliveryReport", "report_from_activities"]
