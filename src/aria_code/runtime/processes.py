@@ -23,6 +23,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Sequence
 
 MAX_RUNNING = 8
@@ -46,16 +47,73 @@ class _Process:
     read_upto: int = 0         # absolute position the caller has read to
     done: bool = False         # exited, and everything it printed has been read in
     changed: threading.Condition = field(default_factory=threading.Condition)
+    stop_lock: threading.Lock = field(default_factory=threading.Lock)
+    group_cleaned: bool = False
+    windows_job: object | None = None
 
     @property
     def running(self) -> bool:
-        return self.popen.poll() is None
+        return _group_running(self)
 
     def end(self) -> int:
         return self.dropped + len(self.text)
 
 
 _processes: dict[str, _Process] = {}
+
+
+def _group_running(proc: _Process) -> bool:
+    """The group may outlive its leader. Zombies have already stopped.
+
+    Linux CI's PID 1 may not reap orphan zombies promptly; killpg(..., 0)
+    alone therefore cannot tell whether a command is still executing.
+    """
+    if proc.group_cleaned:
+        return False
+    proc.popen.poll()  # reap our own child even while its children hold stdout
+    if os.name == "nt":
+        if proc.windows_job is not None:
+            active = proc.windows_job.running()
+            if not active:
+                proc.windows_job.close()
+                proc.group_cleaned = True
+            return active
+        return proc.popen.returncode is None
+    try:
+        os.killpg(proc.popen.pid, 0)
+    except ProcessLookupError:
+        proc.group_cleaned = True
+        return False
+    except PermissionError:
+        return True
+    if Path("/proc/self/stat").exists():
+        seen = False
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdecimal():
+                continue
+            try:
+                fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+                if int(fields[2]) != proc.popen.pid:
+                    continue
+                seen = True
+                if fields[0] not in ("Z", "X"):
+                    return True
+            except (OSError, ValueError, IndexError):
+                continue
+        if seen:
+            proc.group_cleaned = True
+            return False
+    return True
+
+
+def _wait_group(proc: _Process, seconds: float) -> bool:
+    deadline = time.monotonic() + max(0.0, seconds)
+    while _group_running(proc):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(0.05, remaining))
+    return True
 
 
 def _pump(proc: _Process) -> None:
@@ -77,6 +135,7 @@ def _pump(proc: _Process) -> None:
         pass
     finally:
         proc.popen.wait()
+        stream.close()
         with proc.changed:
             proc.done = True
             proc.changed.notify_all()
@@ -93,8 +152,21 @@ def start(argv: str | Sequence[str], *, shell: bool, cwd: str | None, label: str
         popen = subprocess.Popen(
             argv, shell=shell, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, start_new_session=True,
+            # The command must not spawn children before the Job owns it.
+            creationflags=0x4 if os.name == "nt" else 0,  # CREATE_SUSPENDED
         )
         proc = _Process(id=f"p{next(_ids)}", command=label, cwd=cwd or os.getcwd(), popen=popen)
+        if os.name == "nt":
+            from .windows_job import WindowsJob
+            try:
+                proc.windows_job = WindowsJob(popen)
+                proc.windows_job.resume(popen.pid)
+            except OSError as exc:
+                if proc.windows_job is not None:
+                    proc.windows_job.close()
+                popen.kill()
+                popen.communicate(timeout=5)
+                return {"success": False, "error": f"Cannot manage the background process tree: {exc}"}
         _processes[proc.id] = proc
     threading.Thread(target=_pump, args=(proc,), daemon=True, name=f"aria-{proc.id}").start()
     return {"success": True, "data": read(proc.id, wait=wait, until=until)["data"] | {"background": True}}
@@ -147,8 +219,8 @@ def read(process_id: str, *, wait: float = 0.0, until: str | None = None) -> dic
     data = {
         "process_id": proc.id,
         "command": proc.command,
-        "running": not proc.done,
-        "exit_code": proc.popen.returncode if proc.done else None,
+        "running": proc.running,
+        "exit_code": proc.popen.returncode,
         "output": new[-MAX_READ:],
     }
     if clipped or missed:
@@ -176,19 +248,35 @@ def stop(process_id: str, *, grace: float = 3.0) -> dict:
     proc = _get(process_id)
     if proc is None:
         return _unknown(process_id)
-    if proc.running:
-        for sig, pause in ((signal.SIGTERM, grace), (signal.SIGKILL, 2.0)):
+    error = ""
+    with proc.stop_lock:
+        if os.name == "nt" and proc.running:
             try:
-                os.killpg(proc.popen.pid, sig)
-            except (ProcessLookupError, PermissionError):
-                break
-            try:
-                proc.popen.wait(timeout=pause)
-                break
-            except subprocess.TimeoutExpired:
-                continue
+                proc.windows_job.terminate()
+                _wait_group(proc, 2.0)
+            except OSError as exc:
+                error = str(exc)
+        elif os.name != "nt":
+            for sig, pause in ((signal.SIGTERM, min(max(float(grace), 0), 30)),
+                               (signal.SIGKILL, 2.0)):
+                if not proc.running:
+                    break
+                try:
+                    os.killpg(proc.popen.pid, sig)
+                except ProcessLookupError:
+                    proc.group_cleaned = True
+                    break
+                except PermissionError as exc:
+                    error = str(exc)
+                    break
+                if _wait_group(proc, pause):
+                    break
+        if proc.popen.poll() is not None and proc.popen.stdin:
+            proc.popen.stdin.close()
     result = read(proc.id, wait=0.5)
-    result["data"]["stopped"] = True
+    result["data"]["stopped"] = not proc.running
+    if error or proc.running:
+        result.update(success=False, error=error or "The process group did not stop within the deadline.")
     return result
 
 

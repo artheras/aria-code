@@ -43,9 +43,9 @@ class _TimedOut:
 
     returncode = 124
 
-    def __init__(self, seconds: int) -> None:
-        self.stderr = f"the agent was still working when the {seconds}s budget ran out"
-        self.stdout = ""
+    def __init__(self, seconds: int, stdout: str = "", stderr: str = "") -> None:
+        self.stderr = f"{stderr}\nthe agent was still working when the {seconds}s budget ran out".strip()
+        self.stdout = stdout
 
 
 class Trajectories:
@@ -148,7 +148,7 @@ def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = Fal
             if trajectories is not None:
                 trajectories.record(workspace.name, prompt, done.stdout)
             return done
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             # A truncated run is not a measured failure.
             #
             # I first scored this as FAIL, reasoning "it had its time and
@@ -158,7 +158,14 @@ def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = Fal
             # where back-to-back turns contend and get throttled. Scoring that
             # as FAIL blamed the model for the harness cutting it off — which
             # is precisely the confusion PASS/FAIL vs ERROR exists to prevent.
-            return _TimedOut(timeout)
+            # TimeoutExpired may carry bytes even with text=True. Keep partial
+            # tool events and diagnostics so a stalled run can be investigated.
+            def _text(value):
+                return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else (value or "")
+            stdout, stderr = _text(exc.stdout), _text(exc.stderr)
+            if trajectories is not None:
+                trajectories.record(workspace.name, prompt, stdout)
+            return _TimedOut(timeout, stdout, stderr)
 
     return _solve
 

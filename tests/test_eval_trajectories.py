@@ -79,3 +79,20 @@ def test_the_runner_asks_for_events_and_full_mode(monkeypatch, tmp_path):
     assert seen["command"][seen["command"].index("--format") + 1] == "jsonl"
     assert seen["env"]["ARIA_EVENTS_FULL"] == "1"
     assert (tmp_path / "core" / "off-by-one-1.jsonl").exists()
+
+
+def test_timeout_keeps_partial_events_and_stderr(monkeypatch, tmp_path):
+    import subprocess
+    from aria_code.evals import runner
+
+    def stalled(command, **kwargs):
+        raise subprocess.TimeoutExpired(command, 1, output=b'{"type":"tool.started","tool":"read_file"}\n',
+                                        stderr=b"waiting for provider")
+    monkeypatch.setattr(subprocess, "run", stalled)
+    store = Trajectories(tmp_path, "projects", "m")
+    workspace = tmp_path / "feature"
+    workspace.mkdir()
+    result = runner.build_agent_solver(timeout=1, trajectories=store)("implement", workspace)
+    assert result.returncode == 124
+    assert "waiting for provider" in result.stderr and "1s budget" in result.stderr
+    assert json.loads((tmp_path / "projects/feature-1.jsonl").read_text().splitlines()[1])["type"] == "tool.started"

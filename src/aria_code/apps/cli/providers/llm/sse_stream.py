@@ -10,6 +10,18 @@ import json
 from typing import Callable, Optional
 
 
+def _client_tool_history(history: list) -> list:
+    """Keep matching call/result IDs and never cut into a tool-result batch."""
+    from aria_code.providers.tool_messages import to_openai_tool_protocol
+    normalized = to_openai_tool_protocol(history)
+    start = max(0, len(normalized) - 20)
+    # A parallel batch may have more than 20 results. Include its assistant
+    # call message as well, rather than orphaning the results or dropping them.
+    while start > 0 and normalized[start].get("role") == "tool":
+        start -= 1
+    return normalized[start:]
+
+
 def build_chat_payload(
     message: str,
     history: list,
@@ -27,6 +39,7 @@ def build_chat_payload(
     This is deliberately pure: it gives CLI, desktop, and iOS an auditable
     parity point without forcing the local-first CLI to use cloud services.
     """
+    history = _client_tool_history(history) if local_tool_execution else history[-20:]
     payload: dict
     if use_react_gateway:
         context = dict(user_context or {})
@@ -40,7 +53,7 @@ def build_chat_payload(
             },
             "mode": mode,
             "surface": "aria_code",
-            "history": history[-20:],
+            "history": history,
             "model": {"id": model or "auto", "effort": thinking_mode or "auto"},
             "context": context,
         }
@@ -50,7 +63,7 @@ def build_chat_payload(
 
     payload = {
         "message": message,
-        "conversation_history": history[-20:],
+        "conversation_history": history,
         "model": model,
         "thinking_mode": thinking_mode,
         "stream": True,

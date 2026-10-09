@@ -47,7 +47,7 @@ def supports_iterm() -> bool:
 def supports_kitty() -> bool:
     if _in_tmux():
         return False
-    if os.environ.get("KITTY_WINDOW_ID"):
+    if os.environ.get("KITTY_WINDOW_ID") or os.environ.get("TERM_PROGRAM") == "ghostty":
         return True
     return os.environ.get("TERM") == "xterm-kitty"
 
@@ -62,26 +62,27 @@ def supports_truecolor() -> bool:
 
 def best_method() -> str:
     """Return the best available render method for the current terminal."""
-    if supports_iterm():
-        return "iterm"
     if supports_kitty():
         return "kitty"
+    if supports_iterm():
+        return "iterm"
     if supports_truecolor():
         return "half"
     return "none"
 
 
 # ── Protocol emitters ────────────────────────────────────────────────────────
-def _iterm_sequence(png_bytes: bytes, cells_wide: int) -> str:
+def _iterm_sequence(png_bytes: bytes, cells_wide: int, cells_high: int | None = None) -> str:
     """iTerm2 OSC 1337 inline image. Width in character cells, height auto."""
     b64 = base64.b64encode(png_bytes).decode()
     return (
         f"\x1b]1337;File=inline=1;width={cells_wide};"
-        f"preserveAspectRatio=1:{b64}\x07"
+        + (f"height={cells_high};" if cells_high else "")
+        + f"preserveAspectRatio=1:{b64}\x07"
     )
 
 
-def _kitty_sequence(png_bytes: bytes, cells_wide: int) -> str:
+def _kitty_sequence(png_bytes: bytes, cells_wide: int, cells_high: int | None = None) -> str:
     """Kitty graphics protocol, PNG payload (f=100), chunked at 4096 bytes."""
     b64 = base64.b64encode(png_bytes).decode()
     chunk = 4096
@@ -95,6 +96,8 @@ def _kitty_sequence(png_bytes: bytes, cells_wide: int) -> str:
         if first:
             # a=T transmit+display, f=100 PNG, c=columns to scale into
             ctrl = f"a=T,f=100,c={cells_wide},m={more}"
+            if cells_high:
+                ctrl += f",r={cells_high},C=1"
             first = False
         else:
             ctrl = f"m={more}"
@@ -163,7 +166,8 @@ def render_image(
     path: str,
     cells_wide: int = 36,
     method: str | None = None,
-    crop: bool = True,
+    crop: bool | tuple[int, int, int, int] = True,
+    cells_high: int | None = None,
 ) -> str | None:
     """Return a printable string that draws ``path`` in the terminal.
 
@@ -182,34 +186,26 @@ def render_image(
             if _HAS_PIL:
                 import io
 
-                img = Image.open(path)
-                if crop:
-                    try:
-                        img = autocrop(img)
-                    except Exception:
-                        pass
-                buf = io.BytesIO()
-                img.convert("RGB").save(buf, format="PNG")
+                with Image.open(path) as source:
+                    img = source.crop(crop) if isinstance(crop, tuple) else (autocrop(source) if crop else source)
+                    buf = io.BytesIO()
+                    img.convert("RGB").save(buf, format="PNG")
                 data = buf.getvalue()
             else:
                 with open(path, "rb") as fh:
                     data = fh.read()
             if chosen == "iterm":
-                return _iterm_sequence(data, cells_wide)
-            return _kitty_sequence(data, cells_wide)
+                return _iterm_sequence(data, cells_wide, cells_high)
+            return _kitty_sequence(data, cells_wide, cells_high)
         except Exception:
             chosen = "half"  # fall through to the universal path
 
     # Half-block fallback needs PIL to resize.
     if chosen == "half" and _HAS_PIL:
         try:
-            img = Image.open(path)
-            if crop:
-                try:
-                    img = autocrop(img)
-                except Exception:
-                    pass
-            return half_block_render(img, cells_wide)
+            with Image.open(path) as source:
+                img = source.crop(crop) if isinstance(crop, tuple) else (autocrop(source) if crop else source)
+                return half_block_render(img, cells_wide)
         except Exception:
             return None
     return None

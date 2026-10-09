@@ -16,7 +16,8 @@ import pytest
 
 from aria_code.safety import sandbox
 
-needs_seatbelt = pytest.mark.skipif(not sandbox.available(), reason="needs macOS sandbox-exec")
+needs_seatbelt = pytest.mark.skipif(sys.platform != "darwin" or not sandbox.available(),
+                                  reason="needs macOS sandbox-exec")
 
 
 def test_the_profile_names_the_roots_and_the_network_rule():
@@ -27,6 +28,7 @@ def test_the_profile_names_the_roots_and_the_network_rule():
 
 
 def test_full_access_and_off_are_not_wrapped(monkeypatch):
+    monkeypatch.setattr(sandbox.sys, "platform", "darwin")
     monkeypatch.setattr(sandbox, "available", lambda: True)
     assert sandbox.wrap("ls", use_shell=True, mode="full-access", network=True) is None
     assert sandbox.wrap("ls", use_shell=True, mode="workspace-write", network=True, setting="off") is None
@@ -35,6 +37,32 @@ def test_full_access_and_off_are_not_wrapped(monkeypatch):
     monkeypatch.delenv("ARIA_OS_SANDBOX")
     argv = sandbox.wrap(["ls", "-l"], use_shell=False, mode="workspace-write", network=True)
     assert argv[0] == sandbox.SANDBOX_EXEC and argv[-2:] == ["ls", "-l"]
+
+
+def test_linux_mounts_writable_roots_and_isolates_the_network(tmp_path, monkeypatch):
+    monkeypatch.setattr(sandbox.sys, "platform", "linux")
+    monkeypatch.setattr(sandbox.shutil, "which", lambda name: "/usr/bin/" + name)
+    argv = sandbox.wrap(["python", "script.py"], use_shell=False, mode="workspace-write",
+                        network=False, cwd=tmp_path, workspace=tmp_path)
+    assert argv[:2] == ["/usr/bin/bwrap", "--die-with-parent"]
+    assert "--unshare-net" in argv and "--unshare-pid" in argv
+    assert argv[argv.index("--ro-bind") + 1:argv.index("--ro-bind") + 3] == ["/", "/"]
+    assert ["--bind", str(tmp_path), str(tmp_path)] == argv[argv.index(str(tmp_path)) - 1:argv.index(str(tmp_path)) + 2]
+    assert argv[-3:] == ["--", "python", "script.py"]
+    readonly = sandbox.wrap("echo hi", use_shell=True, mode="read-only", network=True,
+                            cwd=tmp_path, workspace=tmp_path)
+    assert "--unshare-net" not in readonly and str(tmp_path) not in readonly[:readonly.index("--chdir")]
+    assert sandbox.capability() == "bubblewrap"
+
+
+def test_windows_and_linux_without_bwrap_report_policy_only(monkeypatch):
+    monkeypatch.setattr(sandbox.shutil, "which", lambda name: None)
+    for platform in ("win32", "linux"):
+        monkeypatch.setattr(sandbox.sys, "platform", platform)
+        assert not sandbox.available()
+        assert sandbox.capability() == "policy-only"
+        assert sandbox.wrap("echo hi", use_shell=True, mode="workspace-write", network=False) is None
+    assert sandbox.capability("off") == "disabled"
 
 
 def test_read_only_does_not_open_the_workspace(tmp_path):

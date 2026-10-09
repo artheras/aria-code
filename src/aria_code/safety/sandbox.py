@@ -12,7 +12,9 @@ now runs under sandbox-exec (Seatbelt), as Codex does:
   local proxy would otherwise carry traffic out.
 - full-access, or ``os_sandbox: off`` in the config: no sandbox.
 
-Elsewhere (Linux, Windows) nothing changes yet: the text checks still apply.
+On Linux, bubblewrap (when installed) provides the equivalent read-only root
+and writable-root mounts plus an isolated network namespace. If it is absent,
+or on Windows, command policy still applies; capability() reports the limit.
 """
 
 from __future__ import annotations
@@ -29,7 +31,17 @@ CONFINED_MODES = ("read-only", "workspace-write")
 
 
 def available() -> bool:
-    return sys.platform == "darwin" and os.access(SANDBOX_EXEC, os.X_OK)
+    return (sys.platform == "darwin" and os.access(SANDBOX_EXEC, os.X_OK)) or (
+        sys.platform.startswith("linux") and bool(shutil.which("bwrap"))
+    )
+
+
+def capability(setting: object = None) -> str:
+    if not enabled(setting):
+        return "disabled"
+    if not available():
+        return "policy-only"
+    return "bubblewrap" if sys.platform.startswith("linux") else "seatbelt"
 
 
 def enabled(setting: object = None) -> bool:
@@ -96,17 +108,32 @@ def wrap(command: str | Sequence[str], *, use_shell: bool, mode: str, network: b
     """The argv that runs ``command`` in the sandbox, or None to run it as is."""
     if mode not in CONFINED_MODES or not enabled(setting) or not available():
         return None
-    rules = profile(writable_roots(mode, workspace or cwd, extra), network)
+    roots = writable_roots(mode, workspace or cwd, extra)
     if use_shell or isinstance(command, str):
         shell = shutil.which("sh") or "/bin/sh"
         body = command if isinstance(command, str) else " ".join(command)
-        return [SANDBOX_EXEC, "-p", rules, shell, "-c", body]
-    return [SANDBOX_EXEC, "-p", rules, *command]
+        argv = [shell, "-c", body]
+    else:
+        argv = list(command)
+    if sys.platform.startswith("linux"):
+        # No fallback after launch failure: a kernel that forbids namespaces
+        # must return the bwrap error, never execute the command unconfined.
+        wrapped = [shutil.which("bwrap") or "bwrap", "--die-with-parent", "--new-session",
+                   "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--ro-bind", "/", "/",
+                   "--proc", "/proc", "--dev", "/dev"]
+        if not network:
+            wrapped.append("--unshare-net")
+        for root in roots:
+            if root not in ("/dev", "/proc", "/") and os.path.isdir(root):
+                wrapped += ["--bind", root, root]
+        return [*wrapped, "--chdir", _real(cwd or os.getcwd()) or "/", "--", *argv]
+    return [SANDBOX_EXEC, "-p", profile(roots, network), *argv]
 
 
 def denial_hint(text: str, *, mode: str, network: bool) -> str:
     """What to tell the model when the sandbox stopped a command."""
-    if "Operation not permitted" not in text:
+    if not any(error in text for error in ("Operation not permitted", "Read-only file system",
+                                           "Network is unreachable", "bwrap:")):
         return ""
     limits = ["writes outside the project, Aria's output folder and temporary directories"
               if mode == "workspace-write" else "all writes outside temporary directories"]
@@ -118,4 +145,4 @@ def denial_hint(text: str, *, mode: str, network: bool) -> str:
             "the network on (/config set network_enabled=true).")
 
 
-__all__ = ["available", "enabled", "writable_roots", "profile", "wrap", "denial_hint"]
+__all__ = ["available", "enabled", "capability", "writable_roots", "profile", "wrap", "denial_hint"]

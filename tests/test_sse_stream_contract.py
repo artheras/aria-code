@@ -91,3 +91,29 @@ def test_legacy_gateway_payload_remains_compatible():
     assert endpoint == "/api/v2/ai/chat/stream"
     assert payload["message"] == "hello"
     assert payload["stream"] is True
+
+
+@pytest.mark.parametrize("use_react", [False, True])
+def test_client_tool_round_trip_has_matching_ids_even_when_history_is_truncated(use_react):
+    history = [{"role": "user", "content": "old context"}] * 19 + [
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"function": {"name": "read_file", "arguments": {"path": "main.py"}}}
+        ]},
+        {"role": "tool", "name": "read_file", "content": "actual local contents"},
+    ]
+    _, payload = build_chat_payload("continue", history, model="gemini", thinking_mode="auto",
+                                   user_context=None, project_context="", use_react_gateway=use_react,
+                                   local_tool_execution=True)
+    wire = payload["history" if use_react else "conversation_history"]
+    assert wire[-1]["tool_call_id"] == wire[-2]["tool_calls"][0]["id"]
+    assert json.loads(wire[-2]["tool_calls"][0]["function"]["arguments"]) == {"path": "main.py"}
+    # The cut begins among these results. Their call message must survive.
+    batch = [{"role": "assistant", "content": "", "tool_calls": [
+        {"function": {"name": "read_file", "arguments": {"path": str(i)}}} for i in range(25)
+    ]}] + [{"role": "tool", "name": "read_file", "content": str(i)} for i in range(25)]
+    _, payload = build_chat_payload("continue", batch, model="gemini", thinking_mode="auto",
+                                   user_context=None, project_context="", use_react_gateway=use_react,
+                                   local_tool_execution=True)
+    wire = payload["history" if use_react else "conversation_history"]
+    assert wire[0]["role"] == "assistant" and len(wire) == 26
+    assert {m["tool_call_id"] for m in wire[1:]} == {c["id"] for c in wire[0]["tool_calls"]}

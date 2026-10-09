@@ -57,6 +57,7 @@ dependencies = [
     "aiohttp>=3.9.0",
     "rich>=13.7.0",
     "prompt_toolkit>=3.0.43",
+    "Pillow>=10.4.0",       # original mascot image; loaded only when drawing it
     "PyYAML>=6.0.2",
     "requests>=2.32.0",
     "httpx[http2]>=0.27.0",
@@ -275,6 +276,7 @@ include = ["aria_code*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml", "*.json", "*.md", "*.txt", "*.sh"]
+"aria_code.ui" = ["assets/*.png"]
 
 # ── Ruff linting ───────────────────────────────────────────────────────────────
 [tool.ruff]

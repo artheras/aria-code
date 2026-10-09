@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import pathlib
 import shlex
@@ -35,7 +36,7 @@ class VerificationPlanner:
             commands.append(f"python3 -m py_compile {quoted}")
             reasons.append("Python files changed")
             if self._has_any("pytest.ini", "pyproject.toml", "setup.cfg", "tox.ini") or (self.root / "tests").exists():
-                commands.append("python3 -m pytest -q")
+                commands.append(self._python_test_command())
 
         frontend_files = [
             p for p in changed
@@ -53,7 +54,7 @@ class VerificationPlanner:
 
         if not commands:
             if (self.root / "pyproject.toml").exists() or (self.root / "tests").exists():
-                commands.append("python3 -m pytest -q")
+                commands.append(self._python_test_command())
                 reasons.append("Python project detected")
             elif (self.root / "package.json").exists():
                 scripts = self._package_scripts()
@@ -70,6 +71,39 @@ class VerificationPlanner:
 
     def _has_any(self, *names: str) -> bool:
         return any((self.root / name).exists() for name in names)
+
+    def _python_test_command(self) -> str:
+        """Choose the project's runner without importing its test code.
+
+        A tests directory does not imply pytest. For a stdlib unittest project,
+        forcing pytest makes the agent install an unnecessary dependency just
+        to satisfy the acceptance gate.
+        """
+        for path in (self.root / "pytest.ini", self.root / "pyproject.toml", self.root / "setup.cfg"):
+            if path.is_file():
+                text = path.read_text(encoding="utf-8", errors="replace")
+                if path.name == "pytest.ini" or "[tool.pytest" in text or "[tool:pytest]" in text:
+                    return "python3 -m pytest -q"
+        tests_root = self.root / "tests" if (self.root / "tests").is_dir() else self.root
+        candidates = list(tests_root.glob("**/test*.py"))[:100] if tests_root != self.root else list(self.root.glob("test*.py"))[:100]
+        uses_unittest = False
+        for path in candidates:
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError, UnicodeError):
+                return "python3 -m pytest -q"
+            for node in ast.walk(tree):
+                modules = ([alias.name.split(".")[0] for alias in node.names] if isinstance(node, ast.Import)
+                           else [str(node.module or "").split(".")[0]] if isinstance(node, ast.ImportFrom) else [])
+                if "pytest" in modules:
+                    return "python3 -m pytest -q"
+                uses_unittest |= "unittest" in modules
+            if any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test") for node in tree.body):
+                return "python3 -m pytest -q"
+        if uses_unittest:
+            directory = "tests" if tests_root != self.root else "."
+            return f"python3 -m unittest discover -s {directory} -v"
+        return "python3 -m pytest -q"
 
     def _package_scripts(self) -> dict:
         try:

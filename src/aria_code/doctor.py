@@ -696,6 +696,19 @@ def _iter_optional_modules() -> Iterable[tuple[str, str, str]]:
     yield "akshare", "China A-share market data", "cn"
 
 
+def sandbox_check(config: Dict[str, Any]) -> DoctorCheck:
+    """Report the actual command confinement available on this machine."""
+    from aria_code.safety.sandbox import capability
+    mode = str(config.get("permission_mode", "workspace-write"))
+    kind = "disabled" if mode == "full-access" else capability(config.get("os_sandbox"))
+    if kind == "policy-only":
+        return _check("command_sandbox", "warn", f"{mode}: command policy only; no OS filesystem/network confinement",
+                      "Install bubblewrap on Linux; Windows currently uses command policy only.")
+    if kind == "disabled":
+        return _check("command_sandbox", "skip", "OS command sandbox disabled by your settings")
+    return _check("command_sandbox", "ok", f"{mode}: {kind}; violations fail the command without an unconfined retry")
+
+
 def run_doctor(
     config: Optional[Dict[str, Any]] = None,
     *,
@@ -718,6 +731,8 @@ def run_doctor(
     drift = _check_python_drift()
     if drift is not None:
         checks.append(drift)
+
+    checks.append(sandbox_check(config))
 
     if context_stats:
         _fill = float(context_stats.get("fill_ratio") or 0.0)

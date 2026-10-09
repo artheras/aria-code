@@ -95,7 +95,8 @@ class BuiltWheel(unittest.TestCase):
 
     def test_it_contains_the_modules_the_entry_point_needs(self):
         for needed in ("aria_code/aria_cli.py", "aria_code/apps/cli/main.py",
-                       "aria_code/doctor.py"):
+                       "aria_code/doctor.py", "aria_code/ui/assets/aria-robot.png",
+                       "aria_code/ui/robot_pixels.py"):
             with self.subTest(module=needed):
                 self.assertIn(needed, self.names)
 

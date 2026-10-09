@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import os
 import shutil
+from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 
 from .startup_dashboard import StartupDashboardViewModel
@@ -205,6 +207,55 @@ def _robot_text():
     return face
 
 
+@lru_cache(maxsize=1)
+def _artwork_pixels():
+    """Rich half-blocks sampled from the reference, without importing Pillow."""
+    import base64
+    import zlib
+    from rich.text import Text
+    from .robot_pixels import HEIGHT, PIXELS, WIDTH
+
+    rgb = zlib.decompress(base64.b85decode(PIXELS))
+    face = Text()
+    for y in range(0, HEIGHT, 2):
+        for x in range(WIDTH):
+            top = rgb[(y * WIDTH + x) * 3:(y * WIDTH + x) * 3 + 3].hex()
+            bottom = rgb[((y + 1) * WIDTH + x) * 3:((y + 1) * WIDTH + x) * 3 + 3].hex()
+            face.append("▀", style=f"#{top} on #{bottom}")
+        if y + 2 < HEIGHT:
+            face.append("\n")
+    return face
+
+
+def _mascot(console, width: int):
+    """Return (renderable, columns, rows, optional native image sequence).
+
+    Inline graphics go only to a real TTY. Rich's text parser strips OSC/APC
+    escapes, so the PNG is written separately after reserving its cells.
+    """
+    from rich.text import Text
+    from .robot_pixels import BOUNDS, HEIGHT, WIDTH
+    mode = os.getenv("ARIA_ROBOT_RENDER", "auto").strip().lower()
+    tty = bool(console.is_terminal and getattr(console.file, "isatty", lambda: False)())
+    if mode == "off":
+        return Text(), 0, 4, None
+    if console.no_color or console.color_system is None:
+        # Uncoloured half-blocks are a solid rectangle, not a robot.
+        return _robot_text(), 9, 4, None
+    if mode == "compact" or width < 60 or (not tty and mode not in ("pixels", "image")):
+        return _robot_text(), 9, 4, None
+    if mode != "pixels" and tty:
+        from .image_render import best_method, render_image
+        method = best_method()
+        if method in ("iterm", "kitty"):
+            rows = (HEIGHT + 1) // 2 + 1  # aspect-preserving image may occupy a fraction more
+            asset = Path(__file__).parent / "assets" / "aria-robot.png"
+            sequence = render_image(str(asset), WIDTH, method, crop=BOUNDS, cells_high=rows)
+            if sequence and sequence.startswith(("\x1b]1337;", "\x1b_G")):
+                return Text("\n".join([" " * WIDTH] * rows)), WIDTH, rows, sequence
+    return _artwork_pixels().copy(), WIDTH, HEIGHT // 2, None
+
+
 def _summary_lines(view: StartupDashboardViewModel) -> list[str]:
     """The four lines beside the robot — one per robot row, as Claude Code does."""
     from rich.markup import escape
@@ -257,12 +308,7 @@ def render_startup_dashboard(
     terminal_width: Optional[int] = None,
     terminal_height: Optional[int] = None,
 ) -> None:
-    """The robot with four lines beside it, then any notes — no frame.
-
-    It used to be a framed two-column dashboard with three width-dependent
-    layouts and a 15×8 robot; at common widths that was most of the first
-    screen. Now it is one compact block at every width, like Claude Code's.
-    """
+    """The original mascot beside the model/workspace summary, then notes."""
     del rich_box, terminal_height
     from .robot import ROBOT_ROW_COUNT, get_robot_row
 
@@ -281,12 +327,18 @@ def render_startup_dashboard(
     from rich.text import Text
 
     width = terminal_width or _console_width(console)
+    face, columns, rows, sequence = _mascot(console, width)
     block = Table.grid(padding=(0, 2))
-    block.add_column(no_wrap=True)
+    block.add_column(no_wrap=True, width=columns or None)
     # One line per row, cut rather than wrapped, so the block keeps its height.
-    block.add_column(no_wrap=True, overflow="ellipsis", max_width=max(10, width - 14))
-    block.add_row(_robot_text(), Text.from_markup("\n".join(_summary_lines(view)), overflow="ellipsis"))
+    block.add_column(no_wrap=True, overflow="ellipsis", max_width=max(10, width - columns - 3))
+    block.add_row(face, Text.from_markup("\n".join(_summary_lines(view)), overflow="ellipsis"))
     console.print(block)
+    if sequence:
+        # Reserve the rows first (also handles scrolling), draw at their top,
+        # then restore the cursor before the notes and prompt are printed.
+        console.file.write(f"\x1b7\x1b[{rows}A\r{sequence}\x1b8")
+        console.file.flush()
     for note in _notes(view):
         console.print(Text.from_markup("  " + note, overflow="ellipsis"), no_wrap=True)
 

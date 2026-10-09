@@ -107,6 +107,9 @@ jobs:
           python -m aria_code.evals.runner evals/suites/hard.yaml --model "$MODEL" \
             --solve-timeout 600 --repeat "$REPEAT" --report evals-hard.json --trajectories trajectories || true
 
+          python -m aria_code.evals.runner evals/suites/projects.yaml --model "$MODEL" \
+            --solve-timeout 600 --repeat "$REPEAT" --report evals-projects.json --trajectories trajectories || true
+
       - name: Check out the holdout suites
         if: env.READY == 'true' && env.HOLDOUT == 'true'
         uses: actions/checkout@v4
@@ -132,10 +135,10 @@ jobs:
         run: |
           shopt -s nullglob
           private=(.holdout-reports/*.json)
-          python -m aria_code.evals.summary --model "$MODEL" evals-core.json evals-operations.json evals-hard.json \
+          python -m aria_code.evals.summary --model "$MODEL" evals-core.json evals-operations.json evals-hard.json evals-projects.json \
             ${private:+--private "${private[@]}"} | tee -a "$GITHUB_STEP_SUMMARY"
           if [ ${#private[@]} -gt 0 ]; then
-            python -m aria_code.evals.gap --markdown --public evals-core.json evals-operations.json evals-hard.json \
+            python -m aria_code.evals.gap --markdown --public evals-core.json evals-operations.json evals-hard.json evals-projects.json \
               --holdout "${private[@]}" --suites .holdout/suites/*.yaml | tee -a "$GITHUB_STEP_SUMMARY"
           fi
 

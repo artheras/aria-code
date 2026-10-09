@@ -28,6 +28,32 @@ on:
       - "LICENSE"
 
 jobs:
+  runtime-integration:
+    name: Runtime integration (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install Linux sandbox
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - name: Install runtime tests
+        run: python -m pip install -e . pytest pytest-asyncio pytest-timeout
+      - name: Exercise child cleanup, sandbox and actual HTTP tool round trips
+        env:
+          ARIA_OFFLINE: "1"
+        run: >-
+          python -m pytest tests/test_background_processes.py tests/test_os_sandbox.py
+          tests/test_linux_sandbox_integration.py tests/test_sse_http_roundtrip.py
+          tests/test_robot_artwork.py -q --timeout=60
+
   test:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -177,6 +203,7 @@ jobs:
           python -m aria_code.evals.runner evals/suites/core.yaml --check
           python -m aria_code.evals.runner evals/suites/operations.yaml --check
           python -m aria_code.evals.runner evals/suites/hard.yaml --check
+          python -m aria_code.evals.runner evals/suites/projects.yaml --check
 
   # ── The release artifact must actually install and run ──────────────────────
   # Nothing here ever built a wheel and looked inside it, and three defects lived
