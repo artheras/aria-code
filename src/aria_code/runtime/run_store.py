@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import sqlite3
 import time
@@ -22,17 +23,39 @@ from .run_state import (
 from aria_code.packages.aria_core.paths import aria_home
 
 
+# Compared with every non-alphanumeric character removed and lowercased, so
+# apiKey, api-key and API_KEY are all the same field.
 _SECRET_KEYS = {
-    "api_key",
-    "access_token",
-    "auth_token",
+    "apikey",
+    "accesstoken",
+    "authtoken",
+    "refreshtoken",
     "authorization",
     "cookie",
     "password",
-    "private_key",
+    "passwd",
+    "privatekey",
     "secret",
+    "clientsecret",
     "token",
 }
+
+# Credentials inside free text: prompts, errors, tool output, commands. The
+# shapes are those exec_events.py already masks on screen and in CI logs.
+_SECRET_TEXT = (
+    (re.compile(r"(?i)\b(api[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|client[_-]?secret"
+                r"|token|password|passwd|secret)(\s*[=:]\s*)[\"']?[^\s'\",;]+"), r"\1\2[REDACTED]"),
+    (re.compile(r"(?i)\b(bearer|basic)(\s+)[A-Za-z0-9._~+/=-]+"), r"\1\2[REDACTED]"),
+    (re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^\s/:@]+:[^\s/@]+@"), r"\1[REDACTED]@"),
+    (re.compile(r"\b(?:sk|pk|rk)-[A-Za-z0-9_-]{8,}|\bgh[pousr]_[A-Za-z0-9]{12,}"
+                r"|\bAIza[0-9A-Za-z_-]{20,}|\bya29\.[0-9A-Za-z_-]+"), "[REDACTED]"),
+)
+
+
+def _redact_text(value: str) -> str:
+    for pattern, replacement in _SECRET_TEXT:
+        value = pattern.sub(replacement, value)
+    return value
 
 
 def _default_database_path() -> Path:
@@ -49,11 +72,13 @@ def _redact(value: Any) -> Any:
     if isinstance(value, dict):
         result = {}
         for key, item in value.items():
-            normalized = str(key).lower().replace("-", "_")
+            normalized = re.sub(r"[^a-z0-9]", "", str(key).lower())
             result[key] = "[REDACTED]" if normalized in _SECRET_KEYS else _redact(item)
         return result
     if isinstance(value, (list, tuple)):
         return [_redact(item) for item in value]
+    if isinstance(value, str):
+        return _redact_text(value)
     return value
 
 
@@ -266,7 +291,7 @@ class RunStore:
                     session_id,
                     parent_run_id,
                     RunStatus.QUEUED.value,
-                    prompt,
+                    _redact_text(prompt),
                     workspace,
                     provider,
                     pid,
@@ -326,7 +351,7 @@ class RunStore:
             }:
                 next_error = ""
             else:
-                next_error = row["error"] if error is None else str(error)
+                next_error = row["error"] if error is None else _redact_text(str(error))
             next_provider = row["provider"] if provider is None else str(provider)
             connection.execute(
                 """UPDATE runs
