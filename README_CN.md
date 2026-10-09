@@ -15,7 +15,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/@artheras/aria-code"><img src="https://img.shields.io/npm/v/@artheras/aria-code/latest?style=flat-square&logo=npm&label=npm" alt="npm 版本"></a>
   <!-- Release automation pins PyPI: the default endpoint still selects legacy 4.x. -->
-  <a href="https://pypi.org/project/aria-code/0.123.0/"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fpypi.org%2Fpypi%2Faria-code%2F0.123.0%2Fjson&amp;query=%24.info.version&amp;prefix=v&amp;style=flat-square&amp;logo=pypi&amp;label=PyPI&amp;color=blue&amp;cacheSeconds=300" alt="PyPI 版本"></a>
+  <a href="https://pypi.org/project/aria-code/0.124.0/"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fpypi.org%2Fpypi%2Faria-code%2F0.124.0%2Fjson&amp;query=%24.info.version&amp;prefix=v&amp;style=flat-square&amp;logo=pypi&amp;label=PyPI&amp;color=blue&amp;cacheSeconds=300" alt="PyPI 版本"></a>
   <a href="https://github.com/artheras/aria-code/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/artheras/aria-code/ci.yml?branch=main&style=flat-square&logo=githubactions&label=CI" alt="CI 状态"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-64748b?style=flat-square" alt="Apache License 2.0"></a>
 </p>
