@@ -292,3 +292,15 @@ def test_an_editable_install_does_not_shadow_the_worktree(tmp_path, tasks, monke
         approval=ApprovalDecision.allow(policy="balanced", user_approved=True))
     assert result["success"], result
     assert result["data"]["stdout"].strip() == "task"
+
+
+def test_source_roots_are_read_without_tomllib(tmp_path, monkeypatch):
+    # Python 3.10 has no tomllib; CI's 3.10 job caught the pyproject being skipped.
+    import sys as _sys
+    from aria_code.runtime.task_worktree import python_source_roots
+
+    monkeypatch.setitem(_sys.modules, "tomllib", None)
+    root = tmp_path / "p"
+    (root / "lib").mkdir(parents=True)
+    (root / "pyproject.toml").write_text('[tool.pytest.ini_options]\npythonpath = ["lib"]\n')
+    assert python_source_roots(root)[0] == (root / "lib").resolve()

@@ -177,6 +177,18 @@ def remove_checkout(repo: Path | str, destination: Path | str, linked: Sequence[
             pass
 
 
+def _load_toml(text: str) -> dict:
+    """tomllib on 3.11+; on 3.10, tomli or the copy pip vendors."""
+    try:
+        import tomllib as toml
+    except ImportError:
+        try:
+            import tomli as toml
+        except ImportError:
+            from pip._vendor import tomli as toml
+    return toml.loads(text)
+
+
 def python_source_roots(root: Path | str) -> list[Path]:
     """Where a Python project's importable code lives, most specific first.
 
@@ -199,9 +211,7 @@ def python_source_roots(root: Path | str) -> list[Path]:
                 found.append(candidate)
 
     try:
-        import tomllib
-
-        data = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+        data = _load_toml((root / "pyproject.toml").read_text(encoding="utf-8"))
         tool = data.get("tool") or {}
         add((tool.get("pytest", {}).get("ini_options") or {}).get("pythonpath"))
         setuptools = tool.get("setuptools") or {}
