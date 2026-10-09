@@ -27,3 +27,5 @@ finished task; interrupted running tasks are persisted in one batch. A large
 task history therefore no longer adds a full-file rewrite per saved task.
 PDF, Word, Excel and dataframe parsers are loaded when `/file` is first used,
 rather than constructing an unused file-analysis session before the prompt.
+Registering the spreadsheet tool checks availability without loading openpyxl;
+that runtime is loaded when a workbook is first generated.

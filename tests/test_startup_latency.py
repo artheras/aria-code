@@ -21,6 +21,14 @@ assert terminal._file_session is None
 assert not any(name.endswith("file_analysis_tools") for name in sys.modules)
 heavy = {"pandas", "pdfplumber", "pypdf", "docx", "openpyxl"}
 assert not heavy.intersection(sys.modules), heavy.intersection(sys.modules)
+# Registration must not load Excel; its first real workbook still works.
+from aria_code.tools.spreadsheet_tools import HAS_OPENPYXL, write_workbook
+if HAS_OPENPYXL:
+    result = write_workbook({"sheets": [{"name": "Sheet", "headers": ["Value"], "rows": [[3]]}]},
+                            out_path=Path("first-workbook.xlsx"))
+    assert result["success"] and Path("first-workbook.xlsx").is_file()
+    assert "openpyxl" in sys.modules
+assert terminal._file_session is None
 path = Path("notes.txt")
 path.write_text("Hello Aria / 你好", encoding="utf-8")
 async def use_files():
