@@ -123,6 +123,7 @@ aria-code -p "修复失败的测试并运行" --format jsonl --allow-tools edit_
 | --- | --- |
 | 架构与运行时 | [架构](docs/architecture.md) |
 | 工具权限与数据边界 | [安全说明](docs/aria-code-safety.md) |
+| Rust CLI 试验入口与分阶段迁移 | [Rust CLI 迁移说明](docs/rust-cli-migration.md) |
 | 仓储智能体及只读数据契约 | [仓储 ERP 智能体](docs/warehouse-erp-agents.md) |
 | 策略与回测流程 | [策略工作台](docs/strategy_workspace.md) |
 | 更多示例 | [示例](examples/README.md) |

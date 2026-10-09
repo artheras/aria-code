@@ -1,0 +1,82 @@
+name: Rust CLI prototype
+
+on:
+  pull_request:
+    paths:
+      - 'rust/**'
+      - 'src/aria_code/apps/cli/native_bridge.py'
+      - 'src/aria_code/apps/cli/tools/**'
+      - 'src/aria_code/runtime/**'
+      - 'src/aria_code/workspace/**'
+      - 'tests/test_native_bridge.py'
+      - 'tests/test_rust_cli.py'
+      - 'scripts/benchmark_rust_cli.py'
+      - '.github/workflows/rust-cli.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'rust/**'
+      - 'src/aria_code/apps/cli/native_bridge.py'
+      - 'src/aria_code/apps/cli/tools/**'
+      - 'src/aria_code/runtime/**'
+      - 'src/aria_code/workspace/**'
+      - 'tests/test_native_bridge.py'
+      - 'tests/test_rust_cli.py'
+      - 'scripts/benchmark_rust_cli.py'
+      - '.github/workflows/rust-cli.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prototype:
+    name: Rust + Python bridge (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            exe: ''
+          - os: macos-latest
+            exe: ''
+          - os: windows-latest
+            exe: '.exe'
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+      ARIA_NATIVE_BINARY: ${{ github.workspace }}/rust/target/release/aria-native${{ matrix.exe }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned Rust toolchain
+        working-directory: rust
+        run: rustup show
+      - name: Install Python runtime and regression runner
+        run: python -m pip install -e . pytest pytest-timeout
+      - name: Format, lint, test and build Rust
+        working-directory: rust
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo test --workspace --locked
+          cargo build --release --locked
+      - name: Exercise real executable and existing Python tools
+        run: python -m pytest tests/test_native_bridge.py tests/test_rust_cli.py -q --timeout=30
+      - name: Measure entry points (no cloud calls)
+        run: python scripts/benchmark_rust_cli.py --binary "$ARIA_NATIVE_BINARY" --output rust/target/benchmark.json
+      - name: Upload opt-in prototype and measurements
+        uses: actions/upload-artifact@v4
+        with:
+          name: aria-native-prototype-${{ matrix.os }}
+          path: |
+            rust/target/release/aria-native${{ matrix.exe }}
+            rust/target/benchmark.json
+          if-no-files-found: error
+

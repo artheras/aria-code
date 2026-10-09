@@ -104,6 +104,8 @@ apps/vscode/*.vsix
 *.log
 *.pid
 *.lock
+!rust/Cargo.lock
+/rust/target/
 nohup.out
 
 # ── Build/packaging output (generated, not source) ────────────────────────────

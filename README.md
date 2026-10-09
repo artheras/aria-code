@@ -124,6 +124,7 @@ Install extras only for features you use; see [pyproject.toml](pyproject.toml) f
 | Topic | Start here |
 | --- | --- |
 | Architecture and runtime | [Architecture](docs/architecture.md) |
+| Opt-in Rust CLI prototype and migration stages | [Rust CLI migration](docs/rust-cli-migration.md) |
 | Tool permissions and data boundaries | [Safety notes](docs/aria-code-safety.md) |
 | Warehouse agents and their read-only data contract | [Warehouse ERP agents](docs/warehouse-erp-agents.md) |
 | Strategy and backtesting workflows | [Strategy workspace](docs/strategy_workspace.md) |
