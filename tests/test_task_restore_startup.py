@@ -25,7 +25,7 @@ def track_io(ledger, monkeypatch):
 
 
 def test_thousands_of_unchanged_tasks_are_read_once_without_writes(ledger, monkeypatch):
-    statuses = ("pending", "done", "failed", "cancelled", "interrupted")
+    statuses = ("done", "failed", "cancelled", "interrupted")
     records = {
         str(i): {**subagent.SubagentTask(task_id=str(i), prompt="inspect",
                                       status=statuses[i % len(statuses)]).snapshot(),
@@ -71,6 +71,30 @@ def test_running_tasks_are_interrupted_in_one_atomic_batch(ledger, monkeypatch):
     assert persisted["done"] == records["done"]
     assert persisted["0"]["result_truncated"] is True
     assert persisted["0"]["result"].startswith("x" * MAX_RESULT_CHARS)
+
+
+def test_pending_tasks_left_by_an_earlier_process_are_interrupted(ledger):
+    ledger.save({
+        "queued": {"task_id": "queued", "status": "pending", "prompt": "never ran"},
+        "done": {"task_id": "done", "status": "done", "prompt": "finished"},
+    })
+
+    assert subagent.restore_tasks() == 2
+    assert subagent._TASKS["queued"].status == "interrupted"
+    assert "never started" in subagent._TASKS["queued"].error
+    assert TaskLedger(ledger.path).load()["queued"]["status"] == "interrupted"
+    assert subagent._TASKS["done"].status == "done"
+
+
+def test_clear_removes_finished_tasks_and_keeps_live_ones(ledger):
+    for task_id, status in (("a", "done"), ("b", "interrupted"), ("c", "running"), ("d", "pending")):
+        task = subagent.SubagentTask(task_id=task_id, prompt="p", status=status)
+        subagent._TASKS[task_id] = task
+        ledger.upsert(task.snapshot())
+
+    assert subagent.clear_finished_tasks() == 2
+    assert set(subagent._TASKS) == {"c", "d"}
+    assert set(TaskLedger(ledger.path).load()) == {"c", "d"}
 
 
 def test_live_tasks_are_not_overwritten_by_saved_running_state(ledger, monkeypatch):
