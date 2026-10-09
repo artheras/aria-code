@@ -38,6 +38,7 @@ INSPECT → PLAN → (approval if needed) → EXECUTE → VERIFY → REVIEW → 
 | **Detail on demand** (output tail, ctrl+o) | `ui/render/actions.py` | **phase 3** |
 | **Edit by symbol** (`edit_file` with `symbol`) | `runtime/symbol_edit.py` | **phase 3** |
 | **Worktree per task**, applied on approval | `runtime/task_worktree.py`, `apps/cli/task_isolation.py` | **phase 4** |
+| **Transaction rewind** (files, conversation, tasks, approvals, verdict) | `runtime/transactions.py`, `apps/cli/transactions.py` | **phase 4** |
 
 ## Risk levels
 
@@ -259,6 +260,31 @@ Background tasks (`spawn_task`) with `isolation: worktree` now run their
 tools in their own worktree. The aria runner previously called the streaming
 helper with arguments it does not take, so those tasks failed on start.
 
+## Rewinding a turn
+
+Before each REPL turn a transaction point records the session as it stands:
+the conversation, the task list, the approvals in force (allow-all, per tool,
+per command prefix), the newest file checkpoint, whether the code had passed
+its checks, and the open task worktree with its unapplied diff.
+
+```text
+/rewind turns          list points, newest first, with ✓ / ✗ / · for checks
+/rewind turn [N|id]    back to before the Nth-last turn (default 1)
+/rewind green          back to the newest point whose checks passed
+```
+
+A rewind undoes every file change checkpointed after the point, newest first
+and all or nothing: a file edited by hand since stops it before anything else
+changes. Then the conversation, task list and approvals are put back —
+grants given since are revoked and listed — background tasks spawned since
+are cancelled, and a task worktree that was open then but has since gone is
+reopened with its changes. The undone turns leave the history.
+
+Points are kept per session (`<aria home>/transactions`, newest 50), each
+storing only the messages added since the previous one. Files changed by a
+shell command rather than an edit tool have no checkpoint and are not undone;
+`/rewind code|conversation|both|list` work as before.
+
 ## How Codex and Claude Code present the same things
 
 From the Codex TUI source (`codex-rs/tui`, its render snapshots) and the
@@ -283,8 +309,6 @@ Claude Code changelog, October 2026:
 
 **Phase 4 — transactions and project knowledge**
 
-- Transaction checkpoints that also restore task graph, approvals, test
-  baseline and conversation, not only files.
 - Persistent project graph (files, symbols, tests, services and their edges)
   for impact analysis before editing.
 - `.aria/workflows/*.yaml` for user-defined pipelines (`/release` → test →

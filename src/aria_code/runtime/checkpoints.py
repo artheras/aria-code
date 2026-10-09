@@ -9,9 +9,9 @@ import sqlite3
 import stat
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Callable, Dict, Iterable, Optional
 
 from .run_store import RunStore
 
@@ -394,6 +394,55 @@ class CheckpointStore:
                 "paths": restored_paths,
             })
         return RestoreResult(checkpoint_ids, run_id, tuple(restored_paths))
+
+    def max_sequence(self) -> int:
+        """The newest checkpoint's sequence; a later rewind undoes everything after it."""
+        with self._connect() as connection:
+            row = connection.execute("SELECT MAX(sequence) AS top FROM checkpoints").fetchone()
+        return int(row["top"] or 0)
+
+    def since(self, sequence: int, *, session_id: str | None = None) -> list[CheckpointRecord]:
+        """Active checkpoints recorded after ``sequence``, newest first."""
+        clauses = ["status = 'active'", "sequence > ?"]
+        values: list[Any] = [int(sequence)]
+        if session_id:
+            clauses.append("session_id = ?")
+            values.append(session_id)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT * FROM checkpoints WHERE {' AND '.join(clauses)} ORDER BY sequence DESC",
+                values,
+            ).fetchall()
+            return [self._row_to_checkpoint(connection, row) for row in rows]
+
+    def restore_since(
+        self,
+        sequence: int,
+        *,
+        session_id: str | None = None,
+        skip: Callable[[str], bool] = lambda _path: False,
+    ) -> RestoreResult:
+        """Undo every change recorded after ``sequence``, newest first, all or nothing.
+
+        ``skip`` drops files that no longer have a place to be restored to —
+        an edit inside a task worktree that has since been removed, whose
+        effect on the user's files has its own checkpoint. Nothing to undo is
+        not an error: a point with no file changes after it rewinds to itself.
+        """
+        records = self.since(sequence, session_id=session_id)
+        filtered = [replace(record, files=tuple(f for f in record.files if not skip(f.path)))
+                    for record in records]
+        if any(record.files for record in filtered):
+            return self._restore(filtered)
+        if records:
+            restored_at = time.time()
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.executemany(
+                    "UPDATE checkpoints SET status = 'restored', restored_at = ? WHERE checkpoint_id = ?",
+                    [(restored_at, record.checkpoint_id) for record in records],
+                )
+        return RestoreResult(tuple(record.checkpoint_id for record in records), None, ())
 
     def restore_checkpoint(self, checkpoint_id: str) -> RestoreResult:
         record = self.get(checkpoint_id)

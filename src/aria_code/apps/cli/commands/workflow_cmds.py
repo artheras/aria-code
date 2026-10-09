@@ -254,6 +254,9 @@ class WorkflowCommandsMixin:
         if mode in {"conversation", "chat"}:
             self.cmd_undo("")
             return
+        if mode in {"turn", "turns", "green"}:
+            self._rewind_transaction(mode, identifier, assume_yes=assume_yes, is_zh=is_zh)
+            return
         if mode not in {"code", "both", "list"}:
             identifier = parts[0]
             mode = "code"
@@ -344,6 +347,68 @@ class WorkflowCommandsMixin:
             print(message)
             for path in result.restored_paths:
                 print(f"  {path}")
+
+    def _rewind_transaction(self, mode: str, ref: str, *, assume_yes: bool, is_zh: bool) -> None:
+        """``/rewind turns`` · ``/rewind turn [N|id]`` · ``/rewind green``.
+
+        A turn rewind puts back files, conversation, task list, approvals,
+        background tasks and the task worktree as they were before that turn.
+        """
+        from apps.cli import transactions
+        from aria_code.runtime.checkpoints import CheckpointConflictError
+
+        con = self.context.console if self.context.has_rich else None
+
+        def say(text: str, style: str = "dim") -> None:
+            if con is not None:
+                from rich.markup import escape
+                con.print(f"[{style}]{escape(text)}[/{style}]" if style else escape(text))
+            else:
+                print(text)
+
+        session_id = str(self.terminal.session_id or "default")
+        store = transactions.store()
+        if mode == "turns":
+            points = store.list(session_id)
+            if not points:
+                say("还没有可回退的轮次" if is_zh else "No turns to rewind yet")
+                return
+            say("回退点（✓ 检查通过 ✗ 失败 · 未验证）" if is_zh
+                else "Rewind points (✓ checks passed  ✗ failed  · unverified)", "bold")
+            for line in transactions.describe(points):
+                say(line, "")
+            say("/rewind turn N  ·  /rewind green")
+            return
+
+        point = store.latest_green(session_id) if mode == "green" else store.find(session_id, ref or "1")
+        if point is None:
+            if mode == "green":
+                say("没有检查通过的回退点" if is_zh else "No point where the checks passed")
+            else:
+                say(f"没有回退点 {ref or '1'}" if is_zh else f"No rewind point {ref or '1'}; see /rewind turns")
+            return
+        if not assume_yes:
+            question = (
+                f"  回退到第 {point.turn} 轮之前（文件、对话、待办、授权一起恢复）？ [y/N] " if is_zh else
+                f"  Rewind to before turn {point.turn} — files, conversation, tasks and approvals? [y/N] "
+            )
+            try:
+                answer = (con.input(question) if con is not None else input(question)).strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                return
+            if answer not in {"y", "yes"}:
+                say("已取消" if is_zh else "Cancelled")
+                return
+        try:
+            outcome = transactions.rewind(self.terminal, point)
+        except CheckpointConflictError as exc:
+            say((f"回退已停止，未做任何改动: {exc}" if is_zh else f"Rewind stopped, nothing changed: {exc}"), "red")
+            return
+        except Exception as exc:
+            say((f"回退失败: {exc}" if is_zh else f"Rewind failed: {exc}"), "red")
+            return
+        for index, line in enumerate(outcome.lines()):
+            say(line, "green" if index == 0 else "dim")
 
     async def cmd_retry(self, args: str):
         last_user_msg = None

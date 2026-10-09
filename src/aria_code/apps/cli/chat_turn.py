@@ -196,6 +196,9 @@ class ChatTurnMixin:
             await self._maybe_auto_compact_before_turn(_incoming_for_compact)
         except Exception:
             pass
+        # The whole session as it stands before this turn, for /rewind turn.
+        from apps.cli import transactions as _transactions
+        _transactions.capture(self, message)
         self.conversation.append({"role": "user", "content": user_content})
 
         # ── 路由决策：支持工具调用的模型走 LLM+tool call，否则走确定性路由 ──
@@ -483,7 +486,9 @@ class ChatTurnMixin:
         elapsed = 0.0
 
         try:
-            from apps.cli.todo_tracker import clear_todos as _clear_todos
+            # The update_todos tool writes the aria_code.* copy; clearing the
+            # bare-named one cleared a list nothing wrote to.
+            from aria_code.apps.cli.todo_tracker import clear_todos as _clear_todos
             _clear_todos()  # reset task checklist for this new turn
         except Exception:
             pass
@@ -1076,6 +1081,14 @@ class ChatTurnMixin:
 
             # A turn that changed files in its task worktree: apply, keep, discard.
             await self._offer_task_apply(_task, _task_note)
+
+            # Whether the code now passes its checks — what the next
+            # transaction point records, and what /rewind green looks for.
+            from aria_code.runtime.transactions import verdict_from_acceptance
+            self._code_verdict = verdict_from_acceptance(
+                result.get("acceptance") if isinstance(result, dict) else None,
+                getattr(self, "_code_verdict", ""),
+            )
 
             # Metadata line — detailed stats
             metadata = turn_result.metadata

@@ -3484,7 +3484,7 @@ class SlashCommands(
             "/regen":     (self.cmd_regen,    "Regenerate last response"),
             "/undo":      (self.cmd_undo,     "Undo last message pair"),
             "/rewind":    (getattr(self, "cmd_rewind", self._cmd_rewind_unavailable),
-                           "Restore code/chat: /rewind code|conversation|both|list"),
+                           "Restore code/chat: /rewind code|conversation|both|list, or a whole turn: /rewind turn [N]|turns|green"),
             "/fork":      (self.cmd_fork,     "Fork conversation: /fork [name]"),
             "/load-fork": (self.cmd_load_fork,"Restore forked conversation: /load-fork <id>"),
             "/copy":      (self.cmd_copy,     "Copy last response to clipboard"),

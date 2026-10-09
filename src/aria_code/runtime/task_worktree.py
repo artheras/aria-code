@@ -252,6 +252,17 @@ class TaskWorktrees:
             args.append("--stat")
         return _text(*args, task.base, cwd=task.path)
 
+    def patch(self, task: TaskWorktree) -> str:
+        """The task's changes as a binary-safe patch against its snapshot."""
+        self._stage(task)
+        return _git("diff", "--cached", "--binary", "--no-renames", task.base,
+                    cwd=task.path).decode("utf-8", errors="replace")
+
+    def restore_patch(self, task: TaskWorktree, patch: str) -> None:
+        """Put a saved patch back into a task's worktree (a rewound task)."""
+        if patch.strip():
+            _git("apply", "-", cwd=task.path, input_data=patch.encode("utf-8"))
+
     def apply(self, task: TaskWorktree, *, session_id: str = "") -> list[TaskChange]:
         """Apply the task to the workspace, record checkpoints, then remove it.
 
