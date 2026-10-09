@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.121.0] — 2026-10-09
+
+- Merge pull request #161 from Cinsoul/feat/execution-protocol-phase2-3
+
 ## [0.120.0] — 2026-10-09
 
 - Merge pull request #160 from Cinsoul/feat/execution-protocol
