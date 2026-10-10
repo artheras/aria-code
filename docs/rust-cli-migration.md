@@ -100,8 +100,8 @@ reading files themselves without Python:
 
 Both answer `fallback` for files they leave to Python: a file the Rust parser
 rejects, or (for symbols) one it cannot read. `runtime/native_index.py` uses
-them when a binary is found (`ARIA_NATIVE_BINARY`, or `aria-native` on `PATH`),
-at least 32 files need parsing, and `ARIA_NATIVE_GRAPH` is not `off`. Anything
+them when a binary is found (`ARIA_NATIVE_BINARY`; in a native build, the copy
+bundled with it; else `aria-native` on `PATH`), at least 32 files need parsing, and `ARIA_NATIVE_GRAPH` is not `off`. Anything
 else (no binary, a non-zero exit, a timeout, a malformed or incomplete answer)
 falls back to the Python implementation for the whole batch. The two must
 agree: `tests/test_native_index.py` compares them on this repository and on
@@ -114,9 +114,18 @@ either way is identical; `repo_map` went from 1.6 s to 0.54 s and a full graph
 build from 3.7 s to 0.83 s. What remains is the file walk, regex symbols for
 other languages and the identifier scan for references, all in Python. The
 parser's grammar and Unicode tables grow the binary from 0.6 MB to 5.5 MB and
-`--version` by about 0.3 ms. If the download size matters when native builds
-ship, the indexer can move to its own executable without changing the wire
-contract.
+`--version` by about 0.3 ms.
+
+Native releases ship it: `scripts/bundle_native_indexer.py` builds
+`aria-native` on each release runner and copies it into the PyInstaller build's
+contents folder (`_internal/`, `sys._MEIPASS` at run time), runs it, and fails
+the build if it does not answer. On macOS it is signed and notarized with the
+other Mach-O files there. The npm platform packages are made from the same
+archives, so they carry it too; pip installs do not, and keep the Python
+implementation unless `aria-native` is on `PATH`. The Rust CI runs the same
+script on Linux, macOS and Windows for every pull request. If the download
+size matters, the indexer can move to its own executable without changing the
+wire contract.
 
 ## Rust and Go
 

@@ -13,6 +13,7 @@ on:
       - 'tests/test_frozen_module_aliases.py'
       - 'tests/test_rust_cli.py'
       - 'tests/test_native_index.py'
+      - 'scripts/bundle_native_indexer.py'
       - 'scripts/benchmark_rust_cli.py'
       - '.github/workflows/rust-cli.yml'
   push:
@@ -28,6 +29,7 @@ on:
       - 'tests/test_frozen_module_aliases.py'
       - 'tests/test_rust_cli.py'
       - 'tests/test_native_index.py'
+      - 'scripts/bundle_native_indexer.py'
       - 'scripts/benchmark_rust_cli.py'
       - '.github/workflows/rust-cli.yml'
   workflow_dispatch:
@@ -73,6 +75,10 @@ jobs:
           cargo clippy --workspace --all-targets --locked -- -D warnings
           cargo test --workspace --locked
           cargo build --release --locked
+      - name: Bundle into a PyInstaller-style directory (what native releases do)
+        run: |
+          mkdir -p "$RUNNER_TEMP/onedir/_internal"
+          python scripts/bundle_native_indexer.py "$RUNNER_TEMP/onedir"
       - name: Exercise real executable and existing Python tools
         run: python -m pytest tests/test_native_bridge.py tests/test_rust_cli.py tests/test_frozen_module_aliases.py tests/test_workspace_files.py tests/test_native_index.py -q --timeout=30
       - name: Measure entry points (no cloud calls)

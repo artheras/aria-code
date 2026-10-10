@@ -141,6 +141,13 @@ jobs:
           $(python scripts/pyinstaller_collect_args.py)
           --collect-all rich --collect-all prompt_toolkit
           src/aria_code/aria_cli.py
+      - name: Bundle the native indexer (aria-native)
+        # The Rust project-graph indexer, in _internal/ where the frozen CLI
+        # looks for it (scripts/bundle_native_indexer.py). Builds and runs it.
+        shell: bash
+        run: |
+          (cd rust && rustup show)   # installs the toolchain rust/rust-toolchain.toml pins
+          python scripts/bundle_native_indexer.py dist-native/dist/${{ env.BIN_NAME }}
       - name: Smoke test
         run: dist-native\dist\${{ env.BIN_NAME }}\${{ env.BIN_NAME }}.exe --version
       - name: Archive build directory
@@ -201,6 +208,12 @@ jobs:
           $(python scripts/pyinstaller_collect_args.py)
           --collect-all rich --collect-all prompt_toolkit
           src/aria_code/aria_cli.py
+      - name: Bundle the native indexer (aria-native)
+        # The Rust project-graph indexer, in _internal/ where the frozen CLI
+        # looks for it (scripts/bundle_native_indexer.py). Builds and runs it.
+        run: |
+          (cd rust && rustup show)   # installs the toolchain rust/rust-toolchain.toml pins
+          python scripts/bundle_native_indexer.py dist-native/dist/${{ env.BIN_NAME }}
       - name: Smoke test
         run: dist-native/dist/${{ env.BIN_NAME }}/${{ env.BIN_NAME }} --version
       - name: Archive build directory
