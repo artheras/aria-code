@@ -370,6 +370,9 @@ Existing slash commands (including `/model`, `/health`, `/sessions`, `/file`,
 Python runtime. Menus supplied by that runtime become explicit frontend choices;
 Rust answers with the request ID and turn ID. The original once/session/deny
 semantics and risk policy run in Python. Stale responses never grant access.
+Tool approvals keep the redacted file/command/directory context visible while
+scrolling the choices. Long workspace paths retain the project name without
+hiding the permission mode or network status in the header.
 Secret text is masked and excluded from input history and the native transcript;
 model reasoning callbacks are not emitted as visible answers.
 
