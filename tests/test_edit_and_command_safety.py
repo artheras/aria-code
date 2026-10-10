@@ -65,6 +65,27 @@ def test_replace_all_changes_every_match(workspace):
     assert "return None" not in workspace.read_text()
 
 
+def test_single_and_multi_edit_preserve_utf8_under_legacy_locale(workspace, monkeypatch):
+    from aria_code.apps.cli.tools.write_tools import tool_multi_edit
+
+    source = "# 中文注释\nvalue = '你好'\n"
+    workspace.write_text(source, encoding="utf-8")
+    original = pathlib.Path.read_text
+
+    def legacy_default(path, *args, **kwargs):
+        if path == workspace:
+            kwargs.setdefault("encoding", "cp1252")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(pathlib.Path, "read_text", legacy_default)
+    result = edit({"path": str(workspace), "old_string": "你好", "new_string": "世界"})
+    assert result["success"], result
+    assert workspace.read_text(encoding="utf-8") == source.replace("你好", "世界")
+    result = tool_multi_edit({"path": str(workspace), "edits": [{"old_string": "世界", "new_string": "再见"}]})
+    assert result["success"], result
+    assert workspace.read_text(encoding="utf-8") == source.replace("你好", "再见")
+
+
 def test_the_schema_offers_replace_all():
     from aria_code.apps.cli.local_tool_schemas import build_local_tool_schemas
 
