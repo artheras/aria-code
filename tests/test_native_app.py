@@ -16,9 +16,10 @@ import pytest
 
 
 PROVIDER = r'''
-import asyncio, socket
+import asyncio, socket, faulthandler
 from pathlib import Path
 from aria_code.apps.cli.providers import runtime_bridge
+faulthandler.dump_traceback_later(8)
 _connect, _connect_ex = socket.socket.connect, socket.socket.connect_ex
 def guard(self, address):
     if isinstance(address, tuple) and address[0] in ("127.0.0.1", "::1"):
@@ -59,6 +60,7 @@ class Client:
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.events = queue.Queue()
         self.seen = []
+        self.errors = []
         def read():
             try:
                 for line in self.p.stdout:
@@ -67,6 +69,11 @@ class Client:
                 self.events.put(exc)
             self.events.put(None)
         threading.Thread(target=read, daemon=True).start()
+        def errors():
+            for line in self.p.stderr:
+                self.errors.append(line.decode('utf-8', errors='replace'))
+                self.errors[:] = self.errors[-100:]
+        threading.Thread(target=errors, daemon=True).start()
 
     def send(self, kind, **fields):
         self.p.stdin.write((json.dumps({"type": kind, "protocol": 1, **fields}) + "\n").encode())
@@ -74,7 +81,10 @@ class Client:
 
     def until(self, kind, timeout=12):
         while True:
-            event = self.events.get(timeout=timeout)
+            try:
+                event = self.events.get(timeout=timeout)
+            except queue.Empty:
+                pytest.fail(f'No {kind}: worker={self.p.poll()}, events={self.seen[-20:]}, stderr={self.errors}')
             assert isinstance(event, dict), (event, self.p.poll(), self.seen[-8:])
             self.seen.append(event)
             if event["type"] == kind:
@@ -86,7 +96,7 @@ class Client:
             self.send("shutdown")
             self.until("session.closed")
             self.p.wait(timeout=5)
-        assert self.p.returncode == 0, self.p.stderr.read().decode(errors="replace")
+        assert self.p.returncode == 0, ''.join(self.errors)
         assert "HIDDEN_REASONING_MUST_NOT_LEAK" not in json.dumps(self.seen)
 
 
