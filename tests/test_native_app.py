@@ -215,6 +215,25 @@ def test_slash_commands_are_captured_and_do_not_call_model(application):
     c.close()
 
 
+def test_automated_git_leaves_application_stdin_unconsumed(tmp_path):
+    # A real Git command that reads stdin must see EOF unless given explicit
+    # blob/patch data. The JSONL request belongs to the application alone.
+    code = '''
+import sys
+from aria_code.runtime.task_worktree import _git
+print(_git("hash-object", "--stdin", cwd=".").decode().strip())
+print(_git("hash-object", "--stdin", cwd=".", input_data=b"blob").decode().strip())
+print(sys.stdin.readline().strip())
+'''
+    request = '{"type":"shutdown","protocol":1}'
+    result = subprocess.run([sys.executable, "-c", code], cwd=tmp_path,
+                            input=request + "\n", capture_output=True, text=True, timeout=5)
+    assert result.returncode == 0, result.stderr
+    import hashlib
+    blob = hashlib.sha1(b"blob 4\x00blob").hexdigest()
+    assert result.stdout.splitlines() == ["e69de29bb2d1d6434b8b29ae775ad8c2e48c5391", blob, request]
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix PTY; Windows uses TestBackend and protocol tests")
 def test_real_terminal_paste_approval_resize_cancel_and_restore(application):
     import codecs
