@@ -1,0 +1,83 @@
+name: Go relay
+
+# The relay is moving from Python (src/aria_code/aria_relay_server.py) to Go
+# (go/relay). Both must pass the same black-box contract,
+# tests/test_relay_contract.py, and a database written by either must work
+# in the other. Production keeps deploying the Python relay until the switch.
+
+on:
+  pull_request:
+    paths:
+      - 'go/relay/**'
+      - 'src/aria_code/aria_relay_server.py'
+      - 'src/aria_code/relay_store.py'
+      - 'tests/test_relay_contract.py'
+      - '.github/workflows/go-relay.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'go/relay/**'
+      - 'src/aria_code/aria_relay_server.py'
+      - 'src/aria_code/relay_store.py'
+      - 'tests/test_relay_contract.py'
+      - '.github/workflows/go-relay.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  relay:
+    name: Go relay (unit, race, contract)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/relay/go.mod
+          cache-dependency-path: go/relay/go.sum
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Format, vet, unit tests with the race detector
+        working-directory: go/relay
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+          go test -race -count=1 ./...
+      - name: Build (plain and race-instrumented)
+        working-directory: go/relay
+        run: |
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o aria-relay .
+          go build -race -o aria-relay-race .
+          ls -l aria-relay
+      - name: Install the Python relay and test runner
+        run: python -m pip install -e . pytest pytest-timeout fastapi uvicorn httpx websockets
+      - name: Contract against the Python relay
+        run: python -m pytest tests/test_relay_contract.py -q --timeout=60
+      - name: Contract against the Go relay (race-instrumented), and switching between them
+        env:
+          ARIA_RELAY_COMMAND: ${{ github.workspace }}/go/relay/aria-relay-race
+        run: |
+          python -m pytest tests/test_relay_contract.py -q --timeout=60 --basetemp="$RUNNER_TEMP/contract"
+          if grep -l "DATA RACE" "$RUNNER_TEMP"/contract/*/relay.log; then
+            echo "::error::the Go relay has a data race (see the logs above)"
+            exit 1
+          fi
+      - name: Docker image builds and answers /status
+        run: |
+          docker build -t aria-relay-go go/relay
+          docker run -d --name relay -p 18766:8765 aria-relay-go
+          for attempt in {1..20}; do
+            if curl --silent --show-error --fail http://127.0.0.1:18766/status; then
+              docker rm -f relay >/dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs relay
+          exit 1

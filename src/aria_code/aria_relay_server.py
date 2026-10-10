@@ -87,7 +87,8 @@ _ALLOW_UNVERIFIED_EVENTS   = os.environ.get(
     "RELAY_ALLOW_UNVERIFIED_EVENTS", "").strip().lower() in {"1", "true", "yes", "on"}
 _DB_PATH           = os.environ.get("DB_PATH", "./relay.db")
 _MSG_TIMEOUT       = int(os.environ.get("MESSAGE_TIMEOUT", "90"))
-_FEISHU_API        = "https://open.feishu.cn/open-apis"
+# Overridable so contract tests can point the relay at a fake Feishu.
+_FEISHU_API        = os.environ.get("FEISHU_API_BASE", "https://open.feishu.cn/open-apis").rstrip("/")
 
 
 # ── Persistent state (relay_store.py) ─────────────────────────────────────────
