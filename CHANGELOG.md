@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.132.0] — 2026-10-10
+
+- Merge pull request #176 from artheras/fix/index-bom-files
+
 ## [0.131.0] — 2026-10-10
 
 - Merge pull request #170 from artheras/feature/rust-runtime-state
