@@ -2,7 +2,7 @@
 
 The first stage adds an **opt-in `aria-native` prototype**, not a replacement
 for `aria`, `aria code`, or `aria-code`. The Rust crate has its own experimental
-version `0.3.0`; `aria-native run -- --version` reports the Python product version.
+version `0.4.0`; `aria-native run -- --version` reports the Python product version.
 The Go relay prototype is opt-in; production still deploys the Python relay.
 
 ## Build and try it
@@ -121,7 +121,7 @@ contract.
 ## Rust and Go
 
 Rust owns the CLI and local, per-repository work: entry points, tool bridging,
-indexing, stored-state commands and later the TUI. The opt-in Go relay under
+indexing, stored-state commands and the opt-in TUI. The opt-in Go relay under
 `go/relay` implements the existing HTTP/WebSocket and storage contract, with
 race tests and shared Python/Go contract tests in its own CI workflow. Production
 still deploys the Python relay on Google Cloud. See
@@ -148,7 +148,8 @@ it does not establish that the full TUI or a cloud model responds faster.
 
 The second stage adds native state inspection and update metadata checks (below).
 The third stage adds single-turn terminal rendering and event streaming (below).
-Next, migrate the interactive TUI, persistent conversation and approval prompts. Make each stage opt-in until provider calls, coding acceptance,
+The fourth stage adds a persistent interactive TUI and approval prompts (below).
+Keep each stage opt-in until provider calls, coding acceptance,
 file changes, approval prompts, cancellation, resume and all supported installers
 pass parity checks. Keep financial/data/document tools in Python and keep the
 Google Cloud backend unless measurements justify a separate backend change.
@@ -313,6 +314,113 @@ signal injection because no interactive console is available.
 
 This stage does not replace `aria`, `aria code` or `aria-code`, remove Python
 startup, accelerate cloud inference, or switch Google Cloud production to Go.
-The next stage is a persistent interactive Rust frontend with session history
-and explicit approval request/response events, validated before becoming the
-default UI.
+Stage 4 adds the persistent interactive frontend below. A default UI switch
+remains a separate installer/provider parity milestone.
+
+
+## Stage 4: persistent Rust interactive frontend
+
+The full-screen frontend uses Ratatui/Crossterm and one persistent Python
+application worker. Rust owns keyboard/paste input, Unicode editing, scrolling,
+transcript rendering, status and approval/input dialogs. The existing
+`ArtheraTerminal.send_message` owns inference, conversation context, project/file
+references, command dispatch, tool policy, task isolation, transactions, checks
+and delivery. It is the full interactive execution path, not a second agent loop.
+
+```sh
+aria-native --python /path/to/python -C ./project chat
+aria-native --python /path/to/python -C ./project chat --resume abc123
+aria-native --python /path/to/python -C ./project chat -- --model google/gemini-3.5-flash
+```
+
+Model/backend settings come from the existing user/project configuration; opening
+the frontend does not switch providers, probe every service or check for updates.
+The header shows both the installed Python product version and the separate Rust
+UI prototype version. Configured MCP connections start in the background.
+Sessions save through the existing local stores; JSON snapshots use atomic
+replacement so interrupted writes retain the previous complete history.
+Starting or restoring another session resets temporary tool grants, plans,
+loaded-file/project state and turn telemetry. Persistent policy remains intact.
+
+| Input | Action |
+| --- | --- |
+| Enter | Submit a prompt or dialog response |
+| Alt+Enter / Shift+Enter / Ctrl+J | Insert a newline (terminal-dependent) |
+| Arrow keys | Edit text; Up/Down browse input history at its boundaries |
+| Tab | Complete/list slash commands |
+| Ctrl+U / Ctrl+K / Ctrl+W | Delete to line start/end or previous word |
+| PgUp / PgDn / mouse wheel | Scroll transcript |
+| Ctrl+O | Show/hide tool parameters |
+| F1 | Show keyboard help |
+| Esc / Ctrl+C | Cancel the active task; decline a selection dialog |
+| Ctrl+D with empty input | Save and exit |
+| `/new` / `/resume ID` | Switch to a new/saved session |
+
+Existing slash commands (including `/model`, `/health`, `/sessions`, `/file`,
+`/project` and review/delivery commands), `@file:path` and `!command` use the
+Python runtime. Menus supplied by that runtime become explicit frontend choices;
+Rust answers with the request ID and turn ID. The original once/session/deny
+semantics and risk policy run in Python. Stale responses never grant access.
+Secret text is masked and excluded from input history and the native transcript;
+model reasoning callbacks are not emitted as visible answers.
+
+Terminal input is capped at 64 KiB UTF-8, each protocol line at 1 MiB, queues at
+32 records, a displayed entry at 256 KiB and the transcript at 4 MiB/2,000 entries.
+Large display entries are truncated without truncating the saved conversation.
+Editing/deletion use Unicode grapheme boundaries and layout uses display columns.
+Streaming answers are reconciled with the authoritative final response to avoid
+showing duplicated text after a tool round trip. Code fences/headings have basic
+styling; this is not a full browser Markdown renderer.
+
+`--timeout-ms` defaults to 300 seconds during startup or a running turn, and pauses
+while idle or awaiting your response. Cancel/shutdown has a two-second grace
+period. A normal model cancellation retains the session and accepts another turn.
+A stuck tool/worker causes the frontend to exit with an error and stop its worker;
+it does not pretend that a cancelled thread has finished. Terminal raw mode,
+paste/mouse capture and the alternate screen are restored on error and exit.
+Windows uses the assigned Job Object; Unix kills the worker group and attempts
+to stop separately grouped descendants while the worker is still alive. Normal
+shutdown stops Aria's tracked background processes and MCP connections. These
+process cleanup measures are not an OS sandbox or a guarantee against deliberately
+detaching/reparenting an untrusted program. An interrupted write is not rolled back.
+
+### Bidirectional application protocol
+
+For embedding or protocol diagnostics, use `aria-native chat --jsonl` with pipes,
+or `python -u -m aria_code.apps.cli.app_server`. Every UTF-8 JSONL object carries
+`protocol:1`. `chat` without `--jsonl` requires a terminal.
+
+Frontend requests:
+
+```json
+{"protocol":1,"type":"turn.submit","turn_id":"turn-1","text":"Inspect this project"}
+{"protocol":1,"type":"dialog.respond","turn_id":"turn-1","request_id":"REQUEST_ID","choice":0}
+{"protocol":1,"type":"dialog.respond","turn_id":"turn-1","request_id":"REQUEST_ID","text":"My feedback"}
+{"protocol":1,"type":"turn.cancel","turn_id":"turn-1"}
+{"protocol":1,"type":"session.resume","session_id":"abc123"}
+{"protocol":1,"type":"session.new"}
+{"protocol":1,"type":"shutdown"}
+```
+
+Worker events: `session.ready/state`, `turn.started/completed`, `answer.delta/replace`,
+`tool.started/completed`, `turn.status`, `output.delta`, `approval.requested`,
+`input.requested`, `dialog.closed`, `protocol.error` and `session.failed/closed`.
+Turn/dialog events identify their current turn; a dialog additionally identifies
+its request. A ready snapshot contains the newest 40 messages for display while
+the worker retains the full model context. Legacy command output is captured into
+output events, keeping stdout valid JSONL. In machine mode a nonzero worker exit
+is preserved, and malformed/blocked output fails explicitly with process cleanup.
+
+CI tests the actual compiled executable with the real Python agent loop, replacing
+only inference and blocking external model calls. Coverage includes multi-turn
+history, restart/resume, approved/denied local writes, refusal feedback, stale
+responses, cancellation followed by another turn, atomic-save failure, malformed
+workers, nonzero exits and separately grouped child cleanup. Rust reducer/editor
+and TestBackend tests cover Unicode, secrets and resize; Unix PTY tests exercise
+paste, approvals, cancellation, resize and terminal-mode restoration. Windows
+runs the protocol and TestBackend tests; CI has no interactive Windows console.
+
+The stable commands and release installers still open the existing Python UI.
+Try this interface explicitly with `aria-native chat`; publishing this stage does
+not silently switch existing users to the preview. Provider response quality,
+UI startup performance and installer cutover require their own measurements.

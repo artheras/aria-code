@@ -1,8 +1,8 @@
 [package]
 name = "aria-native"
-version = "0.3.0"
+version = "0.4.0"
 edition.workspace = true
-rust-version.workspace = true
+rust-version = "1.88"
 license.workspace = true
 publish = false
 description = "Experimental Rust entry point for the Aria Code Python runtime"
@@ -10,6 +10,10 @@ description = "Experimental Rust entry point for the Aria Code Python runtime"
 [dependencies]
 aria-graph = { path = "../graph" }
 serde_json = "1.0"
+ratatui = { version = "=0.30.2", default-features = false, features = ["crossterm", "unstable-rendered-line-info"] }
+crossterm = "0.29"
+unicode-width = "0.2"
+unicode-segmentation = "1.12"
 ctrlc = "3.4"
 tempfile = "3"
 ureq = { version = "3.4", default-features = false, features = ["rustls", "platform-verifier"] }
