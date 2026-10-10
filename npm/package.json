@@ -1,6 +1,6 @@
 {
   "name": "@artheras/aria-code",
-  "version": "0.128.0",
+  "version": "0.129.0",
   "description": "Open-source AI agent for coding, financial analysis and logistics operations: numbers you can check, client data kept apart, actions a person approves",
   "keywords": [
     "ai",
@@ -48,15 +48,15 @@
     "access": "public"
   },
   "optionalDependencies": {
-    "@artheras/aria-code-darwin-arm64": "0.128.0",
-    "@artheras/aria-code-darwin-x64": "0.128.0",
-    "@artheras/aria-code-linux-x64": "0.128.0",
-    "@artheras/aria-code-linux-arm64": "0.128.0",
-    "@artheras/aria-code-win32-x64": "0.128.0",
-    "@artheras/aria-code-mcp-darwin-arm64": "0.128.0",
-    "@artheras/aria-code-mcp-darwin-x64": "0.128.0",
-    "@artheras/aria-code-mcp-linux-x64": "0.128.0",
-    "@artheras/aria-code-mcp-linux-arm64": "0.128.0",
-    "@artheras/aria-code-mcp-win32-x64": "0.128.0"
+    "@artheras/aria-code-darwin-arm64": "0.129.0",
+    "@artheras/aria-code-darwin-x64": "0.129.0",
+    "@artheras/aria-code-linux-x64": "0.129.0",
+    "@artheras/aria-code-linux-arm64": "0.129.0",
+    "@artheras/aria-code-win32-x64": "0.129.0",
+    "@artheras/aria-code-mcp-darwin-arm64": "0.129.0",
+    "@artheras/aria-code-mcp-darwin-x64": "0.129.0",
+    "@artheras/aria-code-mcp-linux-x64": "0.129.0",
+    "@artheras/aria-code-mcp-linux-arm64": "0.129.0",
+    "@artheras/aria-code-mcp-win32-x64": "0.129.0"
   }
 }
