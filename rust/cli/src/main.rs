@@ -4,7 +4,11 @@ mod updates;
 mod worker;
 
 use serde_json::{json, Value};
+use std::io::Read;
 use std::{env, ffi::OsString, path::PathBuf, process::Command, time::Duration};
+
+/// A repository file list; bounded as in the native indexer.
+const MAX_INDEX_REQUEST: u64 = 256 * 1024 * 1024;
 
 const HELP: &str = "aria-native — experimental Rust entry point (Python runtime required for tools/chat)
 
@@ -17,6 +21,7 @@ Usage:
   aria-native sessions show ID
   aria-native [--python EXE] [-C DIR] resume ID [--] [ARIA ARGUMENTS...]
   aria-native update check --current VERSION [--channel native|npm|pip|source] [--offline|--refresh]
+  aria-native index imports|symbols < REQUEST.json
   aria-native --version
 
 Examples:
@@ -29,6 +34,7 @@ Tool requests are confined to DIR (default: current directory); writes require
 explicit per-invocation --approve-write. Persistent tool denials still apply.
 Timeout: 30000 ms by default, tool mode only. Tool stdout contains JSON only.
 Use --python or ARIA_PYTHON to select the installed Python Aria environment.
+Index imports/symbols read one JSON request on stdin and emit one JSON response.
 This prototype does not replace the stable aria/aria-code commands or their TUI.
 Config/session inspection and update metadata checking execute in Rust without Python.
 Config show includes only non-secret stored preferences, not the effective project config.
@@ -43,10 +49,17 @@ struct Options {
     mode: Mode,
 }
 
+#[derive(Debug, PartialEq)]
+enum IndexKind {
+    Imports,
+    Symbols,
+}
+
 #[derive(Debug)]
 enum Mode {
     Help,
     Version,
+    Index(IndexKind),
     Run(Vec<OsString>),
     Config(bool),
     Sessions {
@@ -93,6 +106,17 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                     return Err("Timeout must be 1..300000 ms".into());
                 }
                 timeout = Duration::from_millis(ms);
+            }
+            Some("index") => {
+                let kind = match args.next().as_ref().and_then(|a| a.to_str()) {
+                    Some("imports") => IndexKind::Imports,
+                    Some("symbols") => IndexKind::Symbols,
+                    _ => return Err("index requires a subcommand: imports or symbols".into()),
+                };
+                if args.next().is_some() {
+                    return Err("index reads its request from stdin".into());
+                }
+                break Mode::Index(kind);
             }
             Some("run") => {
                 let mut rest: Vec<_> = args.collect();
@@ -298,6 +322,28 @@ fn run(options: Options) -> Result<i32, String> {
             println!("aria-native {} (experimental)", env!("CARGO_PKG_VERSION"));
             Ok(0)
         }
+        Mode::Index(kind) => {
+            let mut raw = String::new();
+            std::io::stdin()
+                .take(MAX_INDEX_REQUEST + 1)
+                .read_to_string(&mut raw)
+                .map_err(|e| format!("Index request: {e}"))?;
+            if raw.len() as u64 > MAX_INDEX_REQUEST {
+                return Err("Index request exceeds 256 MiB".into());
+            }
+            let invalid = |e: serde_json::Error| format!("Invalid index request: {e}");
+            let out = match kind {
+                IndexKind::Imports => serde_json::to_string(&aria_graph::resolve(
+                    &serde_json::from_str(&raw).map_err(invalid)?,
+                )),
+                IndexKind::Symbols => serde_json::to_string(&aria_graph::symbols::extract(
+                    &serde_json::from_str(&raw).map_err(invalid)?,
+                )),
+            }
+            .map_err(|e| e.to_string())?;
+            println!("{out}");
+            Ok(0)
+        }
         Mode::Run(args) => run_python(options.python, options.workspace, args, None),
         Mode::Config(paths) => {
             println!(
@@ -421,9 +467,23 @@ mod tests {
             vec!["--timeout-ms", "0"],
             vec!["--timeout-ms", "300001"],
             vec!["--python"],
+            vec!["index"],
+            vec!["index", "exports"],
+            vec!["index", "imports", "request.json"],
         ] {
             assert!(options(&args).is_err(), "{args:?}");
         }
+    }
+    #[test]
+    fn index_imports_reads_stdin() {
+        assert!(matches!(
+            options(&["index", "imports"]).unwrap().mode,
+            Mode::Index(IndexKind::Imports)
+        ));
+        assert!(matches!(
+            options(&["index", "symbols"]).unwrap().mode,
+            Mode::Index(IndexKind::Symbols)
+        ));
     }
     #[test]
     fn approval_is_a_host_option() {

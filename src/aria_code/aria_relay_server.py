@@ -38,6 +38,9 @@ WebSocket 注册流程:
                         飞书 Verification Token（次选）——校验事件体里的 token
                         ⚠️ 二者至少配一个，否则 /feishu/event 一律拒绝。
                         仅本地联调可设 RELAY_ALLOW_UNVERIFIED_EVENTS=1 绕过。
+                        ⚠️ 不支持飞书「加密推送」：Encrypt Key 只用于校验签名，事件体
+                        不会被解密。开了加密推送，事件体只有 {"encrypt": ...}，所有消息
+                        都会被静默忽略。飞书后台请保持加密推送关闭。
   RELAY_SECRET          部署级别的注册口令（可选）。每台电脑另有自己的令牌和绑定码，
                         见下方 client_credentials：没有它们，任何人都能冒充或绑定别人的电脑。
   RELAY_STORE           状态存储：sqlite（默认，DB_PATH）或 firestore。Cloud Run 上必须用
@@ -45,6 +48,12 @@ WebSocket 注册流程:
   RELAY_FIRESTORE_PROJECT / RELAY_FIRESTORE_DATABASE  可选，默认当前项目和 (default) 数据库
   DB_PATH               SQLite 路径（默认 ./relay.db）
   MESSAGE_TIMEOUT       等待用户本机回复的超时秒数（默认 90）
+
+事件应答:
+  飞书约 3 秒内收不到应答就会重发事件。所以 /feishu/event 先应答 {"code": 0}，
+  转发和等待本机回复放在应答之后执行；按 event_id（旧版事件为 uuid）去重，
+  重发的事件只应答、不再转发。卡片按钮事件例外：飞书要用应答里的 toast/卡片，
+  所以仍同步等待本机（最多 2.5 秒）。
 """
 
 from __future__ import annotations
@@ -62,7 +71,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger("aria.relay_server")
@@ -78,7 +87,8 @@ _ALLOW_UNVERIFIED_EVENTS   = os.environ.get(
     "RELAY_ALLOW_UNVERIFIED_EVENTS", "").strip().lower() in {"1", "true", "yes", "on"}
 _DB_PATH           = os.environ.get("DB_PATH", "./relay.db")
 _MSG_TIMEOUT       = int(os.environ.get("MESSAGE_TIMEOUT", "90"))
-_FEISHU_API        = "https://open.feishu.cn/open-apis"
+# Overridable so contract tests can point the relay at a fake Feishu.
+_FEISHU_API        = os.environ.get("FEISHU_API_BASE", "https://open.feishu.cn/open-apis").rstrip("/")
 
 
 # ── Persistent state (relay_store.py) ─────────────────────────────────────────
@@ -160,7 +170,9 @@ def _client_for_bind_code(code: str) -> Optional[str]:
 # ── WebSocket connection registry ─────────────────────────────────────────────
 
 _connections: dict[str, WebSocket] = {}   # client_id → WebSocket
-_pending_responses: dict[str, asyncio.Future] = {}   # request_id → Future
+# request_id → (client_id it was sent to, Future). Only that client may answer:
+# any connected client could otherwise resolve another machine's request.
+_pending_responses: dict[str, tuple[str, asyncio.Future]] = {}
 
 
 # ── Sending on a client's behalf ─────────────────────────────────────────────
@@ -226,7 +238,6 @@ async def _send_for_client(client_id: str, request: dict) -> dict:
     if refused:
         logger.warning("refused send for %s: %s", client_id, refused)
         return {"code": -1, "msg": f"relay refused: {refused}"}
-    token = await _get_tenant_token()
     body = {"msg_type": request["msg_type"], "content": request["content"]}
     if request["op"] == "reply":
         url = f"{_FEISHU_API}/im/v1/messages/{request['target']}/reply"
@@ -234,6 +245,7 @@ async def _send_for_client(client_id: str, request: dict) -> dict:
         url = f"{_FEISHU_API}/im/v1/messages?receive_id_type=chat_id"
         body["receive_id"] = request["target"]
     try:
+        token = await _get_tenant_token()
         async with httpx.AsyncClient() as client:
             resp = await client.post(url, headers={"Authorization": f"Bearer {token}"}, json=body, timeout=15)
         result = resp.json()
@@ -269,7 +281,12 @@ async def _get_tenant_token() -> str:
         )
         data = resp.json()
 
-    token = data.get("tenant_access_token", "")
+    token = data.get("tenant_access_token", "") if isinstance(data, dict) else ""
+    if resp.status_code != 200 or data.get("code", 0) != 0 or not token:
+        # Not cached: an empty token kept for two hours made every send fail
+        # until it expired. The next call tries again.
+        raise RuntimeError(f"Feishu tenant token: HTTP {resp.status_code}, "
+                           f"code {data.get('code') if isinstance(data, dict) else '?'}")
     expire = int(data.get("expire", 7200))
     _feishu_token_cache.update({"token": token, "expires_at": now + expire})
     return token
@@ -332,7 +349,7 @@ async def _route_to_client(client_id: str, payload: dict, timeout: Optional[floa
 
     req_id = f"req_{uuid.uuid4().hex[:10]}"
     future: asyncio.Future = asyncio.get_event_loop().create_future()
-    _pending_responses[req_id] = future
+    _pending_responses[req_id] = (client_id, future)
 
     try:
         await ws.send_text(json.dumps({
@@ -347,6 +364,15 @@ async def _route_to_client(client_id: str, payload: dict, timeout: Optional[floa
         return {"error": "Aria 本机响应超时，请检查 aria_relay_client 是否在线"}
     finally:
         _pending_responses.pop(req_id, None)
+
+
+def _resolve_response(client_id: str, message: dict) -> bool:
+    """Hand a client's answer to the request waiting for it — if it was sent to that client."""
+    owner, future = _pending_responses.get(message.get("id", ""), (None, None))
+    if future is None or owner != client_id or future.done():
+        return False
+    future.set_result(message.get("result"))
+    return True
 
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────
@@ -427,10 +453,7 @@ async def ws_endpoint(websocket: WebSocket):
                 continue
 
             if response_msg.get("type") == "response":
-                req_id = response_msg.get("id", "")
-                future = _pending_responses.get(req_id)
-                if future and not future.done():
-                    future.set_result(response_msg.get("result"))
+                _resolve_response(client_id, response_msg)
 
     except WebSocketDisconnect:
         pass
@@ -439,7 +462,10 @@ async def ws_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.exception("WebSocket error: %s", e)
     finally:
-        if client_id:
+        # A reconnect registers a new socket under the same client_id before
+        # the old one is noticed as gone, and a refused registration never
+        # registered at all: neither may remove the live connection.
+        if client_id and _connections.get(client_id) is websocket:
             _connections.pop(client_id, None)
             logger.info("Client disconnected: %s", client_id)
 
@@ -500,7 +526,7 @@ def _verify_feishu_request(headers: dict, body: bytes, payload: dict) -> tuple[b
 
 
 @app.post("/feishu/event")
-async def feishu_event(request: Request):
+async def feishu_event(request: Request, background: BackgroundTasks):
     """Feishu Developer Console → Event Subscription → Request URL: /feishu/event"""
     body = await request.body()
     try:
@@ -535,6 +561,43 @@ async def feishu_event(request: Request):
             return result
         return {"toast": {"type": "error", "content": "Aria 本机未及时响应，请稍后再试。"}}
 
+    # Feishu retries an event it did not get an answer to within about 3 s.
+    # Forwarding waits for the machine (up to MESSAGE_TIMEOUT), so the answer
+    # goes back now and the work runs after it; a retry of an event already
+    # taken is acknowledged and dropped instead of reaching the machine twice.
+    if _seen_event(payload):
+        return {"code": 0}
+    background.add_task(_handle_message, payload)
+    return {"code": 0}
+
+
+_EVENT_TTL = 8 * 3600     # Feishu's last retry comes about six hours after the first try
+_seen_events: dict[str, float] = {}   # event id → when it may be forgotten
+
+
+def _seen_event(payload: dict) -> bool:
+    """True when this event was already taken; records it otherwise."""
+    event_id = str((payload.get("header") or {}).get("event_id") or payload.get("uuid") or "")
+    if not event_id:
+        return False
+    now = time.time()
+    for stale in [key for key, expires in _seen_events.items() if expires < now]:
+        _seen_events.pop(stale, None)
+    if event_id in _seen_events:
+        return True
+    _seen_events[event_id] = now + _EVENT_TTL
+    return False
+
+
+async def _handle_message(payload: dict) -> None:
+    """A message event, after Feishu has had its answer: bind, or forward."""
+    try:
+        await _deliver(payload)
+    except Exception:
+        logger.exception("handling a Feishu event failed")
+
+
+async def _deliver(payload: dict) -> None:
     # Extract sender + message_id
     event = payload.get("event", {})
     message = event.get("message", {})
@@ -543,7 +606,7 @@ async def feishu_event(request: Request):
     message_id     = message.get("message_id", "")
 
     if not feishu_user_id:
-        return {"code": 0}
+        return
 
     # Handle /bind command
     msg_type = message.get("message_type", "")
@@ -564,13 +627,13 @@ async def feishu_event(request: Request):
                 await _send_feishu_text(
                     feishu_user_id,
                     "❌ 绑定码无效。请在你电脑上运行 aria-code 的配置向导，使用它显示的绑定码。")
-                return {"code": 0}
+                return
             _bind(feishu_user_id, client_id)
             await _send_feishu_text(
                 feishu_user_id,
                 "✅ 绑定成功！你的 Aria 实例已连接。\n现在可以直接发消息与你的 Aria 交互了。"
             )
-            return {"code": 0}
+            return
 
     # Route to local aria instance
     result = await _route_to_local(feishu_user_id, payload)
@@ -591,8 +654,6 @@ async def feishu_event(request: Request):
                 "⚠️ Aria 本机未连接。请确保你的电脑上 `aria_relay_client.py` 正在运行。",
                 color="yellow",
             )
-
-    return {"code": 0}
 
 
 # ── Status endpoint ───────────────────────────────────────────────────────────

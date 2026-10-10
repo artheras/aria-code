@@ -114,3 +114,7 @@ docs/assets/*.mp4
 docs/assets/*.gif
 # …except the README demos, which are rendered from real recordings and committed.
 !docs/assets/demo-*.gif
+
+# Go relay builds
+go/relay/aria-relay
+go/relay/aria-relay-race

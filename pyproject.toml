@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aria-code"
-version = "0.127.0"
+version = "0.129.0"
 description = "Open-source AI agent for coding, financial analysis and logistics operations: numbers you can check, client data kept apart, actions a person approves"
 readme = "README.md"
 license = { text = "Apache-2.0" }

@@ -3,7 +3,7 @@
 The first stage adds an **opt-in `aria-native` prototype**, not a replacement
 for `aria`, `aria code`, or `aria-code`. The Rust crate has its own experimental
 version `0.2.0`; `aria-native run -- --version` reports the Python product version.
-There is no Go service migration in this change.
+The Go relay prototype is opt-in; production still deploys the Python relay.
 
 ## Build and try it
 
@@ -82,6 +82,54 @@ Standard JSON-RPC errors are used for parse, request, method and parameter error
 {"jsonrpc":"2.0","id":1,"method":"tools.call","params":{"name":"read_file","arguments":{"path":"README.md"}}}
 ```
 
+## Native project-graph indexing
+
+Building the project graph (`runtime/project_graph.py`) parsed every Python file
+twice with `ast`: once in `repo_map` for its definitions, once for its imports.
+The `aria-graph` crate does both in parallel with the same rules, behind two
+commands that take one JSON request on stdin and write one response on stdout,
+reading files themselves without Python:
+
+- `aria-native index imports`: `root`, every `[path, language]`, the paths to
+  `parse` → `imports` by path (module index, nearest-candidate pick, relative
+  levels, imports at any depth, JS/TS relative specifiers).
+- `aria-native index symbols`: `root`, the Python paths to `parse` → `symbols`
+  by path as `[name, kind, line, parent]` (top-level functions and classes,
+  functions directly in a class body, upper-case module constants; the line
+  of `def`/`class`, not of a decorator).
+
+Both answer `fallback` for files they leave to Python: a file the Rust parser
+rejects, or (for symbols) one it cannot read. `runtime/native_index.py` uses
+them when a binary is found (`ARIA_NATIVE_BINARY`, or `aria-native` on `PATH`),
+at least 32 files need parsing, and `ARIA_NATIVE_GRAPH` is not `off`. Anything
+else (no binary, a non-zero exit, a timeout, a malformed or incomplete answer)
+falls back to the Python implementation for the whole batch. The two must
+agree: `tests/test_native_index.py` compares them on this repository and on
+edge cases (relative levels, imports nested in functions/`try`/`match`,
+ambiguous module names, decorators, CRLF, byte-order marks, syntax errors, JS
+`index` files), and `repo_map` keeps its walk order.
+
+On this repository (979 files, 1973 import edges, no fallbacks) the graph built
+either way is identical; `repo_map` went from 1.6 s to 0.54 s and a full graph
+build from 3.7 s to 0.83 s. What remains is the file walk, regex symbols for
+other languages and the identifier scan for references, all in Python. The
+parser's grammar and Unicode tables grow the binary from 0.6 MB to 5.5 MB and
+`--version` by about 0.3 ms. If the download size matters when native builds
+ship, the indexer can move to its own executable without changing the wire
+contract.
+
+## Rust and Go
+
+Rust owns the CLI and local, per-repository work: entry points, tool bridging,
+indexing, stored-state commands and later the TUI. The opt-in Go relay under
+`go/relay` implements the existing HTTP/WebSocket and storage contract, with
+race tests and shared Python/Go contract tests in its own CI workflow. Production
+still deploys the Python relay on Google Cloud. See
+[the Go relay guide](../go/relay/README.md) for staging checks before a traffic switch.
+
+The combined Rust entry point includes both project-graph indexing and the
+native state/update commands below. CI exercises both in one executable.
+
 ## Verification and next stages
 
 `cargo test`, Clippy and real executable tests run on Linux, macOS and Windows.
@@ -149,6 +197,7 @@ aria-native --python /path/to/python -C ./project resume abc123 -- --model googl
 
 Resume validates the saved JSON snapshot and then delegates to the existing Python
 `--session` entry point, preserving terminal streams, arguments and exit status.
+Delegated stdin/stdout uses UTF-8 on every platform, including Windows pipes.
 A relative `ARIA_HOME` is made absolute before changing the workspace. JSONL-only
 history is not silently converted or substituted for a saved snapshot. Forwarded
 arguments cannot override the chosen session with another `--session`/`--resume`.
