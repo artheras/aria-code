@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.134.0] — 2026-10-10
+
+- Merge pull request #178 from artheras/feature/rust-stream-rendering
+
 ## [0.133.0] — 2026-10-10
 
 - Merge pull request #177 from artheras/fix/eval-premature-stop
