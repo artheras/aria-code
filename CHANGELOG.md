@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.133.0] — 2026-10-10
+
+- Merge pull request #177 from artheras/fix/eval-premature-stop
+
 ## [0.132.0] — 2026-10-10
 
 - Merge pull request #176 from artheras/fix/index-bom-files
