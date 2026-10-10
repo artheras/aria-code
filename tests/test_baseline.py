@@ -122,3 +122,64 @@ def test_a_task_worktree_is_compared_with_its_starting_snapshot(repo, tmp_path):
 
     assert report.failures[0].new_failures == ("test_calc.py::test_add",)
     assert verdict_from_acceptance(gate.summary(), "") == FAILED
+
+
+@pytest.fixture
+def plain(tmp_path):
+    """The eval's fixture: no git, one test red before the task and unrelated to it."""
+    work = tmp_path / "plain"
+    work.mkdir()
+    (work / "legacy.py").write_text("def legacy_rate():\n    return 0.15\n")
+    (work / "text.py").write_text("def shout(text):\n    return text.upper()\n")
+    (work / "test_legacy.py").write_text(
+        "from legacy import legacy_rate\n\ndef test_legacy_rate():\n    assert legacy_rate() == 0.2\n")
+    (work / "test_text.py").write_text(
+        "from text import slugify\n\ndef test_slugify():\n    assert slugify('A b') == 'a-b'\n")
+    return work
+
+
+def test_outside_git_the_workspace_is_copied_for_the_baseline(plain, tmp_path):
+    baseline = Baseline(plain, run=run_in, undo_since=CheckpointStore().max_sequence(),
+                        session_id="s", scratch_root=tmp_path / "scratch")
+    edit(plain / "text.py", "def shout(text):\n    return text.upper()\n\n"
+                            "def slugify(text):\n    return '-'.join(text.lower().split())\n")
+    gate = gate_for(plain, baseline)
+    gate.record_tool("write_file", {"success": True, "path": str(plain / "text.py")})
+
+    report = asyncio.run(gate.run())
+
+    assert not report.passed and not report.regressed     # only test_legacy, red before too
+    assert report.failures[0].old_failures == ("test_legacy.py::test_legacy_rate",)
+    assert list((tmp_path / "scratch").iterdir()) == []   # the copy is removed
+
+
+def test_outside_git_a_new_failure_still_counts(plain, tmp_path):
+    baseline = Baseline(plain, run=run_in, undo_since=CheckpointStore().max_sequence(),
+                        session_id="s", scratch_root=tmp_path / "scratch")
+    edit(plain / "text.py", "def slugify(text):\n    return text\n")
+    gate = gate_for(plain, baseline)
+    gate.record_tool("write_file", {"success": True, "path": str(plain / "text.py")})
+
+    report = asyncio.run(gate.run())
+
+    assert report.regressed
+    assert "test_text.py::test_slugify" in report.failures[0].new_failures
+
+
+def test_a_large_workspace_outside_git_gets_no_baseline(plain, tmp_path, monkeypatch):
+    from aria_code.runtime import baseline as module
+
+    monkeypatch.setattr(module, "_COPY_MAX_FILES", 2)
+    baseline = Baseline(plain, run=run_in, scratch_root=tmp_path / "scratch")
+    assert asyncio.run(baseline.result(PYTEST)) is None
+    assert not (tmp_path / "scratch").exists() or list((tmp_path / "scratch").iterdir()) == []
+
+
+def test_a_pytest_baseline_runs_past_collection_errors():
+    from aria_code.runtime.baseline import _keep_collecting
+
+    assert _keep_collecting("python -m pytest -q").endswith("--continue-on-collection-errors")
+    assert _keep_collecting("/venv/bin/pytest tests/x.py").endswith("--continue-on-collection-errors")
+    for unchanged in ("npm test", "pytest -q | tail -5", "make test",
+                      "pytest --continue-on-collection-errors"):
+        assert _keep_collecting(unchanged) == unchanged
