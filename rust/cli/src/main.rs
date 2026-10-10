@@ -1,13 +1,18 @@
 mod worker;
 
 use serde_json::{json, Value};
+use std::io::Read;
 use std::{env, ffi::OsString, path::PathBuf, process::Command, time::Duration};
+
+/// A repository's file list; generous, but bounded.
+const MAX_INDEX_REQUEST: u64 = 256 * 1024 * 1024;
 
 const HELP: &str = "aria-native — experimental Rust entry point (Python runtime required for tools/chat)
 
 Usage:
   aria-native [--python EXE] [-C DIR] run [--] [ARIA ARGUMENTS...]
   aria-native [--python EXE] [-C DIR] [--timeout-ms N] tool [--approve-write] NAME JSON
+  aria-native index imports < REQUEST.json
   aria-native --version
 
 Examples:
@@ -20,6 +25,8 @@ Tool requests are confined to DIR (default: current directory); writes require
 explicit per-invocation --approve-write. Persistent tool denials still apply.
 Timeout: 30000 ms by default, tool mode only. Tool stdout contains JSON only.
 Use --python or ARIA_PYTHON to select the installed Python Aria environment.
+`index imports` resolves project-graph imports natively: one JSON request on
+stdin, one JSON response on stdout. It reads files and needs no Python.
 This prototype does not replace the stable aria/aria-code commands or their TUI.
 ";
 
@@ -35,6 +42,7 @@ struct Options {
 enum Mode {
     Help,
     Version,
+    IndexImports,
     Run(Vec<OsString>),
     Tool {
         name: String,
@@ -70,6 +78,16 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                     return Err("Timeout must be 1..300000 ms".into());
                 }
                 timeout = Duration::from_millis(ms);
+            }
+            Some("index") => {
+                match args.next().as_ref().and_then(|a| a.to_str()) {
+                    Some("imports") => {}
+                    _ => return Err("index requires a subcommand: imports".into()),
+                }
+                if args.next().is_some() {
+                    return Err("index imports reads its request from stdin".into());
+                }
+                break Mode::IndexImports;
             }
             Some("run") => {
                 let mut rest: Vec<_> = args.collect();
@@ -136,6 +154,22 @@ fn run(options: Options) -> Result<i32, String> {
         }
         Mode::Version => {
             println!("aria-native {} (experimental)", env!("CARGO_PKG_VERSION"));
+            Ok(0)
+        }
+        Mode::IndexImports => {
+            let mut raw = String::new();
+            std::io::stdin()
+                .take(MAX_INDEX_REQUEST + 1)
+                .read_to_string(&mut raw)
+                .map_err(|e| format!("Index request: {e}"))?;
+            if raw.len() as u64 > MAX_INDEX_REQUEST {
+                return Err("Index request exceeds 256 MiB".into());
+            }
+            let request: aria_graph::Request =
+                serde_json::from_str(&raw).map_err(|e| format!("Invalid index request: {e}"))?;
+            let response = aria_graph::resolve(&request);
+            let out = serde_json::to_string(&response).map_err(|e| e.to_string())?;
+            println!("{out}");
             Ok(0)
         }
         Mode::Run(args) => {
@@ -239,9 +273,19 @@ mod tests {
             vec!["--timeout-ms", "0"],
             vec!["--timeout-ms", "300001"],
             vec!["--python"],
+            vec!["index"],
+            vec!["index", "exports"],
+            vec!["index", "imports", "request.json"],
         ] {
             assert!(options(&args).is_err(), "{args:?}");
         }
+    }
+    #[test]
+    fn index_imports_reads_stdin() {
+        assert!(matches!(
+            options(&["index", "imports"]).unwrap().mode,
+            Mode::IndexImports
+        ));
     }
     #[test]
     fn approval_is_a_host_option() {

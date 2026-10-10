@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
+from . import native_index
 from .repo_map import RepoMap
 
 GRAPH_VERSION = 1
@@ -141,13 +142,21 @@ class ProjectGraph:
         repo = RepoMap(self.root).build()
         prior = previous.files if previous is not None else {}
         modules = _module_index(repo.files)
+        stale = [path for path, entry in repo.files.items()
+                 if not ((cached := prior.get(path))
+                         and cached.get("mtime") == entry.mtime and cached.get("size") == entry.size)]
+        native = native_index.resolve_imports(
+            self.root, [(path, entry.language) for path, entry in repo.files.items()], stale)
+        resolved, python_side = native if native is not None else ({}, stale)
+        for path in python_side:
+            entry = repo.files[path]
+            resolved[path] = _imports(self.root, path, entry.language, modules, repo.files)
         files: dict[str, dict] = {}
         for path, entry in repo.files.items():
-            cached = prior.get(path)
-            if cached and cached.get("mtime") == entry.mtime and cached.get("size") == entry.size:
-                imports = cached.get("imports") or []
+            if path in resolved:
+                imports = resolved[path]
             else:
-                imports = _imports(self.root, path, entry.language, modules, repo.files)
+                imports = prior[path].get("imports") or []
             files[path] = {
                 "mtime": entry.mtime, "size": entry.size, "language": entry.language,
                 "imports": sorted(set(imports) - {path}),
