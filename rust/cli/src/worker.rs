@@ -14,14 +14,14 @@ use std::{
 
 pub const MAX_MESSAGE: usize = 1_048_576;
 
-struct Worker {
-    child: Child,
+pub(crate) struct Worker {
+    pub(crate) child: Child,
     #[cfg(windows)]
     job: windows_sys::Win32::Foundation::HANDLE,
 }
 
 impl Worker {
-    fn spawn(command: &mut Command) -> Result<Self, String> {
+    pub(crate) fn spawn(command: &mut Command) -> Result<Self, String> {
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;

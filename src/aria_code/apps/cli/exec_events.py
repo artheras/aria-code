@@ -98,6 +98,21 @@ class ExecEvents:
 
     def __init__(self, out: TextIO | None):
         self.out = out
+        # Preserve the established JSONL contract unless a streaming consumer
+        # opts in. Never emit provider reasoning; only visible answer tokens.
+        import os
+        self.streaming = out is not None and os.environ.get("ARIA_EVENTS_STREAM", "").strip().lower() in (
+            "1", "true", "yes",
+        )
+
+    def text_delta(self, text: str) -> None:
+        if self.streaming and text:
+            self.emit("answer.delta", text=text)
+
+    def status(self, state: str, message: str) -> None:
+        if self.streaming:
+            self.emit("turn.status", state=_redact_activity_text(state, limit=80),
+                      message=_redact_activity_text(message, limit=PARAM_CHARS))
 
     def emit(self, event_type: str, **fields: Any) -> None:
         if self.out is None:

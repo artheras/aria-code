@@ -43,7 +43,61 @@ def test_a_file_body_is_reported_by_size():
 
 def test_no_stream_writes_nothing_and_odd_values_still_serialise():
     ExecEvents(None).emit("turn.started", prompt="x")
-    assert json_safe({"p": Path("/a"), "s": {1}}) == {"p": "/a", "s": "{1}"}
+    path = Path("/a")
+    assert json_safe({"p": path, "s": {1}}) == {"p": str(path), "s": "{1}"}
+
+
+def test_visible_answer_streaming_is_opt_in_and_status_is_redacted(monkeypatch):
+    monkeypatch.delenv("ARIA_EVENTS_STREAM", raising=False)
+    out = io.StringIO()
+    old = ExecEvents(out)
+    old.text_delta("invisible until completion")
+    old.status("thinking", "status")
+    assert not old.streaming and out.getvalue() == ""
+    monkeypatch.setenv("ARIA_EVENTS_STREAM", "1")
+    events = ExecEvents(out)
+    assert events.streaming and not ExecEvents(None).streaming
+    events.text_delta("你好\n```python\nprint(1)\n```\n")
+    events.status("working", "Authorization: Bearer abc123def456")
+    records = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert records[0]["type"] == "answer.delta" and records[0]["text"].startswith("你好\n```")
+    assert records[1]["type"] == "turn.status" and "abc123def456" not in records[1]["message"]
+
+
+@pytest.mark.asyncio
+async def test_headless_runtime_streams_visible_text_and_retains_approval(monkeypatch):
+    from aria_code.aria_cli import ArtheraTerminal
+    from aria_code.apps.cli.providers import runtime_bridge
+
+    monkeypatch.setenv("ARIA_EVENTS_STREAM", "1")
+    terminal = ArtheraTerminal.__new__(ArtheraTerminal)
+    terminal.config = {"model": "google/gemini-3.5-flash", "permission_mode": "read-only"}
+    terminal.api_url = None
+    terminal.commands = SimpleNamespace(is_command=lambda _: False)
+    terminal._maybe_show_intent_preflight = lambda *a, **k: False
+    async def no_intercept(_):
+        return False
+    terminal._try_football_nl_intercept = no_intercept
+    namespace = terminal._run_prompt_turn.__func__.__globals__
+    monkeypatch.setitem(namespace, "_run_deterministic_chain", lambda *a, **k: {"success": False})
+    monkeypatch.setitem(namespace, "HAS_RICH", False)
+    monkeypatch.setitem(namespace, "_auto_approve_session", False)
+    monkeypatch.setitem(namespace, "_session_always_allow", set())
+    async def turn(**kwargs):
+        assert not kwargs["approval_callback"]("write_file", {"path": "a.py"}).approved
+        assert kwargs.get("on_thinking") is None
+        kwargs["on_token"]("你好")
+        kwargs["on_status"]("working", "Reading a project")
+        kwargs["on_token"]("世界")
+        return SimpleNamespace(ok=True, text="你好世界", error="", final=SimpleNamespace(provider="fake"))
+    monkeypatch.setattr(runtime_bridge, "run_chat_via_runtime", turn)
+    out = io.StringIO()
+    events = ExecEvents(out)
+    result = await terminal._run_prompt_turn("hello", quiet=True, events=events)
+    assert result["success"] and result["response"] == "你好世界"
+    records = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert [e["type"] for e in records] == ["turn.status", "answer.delta", "turn.status", "answer.delta"]
+    assert records[0]["state"] == "approval_denied" and "write_file" in records[0]["message"]
 
 
 class _Terminal:

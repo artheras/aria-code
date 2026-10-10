@@ -1,5 +1,7 @@
+mod render;
 mod sessions;
 mod state;
+mod stream;
 mod updates;
 mod worker;
 
@@ -14,6 +16,8 @@ const HELP: &str = "aria-native — experimental Rust entry point (Python runtim
 
 Usage:
   aria-native [--python EXE] [-C DIR] run [--] [ARIA ARGUMENTS...]
+  aria-native [--python EXE] [-C DIR] [--timeout-ms N] exec [--jsonl] PROMPT [-- PYTHON OPTIONS...]
+  aria-native render [--jsonl] < EVENTS.jsonl
   aria-native [--python EXE] [-C DIR] [--timeout-ms N] tool [--approve-write] NAME JSON
   aria-native config [paths|show]
   aria-native sessions list [--limit N]
@@ -32,7 +36,11 @@ Examples:
 Tools: read_file, list_files, search_code, write_file, edit_file.
 Tool requests are confined to DIR (default: current directory); writes require
 explicit per-invocation --approve-write. Persistent tool denials still apply.
-Timeout: 30000 ms by default, tool mode only. Tool stdout contains JSON only.
+Timeout: tools 30000 ms, exec 300000 ms by default. Tool stdout contains JSON only.
+Exec renders streamed answer text to stdout and progress to stderr. --jsonl keeps
+validated events on stdout. Render replays JSONL without Python or model calls.
+Exec options: --model, --url, --thinking, --local, --allow-tools,
+--dangerously-skip-permissions, --add-dir, --read-dir. Approvals are never added.
 Use --python or ARIA_PYTHON to select the installed Python Aria environment.
 Index imports/symbols read one JSON request on stdin and emit one JSON response.
 This prototype does not replace the stable aria/aria-code commands or their TUI.
@@ -61,6 +69,12 @@ enum Mode {
     Version,
     Index(IndexKind),
     Run(Vec<OsString>),
+    Exec {
+        prompt: String,
+        args: Vec<OsString>,
+        jsonl: bool,
+    },
+    Render(bool),
     Config(bool),
     Sessions {
         action: String,
@@ -84,6 +98,7 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
         .unwrap_or_else(|| if cfg!(windows) { "python" } else { "python3" }.into());
     let mut workspace = env::current_dir().map_err(|e| e.to_string())?;
     let mut timeout = Duration::from_secs(30);
+    let mut timeout_set = false;
     let mut args = args.into_iter();
     let mode = loop {
         let Some(arg) = args.next() else {
@@ -97,6 +112,7 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                 workspace = args.next().ok_or("-C requires a directory")?.into()
             }
             Some("--timeout-ms") => {
+                timeout_set = true;
                 let value = args.next().ok_or("--timeout-ms requires a number")?;
                 let ms: u64 = value
                     .to_str()
@@ -124,6 +140,44 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                     rest.remove(0);
                 }
                 break Mode::Run(rest);
+            }
+            Some("render") => {
+                let jsonl = match args.next().as_ref().and_then(|a| a.to_str()) {
+                    None => false,
+                    Some("--jsonl") => true,
+                    _ => return Err("Usage: render [--jsonl] < EVENTS.jsonl".into()),
+                };
+                if args.next().is_some() {
+                    return Err("Unexpected render argument".into());
+                }
+                break Mode::Render(jsonl);
+            }
+            Some("exec") => {
+                let mut next = args.next();
+                let jsonl = next.as_deref() == Some(std::ffi::OsStr::new("--jsonl"));
+                if jsonl {
+                    next = args.next();
+                }
+                if next.as_deref() == Some(std::ffi::OsStr::new("--")) {
+                    next = args.next();
+                }
+                let prompt = utf8(next, "exec requires a prompt")?;
+                if prompt.trim().is_empty() || prompt.len() > 65_536 {
+                    return Err("exec prompt must be non-empty and at most 64 KiB".into());
+                }
+                let mut rest: Vec<_> = args.collect();
+                if rest.first().is_some_and(|a| a == "--") {
+                    rest.remove(0);
+                }
+                stream::validate_args(&rest)?;
+                if !timeout_set {
+                    timeout = Duration::from_secs(300);
+                }
+                break Mode::Exec {
+                    prompt,
+                    args: rest,
+                    jsonl,
+                };
             }
             Some("config") => {
                 let action = args.next().unwrap_or_else(|| "show".into());
@@ -345,6 +399,19 @@ fn run(options: Options) -> Result<i32, String> {
             Ok(0)
         }
         Mode::Run(args) => run_python(options.python, options.workspace, args, None),
+        Mode::Render(jsonl) => render::replay(&mut std::io::stdin().lock(), jsonl),
+        Mode::Exec {
+            prompt,
+            args,
+            jsonl,
+        } => stream::exec(
+            &options.python,
+            &options.workspace,
+            &prompt,
+            &args,
+            options.timeout,
+            jsonl,
+        ),
         Mode::Config(paths) => {
             println!(
                 "{}",

@@ -2,7 +2,7 @@
 
 The first stage adds an **opt-in `aria-native` prototype**, not a replacement
 for `aria`, `aria code`, or `aria-code`. The Rust crate has its own experimental
-version `0.2.0`; `aria-native run -- --version` reports the Python product version.
+version `0.3.0`; `aria-native run -- --version` reports the Python product version.
 The Go relay prototype is opt-in; production still deploys the Python relay.
 
 ## Build and try it
@@ -147,7 +147,8 @@ This measures entry-point overhead only. Delegated chat still pays Python startu
 it does not establish that the full TUI or a cloud model responds faster.
 
 The second stage adds native state inspection and update metadata checks (below).
-Next, migrate TUI rendering and event streaming. Make each stage opt-in until provider calls, coding acceptance,
+The third stage adds single-turn terminal rendering and event streaming (below).
+Next, migrate the interactive TUI, persistent conversation and approval prompts. Make each stage opt-in until provider calls, coding acceptance,
 file changes, approval prompts, cancellation, resume and all supported installers
 pass parity checks. Keep financial/data/document tools in Python and keep the
 Google Cloud backend unless measurements justify a separate backend change.
@@ -231,3 +232,87 @@ content, text blocks, corrupt/partial records, traversal, symlinks, cache TTL an
 channel separation, provider credential omission and resume forwarding. Rust
 tests also exercise an actual HTTP reader's body limit and timeout. The benchmark
 now compares native/Python listing against 100 stored sessions (20 returned).
+
+## Stage 3: streamed single-turn terminal output
+
+The experimental Rust entry point now renders a single execution turn:
+
+```sh
+# Uses your existing Python environment and model/cloud configuration.
+aria-native --python /path/to/python -C ./project exec 'Explain this project'
+aria-native --python /path/to/python -C ./project exec 'Fix the failing test' \
+  -- --allow-tools read_file,edit_file,run_command
+aria-native --python /path/to/python -C ./project exec --jsonl 'Explain this project' \
+  > turn.jsonl
+# Replay a recorded turn without importing Python, calling a model or running tools.
+aria-native render < turn.jsonl
+aria-native render --jsonl < turn.jsonl
+```
+
+Only the operator may supply `--allow-tools` or `--dangerously-skip-permissions`.
+Rust never adds either. Python's existing headless approval callback denies
+ungranted operations; persistent policy, allowed roots, tool execution and the
+acceptance gate still belong to Python. `-C` selects the workspace; relative
+`ARIA_HOME` is resolved against the caller before changing directory. Options
+forwarded after the prompt are limited to `--model`, `--url`, `--thinking`,
+`--local`, `--allow-tools`, `--dangerously-skip-permissions`, `--add-dir` and
+`--read-dir`. Values are passed as literal argument vectors, never through a
+shell. Use `run` for other Python CLI options, session resume and the full REPL.
+
+Answer tokens are flushed to stdout as they arrive. Activity, status and failures
+go to stderr. Code fences, indentation, line breaks and Unicode remain plain
+text; this is not yet a full-screen Markdown/TUI renderer. Terminal controls
+(including ESC, carriage return, C1 and bidi controls) are filtered from human
+output. Machine JSONL retains the original payload and extra fields. Runtime
+stderr remains the existing Python diagnostic stream. The final response is
+reconciled against all streamed tokens to avoid printing it twice; when a repair
+replaces earlier prose, the authoritative response gets a `final response` label.
+
+The execution stream reuses `aria-code -p --format jsonl` with two additive event
+types. `ARIA_EVENTS_STREAM=1` enables them; legacy JSONL consumers get their old
+sequence by default. Visible provider text produces `answer.delta`; runtime
+progress produces `turn.status`. Provider reasoning is not forwarded. The native
+host enables streaming and sets `ARIA_EVENTS_FULL=0` to retain the existing
+redacted activity view.
+
+```jsonl
+{"type":"turn.started","prompt":"Explain this project","model":"google/gemini-3.5-flash"}
+{"type":"answer.delta","text":"I will inspect the project.\n"}
+{"type":"tool.started","tool":"read_file","params":{"path":"README.md"}}
+{"type":"tool.completed","tool":"read_file","success":true}
+{"type":"turn.status","state":"acceptance_passed","message":"Checks passed"}
+{"type":"answer.delta","text":"Here is the result.\n"}
+{"type":"turn.completed","success":true,"response":"I will inspect the project.\nHere is the result.\n"}
+```
+
+The consumer requires one `turn.started`, followed by known events and exactly
+one `turn.completed`. Invalid UTF-8/JSON, stdout pollution, unknown types,
+inconsistent success/failed acceptance, records after completion and missing
+completion fail explicitly. Each record and accumulated answer are capped at
+1 MiB; a stream is capped at 16 MiB or 50,000 events. Reads and the queued event
+buffer are bounded. Output is flushed per event, without buffering the whole
+turn until the child exits.
+
+Successful completion exits `0`; a failed turn exits `1`; invocation, protocol
+and timeout errors exit `2`; Ctrl+C in live execution exits `130`. A nonzero
+Python exit after a valid completion is preserved. `--timeout-ms` defaults to
+300 seconds for `exec` (30 seconds for `tool`) and accepts 1–300,000 ms. The
+supervisor remains responsive even if stdout is a blocked pipe. Timeout,
+cancellation, malformed events and broken output terminate the Python process
+group on Unix or Job Object on Windows. An acknowledgement before runtime
+import prevents execution before Windows Job assignment. A cancelled write is
+not rolled back automatically.
+
+Tests exercise the compiled binary, real Python CLI and real agent loop/file
+tool (only inference is stubbed), granting and denying an actual local write,
+streaming before completion, Chinese Windows pipes, literal arguments,
+truncated/corrupt streams, nonzero child exits, Ctrl+C, blocked output and child
+cleanup. The existing native bridge, state/index parity and headless approval
+regressions run alongside them on Linux, macOS and Windows; Windows CI skips
+signal injection because no interactive console is available.
+
+This stage does not replace `aria`, `aria code` or `aria-code`, remove Python
+startup, accelerate cloud inference, or switch Google Cloud production to Go.
+The next stage is a persistent interactive Rust frontend with session history
+and explicit approval request/response events, validated before becoming the
+default UI.
