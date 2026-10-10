@@ -49,11 +49,14 @@ establishes the truth once it gets there.
 from __future__ import annotations
 
 import ast
+import os
 import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+
+from . import native_index
 
 __all__ = [
     "REPO_MAP_SCHEMAS",
@@ -363,6 +366,8 @@ class RepoMap:
         paths = self._walk()
         previous = self.files if not force else {}
         files: Dict[str, FileEntry] = {}
+        order: List[str] = []   # walk order, which ranking ties fall back on
+        stale: List[Tuple[str, Path, os.stat_result, str]] = []
 
         for path in paths:
             try:
@@ -376,25 +381,32 @@ class RepoMap:
             except ValueError:
                 rel = str(path)
 
+            order.append(rel)
             cached = previous.get(rel)
             if cached is not None and cached.mtime == stat.st_mtime and cached.size == stat.st_size:
                 files[rel] = cached
                 continue
+            stale.append((rel, path, stat, LANGUAGES.get(path.suffix.lower(), "")))
 
-            language = LANGUAGES.get(path.suffix.lower(), "")
-            try:
-                source = path.read_text(encoding="utf-8", errors="replace")
-            except (OSError, UnicodeError):
-                continue
-            files[rel] = FileEntry(
-                path=rel,
-                language=language,
-                symbols=extract_symbols(source, language),
-                mtime=stat.st_mtime,
-                size=stat.st_size,
-            )
+        # Python definitions come from the native indexer when it can answer
+        # (one parallel pass); everything it does not is extracted here.
+        native = native_index.python_symbols(
+            self.root, [rel for rel, _path, _stat, language in stale if language == "python"])
+        parsed = native[0] if native is not None else {}
 
-        self.files = files
+        for rel, path, stat, language in stale:
+            if rel in parsed:
+                symbols = [Symbol(name=n, kind=k, line=line, parent=p) for n, k, line, p in parsed[rel]]
+            else:
+                try:
+                    source = path.read_text(encoding="utf-8", errors="replace")
+                except (OSError, UnicodeError):
+                    continue
+                symbols = extract_symbols(source, language)
+            files[rel] = FileEntry(path=rel, language=language, symbols=symbols,
+                                   mtime=stat.st_mtime, size=stat.st_size)
+
+        self.files = {rel: files[rel] for rel in order if rel in files}
         self._index()
         self.built_at = time.time()
         self.scan_seconds = self.built_at - started
