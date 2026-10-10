@@ -12,7 +12,7 @@ const HELP: &str = "aria-native — experimental Rust entry point (Python runtim
 Usage:
   aria-native [--python EXE] [-C DIR] run [--] [ARIA ARGUMENTS...]
   aria-native [--python EXE] [-C DIR] [--timeout-ms N] tool [--approve-write] NAME JSON
-  aria-native index imports < REQUEST.json
+  aria-native index imports|symbols < REQUEST.json
   aria-native --version
 
 Examples:
@@ -25,7 +25,8 @@ Tool requests are confined to DIR (default: current directory); writes require
 explicit per-invocation --approve-write. Persistent tool denials still apply.
 Timeout: 30000 ms by default, tool mode only. Tool stdout contains JSON only.
 Use --python or ARIA_PYTHON to select the installed Python Aria environment.
-`index imports` resolves project-graph imports natively: one JSON request on
+`index imports` / `index symbols` compute project-graph imports and Python
+definitions natively: one JSON request on
 stdin, one JSON response on stdout. It reads files and needs no Python.
 This prototype does not replace the stable aria/aria-code commands or their TUI.
 ";
@@ -38,11 +39,17 @@ struct Options {
     mode: Mode,
 }
 
+#[derive(Debug, PartialEq)]
+enum IndexKind {
+    Imports,
+    Symbols,
+}
+
 #[derive(Debug)]
 enum Mode {
     Help,
     Version,
-    IndexImports,
+    Index(IndexKind),
     Run(Vec<OsString>),
     Tool {
         name: String,
@@ -80,14 +87,15 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                 timeout = Duration::from_millis(ms);
             }
             Some("index") => {
-                match args.next().as_ref().and_then(|a| a.to_str()) {
-                    Some("imports") => {}
-                    _ => return Err("index requires a subcommand: imports".into()),
-                }
+                let kind = match args.next().as_ref().and_then(|a| a.to_str()) {
+                    Some("imports") => IndexKind::Imports,
+                    Some("symbols") => IndexKind::Symbols,
+                    _ => return Err("index requires a subcommand: imports or symbols".into()),
+                };
                 if args.next().is_some() {
-                    return Err("index imports reads its request from stdin".into());
+                    return Err("index reads its request from stdin".into());
                 }
-                break Mode::IndexImports;
+                break Mode::Index(kind);
             }
             Some("run") => {
                 let mut rest: Vec<_> = args.collect();
@@ -156,7 +164,7 @@ fn run(options: Options) -> Result<i32, String> {
             println!("aria-native {} (experimental)", env!("CARGO_PKG_VERSION"));
             Ok(0)
         }
-        Mode::IndexImports => {
+        Mode::Index(kind) => {
             let mut raw = String::new();
             std::io::stdin()
                 .take(MAX_INDEX_REQUEST + 1)
@@ -165,10 +173,16 @@ fn run(options: Options) -> Result<i32, String> {
             if raw.len() as u64 > MAX_INDEX_REQUEST {
                 return Err("Index request exceeds 256 MiB".into());
             }
-            let request: aria_graph::Request =
-                serde_json::from_str(&raw).map_err(|e| format!("Invalid index request: {e}"))?;
-            let response = aria_graph::resolve(&request);
-            let out = serde_json::to_string(&response).map_err(|e| e.to_string())?;
+            let invalid = |e: serde_json::Error| format!("Invalid index request: {e}");
+            let out = match kind {
+                IndexKind::Imports => serde_json::to_string(&aria_graph::resolve(
+                    &serde_json::from_str(&raw).map_err(invalid)?,
+                )),
+                IndexKind::Symbols => serde_json::to_string(&aria_graph::symbols::extract(
+                    &serde_json::from_str(&raw).map_err(invalid)?,
+                )),
+            }
+            .map_err(|e| e.to_string())?;
             println!("{out}");
             Ok(0)
         }
@@ -284,7 +298,11 @@ mod tests {
     fn index_imports_reads_stdin() {
         assert!(matches!(
             options(&["index", "imports"]).unwrap().mode,
-            Mode::IndexImports
+            Mode::Index(IndexKind::Imports)
+        ));
+        assert!(matches!(
+            options(&["index", "symbols"]).unwrap().mode,
+            Mode::Index(IndexKind::Symbols)
         ));
     }
     #[test]

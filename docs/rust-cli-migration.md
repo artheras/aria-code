@@ -82,32 +82,41 @@ Standard JSON-RPC errors are used for parse, request, method and parameter error
 {"jsonrpc":"2.0","id":1,"method":"tools.call","params":{"name":"read_file","arguments":{"path":"README.md"}}}
 ```
 
-## Native project-graph imports
+## Native project-graph indexing
 
-Building the project graph (`runtime/project_graph.py`) spent most of its time
-parsing every Python file's imports with `ast`. The `aria-graph` crate does the
-same resolution in parallel, and `aria-native index imports` exposes it: one
-JSON request on stdin (`root`, every `[path, language]`, the paths to `parse`),
-one response on stdout (`imports` by path, and `fallback`). It reads files
-itself and needs no Python.
+Building the project graph (`runtime/project_graph.py`) parsed every Python file
+twice with `ast`: once in `repo_map` for its definitions, once for its imports.
+The `aria-graph` crate does both in parallel with the same rules, behind two
+commands that take one JSON request on stdin and write one response on stdout,
+reading files themselves without Python:
 
-`runtime/native_index.py` uses it when a binary is found (`ARIA_NATIVE_BINARY`,
-or `aria-native` on `PATH`), at least 32 files need parsing, and
-`ARIA_NATIVE_GRAPH` is not `off`. Anything else (no binary, a non-zero exit, a
-timeout, a malformed or incomplete answer) falls back to the Python
-implementation for the whole batch, and a file the Rust parser rejects
-(`fallback`) is parsed by Python on its own. The two must agree:
-`tests/test_native_index.py` compares them on this repository and on edge cases
-(relative levels, imports nested in functions/`try`/`match`, ambiguous module
-names, byte-order marks, syntax errors, JS `index` files).
+- `aria-native index imports`: `root`, every `[path, language]`, the paths to
+  `parse` → `imports` by path (module index, nearest-candidate pick, relative
+  levels, imports at any depth, JS/TS relative specifiers).
+- `aria-native index symbols`: `root`, the Python paths to `parse` → `symbols`
+  by path as `[name, kind, line, parent]` (top-level functions and classes,
+  functions directly in a class body, upper-case module constants; the line
+  of `def`/`class`, not of a decorator).
 
-On this repository (979 files, 1973 import edges, no fallbacks) import
-resolution went from about 2.1 s to 0.21 s, and a full graph build from 3.9 s to
-1.8 s. Most of what remains is `repo_map`'s symbol extraction, which parses each
-Python file again; it is the next candidate. The parser's grammar and Unicode
-tables grow the binary from 0.6 MB to 5.5 MB and `--version` by about 0.3 ms.
-If the download size matters when native builds ship, the indexer can move to
-its own executable without changing the wire contract.
+Both answer `fallback` for files they leave to Python: a file the Rust parser
+rejects, or (for symbols) one it cannot read. `runtime/native_index.py` uses
+them when a binary is found (`ARIA_NATIVE_BINARY`, or `aria-native` on `PATH`),
+at least 32 files need parsing, and `ARIA_NATIVE_GRAPH` is not `off`. Anything
+else (no binary, a non-zero exit, a timeout, a malformed or incomplete answer)
+falls back to the Python implementation for the whole batch. The two must
+agree: `tests/test_native_index.py` compares them on this repository and on
+edge cases (relative levels, imports nested in functions/`try`/`match`,
+ambiguous module names, decorators, CRLF, byte-order marks, syntax errors, JS
+`index` files), and `repo_map` keeps its walk order.
+
+On this repository (979 files, 1973 import edges, no fallbacks) the graph built
+either way is identical; `repo_map` went from 1.6 s to 0.54 s and a full graph
+build from 3.7 s to 0.83 s. What remains is the file walk, regex symbols for
+other languages and the identifier scan for references, all in Python. The
+parser's grammar and Unicode tables grow the binary from 0.6 MB to 5.5 MB and
+`--version` by about 0.3 ms. If the download size matters when native builds
+ship, the indexer can move to its own executable without changing the wire
+contract.
 
 ## Rust and Go
 

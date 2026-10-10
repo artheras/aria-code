@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.129.0] — 2026-10-10
+
+- Merge pull request #173 from artheras/fix/relay-routing
+
 ## [0.128.0] — 2026-10-10
 
 - Merge pull request #171 from artheras/feat/native-graph-index
