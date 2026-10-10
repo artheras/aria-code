@@ -399,7 +399,7 @@ class RepoMap:
                 symbols = [Symbol(name=n, kind=k, line=line, parent=p) for n, k, line, p in parsed[rel]]
             else:
                 try:
-                    source = path.read_text(encoding="utf-8", errors="replace")
+                    source = path.read_text(encoding="utf-8-sig", errors="replace")
                 except (OSError, UnicodeError):
                     continue
                 symbols = extract_symbols(source, language)
@@ -428,7 +428,7 @@ class RepoMap:
         for entry in self.files.values():
             path = self.root / entry.path
             try:
-                source = path.read_text(encoding="utf-8", errors="replace")
+                source = path.read_text(encoding="utf-8-sig", errors="replace")
             except (OSError, UnicodeError):
                 continue
             own = {symbol.name for symbol in entry.symbols}

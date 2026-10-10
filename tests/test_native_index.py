@@ -110,7 +110,8 @@ def test_edge_cases_resolve_the_same_way(tmp_path, monkeypatch):
         "app/services/billing.py", "app/util.py", "app/compat.py", "app/cases.py"})
     assert python["lib/user.py"] == ["lib/util.py"]
     assert python["other/user.py"] == []
-    assert python["bom.py"] == [] and python["broken.py"] == []
+    # A byte-order mark is dropped when reading (utf-8-sig), as Python itself does for files.
+    assert python["bom.py"] == ["app/models.py"] and python["broken.py"] == []
     assert python["web/index.ts"] == ["shared/c.js", "web/a.tsx", "web/lazy.mjs", "web/lib/index.js"]
 
 
@@ -217,7 +218,7 @@ def test_definitions_are_extracted_the_same_way(tmp_path, monkeypatch):
     assert native == python
     assert list(native) == list(python)   # walk order is kept
     assert python["crlf.py"] == [("Windows", "class", 1, ""), ("line", "def", 2, "Windows"), ("LATER", "const", 5, "")]
-    assert python["bom.py"] == [] and python["broken.py"] == []
+    assert python["bom.py"] == [("bom", "def", 1, "")] and python["broken.py"] == []
     assert ("run", "async def", 16, "") in python["mod.py"]   # the def line, not the decorator
     assert ("check", "def", 23, "Gate") in python["mod.py"]
 

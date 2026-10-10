@@ -97,9 +97,11 @@ fn imports(
 
 pub(crate) fn read(root: &Path, path: &str) -> Option<String> {
     let bytes = std::fs::read(root.join(path)).ok()?;
-    // Python reads with errors="replace" and universal newlines.
+    // Python reads with encoding="utf-8-sig" (a leading byte-order mark is
+    // dropped), errors="replace" and universal newlines.
+    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
     Some(
-        String::from_utf8_lossy(&bytes)
+        String::from_utf8_lossy(bytes)
             .replace("\r\n", "\n")
             .replace('\r', "\n"),
     )
@@ -114,8 +116,8 @@ pub(crate) enum Parsed {
 }
 
 pub(crate) fn parse_python(source: &str, path: &str) -> Parsed {
-    // CPython rejects a byte-order mark or NUL inside decoded text.
-    if source.starts_with('\u{feff}') || source.contains('\0') {
+    // CPython rejects a NUL in source text.
+    if source.contains('\0') {
         return Parsed::Invalid;
     }
     match ast::Suite::parse(source, path) {
