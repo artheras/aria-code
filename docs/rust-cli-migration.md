@@ -82,6 +82,47 @@ Standard JSON-RPC errors are used for parse, request, method and parameter error
 {"jsonrpc":"2.0","id":1,"method":"tools.call","params":{"name":"read_file","arguments":{"path":"README.md"}}}
 ```
 
+## Native project-graph imports
+
+Building the project graph (`runtime/project_graph.py`) spent most of its time
+parsing every Python file's imports with `ast`. The `aria-graph` crate does the
+same resolution in parallel, and `aria-native index imports` exposes it: one
+JSON request on stdin (`root`, every `[path, language]`, the paths to `parse`),
+one response on stdout (`imports` by path, and `fallback`). It reads files
+itself and needs no Python.
+
+`runtime/native_index.py` uses it when a binary is found (`ARIA_NATIVE_BINARY`,
+or `aria-native` on `PATH`), at least 32 files need parsing, and
+`ARIA_NATIVE_GRAPH` is not `off`. Anything else (no binary, a non-zero exit, a
+timeout, a malformed or incomplete answer) falls back to the Python
+implementation for the whole batch, and a file the Rust parser rejects
+(`fallback`) is parsed by Python on its own. The two must agree:
+`tests/test_native_index.py` compares them on this repository and on edge cases
+(relative levels, imports nested in functions/`try`/`match`, ambiguous module
+names, byte-order marks, syntax errors, JS `index` files).
+
+On this repository (979 files, 1973 import edges, no fallbacks) import
+resolution went from about 2.1 s to 0.21 s, and a full graph build from 3.9 s to
+1.8 s. Most of what remains is `repo_map`'s symbol extraction, which parses each
+Python file again; it is the next candidate. The parser's grammar and Unicode
+tables grow the binary from 0.6 MB to 5.5 MB and `--version` by about 0.3 ms.
+If the download size matters when native builds ship, the indexer can move to
+its own executable without changing the wire contract.
+
+## Rust and Go
+
+Rust owns the CLI and local, per-repository work: entry points, tool bridging,
+indexing, later the TUI. Go is planned for network services, starting with the
+relay server (`aria_relay_server.py`, FastAPI on Cloud Run), where a small
+static binary and cheap concurrent connections pay off. No Go code exists yet;
+a Go service would replace a Python one only behind the same HTTP/WebSocket
+contract and the existing relay smoke test.
+
+Work runs in parallel slices that do not share files: native runtime state
+(sessions, config, update) on `feature/rust-runtime-state`, and the project
+graph indexer here. A slice changing `rust/cli/src/main.rs` keeps that change to
+argument parsing and dispatch.
+
 ## Verification and next stages
 
 `cargo test`, Clippy and real executable tests run on Linux, macOS and Windows.
