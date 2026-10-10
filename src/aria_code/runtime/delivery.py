@@ -357,6 +357,7 @@ class DeliveryLedger:
                 "loop_guard": "Stopped repeating a failing call — look at the error above",
                 "checks_failed": "Fix the failing checks",
                 "text_tool_calls": "The model wrote tool calls as text — retry the turn",
+                "prompt_echo": "The model stopped without an answer — retry the turn",
             }.get(stop_reason, f"Stopped: {stop_reason}")
         elif verified is False and checks and all(c["passed"] or c.get("preexisting") for c in checks):
             # Red only where it was red before this change (runtime/baseline.py).

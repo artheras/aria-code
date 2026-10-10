@@ -1136,6 +1136,43 @@ TEXT_TOOL_CALL_DIRECTIVE = (
 _CODE_SPAN = re.compile(r"```.*?(?:```|\Z)|`[^`\n]*`", re.DOTALL)
 
 
+_MAX_PROMPT_ECHO_RETRIES = 1
+
+# A reply after a tool round that is an instruction to the assistant rather
+# than an answer to the user: the model continued our follow-up message (the
+# reply even starts with the space that would separate the two) instead of
+# acting on it. Seen on Gemini: " Do not stop until all necessary actions have
+# been performed." ended a turn as its final answer with nothing changed.
+_PROMPT_ECHO_MAX_CHARS = 240
+_PROMPT_ECHO = re.compile(
+    r"^(?:do not stop|don't stop|if you are (?:finished|done)|if the task is"
+    r"|continue (?:using|with|the task)|use (?:the )?tools|you (?:must|should) (?:continue|now)"
+    r"|make sure (?:to|you)|remember to)\b"
+    r"|\b(?:necessary actions|your final (?:response|answer)|describe your findings"
+    r"|continue using tools|\d+-\d+ sentences)\b",
+    re.IGNORECASE,
+)
+
+PROMPT_ECHO_DIRECTIVE = (
+    "Your last reply was an instruction, not an answer: it reads like a "
+    "continuation of the prompt, and the task is not finished. Carry on with "
+    "the user's request — call the tools you need. When the work is actually "
+    "done, reply with what you changed and how you checked it."
+)
+
+
+def looks_like_prompt_echo(text: str) -> bool:
+    """True when a short final reply is an instruction aimed at the assistant.
+
+    Only short, single-paragraph replies qualify: a real answer that happens
+    to say "make sure to run the tests" is longer, or follows a summary.
+    """
+    stripped = (text or "").strip()
+    if not stripped or len(stripped) > _PROMPT_ECHO_MAX_CHARS or "\n\n" in stripped:
+        return False
+    return bool(_PROMPT_ECHO.search(_CODE_SPAN.sub("", stripped)))
+
+
 def looks_like_text_tool_calls(text: str) -> bool:
     """True when a reply with no real tool calls contains written-out ones.
 
@@ -1452,6 +1489,7 @@ async def run_agent(
     grounded_results = 1 if opts.evidence_already_grounded else 0
     stop_reason = "max_rounds"
     text_tool_call_retries = 0
+    prompt_echo_retries = 0
 
     for round_num in range(opts.max_rounds):
         # ── 预算闸门 ─────────────────────────────────────────────────────────
@@ -1560,6 +1598,34 @@ async def run_agent(
                 {"role": "assistant", "content": turn_state.total_response},
             ]
             current_message = TEXT_TOOL_CALL_DIRECTIVE
+            turn_state.reset_response()
+            continue
+        if (not pending and round_num > 0
+                and looks_like_prompt_echo(result.get("response") or response_text)):
+            # After a tool round the model "answered" by continuing our own
+            # follow-up instead of acting on it. Accepting that ended tasks
+            # as completed with nothing changed. One more round, then incomplete.
+            prompt_echo_retries += 1
+            if prompt_echo_retries > _MAX_PROMPT_ECHO_RETRIES:
+                stop_reason = "prompt_echo"
+                yield AgentEventStatus(
+                    state=stop_reason,
+                    message="Model replied with an instruction instead of an answer; task remains incomplete",
+                )
+                turn_state.append_response(
+                    "\n\nThe model replied with an instruction instead of an answer "
+                    "and did not continue the task."
+                )
+                break
+            yield AgentEventStatus(
+                state="prompt_echo",
+                message="Model replied with an instruction instead of an answer; asking it to continue",
+            )
+            history = list(history) + [
+                {"role": "user", "content": current_message},
+                {"role": "assistant", "content": turn_state.total_response},
+            ]
+            current_message = PROMPT_ECHO_DIRECTIVE
             turn_state.reset_response()
             continue
         if not pending:

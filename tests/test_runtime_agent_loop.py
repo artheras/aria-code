@@ -927,6 +927,101 @@ class MultiEditTests(unittest.TestCase):
         self.assertTrue(r.get("warning"))
 
 
+class PromptEchoTests(unittest.TestCase):
+    """A reply that continues our follow-up instead of answering must not end the task."""
+
+    def _run(self, provider_fn, tools):
+        async def collect():
+            return [
+                event
+                async for event in run_agent(
+                    "fix the failing test",
+                    [],
+                    provider_fn=provider_fn,
+                    tool_executor=ToolExecutor(tools),
+                    options=AgentOptions(max_rounds=6),
+                )
+            ]
+
+        return asyncio.run(collect())
+
+    @staticmethod
+    def _tools(ran):
+        def read_file(params):
+            ran.append(params["path"])
+            return {"success": True, "content": "x"}
+
+        return {"read_file": (read_file, "Read")}
+
+    @staticmethod
+    def _call(path):
+        return {"success": True, "response": "", "provider": "fake",
+                "tool_calls_pending": [{"tool": "read_file", "params": {"path": path}}]}
+
+    def test_detects_instructions_but_not_answers(self):
+        from aria_code.runtime.agent_loop import looks_like_prompt_echo
+
+        # Both replies ended real eval tasks as "completed" with nothing changed.
+        self.assertTrue(looks_like_prompt_echo(" Do not stop until all necessary actions have been performed."))
+        self.assertTrue(looks_like_prompt_echo(" If you are finished, describe your findings in 1-4 sentences."))
+        self.assertFalse(looks_like_prompt_echo("Fixed the off-by-one in slug.py; all 5 tests pass."))
+        self.assertFalse(looks_like_prompt_echo("Done. Make sure the cache directory is writable before deploying."))
+        self.assertFalse(looks_like_prompt_echo(
+            "Changed `risk.py` to annualise the ratio.\n\nMake sure to rerun the backtest; "
+            "if you are finished reviewing, it can be merged."))
+        self.assertFalse(looks_like_prompt_echo(""))
+
+    def test_an_echo_gets_one_more_round(self):
+        messages, ran = [], []
+
+        async def provider_fn(message, history, **kwargs):
+            messages.append(message)
+            if len(messages) == 1:
+                return self._call("a.py")
+            if len(messages) == 2:
+                return {"success": True, "provider": "fake",
+                        "response": " Do not stop until all necessary actions have been performed."}
+            if len(messages) == 3:
+                return self._call("b.py")
+            return {"success": True, "response": "Fixed it; tests pass.", "provider": "fake"}
+
+        events = self._run(provider_fn, self._tools(ran))
+
+        self.assertTrue(any(isinstance(e, AgentEventStatus) and e.state == "prompt_echo" for e in events))
+        self.assertIn("not an answer", messages[2])
+        self.assertEqual([os.path.basename(p) for p in ran], ["a.py", "b.py"])
+        result = events[-1].result
+        self.assertTrue(result.success)
+        self.assertEqual(result.final_text, "Fixed it; tests pass.")
+
+    def test_a_persistent_echo_ends_the_turn_incomplete(self):
+        calls = []
+
+        async def provider_fn(message, history, **kwargs):
+            calls.append(message)
+            if len(calls) == 1:
+                return self._call("a.py")
+            return {"success": True, "provider": "fake",
+                    "response": " If you are finished, describe your findings in 1-4 sentences."}
+
+        events = self._run(provider_fn, self._tools([]))
+
+        result = events[-1].result
+        self.assertFalse(result.success)
+        self.assertEqual(result.stop_reason, "prompt_echo")
+        self.assertEqual(len(calls), 3)
+
+    def test_a_short_first_reply_is_left_alone(self):
+        # No tool round yet: there is no follow-up of ours to have continued.
+        async def provider_fn(message, history, **kwargs):
+            return {"success": True, "provider": "fake",
+                    "response": "Make sure to run it with Python 3.11."}
+
+        events = self._run(provider_fn, {})
+
+        self.assertTrue(events[-1].result.success)
+
+
 class TextToolCallTests(unittest.TestCase):
     """A reply that writes tool calls as text ran nothing and must not end the task."""
 
