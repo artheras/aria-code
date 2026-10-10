@@ -291,6 +291,7 @@ def test_real_terminal_paste_approval_resize_cancel_and_restore(application):
         wait("ok")
         os.write(master, b"Create native-note.txt in this project\r")
         wait("Your response required")
+        wait("File: native-note.txt")
         wait("Always allow")
         os.write(master, b"n")
         wait("Tell Aria what to do instead")

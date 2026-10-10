@@ -6,9 +6,30 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 const ACCENT: Color = Color::Rgb(225, 164, 103);
 const MUTED: Color = Color::DarkGray;
+
+fn workspace_tail(text: &str, width: usize) -> String {
+    if text.width() <= width {
+        return text.to_owned();
+    }
+    if width == 0 {
+        return String::new();
+    }
+    let mut kept = Vec::new();
+    let mut used = 1;
+    for grapheme in text.graphemes(true).rev() {
+        if used + grapheme.width() > width {
+            break;
+        }
+        used += grapheme.width();
+        kept.push(grapheme);
+    }
+    format!("…{}", kept.into_iter().rev().collect::<String>())
+}
 const HELP: &str = "Rust interactive interface\n\nEnter  send · Alt+Enter / Ctrl+J  newline\nArrow keys  edit / browse history · Tab  complete /commands\nCtrl+U / K / W  delete line / end / previous word\nPgUp / PgDn or mouse wheel  scroll transcript\nCtrl+O  toggle tool details · F1  this help\nEsc or Ctrl+C  cancel current task / dismiss dialog\nCtrl+D  exit (or delete character when input is non-empty)\n\n/new  start a new session · /resume ID  restore a session\n/sessions  list saved sessions · /help  all Aria commands\n/model  choose your model · /health  check configured services\n@file:path  reference a file · !command  run a shell command\n\nFile permissions, task isolation, checks and model routing are managed by Aria.\nApproval menus require your choice. Hidden reasoning and secret inputs\nare never written to the native transcript.";
 
 fn markdown(text: &str) -> Vec<Line<'static>> {
@@ -63,6 +84,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
             Constraint::Length(1),
         ])
         .split(area);
+    let runtime = format!(
+        "{} · network {} · ",
+        app.permission,
+        if app.network { "on" } else { "off" }
+    );
     let header = if parts[0].height > 1 {
         Text::from(vec![
             Line::from(vec![
@@ -79,10 +105,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
             )),
             Line::styled(
                 format!(
-                    "{} · {} · network {}",
-                    app.workspace,
-                    app.permission,
-                    if app.network { "on" } else { "off" }
+                    "{runtime}{}",
+                    workspace_tail(
+                        &app.workspace,
+                        usize::from(area.width).saturating_sub(runtime.width())
+                    )
                 ),
                 Style::new().fg(MUTED),
             ),
@@ -170,11 +197,28 @@ pub fn draw(frame: &mut Frame, app: &App) {
         );
     }
     if let Some(dialog) = &app.dialog {
-        let height = if dialog.choices.is_empty() {
-            8
-        } else {
-            (dialog.choices.len() * 3 + 5).min(25) as u16
-        };
+        let mut heading = vec![
+            Line::styled(dialog.title.clone(), Style::new().bold()),
+            Line::raw(""),
+        ];
+        if !dialog.context.is_empty() {
+            heading.extend(
+                dialog
+                    .context
+                    .lines()
+                    .map(|line| Line::styled(line.to_owned(), Style::new().fg(Color::Cyan))),
+            );
+            heading.push(Line::raw(""));
+        }
+        let heading = Paragraph::new(heading).wrap(Wrap { trim: false });
+        let heading_lines = heading.line_count(area.width.min(90).saturating_sub(2));
+        let height = (heading_lines
+            + if dialog.choices.is_empty() {
+                6
+            } else {
+                dialog.choices.len() * 3 + 3
+            })
+        .min(25) as u16;
         let rect = popup(area, 90, height);
         frame.render_widget(Clear, rect);
         let block = Block::bordered()
@@ -182,11 +226,16 @@ pub fn draw(frame: &mut Frame, app: &App) {
             .border_style(Style::new().fg(ACCENT));
         let inside = block.inner(rect);
         frame.render_widget(block, rect);
+        // Keep the operation visible while scrolling through approval choices.
+        let sections = Layout::vertical([
+            Constraint::Length((heading_lines.min(8) as u16).min(inside.height.saturating_sub(3))),
+            Constraint::Min(1),
+        ])
+        .split(inside);
+        frame.render_widget(heading, sections[0]);
+        let inside = sections[1];
         let mut scroll = 0;
-        let mut rows = vec![
-            Line::styled(dialog.title.clone(), Style::new().bold()),
-            Line::raw(""),
-        ];
+        let mut rows = Vec::new();
         if dialog.choices.is_empty() {
             let (text, cursor) = dialog.editor.layout_text(inside.width, dialog.secret);
             let start = rows.len() as u16;
@@ -244,6 +293,68 @@ pub fn draw(frame: &mut Frame, app: &App) {
 mod tests {
     use super::*;
     use ratatui::{backend::TestBackend, Terminal};
+    fn display(terminal: &Terminal<TestBackend>) -> String {
+        let buffer = terminal.backend().buffer();
+        (0..buffer.area.height)
+            .map(|y| {
+                let mut row = String::new();
+                let mut x = 0;
+                while x < buffer.area.width {
+                    let symbol = buffer[(x, y)].symbol();
+                    row.push_str(symbol);
+                    x += symbol.width().max(1) as u16;
+                }
+                row
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+    #[test]
+    fn long_workspaces_leave_policy_and_project_name_visible() {
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let app = App {
+            permission: "workspace-write".into(),
+            network: true,
+            workspace: format!("/Users/项目/{}/我的项目", "很长的目录/".repeat(20)),
+            ..App::default()
+        };
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let rendered = display(&terminal);
+        let header = rendered.lines().nth(2).unwrap();
+        assert!(header.contains("workspace-write · network on · …"));
+        assert!(header.contains("我的项目"));
+        assert!(header.width() <= 80);
+        assert_eq!(workspace_tail("a/👩‍💻/界", 6), "…👩‍💻/界");
+        assert_eq!(workspace_tail("界", 0), "");
+    }
+    #[test]
+    fn approval_target_stays_visible_when_choices_scroll() {
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let mut app = App {
+            ready: true,
+            turn: Some("turn-1".into()),
+            ..App::default()
+        };
+        app.event(
+            serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1",
+            "tool":"shell","params":{"command":"git status","directory":"/project/review"}}),
+        )
+        .unwrap();
+        let choices: Vec<_> = (0..12)
+            .map(|i| vec![format!("Choice {i}"), "Help text".into()])
+            .collect();
+        app.event(
+            serde_json::json!({"protocol":1,"type":"approval.requested","turn_id":"turn-1",
+            "request_id":"approval","title":"Approval","choices":choices,"selected":11}),
+        )
+        .unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let rendered = display(&terminal);
+        assert!(rendered.contains("Command: git status"));
+        assert!(rendered.contains("Directory: /project/review"));
+        assert!(rendered.contains("12. Choice 11"));
+        assert!(!app.details);
+    }
     #[test]
     fn renders_resize_unicode_code_and_secrets() {
         for (w, h) in [(1, 1), (12, 6), (40, 12), (80, 24), (120, 40)] {
@@ -265,6 +376,7 @@ mod tests {
             app.dialog = Some(super::super::app::Dialog {
                 id: "id".into(),
                 title: "API key".into(),
+                context: String::new(),
                 choices: vec![],
                 selected: 0,
                 secret: true,

@@ -37,6 +37,7 @@ pub struct Entry {
 pub struct Dialog {
     pub id: String,
     pub title: String,
+    pub context: String,
     pub choices: Vec<(String, String)>,
     pub selected: usize,
     pub secret: bool,
@@ -65,6 +66,7 @@ pub struct App {
     pub help: bool,
     pub scroll: usize,
     pub next_turn: u64,
+    pub approval_context: String,
 }
 
 impl App {
@@ -158,6 +160,7 @@ impl App {
                     }
                 }
                 if kind == "session.ready" || changed_session {
+                    self.approval_context.clear();
                     self.entries.clear();
                     self.scroll = 0;
                     if let Some(messages) = v["messages"].as_array() {
@@ -195,6 +198,19 @@ impl App {
             "output.delta" => self.delta("output", text("text")),
             "tool.started" => {
                 self.status = format!("Running {} · Esc cancels", safe(text("tool")));
+                let params = &v["params"];
+                self.approval_context = format!("Tool: {}", safe(text("tool")));
+                for (key, label) in [
+                    ("path", "File"),
+                    ("command", "Command"),
+                    ("directory", "Directory"),
+                ] {
+                    if let Some(target) = params[key].as_str() {
+                        let target: String = safe(target).chars().take(600).collect();
+                        self.approval_context
+                            .push_str(&format!("\n{label}: {target}"));
+                    }
+                }
                 self.add(
                     "action",
                     &format!(
@@ -206,6 +222,7 @@ impl App {
                 );
             }
             "tool.completed" => {
+                self.approval_context.clear();
                 let ok = v["success"]
                     .as_bool()
                     .ok_or("Tool result requires success")?;
@@ -256,6 +273,11 @@ impl App {
                     } else {
                         text("prompt")
                     }),
+                    context: if kind == "approval.requested" {
+                        self.approval_context.clone()
+                    } else {
+                        String::new()
+                    },
                     selected: selected.min(choices.len().saturating_sub(1)),
                     choices,
                     editor: Editor::default(),
@@ -274,6 +296,7 @@ impl App {
                 }
             }
             "turn.completed" => {
+                self.approval_context.clear();
                 self.status = safe(text("status"));
                 if !text("error").is_empty() {
                     self.add("error", text("error"), false);
@@ -303,6 +326,7 @@ impl App {
             return None;
         }
         let text = self.editor.take();
+        self.approval_context.clear();
         self.scroll = 0;
         match text.trim() {
             "/exit" | "/quit" | "exit" | "quit" => {
@@ -422,12 +446,61 @@ mod tests {
         let mut a = app();
         a.editor.insert("/login");
         a.submit();
+        a.approval_context = "File: unrelated.txt".into();
         a.event(json!({"protocol":1,"type":"input.requested","turn_id":"turn-1","request_id":"secret","prompt":"Token","secret":true})).unwrap();
+        assert!(a.dialog.as_ref().unwrap().context.is_empty());
         a.dialog.as_mut().unwrap().editor.insert("SECRET");
         let req = a.respond(None).unwrap();
         assert_eq!(req["text"], "SECRET");
         assert!(!format!("{:?}", a.entries).contains("SECRET"));
         assert_eq!(a.editor.text(), "");
+    }
+    #[test]
+    fn approvals_keep_the_target_without_reusing_completed_tool_context() {
+        let mut a = app();
+        a.editor.insert("Create a note");
+        a.submit();
+        a.event(json!({"protocol":1,"type":"tool.started","turn_id":"turn-1",
+            "tool":"write_file","params":{"path":"/project/native-note.txt","content":"PRIVATE_BODY"}})).unwrap();
+        a.event(
+            json!({"protocol":1,"type":"approval.requested","turn_id":"turn-1",
+            "request_id":"write","title":"Approval","choices":[["Allow",""],["Decline",""]]}),
+        )
+        .unwrap();
+        assert_eq!(
+            a.dialog.as_ref().unwrap().context,
+            "Tool: write_file\nFile: /project/native-note.txt"
+        );
+        assert!(!a.dialog.as_ref().unwrap().context.contains("PRIVATE_BODY"));
+        a.respond(Some(0));
+        a.event(json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"write_file","success":true})).unwrap();
+        a.event(
+            json!({"protocol":1,"type":"approval.requested","turn_id":"turn-1",
+            "request_id":"model","title":"Choose model","choices":[["Google",""]]}),
+        )
+        .unwrap();
+        assert!(a.dialog.as_ref().unwrap().context.is_empty());
+        a.respond(Some(0));
+        a.event(
+            json!({"protocol":1,"type":"tool.started","turn_id":"turn-1",
+            "tool":"shell","params":{"command":"git status","directory":"/project"}}),
+        )
+        .unwrap();
+        a.event(
+            json!({"protocol":1,"type":"approval.requested","turn_id":"turn-1",
+            "request_id":"shell","title":"Approval","choices":[["Allow",""]]}),
+        )
+        .unwrap();
+        assert_eq!(
+            a.dialog.as_ref().unwrap().context,
+            "Tool: shell\nCommand: git status\nDirectory: /project"
+        );
+        a.event(
+            json!({"protocol":1,"type":"turn.completed","turn_id":"turn-1","status":"cancelled"}),
+        )
+        .unwrap();
+        assert!(a.approval_context.is_empty());
+        assert!(a.dialog.is_none());
     }
     #[test]
     fn hostile_terminal_controls_are_removed() {
