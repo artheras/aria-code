@@ -308,6 +308,18 @@ def test_real_terminal_paste_approval_resize_cancel_and_restore(application):
         p.send_signal(__import__("signal").SIGWINCH)
         wait("Ask Aria")
         os.write(master, b"\x04")
+        # A terminal emulator continues reading while the application exits.
+        # Drain the resize/restore frames so a full PTY output buffer cannot
+        # block the frontend in draw() while this test waits for it to finish.
+        deadline = time.monotonic() + 5
+        while p.poll() is None and time.monotonic() < deadline:
+            if select.select([master], [], [], 0.05)[0]:
+                try:
+                    chunk = os.read(master, 65_536)
+                except OSError:
+                    break
+                raw.extend(chunk)
+                stream.feed(decoder.decode(chunk))
         p.wait(timeout=5)
         assert p.returncode == 0
         assert termios.tcgetattr(slave) == before
