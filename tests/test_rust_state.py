@@ -201,6 +201,7 @@ def test_native_resume_forwards_validated_snapshot_without_rewriting(state, tmp_
         "    print(json.dumps({'args':sys.argv[1:], 'cwd':os.getcwd(), 'home':os.environ['ARIA_HOME'], 'input':sys.stdin.read()}))\n"
         "    sys.exit(17)\n", encoding="utf-8")
     env["PYTHONPATH"] = str(tmp_path / "fake")
+    env["PYTHONIOENCODING"] = "cp1252"  # host locale must not corrupt UTF-8 pipes
     env["ARIA_HOME"] = "state"  # relative state must survive -C
     workspace = tmp_path / "workspace"
     workspace.mkdir()

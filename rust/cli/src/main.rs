@@ -266,6 +266,9 @@ fn run_python(
     command
         .args(["-c", "from aria_code.apps.cli.main import main; main()"])
         .args(args)
+        // Piped input/output must use the same UTF-8 contract as the tool bridge,
+        // including Windows where Python otherwise uses the locale code page.
+        .env("PYTHONIOENCODING", "utf-8")
         .current_dir(workspace);
     if let Some(root) = state_root {
         command.env("ARIA_HOME", root);
