@@ -43,7 +43,8 @@ def test_a_file_body_is_reported_by_size():
 
 def test_no_stream_writes_nothing_and_odd_values_still_serialise():
     ExecEvents(None).emit("turn.started", prompt="x")
-    assert json_safe({"p": Path("/a"), "s": {1}}) == {"p": "/a", "s": "{1}"}
+    path = Path("/a")
+    assert json_safe({"p": path, "s": {1}}) == {"p": str(path), "s": "{1}"}
 
 
 def test_visible_answer_streaming_is_opt_in_and_status_is_redacted(monkeypatch):

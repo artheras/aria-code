@@ -228,10 +228,19 @@ def test_real_agent_loop_writes_only_with_operator_approval(native, tmp_path, ap
 import socket
 from pathlib import Path
 from aria_code.apps.cli.providers import runtime_bridge
-def forbid_network(*args, **kwargs):
-    raise OSError("This fixture must not contact a real model")
-socket.socket.connect = forbid_network
-socket.socket.connect_ex = forbid_network
+_connect = socket.socket.connect
+_connect_ex = socket.socket.connect_ex
+def offline_connect(self, address):
+    # Windows asyncio implements socketpair with a loopback connection.
+    if isinstance(address, tuple) and address[0] in ("127.0.0.1", "::1"):
+        return _connect(self, address)
+    raise OSError("This fixture must not contact an external model")
+def offline_connect_ex(self, address):
+    if isinstance(address, tuple) and address[0] in ("127.0.0.1", "::1"):
+        return _connect_ex(self, address)
+    raise OSError("This fixture must not contact an external model")
+socket.socket.connect = offline_connect
+socket.socket.connect_ex = offline_connect_ex
 def provider_factory(**settings):
     calls = 0
     async def provider(prompt, history, *, on_token=None, **kwargs):

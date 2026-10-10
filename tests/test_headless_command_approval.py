@@ -10,7 +10,9 @@ total) or stopped (no output file).
 from __future__ import annotations
 
 import inspect
+import os
 import shlex
+import subprocess
 import sys
 
 from aria_code.apps.cli.headless import _apply_approval_decision, _headless_approval
@@ -40,7 +42,9 @@ def test_an_approved_script_runs_under_the_safe_policy(tmp_path, monkeypatch):
 
     monkeypatch.setenv("ARIA_ARTIFACT_ROOT", str(tmp_path / "artifacts"))
     (tmp_path / "calc.py").write_text("print(2 + 3)\n")
-    params = {"command": f"{shlex.quote(sys.executable)} calc.py", "policy": "safe", "cwd": str(tmp_path),
+    argv = [sys.executable, "calc.py"]
+    command = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
+    params = {"command": command, "policy": "safe", "cwd": str(tmp_path),
               "permission_mode": "workspace-write", "network_enabled": False}
     blocked = tool_run_command(dict(params), has_rich=False)
     assert not blocked["success"] and "blocked by policy" in blocked["error"]
