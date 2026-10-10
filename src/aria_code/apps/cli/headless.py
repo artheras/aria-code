@@ -11,7 +11,7 @@ on whichever module loaded last.
 
 from __future__ import annotations
 
-def _headless_approval(config: dict, auto_approve, always_allow):
+def _headless_approval(config: dict, auto_approve, always_allow, *, on_denied=None):
     """Answer approvals with what the operator granted up front, and nothing more.
 
     ``auto_approve`` and ``always_allow`` are read at call time from the module
@@ -23,8 +23,10 @@ def _headless_approval(config: dict, auto_approve, always_allow):
 
     def decide(tool_name: str, params: dict):
         if not (auto_approve() or tool_name in (always_allow() or ())):
-            return ApprovalDecision.deny("no one is here to approve it; pass --allow-tools or "
-                                         "--dangerously-skip-permissions")
+            reason = "no one is here to approve it; pass --allow-tools or --dangerously-skip-permissions"
+            if on_denied is not None:
+                on_denied(tool_name, reason)
+            return ApprovalDecision.deny(reason)
         if tool_name == "run_command":
             return ApprovalDecision.allow(policy=config.get("command_policy", "safe"), user_approved=True)
         return ApprovalDecision.allow()
@@ -188,10 +190,13 @@ class HeadlessMixin:
                     # stays, and the pre-approval answers it the way the REPL would.
                     confirm_tools=frozenset(_CONFIRM_TOOLS),
                     approval_callback=_headless_approval(
-                        self.config, lambda: _auto_approve_session, lambda: _session_always_allow),
+                        self.config, lambda: _auto_approve_session, lambda: _session_always_allow,
+                        on_denied=lambda tool, reason: events.status("approval_denied", f"{tool}: {reason}")),
                     approval_applier=_apply_approval_decision,
                     on_tool_call=events.tool_started,
                     on_tool_result=events.tool_completed,
+                    on_token=events.text_delta if events.streaming else None,
+                    on_status=events.status if events.streaming else None,
                     return_result=True,
                 )
                 _tools_used = list(getattr(_turn.final, "tools", []) or [])

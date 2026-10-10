@@ -5,6 +5,8 @@ on:
     paths:
       - 'rust/**'
       - 'src/aria_code/apps/cli/native_bridge.py'
+      - 'src/aria_code/apps/cli/exec_events.py'
+      - 'src/aria_code/apps/cli/headless.py'
       - 'src/aria_code/__init__.py'
       - 'src/aria_code/apps/cli/tools/**'
       - 'src/aria_code/runtime/**'
@@ -13,6 +15,8 @@ on:
       - 'tests/test_frozen_module_aliases.py'
       - 'tests/test_rust_cli.py'
       - 'tests/test_rust_state.py'
+      - 'tests/test_rust_stream.py'
+      - 'tests/test_exec_events.py'
       - 'tests/test_native_index.py'
       - 'scripts/benchmark_rust_cli.py'
       - '.github/workflows/rust-cli.yml'
@@ -21,6 +25,8 @@ on:
     paths:
       - 'rust/**'
       - 'src/aria_code/apps/cli/native_bridge.py'
+      - 'src/aria_code/apps/cli/exec_events.py'
+      - 'src/aria_code/apps/cli/headless.py'
       - 'src/aria_code/__init__.py'
       - 'src/aria_code/apps/cli/tools/**'
       - 'src/aria_code/runtime/**'
@@ -29,6 +35,8 @@ on:
       - 'tests/test_frozen_module_aliases.py'
       - 'tests/test_rust_cli.py'
       - 'tests/test_rust_state.py'
+      - 'tests/test_rust_stream.py'
+      - 'tests/test_exec_events.py'
       - 'tests/test_native_index.py'
       - 'scripts/benchmark_rust_cli.py'
       - '.github/workflows/rust-cli.yml'
@@ -76,7 +84,7 @@ jobs:
           cargo test --workspace --locked
           cargo build --release --locked
       - name: Exercise real executable and existing Python tools
-        run: python -m pytest tests/test_native_bridge.py tests/test_rust_cli.py tests/test_rust_state.py tests/test_frozen_module_aliases.py tests/test_workspace_files.py tests/test_native_index.py -q --timeout=30
+        run: python -m pytest tests/test_native_bridge.py tests/test_rust_cli.py tests/test_rust_state.py tests/test_rust_stream.py tests/test_exec_events.py tests/test_headless_command_approval.py tests/test_frozen_module_aliases.py tests/test_workspace_files.py tests/test_native_index.py -q --timeout=30
       - name: Measure entry points (no cloud calls)
         run: python scripts/benchmark_rust_cli.py --binary "$ARIA_NATIVE_BINARY" --output rust/target/benchmark.json
       - name: Upload opt-in prototype and measurements
