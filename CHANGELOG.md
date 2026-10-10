@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.135.0] — 2026-10-10
+
+- Merge pull request #179 from artheras/feature/rust-interactive-ui
+
 ## [0.134.0] — 2026-10-10
 
 - Merge pull request #178 from artheras/feature/rust-stream-rendering
