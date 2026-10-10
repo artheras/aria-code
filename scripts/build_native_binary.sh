@@ -88,6 +88,15 @@ echo "── Running PyInstaller (--onedir) ──"
   --collect-all prompt_toolkit \
   "$PROJECT_ROOT/src/aria_code/aria_cli.py"
 
+# The Rust project-graph indexer goes inside the CLI build's _internal/, so
+# the signing loop below signs it like every other Mach-O there.
+# SKIP_NATIVE_INDEXER=1 builds without it on a machine with no Rust toolchain.
+if [[ "${SKIP_NATIVE_INDEXER:-}" != "1" ]]; then
+  echo "── Bundling the native indexer (aria-native) ──"
+  (cd "$PROJECT_ROOT/rust" && rustup show >/dev/null)   # the toolchain rust-toolchain.toml pins
+  "$VENV_DIR/bin/python" "$PROJECT_ROOT/scripts/bundle_native_indexer.py" "$BIN_DIR"
+fi
+
 echo "── Running PyInstaller for the MCP server binary (--onedir) ──"
 # Separate entry point, separate binary: the MCP server (packages/aria_mcp/
 # server.py) has to be launchable on its own (`claude mcp add aria-code --

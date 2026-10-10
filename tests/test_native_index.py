@@ -236,3 +236,31 @@ def test_an_unreadable_or_rejected_file_is_left_to_python(tmp_path, monkeypatch)
     found, fallback = native_index.python_symbols(root, ["ok.py", "bad.py", "gone.py"], minimum=0)
     assert found == {"ok.py": [("fine", "def", 1, "")]}
     assert fallback == ["bad.py", "gone.py"]
+
+
+# ── finding the binary ─────────────────────────────────────────────────────
+
+def test_a_native_build_finds_the_indexer_it_bundles(tmp_path, monkeypatch):
+    import sys
+
+    name = "aria-native.exe" if sys.platform == "win32" else "aria-native"
+    (tmp_path / name).write_text("")
+    monkeypatch.delenv("ARIA_NATIVE_BINARY", raising=False)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    assert native_index.native_binary() == str(tmp_path / name)
+
+
+def test_an_explicit_binary_wins_and_a_source_install_uses_path(tmp_path, monkeypatch):
+    import sys
+
+    explicit = tmp_path / "custom-native"
+    explicit.write_text("")
+    monkeypatch.setenv("ARIA_NATIVE_BINARY", str(explicit))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "elsewhere"), raising=False)
+    assert native_index.native_binary() == str(explicit)
+    monkeypatch.delenv("ARIA_NATIVE_BINARY")
+    monkeypatch.delattr(sys, "frozen")
+    monkeypatch.setattr(native_index.shutil, "which", lambda name: f"/usr/bin/{name}")
+    assert native_index.native_binary() == "/usr/bin/aria-native"
