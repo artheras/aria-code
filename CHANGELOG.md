@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.137.0] — 2026-10-10
+
+- Merge pull request #180 from artheras/fix/rust-ui-approval-context
+
 ## [0.136.0] — 2026-10-10
 
 - Merge pull request #175 from artheras/feat/ship-native-indexer
