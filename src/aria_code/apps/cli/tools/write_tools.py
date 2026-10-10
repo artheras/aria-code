@@ -302,7 +302,7 @@ def _write_policy_confirm(p: pathlib.Path, content: str, existed: bool) -> tuple
     if has_rich and console:
         console.print()
         if existed:
-            old_content = p.read_text(errors="replace")
+            old_content = p.read_text(encoding="utf-8", errors="replace")
             diff = list(difflib.unified_diff(
                 old_content.splitlines(keepends=True),
                 content.splitlines(keepends=True),
@@ -723,7 +723,7 @@ def tool_edit_file(params: dict) -> dict:
         if not _is_safe(p, params):
             return {"success": False, "error": f"Access denied: path '{p}' is outside allowed directories"}
 
-        content = p.read_text(errors="replace")
+        content = p.read_text(encoding="utf-8", errors="replace")
         before_mode = _stat.S_IMODE(p.stat().st_mode)
         if content.count(old_str) == 0:
             preview = "\n".join(content.splitlines()[:10])
@@ -845,7 +845,7 @@ def tool_multi_edit(params: dict) -> dict:
         if not _is_safe(p, params):
             return {"success": False, "error": f"Access denied: path '{p}' is outside allowed directories"}
 
-        content = p.read_text(errors="replace")
+        content = p.read_text(encoding="utf-8", errors="replace")
         before_mode = _stat.S_IMODE(p.stat().st_mode)
         working = content
         applied_count = 0

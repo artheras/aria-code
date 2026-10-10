@@ -2,11 +2,30 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from aria_code.workspace import WorkspaceFiles, WorkspaceSecurity
 
 
 class WorkspaceFilesTests(unittest.TestCase):
+    def test_utf8_reads_and_search_ignore_legacy_system_encoding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "hello.txt"
+            target.write_text("hello 你好\n", encoding="utf-8")
+            original = Path.read_text
+
+            def legacy_default(path, *args, **kwargs):
+                kwargs.setdefault("encoding", "cp1252")
+                return original(path, *args, **kwargs)
+
+            files = WorkspaceFiles(WorkspaceSecurity(cwd=root))
+            with patch.object(Path, "read_text", legacy_default):
+                self.assertIn("hello 你好", files.read_file(str(target)).content)
+                result = files.search_code("你好", str(root), "*.txt")
+                self.assertEqual(result["count"], 1)
+                self.assertEqual(result["matches"][0]["content"], "hello 你好")
+
     def test_security_blocks_system_paths(self):
         security = WorkspaceSecurity()
         self.assertFalse(security.is_safe_path("/etc/passwd"))

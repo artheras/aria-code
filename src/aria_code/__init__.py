@@ -66,12 +66,20 @@ class _OneModulePerFile(_importlib_abc.MetaPathFinder, _importlib_abc.Loader):
     def __init__(self, root: str) -> None:
         self._own: dict = {}
         self.root = _os.path.normcase(root) + _os.sep
-        self.names = {
-            entry[:-3] if entry.endswith(".py") else entry
-            for entry in _os.listdir(root)
-            if entry != "__init__.py" and not entry.startswith(("_", "."))
-            and (entry.endswith(".py") or _os.path.isfile(_os.path.join(root, entry, "__init__.py")))
-        }
+        if not getattr(_sys, "frozen", False) and _os.path.isdir(root):
+            self.names = {
+                entry[:-3] if entry.endswith(".py") else entry
+                for entry in _os.listdir(root)
+                if entry != "__init__.py" and not entry.startswith(("_", "."))
+                and (entry.endswith(".py") or _os.path.isfile(_os.path.join(root, entry, "__init__.py")))
+            }
+        else:
+            # Frozen Python modules live in PYZ, not a physical source tree.
+            # PyInstaller's pkgutil hook enumerates that archive even when the
+            # package directory is absent, or contains only bundled data files.
+            from pkgutil import iter_modules
+            self.names = {module.name for module in iter_modules([root])
+                          if not module.name.startswith(("_", "."))}
 
     def find_spec(self, fullname, path=None, target=None):
         if fullname.partition(".")[0] not in self.names:

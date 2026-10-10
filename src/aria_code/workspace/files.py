@@ -147,7 +147,7 @@ class WorkspaceFiles:
                 f"File too large: {size:,} bytes (max 2 MB). "
                 "Use offset/limit parameters to read sections."
             )
-        text = target.read_text(errors="replace")
+        text = target.read_text(encoding="utf-8", errors="replace")
         lines = text.splitlines()
         total_lines = len(lines)
         if not offset and not limit and size > self.LARGE_FILE_BYTES:
@@ -202,7 +202,7 @@ class WorkspaceFiles:
             if not safe_file.is_file() or safe_file.stat().st_size > self.MAX_SEARCH_BYTES:
                 continue
             try:
-                lines = safe_file.read_text(errors="replace").splitlines()
+                lines = safe_file.read_text(encoding="utf-8", errors="replace").splitlines()
             except Exception:
                 continue
             for line_number, line in enumerate(lines, 1):

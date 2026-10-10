@@ -59,10 +59,10 @@ def test_reads_searches_and_approved_writes_through_existing_tools(native, tmp_p
     assert result.returncode == 0, (result.stderr.decode(), result.stdout.decode())
     assert json.loads(result.stdout)["result"]["success"]  # no Rich text on stdout
     assert "你好" in (tmp_path / "你好.txt").read_text(encoding="utf-8")
-    edit = json.dumps({"path": "你好.txt", "old_string": "complete", "new_string": "edited"})
+    edit = json.dumps({"path": "你好.txt", "old_string": "Unicode 你好", "new_string": "Unicode 世界"})
     result = call("tool", "--approve-write", "edit_file", edit)
     assert result.returncode == 0, result.stderr.decode()
-    assert "edited" in (tmp_path / "你好.txt").read_text(encoding="utf-8")
+    assert (tmp_path / "你好.txt").read_text(encoding="utf-8") == "a complete file with Unicode 世界\n"
 
 
 def test_approved_write_still_cannot_leave_workspace(native, tmp_path):

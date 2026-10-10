@@ -5,10 +5,12 @@ on:
     paths:
       - 'rust/**'
       - 'src/aria_code/apps/cli/native_bridge.py'
+      - 'src/aria_code/__init__.py'
       - 'src/aria_code/apps/cli/tools/**'
       - 'src/aria_code/runtime/**'
       - 'src/aria_code/workspace/**'
       - 'tests/test_native_bridge.py'
+      - 'tests/test_frozen_module_aliases.py'
       - 'tests/test_rust_cli.py'
       - 'scripts/benchmark_rust_cli.py'
       - '.github/workflows/rust-cli.yml'
@@ -17,10 +19,12 @@ on:
     paths:
       - 'rust/**'
       - 'src/aria_code/apps/cli/native_bridge.py'
+      - 'src/aria_code/__init__.py'
       - 'src/aria_code/apps/cli/tools/**'
       - 'src/aria_code/runtime/**'
       - 'src/aria_code/workspace/**'
       - 'tests/test_native_bridge.py'
+      - 'tests/test_frozen_module_aliases.py'
       - 'tests/test_rust_cli.py'
       - 'scripts/benchmark_rust_cli.py'
       - '.github/workflows/rust-cli.yml'
@@ -59,7 +63,7 @@ jobs:
         working-directory: rust
         run: rustup show
       - name: Install Python runtime and regression runner
-        run: python -m pip install -e . pytest pytest-timeout
+        run: python -m pip install -e . pytest pytest-timeout pytest-asyncio pyinstaller
       - name: Format, lint, test and build Rust
         working-directory: rust
         run: |
@@ -68,7 +72,7 @@ jobs:
           cargo test --workspace --locked
           cargo build --release --locked
       - name: Exercise real executable and existing Python tools
-        run: python -m pytest tests/test_native_bridge.py tests/test_rust_cli.py -q --timeout=30
+        run: python -m pytest tests/test_native_bridge.py tests/test_rust_cli.py tests/test_frozen_module_aliases.py tests/test_workspace_files.py -q --timeout=30
       - name: Measure entry points (no cloud calls)
         run: python scripts/benchmark_rust_cli.py --binary "$ARIA_NATIVE_BINARY" --output rust/target/benchmark.json
       - name: Upload opt-in prototype and measurements
@@ -79,4 +83,3 @@ jobs:
             rust/target/release/aria-native${{ matrix.exe }}
             rust/target/benchmark.json
           if-no-files-found: error
-
