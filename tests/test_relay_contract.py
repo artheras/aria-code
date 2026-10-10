@@ -34,11 +34,13 @@ if os.environ.get("GITHUB_ACTIONS"):
 httpx = pytest.importorskip("httpx")
 ws_client = pytest.importorskip("websockets.sync.client", reason="relay client dependency")
 pytest.importorskip("fastapi", reason="relay server dependency")
+pytest.importorskip("uvicorn", reason="relay server dependency")
 
 REPO = Path(__file__).resolve().parents[1]
 TOKEN_A, TOKEN_B = "a" * 43, "b" * 43
 CODE_A = "ABCDEFGHJKLM"
 VERIFY = "tok"
+PYTHON_RELAY = [sys.executable, "-m", "aria_code.aria_relay_server"]
 
 
 # ── a fake Feishu ───────────────────────────────────────────────────────────
@@ -106,6 +108,14 @@ class FakeFeishu:
 
 # ── a relay process ────────────────────────────────────────────────────────
 
+def _ws(url: str, **kwargs):
+    """A WebSocket that ignores proxy settings (websockets >= 15 honours them; older has none)."""
+    try:
+        return ws_client.connect(url, proxy=None, **kwargs)
+    except TypeError:
+        return ws_client.connect(url, **kwargs)
+
+
 def _free_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
@@ -113,11 +123,12 @@ def _free_port() -> int:
 
 
 class Relay:
-    def __init__(self, tmp_path: Path, feishu: FakeFeishu, env: dict[str, str]) -> None:
+    def __init__(self, tmp_path: Path, feishu: FakeFeishu, env: dict[str, str],
+                 command: str | None = None) -> None:
         self.port = _free_port()
         self.feishu = feishu
-        command = os.environ.get("ARIA_RELAY_COMMAND")
-        argv = shlex.split(command) if command else [sys.executable, "-m", "aria_code.aria_relay_server"]
+        command = command or os.environ.get("ARIA_RELAY_COMMAND")
+        argv = shlex.split(command) if command else PYTHON_RELAY
         base_env = {k: v for k, v in os.environ.items()
                     if not k.startswith(("FEISHU_", "RELAY_", "K_SERVICE"))}
         self.env = {
@@ -151,7 +162,7 @@ class Relay:
         raise AssertionError(f"relay did not start: {self.log.read_text(errors='replace')}")
 
     def connect(self, client_id="aria-a", token=TOKEN_A, code=CODE_A, **extra):
-        ws = ws_client.connect(f"ws://127.0.0.1:{self.port}/ws", proxy=None, open_timeout=10)
+        ws = _ws(f"ws://127.0.0.1:{self.port}/ws", open_timeout=10)
         ws.send(json.dumps({"type": "register", "client_id": client_id, "token": token,
                             "bind_code": code, **extra}))
         return ws, json.loads(ws.recv(timeout=10))
@@ -285,7 +296,7 @@ class TestVerification:
 
 class TestRegistration:
     def test_the_first_message_must_be_register(self, relay):
-        with ws_client.connect(f"ws://127.0.0.1:{relay.port}/ws", proxy=None) as ws:
+        with _ws(f"ws://127.0.0.1:{relay.port}/ws") as ws:
             ws.send(json.dumps({"type": "hello"}))
             assert json.loads(ws.recv(timeout=5)) == {"ok": False, "reason": "first message must be register"}
 
@@ -460,3 +471,37 @@ class TestCardPresses:
             answer = relay.event(_press(card)).json()
             assert time.time() - started < 3.5
         assert answer == {"toast": {"type": "error", "content": "Aria 本机未及时响应，请稍后再试。"}}
+
+
+# ── switching implementations ──────────────────────────────────────────────
+
+@pytest.mark.skipif(not os.environ.get("ARIA_RELAY_COMMAND"), reason="needs a second implementation")
+@pytest.mark.parametrize("direction", ["python-then-other", "other-then-python"])
+def test_a_database_carries_over_between_implementations(tmp_path, feishu, direction):
+    """Cutting over keeps every binding and every machine's credentials."""
+    other = os.environ["ARIA_RELAY_COMMAND"]
+    python = shlex.join(PYTHON_RELAY)
+    first_command, second_command = (python, other) if direction == "python-then-other" else (other, python)
+
+    first = Relay(tmp_path, feishu, {}, command=first_command)
+    try:
+        ws, answer = first.connect()
+        with ws:
+            assert answer["ok"]
+            _bind(first)
+    finally:
+        first.close()
+
+    second = Relay(tmp_path, feishu, {}, command=second_command)
+    try:
+        assert second.http.get("/status").json()["total_bindings"] == 1
+        ws, answer = second.connect()          # the same machine is recognised
+        with ws:
+            assert answer["ok"]
+            second.event(_message(event_id="ev_after_cutover"))
+            assert _frame(ws, "message")["payload"]["header"]["event_id"] == "ev_after_cutover"
+        ws, answer = second.connect(token=TOKEN_B)   # and nobody else is let in as it
+        ws.close()
+        assert "another installation" in answer["reason"]
+    finally:
+        second.close()
