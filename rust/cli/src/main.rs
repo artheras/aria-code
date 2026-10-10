@@ -1,3 +1,4 @@
+mod chat;
 mod render;
 mod sessions;
 mod state;
@@ -15,6 +16,7 @@ const MAX_INDEX_REQUEST: u64 = 256 * 1024 * 1024;
 const HELP: &str = "aria-native — experimental Rust entry point (Python runtime required for tools/chat)
 
 Usage:
+  aria-native [--python EXE] [-C DIR] [--timeout-ms N] chat [--jsonl] [--resume ID] [-- PYTHON OPTIONS...]
   aria-native [--python EXE] [-C DIR] run [--] [ARIA ARGUMENTS...]
   aria-native [--python EXE] [-C DIR] [--timeout-ms N] exec [--jsonl] PROMPT [-- PYTHON OPTIONS...]
   aria-native render [--jsonl] < EVENTS.jsonl
@@ -43,7 +45,9 @@ Exec options: --model, --url, --thinking, --local, --allow-tools,
 --dangerously-skip-permissions, --add-dir, --read-dir. Approvals are never added.
 Use --python or ARIA_PYTHON to select the installed Python Aria environment.
 Index imports/symbols read one JSON request on stdin and emit one JSON response.
-This prototype does not replace the stable aria/aria-code commands or their TUI.
+Chat is a persistent Rust terminal interface; --jsonl exposes its bidirectional application protocol.
+Chat options match exec; --resume ID restores a saved session. F1 shows native shortcuts.
+This prototype does not replace the stable aria/aria-code commands.
 Config/session inspection and update metadata checking execute in Rust without Python.
 Config show includes only non-secret stored preferences, not the effective project config.
 Update --current is the installed aria-code product version, not the prototype version.
@@ -69,6 +73,10 @@ enum Mode {
     Version,
     Index(IndexKind),
     Run(Vec<OsString>),
+    Chat {
+        args: Vec<OsString>,
+        jsonl: bool,
+    },
     Exec {
         prompt: String,
         args: Vec<OsString>,
@@ -140,6 +148,34 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                     rest.remove(0);
                 }
                 break Mode::Run(rest);
+            }
+            Some("chat") => {
+                let mut rest = Vec::new();
+                let mut jsonl = false;
+                let mut resume = None;
+                while let Some(arg) = args.next() {
+                    if arg == "--" {
+                        rest.extend(args);
+                        break;
+                    }
+                    match arg.to_str() {
+                        Some("--jsonl") => jsonl = true,
+                        Some("--resume") => {
+                            let id = utf8(args.next(), "--resume requires a session ID")?;
+                            sessions::validate_id(&id)?;
+                            resume = Some(id);
+                        }
+                        _ => rest.push(arg),
+                    }
+                }
+                stream::validate_args(&rest)?;
+                if let Some(id) = resume {
+                    rest.extend([OsString::from("--resume"), id.into()]);
+                }
+                if !timeout_set {
+                    timeout = Duration::from_secs(300);
+                }
+                break Mode::Chat { args: rest, jsonl };
             }
             Some("render") => {
                 let jsonl = match args.next().as_ref().and_then(|a| a.to_str()) {
@@ -399,6 +435,13 @@ fn run(options: Options) -> Result<i32, String> {
             Ok(0)
         }
         Mode::Run(args) => run_python(options.python, options.workspace, args, None),
+        Mode::Chat { args, jsonl } => chat::run(
+            &options.python,
+            &options.workspace,
+            &args,
+            options.timeout,
+            jsonl,
+        ),
         Mode::Render(jsonl) => render::replay(&mut std::io::stdin().lock(), jsonl),
         Mode::Exec {
             prompt,

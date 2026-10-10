@@ -92,6 +92,10 @@ def _git(*args: str, cwd: Path | str, env: Optional[dict] = None,
     try:
         completed = subprocess.run(
             ["git", *args], cwd=str(cwd), input=input_data, capture_output=True,
+            # Automated Git commands must not inherit the application protocol
+            # pipe (or wait for keyboard input). Explicit patch/blob input still
+            # gets its own pipe, closed by communicate().
+            stdin=subprocess.DEVNULL if input_data is None else None,
             timeout=timeout, check=False, env={**os.environ, **(env or {})},
         )
     except (OSError, subprocess.SubprocessError) as exc:

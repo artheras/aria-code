@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import json
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -35,8 +36,20 @@ class SessionManager:
             "updated_at": datetime.now().isoformat(),
         }
         path = self._path(session_id)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        # A killed terminal must leave either the prior session or the new
+        # one, never a half-written JSON file that cannot be resumed.
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.root,
+                                             prefix=".session-", suffix=".tmp", delete=False) as f:
+                temporary = f.name
+                json.dump(data, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporary, path)
+        finally:
+            if temporary and os.path.exists(temporary):
+                os.unlink(temporary)
 
     def load_session(self, session_id: str) -> Optional[dict]:
         path = self._path(session_id)
