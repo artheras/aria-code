@@ -225,6 +225,10 @@ def _may_send(client_id: str, request: dict) -> str:
     else:
         return "op must be reply or send"
     now = time.time()
+    # Forget clients with no send in the last minute, so the table holds only
+    # recent senders rather than every client that ever sent.
+    for idle in [cid for cid, times in _send_times.items() if not times or times[-1] <= now - 60]:
+        _send_times.pop(idle, None)
     recent = [t for t in _send_times.get(client_id, []) if t > now - 60]
     if len(recent) >= _SEND_LIMIT:
         return "rate limit"

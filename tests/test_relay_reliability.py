@@ -209,3 +209,13 @@ class TestTenantToken:
 def relay_module():
     import aria_relay_server
     return aria_relay_server
+
+
+class TestSendRecords:
+    def test_clients_idle_for_a_minute_are_forgotten(self, relay):
+        relay._remember_forward("aria-a", "om_1", "")
+        relay._send_times["aria-gone"] = [time.time() - 120]
+        relay._send_times["aria-recent"] = [time.time() - 5]
+        assert relay._may_send("aria-a", {"op": "reply", "target": "om_1", "msg_type": "text",
+                                          "content": "{}"}) == ""
+        assert set(relay._send_times) == {"aria-a", "aria-recent"}
