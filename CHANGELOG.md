@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.131.0] — 2026-10-10
+
+- Merge pull request #170 from artheras/feature/rust-runtime-state
+
 ## [0.130.0] — 2026-10-10
 
 - Merge pull request #174 from artheras/feat/relay-contract
