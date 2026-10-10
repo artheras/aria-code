@@ -43,14 +43,23 @@ func (f *fakeDocuments) Set(_ context.Context, c, id string, data map[string]any
 	return nil
 }
 
-func (f *fakeDocuments) Create(ctx context.Context, c, id string, data map[string]any) (bool, error) {
+// Create is atomic, like Firestore's: the existence check and the write
+// happen under one lock, so concurrent creates have exactly one winner.
+func (f *fakeDocuments) Create(_ context.Context, c, id string, data map[string]any) (bool, error) {
 	f.mu.Lock()
-	_, exists := f.data[c][id]
-	f.mu.Unlock()
-	if exists {
+	defer f.mu.Unlock()
+	if _, exists := f.data[c][id]; exists {
 		return false, nil
 	}
-	return true, f.Set(ctx, c, id, data, false)
+	if f.data[c] == nil {
+		f.data[c] = map[string]map[string]any{}
+	}
+	doc := map[string]any{}
+	for k, v := range data {
+		doc[k] = v
+	}
+	f.data[c][id] = doc
+	return true, nil
 }
 
 func (f *fakeDocuments) Delete(_ context.Context, c, id string) error {
