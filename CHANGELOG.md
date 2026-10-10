@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.130.0] — 2026-10-10
+
+- Merge pull request #174 from artheras/feat/relay-contract
+
 ## [0.129.0] — 2026-10-10
 
 - Merge pull request #173 from artheras/fix/relay-routing
