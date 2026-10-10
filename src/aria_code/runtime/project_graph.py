@@ -356,7 +356,7 @@ def _pick(candidates: Sequence[str], importer: str) -> Optional[str]:
 
 def _python_imports(root: Path, path: str, modules: dict) -> list[str]:
     try:
-        tree = ast.parse((root / path).read_text(encoding="utf-8", errors="replace"))
+        tree = ast.parse((root / path).read_text(encoding="utf-8-sig", errors="replace"))
     except (SyntaxError, ValueError, OSError, RecursionError):
         return []
     package = list(Path(path).parent.parts)
@@ -386,7 +386,7 @@ def _python_imports(root: Path, path: str, modules: dict) -> list[str]:
 
 def _js_imports(root: Path, path: str, files) -> list[str]:
     try:
-        source = (root / path).read_text(encoding="utf-8", errors="replace")
+        source = (root / path).read_text(encoding="utf-8-sig", errors="replace")
     except OSError:
         return []
     found = []

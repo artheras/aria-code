@@ -203,3 +203,17 @@ func TestConcurrentForwardsAndAnswersAreSafe(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestClientsIdleForAMinuteAreForgotten(t *testing.T) {
+	ctx := context.Background()
+	r := testRelay(t, config{})
+	r.rememberForward(ctx, "aria-a", "om_1", "")
+	r.sendTimes["aria-gone"] = []time.Time{time.Now().Add(-2 * time.Minute)}
+	r.sendTimes["aria-recent"] = []time.Time{time.Now().Add(-5 * time.Second)}
+	if got, _ := r.maySend(ctx, "aria-a", send("reply", "om_1", "text")); got != "" {
+		t.Fatalf("refused: %s", got)
+	}
+	if _, kept := r.sendTimes["aria-gone"]; kept || len(r.sendTimes) != 2 {
+		t.Fatalf("send records: %v", r.sendTimes)
+	}
+}

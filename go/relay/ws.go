@@ -204,6 +204,13 @@ func (r *relay) maySend(ctx context.Context, client string, request frame) (stri
 	now := time.Now()
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// Forget clients with no send in the last minute, so the table holds only
+	// recent senders rather than every client that ever sent.
+	for id, times := range r.sendTimes {
+		if len(times) == 0 || !times[len(times)-1].After(now.Add(-time.Minute)) {
+			delete(r.sendTimes, id)
+		}
+	}
 	recent := r.sendTimes[client][:0:0]
 	for _, at := range r.sendTimes[client] {
 		if at.After(now.Add(-time.Minute)) {
