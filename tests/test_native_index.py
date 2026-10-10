@@ -31,7 +31,12 @@ def _build(root: Path, monkeypatch, native: bool) -> dict[str, list[str]]:
     graph = pg.ProjectGraph(root).build()
     if native:
         assert calls and calls[0] is not None, "the native resolver was not used"
-    return {path: info["imports"] for path, info in graph.files.items()}
+    return {_slash(path): [_slash(i) for i in info["imports"]] for path, info in graph.files.items()}
+
+
+def _slash(path: str) -> str:
+    """Windows paths use backslashes; the expectations below are written with '/'."""
+    return path.replace("\\", "/")
 
 
 def _write(root: Path, files: dict[str, str | bytes]) -> Path:
@@ -200,7 +205,8 @@ def _symbols(root: Path, monkeypatch, native: bool) -> dict[str, list[tuple]]:
     repo = RepoMap(root).build()
     if native:
         assert calls and calls[0] is not None, "the native extractor was not used"
-    return {path: [(s.name, s.kind, s.line, s.parent) for s in entry.symbols] for path, entry in repo.files.items()}
+    return {_slash(path): [(s.name, s.kind, s.line, s.parent) for s in entry.symbols]
+            for path, entry in repo.files.items()}
 
 
 @needs_binary

@@ -394,7 +394,7 @@ def _js_imports(root: Path, path: str, files) -> list[str]:
     for spec in _JS_IMPORT.findall(source):
         base = os.path.normpath(str(folder / spec))
         candidates = [base, *(base + ext for ext in _JS_EXTENSIONS),
-                      *(f"{base}/index{ext}" for ext in _JS_EXTENSIONS)]
+                      *(os.path.join(base, f"index{ext}") for ext in _JS_EXTENSIONS)]
         hit = next((c for c in candidates if c in files), None)
         if hit:
             found.append(hit)
