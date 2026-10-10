@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.127.0] — 2026-10-10
+
+- Merge pull request #169 from artheras/fix/native-python-compat
+
 ## [0.126.0] — 2026-10-09
 
 - Merge pull request #167 from artheras/feat/behavior-evals
