@@ -9,6 +9,8 @@
 //! for the caller to parse itself, so a grammar gap here never becomes a
 //! missing edge.
 
+pub mod symbols;
+
 use rayon::prelude::*;
 use regex::Regex;
 use rustpython_parser::{ast, Parse};
@@ -93,7 +95,7 @@ fn imports(
     Outcome::Found(Vec::new())
 }
 
-fn read(root: &Path, path: &str) -> Option<String> {
+pub(crate) fn read(root: &Path, path: &str) -> Option<String> {
     let bytes = std::fs::read(root.join(path)).ok()?;
     // Python reads with errors="replace" and universal newlines.
     Some(
@@ -101,6 +103,25 @@ fn read(root: &Path, path: &str) -> Option<String> {
             .replace("\r\n", "\n")
             .replace('\r', "\n"),
     )
+}
+
+pub(crate) enum Parsed {
+    Suite(Vec<ast::Stmt>),
+    /// Text `ast.parse` refuses outright: Python finds nothing in it.
+    Invalid,
+    /// This parser refused it; Python must decide.
+    Rejected,
+}
+
+pub(crate) fn parse_python(source: &str, path: &str) -> Parsed {
+    // CPython rejects a byte-order mark or NUL inside decoded text.
+    if source.starts_with('\u{feff}') || source.contains('\0') {
+        return Parsed::Invalid;
+    }
+    match ast::Suite::parse(source, path) {
+        Ok(suite) => Parsed::Suite(suite),
+        Err(_) => Parsed::Rejected,
+    }
 }
 
 // ── paths ──────────────────────────────────────────────────────────────────
@@ -220,12 +241,10 @@ fn python_imports(root: &Path, path: &str, modules: &HashMap<String, Vec<String>
     let Some(source) = read(root, path) else {
         return Outcome::Found(Vec::new());
     };
-    // CPython rejects a byte-order mark inside decoded text; so must we.
-    if source.starts_with('\u{feff}') || source.contains('\0') {
-        return Outcome::Found(Vec::new());
-    }
-    let Ok(suite) = ast::Suite::parse(&source, path) else {
-        return Outcome::Fallback;
+    let suite = match parse_python(&source, path) {
+        Parsed::Suite(suite) => suite,
+        Parsed::Invalid => return Outcome::Found(Vec::new()),
+        Parsed::Rejected => return Outcome::Fallback,
     };
     let mut package: Vec<String> = parts(path).into_iter().map(String::from).collect();
     package.pop();
