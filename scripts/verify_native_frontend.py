@@ -38,6 +38,18 @@ def main(directory: str) -> None:
         version = run([frontend, "--version"]).strip()
         assert version.startswith("aria-code "), version
         assert run([worker, "--aria-worker", "cli", "--version"]).strip() == version
+        if os.name != "nt":
+            aliases = Path(temp) / "bin"
+            aliases.mkdir()
+            for name in ("aria", "aria-code"):
+                alias = aliases / name
+                alias.symlink_to(frontend)
+                assert run([alias, "--version"]).strip() == version
+                # This also needs worker discovery through the command symlink.
+                assert "aria-native —" not in run([alias, "--help"])
+            linked_helper = aliases / "aria-native"
+            linked_helper.symlink_to(helper)
+            helper = linked_helper
         # Tests runtime::default_python from _internal too, plus containment,
         # worker handshake, real application imports and protocol shutdown.
         process = subprocess.Popen([str(helper), "chat", "--jsonl"], cwd=temp, env=env,

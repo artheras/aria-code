@@ -1,6 +1,7 @@
 """Interpreter/frozen entry dispatch must not recurse or change pipe output."""
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -8,6 +9,21 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.skipif(not os.environ.get("ARIA_NATIVE_BINARY"), reason="build Rust first")
+@pytest.mark.parametrize("name", ["aria", "aria-code", "aria-code-bin"])
+def test_installed_names_keep_product_version_without_private_app_flag(tmp_path, name):
+    from aria_code._version import __version__
+    alias = tmp_path / (name + (".exe" if os.name == "nt" else ""))
+    if os.name == "nt":
+        shutil.copy2(os.environ["ARIA_NATIVE_BINARY"], alias)
+    else:
+        alias.symlink_to(os.environ["ARIA_NATIVE_BINARY"])
+    result = subprocess.run([str(alias), "--version"], capture_output=True, text=True, timeout=10,
+                            env=dict(os.environ, ARIA_PYTHON=sys.executable, PYTHONPATH=str(ROOT / "src")))
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == f"aria-code {__version__}"
 
 
 @pytest.mark.parametrize("entry", ["console", "frozen-source"])

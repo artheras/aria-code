@@ -542,9 +542,12 @@ fn main() {
         args.remove(0);
     }
     let formal = explicit
+        || env::args_os()
+            .next()
+            .is_some_and(|name| frontend::formal_executable(&PathBuf::from(name)))
         || env::current_exe()
             .ok()
-            .is_some_and(|p| p.file_stem().is_some_and(|s| s == "aria-code-bin"));
+            .is_some_and(|p| frontend::formal_executable(&p));
     if formal && (args == [OsString::from("--version")] || args == [OsString::from("-V")]) {
         println!("aria-code {}", env!("ARIA_PRODUCT_VERSION"));
         return;

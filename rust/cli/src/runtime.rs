@@ -5,7 +5,8 @@ pub fn default_python() -> std::ffi::OsString {
     if let Some(value) = env::var_os("ARIA_PYTHON") {
         return value;
     }
-    if let Ok(exe) = env::current_exe() {
+    // macOS may return the command symlink, unlike Linux's resolved /proc path.
+    if let Ok(exe) = env::current_exe().and_then(|exe| exe.canonicalize()) {
         if let Some(parent) = exe.parent() {
             // Both the frontend and its _internal indexer discover the worker.
             for root in [Some(parent), parent.parent()].into_iter().flatten() {

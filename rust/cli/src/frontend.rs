@@ -1,7 +1,20 @@
 //! Formal aria / aria-code argument routing. Legacy/headless commands retain
 //! their output contracts; supported interactive invocations use the Rust UI.
 use crate::{runtime, Mode, Options};
-use std::{env, ffi::OsString, path::PathBuf, time::Duration};
+use std::{
+    env,
+    ffi::OsString,
+    path::{Path, PathBuf},
+    time::Duration,
+};
+
+pub fn formal_executable(path: &Path) -> bool {
+    path.file_stem().is_some_and(|name| {
+        ["aria", "aria-code", "aria-code-bin"]
+            .iter()
+            .any(|expected| name == *expected)
+    })
+}
 
 pub fn options(mut args: Vec<OsString>, terminal: bool) -> Result<Options, String> {
     let original = args.clone();
@@ -83,6 +96,21 @@ pub fn options(mut args: Vec<OsString>, terminal: bool) -> Result<Options, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn installed_names_select_the_formal_frontend() {
+        for name in [
+            "aria",
+            "aria-code",
+            "aria-code-bin",
+            "aria-code.exe",
+            "aria-code-bin.exe",
+        ] {
+            assert!(formal_executable(Path::new(name)), "{name}");
+        }
+        for name in ["aria-native", "aria-native.exe", "python3", "other"] {
+            assert!(!formal_executable(Path::new(name)), "{name}");
+        }
+    }
     fn args(values: &[&str], terminal: bool) -> Options {
         options(values.iter().map(OsString::from).collect(), terminal).unwrap()
     }

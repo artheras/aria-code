@@ -277,7 +277,7 @@ print(sys.stdin.readline().strip())
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix PTY; Windows uses TestBackend and protocol tests")
-@pytest.mark.parametrize("entry", ["prototype", "default", "console"])
+@pytest.mark.parametrize("entry", ["prototype", "default", "console", "installed-alias"])
 def test_real_terminal_paste_approval_resize_cancel_and_restore(application, entry):
     import codecs
     import fcntl
@@ -296,6 +296,10 @@ def test_real_terminal_paste_approval_resize_cancel_and_restore(application, ent
         command = [os.environ["ARIA_NATIVE_BINARY"], "--python", sys.executable, "chat"]
     elif entry == "default":
         command = [os.environ["ARIA_NATIVE_BINARY"], "--app"]
+    elif entry == "installed-alias":
+        alias = project / "aria-code"
+        alias.symlink_to(os.environ["ARIA_NATIVE_BINARY"])
+        command = [str(alias)]
     else:
         command = [sys.executable, "-c", "from aria_code.apps.cli.main import main; main()"]
     terminal_env = dict(env, TERM="xterm-256color", ARIA_THEME="dark", ARIA_PYTHON=sys.executable)
