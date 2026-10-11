@@ -6,7 +6,7 @@ use std::{
     ffi::{OsStr, OsString},
     io::{BufReader, Read, Write},
     path::Path,
-    process::{Command, Stdio},
+    process::Stdio,
     sync::mpsc::{self, Receiver, SyncSender, TrySendError},
     thread,
 };
@@ -128,7 +128,7 @@ impl Drop for Session {
         unsafe {
             libc::kill(root as i32, libc::SIGSTOP);
         }
-        if let Ok(mut scan) = Command::new("/bin/ps")
+        if let Ok(mut scan) = std::process::Command::new("/bin/ps")
             .args(["-eo", "pid=,ppid="])
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
