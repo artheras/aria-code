@@ -9,6 +9,8 @@ on:
   pull_request:
     paths:
       - 'go/relay/**'
+      - 'cloudbuild.go.yaml'
+      - 'docker-compose.go.yml'
       - 'src/aria_code/aria_relay_server.py'
       - 'src/aria_code/relay_store.py'
       - 'tests/test_relay_contract.py'
@@ -17,6 +19,8 @@ on:
     branches: [main]
     paths:
       - 'go/relay/**'
+      - 'cloudbuild.go.yaml'
+      - 'docker-compose.go.yml'
       - 'src/aria_code/aria_relay_server.py'
       - 'src/aria_code/relay_store.py'
       - 'tests/test_relay_contract.py'
@@ -74,6 +78,7 @@ jobs:
           docker run -d --name relay -p 18766:8765 aria-relay-go
           for attempt in {1..20}; do
             if curl --silent --show-error --fail http://127.0.0.1:18766/status; then
+              docker exec relay /aria-relay --healthcheck
               docker rm -f relay >/dev/null
               exit 0
             fi

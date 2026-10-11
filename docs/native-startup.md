@@ -29,3 +29,12 @@ PDF, Word, Excel and dataframe parsers are loaded when `/file` is first used,
 rather than constructing an unused file-analysis session before the prompt.
 Registering the spreadsheet tool checks availability without loading openpyxl;
 that runtime is loaded when a workbook is first generated.
+
+
+Native releases now launch the Rust frontend directly. `aria-code-worker` keeps
+the existing Python model/tool runtime beside the frontend. Opening the terminal
+does not unpack a Python one-file archive or require a system Python; worker
+startup is shown in the native interface. The bundled worker and frontend are
+verified before release, including real file access and orderly shutdown.
+The original robot spans/colours are reused unchanged. `ARIA_FRONTEND=python`
+selects the previous UI; headless and pip-only installations remain supported.

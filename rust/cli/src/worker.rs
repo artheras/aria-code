@@ -134,14 +134,9 @@ pub fn call(
     let signal = Arc::clone(&cancelled);
     ctrlc::set_handler(move || signal.store(true, Ordering::SeqCst))
         .map_err(|e| format!("Signal handler: {e}"))?;
-    let mut command = Command::new(python);
+    let mut command = crate::runtime::command(python, "bridge");
     command
-        .args([
-            "-u",
-            "-m",
-            "aria_code.apps.cli.native_bridge",
-            "--workspace",
-        ])
+        .arg("--workspace")
         .arg(&workspace)
         .current_dir(&workspace)
         .env("PYTHONIOENCODING", "utf-8")

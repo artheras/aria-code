@@ -5,7 +5,7 @@ use std::{
     ffi::{OsStr, OsString},
     io::{BufReader, Write},
     path::Path,
-    process::{Command, Stdio},
+    process::Stdio,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc,
@@ -66,11 +66,8 @@ pub fn exec(
     let signal = Arc::clone(&cancelled);
     ctrlc::set_handler(move || signal.store(true, Ordering::SeqCst))
         .map_err(|e| format!("Signal handler: {e}"))?;
-    let mut command = Command::new(python);
-    command.args(["-u", "-c",
-        // Wait for host acknowledgement before importing the runtime. On
-        // Windows this closes the race between execution and Job assignment.
-        "import sys; sys.stdin.buffer.read(1) == b'\\n' or sys.exit(2); from aria_code.apps.cli.main import main; main()"])
+    let mut command = crate::runtime::command(python, "stream");
+    command
         .args(["--format=jsonl", "--quiet", "--no-banner"])
         .arg(format!("--prompt={prompt}"))
         .args(args)
@@ -79,7 +76,9 @@ pub fn exec(
         .env("ARIA_EVENTS_STREAM", "1")
         .env("ARIA_EVENTS_FULL", "0")
         .env("PYTHONIOENCODING", "utf-8")
-        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit());
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit());
     let mut worker = Worker::spawn(&mut command)?;
     let deadline = Instant::now() + timeout;
     let mut stdin = worker.child.stdin.take().ok_or("Missing worker stdin")?;

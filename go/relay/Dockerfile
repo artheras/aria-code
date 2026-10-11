@@ -10,9 +10,12 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY *.go ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /aria-relay .
+RUN mkdir /data && chown 65532:65532 /data
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /aria-relay /aria-relay
+COPY --from=build --chown=65532:65532 /data/ /data/
 ENV PORT=8765 DB_PATH=/tmp/relay.db
 EXPOSE 8765
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD ["/aria-relay", "--healthcheck"]
 ENTRYPOINT ["/aria-relay"]

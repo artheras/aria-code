@@ -59,5 +59,20 @@ The static binary is about 23 MB (most of it the Firestore client).
    the same environment (`RELAY_STORE=firestore`) and no traffic.
 2. Check `/status` and send a few messages through it from a test Feishu app.
 3. Move traffic; keep the Python revision for rollback (same data, both ways).
-4. Update `cloudbuild.yaml` to build `go/relay/Dockerfile`. The compose
-   healthcheck uses `curl`, which the distroless image does not have.
+4. Update `cloudbuild.yaml` only after the candidate has passed real Firestore
+   and client checks. `cloudbuild.go.yaml` builds a candidate with no traffic and
+   the existing service substitutions; it preserves the production environment,
+   identity and repository. The HTTP startup probe checks `/status` on port 8080
+   (the current production Cloud Run port).
+
+For local deployment without changing the Python compose file:
+
+```sh
+docker compose -f docker-compose.prod.yml -f docker-compose.go.yml up -d --build
+```
+
+The static executable supports `--healthcheck` (three-second `/status` deadline,
+JSON/storage validation and a nonzero exit on failure). The image/compose use
+this command, so distroless needs no curl or shell. A new SQLite volume is owned
+by UID 65532; when reusing an existing volume, its directory and files must be
+writable by that UID. Neither implementation changes the database schema.

@@ -94,7 +94,8 @@ echo "── Running PyInstaller (--onedir) ──"
 if [[ "${SKIP_NATIVE_INDEXER:-}" != "1" ]]; then
   echo "── Bundling the native indexer (aria-native) ──"
   (cd "$PROJECT_ROOT/rust" && rustup show >/dev/null)   # the toolchain rust-toolchain.toml pins
-  "$VENV_DIR/bin/python" "$PROJECT_ROOT/scripts/bundle_native_indexer.py" "$BIN_DIR"
+  "$VENV_DIR/bin/python" "$PROJECT_ROOT/scripts/bundle_native_indexer.py" "$BIN_DIR" --frontend
+  "$VENV_DIR/bin/python" "$PROJECT_ROOT/scripts/verify_native_frontend.py" "$BIN_DIR"
 fi
 
 echo "── Running PyInstaller for the MCP server binary (--onedir) ──"
@@ -182,6 +183,14 @@ for i in "${!BIN_PATHS[@]}"; do
       codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$f"
     fi
   done < <(find "$d/_internal" -type f -print0)
+
+  # The renamed Python worker is a sibling of the Rust frontend. Sign it with
+  # the same runtime entitlements before signing/notarizing the outer launcher.
+  if [[ -f "$d/aria-code-worker" ]]; then
+    codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp \
+      --entitlements "$ENTITLEMENTS" "$d/aria-code-worker"
+    codesign --verify --strict --verbose=2 "$d/aria-code-worker"
+  fi
 
   echo "── Signing $p with $SIGN_IDENTITY ──"
   codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp \

@@ -100,6 +100,10 @@ def _install_dir() -> Path:
     if os.environ.get("ARIA_CODE_INSTALL_DIR"):
         return Path(os.environ["ARIA_CODE_INSTALL_DIR"]).expanduser()
     current = Path(sys.executable).resolve()
+    if current.stem == "aria-code-worker":
+        frontend = current.with_name("aria-code-bin" + current.suffix)
+        if frontend.is_file():
+            current = frontend
     for path in (Path(sys.argv[0]).expanduser(), Path.home() / ".local/bin/aria-code"):
         if path.is_file() and path.resolve() == current:
             return path.absolute().parent

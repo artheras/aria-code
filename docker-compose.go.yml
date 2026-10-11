@@ -1,0 +1,10 @@
+# Opt in to the Go relay, preserving the production ports, env and SQLite data.
+# docker compose -f docker-compose.prod.yml -f docker-compose.go.yml up -d --build
+services:
+  relay-server:
+    build:
+      context: go/relay
+      dockerfile: Dockerfile
+    image: aria-relay-go:latest
+    healthcheck:
+      test: [CMD, /aria-relay, --healthcheck]

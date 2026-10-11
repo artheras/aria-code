@@ -78,7 +78,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let parts = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(if area.height >= 14 { 4 } else { 1 }),
+            Constraint::Length(if area.height >= 14 { 5 } else { 1 }),
             Constraint::Min(1),
             Constraint::Length(input_height),
             Constraint::Length(1),
@@ -94,7 +94,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
             Line::from(vec![
                 Span::styled("Aria Code", Style::new().fg(ACCENT).bold()),
                 Span::raw(format!(
-                    " v{} · Rust UI {} preview",
+                    " v{} · Rust UI {}",
                     app.version,
                     env!("CARGO_PKG_VERSION")
                 )),
@@ -103,14 +103,12 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 "{} / {} · session {}",
                 app.provider, app.model, app.session
             )),
+            Line::raw(workspace_tail(
+                &app.workspace,
+                usize::from(area.width).saturating_sub(11),
+            )),
             Line::styled(
-                format!(
-                    "{runtime}{}",
-                    workspace_tail(
-                        &app.workspace,
-                        usize::from(area.width).saturating_sub(runtime.width())
-                    )
-                ),
+                runtime.trim_end_matches(" · ").to_owned(),
                 Style::new().fg(MUTED),
             ),
         ])
@@ -120,7 +118,16 @@ pub fn draw(frame: &mut Frame, app: &App) {
             Style::new().fg(ACCENT),
         ))
     };
-    frame.render_widget(Paragraph::new(header), parts[0]);
+    let mut header_area = parts[0];
+    if !app.robot.0.is_empty() && header_area.height >= 4 && header_area.width >= 45 {
+        frame.render_widget(
+            Paragraph::new(app.robot.0.clone()),
+            Rect::new(header_area.x, header_area.y, 9, 4),
+        );
+        header_area.x += 11;
+        header_area.width -= 11;
+    }
+    frame.render_widget(Paragraph::new(header), header_area);
     let mut lines = Vec::new();
     for entry in &app.entries {
         if entry.text.is_empty() || (entry.detail && !app.details) {
@@ -321,7 +328,12 @@ mod tests {
         terminal.draw(|f| draw(f, &app)).unwrap();
         let rendered = display(&terminal);
         let header = rendered.lines().nth(2).unwrap();
-        assert!(header.contains("workspace-write · network on · …"));
+        assert!(rendered
+            .lines()
+            .nth(3)
+            .unwrap()
+            .contains("workspace-write · network on"));
+        assert!(header.contains('…'));
         assert!(header.contains("我的项目"));
         assert!(header.width() <= 80);
         assert_eq!(workspace_tail("a/👩‍💻/界", 6), "…👩‍💻/界");

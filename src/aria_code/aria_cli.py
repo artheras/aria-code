@@ -32,6 +32,10 @@ from aria_code._version import __version__  # noqa: F401
 
 # Fast path before loading agent, finance, and terminal modules.
 import sys as _early_sys
+if __name__ == "__main__":
+    from aria_code.apps.cli.native_entry import dispatch_worker, maybe_native
+    dispatch_worker()
+    maybe_native()
 if _early_sys.argv[1:2] == ["update"]:
     from aria_code.apps.cli.updater import main as _update_main
     raise SystemExit(_update_main(_early_sys.argv[2:]))

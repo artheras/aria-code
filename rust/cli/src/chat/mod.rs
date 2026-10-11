@@ -1,5 +1,6 @@
 mod app;
 mod editor;
+mod robot;
 mod transport;
 mod ui;
 
