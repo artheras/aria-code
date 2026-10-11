@@ -172,7 +172,8 @@ def test_cached_update_notice_follows_ready_and_respects_preferences(application
     if enabled and not offline:
         notice = c.until('update.available')
         assert notice['turn_id'] is None
-        assert 'v0.999.0' in notice['text'] and 'aria update' in notice['text']
+        command = 'install.ps1' if sys.platform == 'win32' else 'aria update'
+        assert 'v0.999.0' in notice['text'] and command in notice['text']
         assert '[yellow]' not in notice['text']
         assert next(i for i, e in enumerate(c.seen) if e['type'] == 'session.ready') < len(c.seen) - 1
     c.close()
