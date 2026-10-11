@@ -51,6 +51,9 @@ def select_base_prompt(message: str, *, intent: Optional[str] = None) -> str:
     (a live-data lookup, where the finance prompt is assembled with fetched
     data by the caller that has it).
     """
+    from aria_code.apps.cli.conversation_policy import is_social_message
+    if intent is None and is_social_message(message):
+        return _general_prompt()
     resolved = intent or _intent_of(message)
     if resolved == "general" and intent is None and _needs_workspace(message):
         # "Write a stock brief to report_BETA.md from inventory.csv" read as
@@ -134,6 +137,8 @@ def _general_prompt() -> str:
         "- State the scope before a change and the verification after it.\n"
         "- Do not invent prices, exchange rates, or other live figures.\n"
         "- Answer in the user's language. Be concise and specific."
+        "\n- A standalone greeting or thanks needs only a short direct reply, with no tools, "
+        "directory inventory, personal-file references or internal role titles."
     )
 
 
@@ -153,6 +158,10 @@ def build_turn_system_prompt(
     """
     if override and override.strip():
         return override
+
+    from aria_code.apps.cli.conversation_policy import is_social_message
+    if intent is None and is_social_message(message):
+        return _general_prompt()
 
     parts = [select_base_prompt(message, intent=intent), OUTPUT_DISCIPLINE]
     if project_context and project_context.strip():

@@ -307,7 +307,7 @@ def make_provider_fn(
         try:
             from aria_code.apps.cli.tool_scope import select_tool_schemas
 
-            return select_tool_schemas(tool_schemas, prompt)
+            return select_tool_schemas(tool_schemas, prompt, allow_social_tools=bool((system_override or "").strip()))
         except Exception:
             return list(tool_schemas)
 
@@ -438,8 +438,16 @@ async def run_chat_via_runtime(
     """
     from aria_code.runtime.gateway import run_turn
     from aria_code.apps.cli.workspace_route import workspace_config
+    from aria_code.apps.cli.conversation_policy import is_social_message
 
     config = workspace_config(prompt, model, config, api_url)
+    social_only = not (system_override or "").strip() and is_social_message(prompt)
+    if social_only:
+        # Host-owned policy, also enforced at execution if a provider returns
+        # an unsolicited call despite receiving no schemas. Never save it.
+        config = {**config, "_conversation_only": True}
+        tool_schemas = []
+        project_context = None
 
     provider_fn = make_provider_fn(
         model=model, config=config, api_url=api_url, ollama_url=ollama_url,
@@ -448,9 +456,9 @@ async def run_chat_via_runtime(
         system_override=system_override,
     )
     executor = build_tool_executor(local_tools, config, execution_context)
-    gate = build_acceptance_gate(executor, config, prompt)
-    contract = build_change_contract(config, prompt, executor)
-    review = build_review_gate(config, model=model, api_url=api_url, ollama_url=ollama_url,
+    gate = None if social_only else build_acceptance_gate(executor, config, prompt)
+    contract = None if social_only else build_change_contract(config, prompt, executor)
+    review = None if social_only else build_review_gate(config, model=model, api_url=api_url, ollama_url=ollama_url,
                                thinking_mode=thinking_mode, auth_token=auth_token)
 
     result = await run_turn(

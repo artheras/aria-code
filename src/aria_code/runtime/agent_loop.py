@@ -854,12 +854,26 @@ async def run_parallel_tools(
 ) -> Dict[int, dict]:
     """Execute parallel-safe pending tools and return results by original index."""
     parallel_batch, _ = split_tool_calls(pending, serial_tools)
+    # Reuse only identical local reads in this batch. There are no intervening
+    # writes here, and nothing is cached across rounds (external edits matter).
+    import copy
+    import json
+    shared_reads: dict[str, asyncio.Task] = {}
 
     async def _exec_one(tool_call: dict) -> tuple:
         tool_name = tool_call.get("tool", "")
         tool_params = tool_call.get("params", {})
         if tool_name in tool_executor.local_tools:
-            result = await tool_executor.execute(tool_name, tool_params)
+            if tool_name in {"read_file", "list_files", "glob", "search_code"}:
+                key = tool_name + json.dumps(tool_params, sort_keys=True, ensure_ascii=False)
+                reused = key in shared_reads
+                if not reused:
+                    shared_reads[key] = asyncio.create_task(tool_executor.execute(tool_name, tool_params))
+                result = copy.deepcopy(await shared_reads[key])
+                if reused:
+                    result["reused"] = True
+            else:
+                result = await tool_executor.execute(tool_name, tool_params)
         elif remote_runner is not None:
             if hook is not None:
                 hook("pre_tool", tool_name, tool_params, None)

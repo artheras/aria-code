@@ -641,7 +641,8 @@ class ChatTurnMixin:
             else:
                 print(f"  {text}")
 
-        _task = _task_isolation.prepare(_runtime_config, notify=_task_note)
+        from aria_code.apps.cli.conversation_policy import is_social_message
+        _task = None if (not (_rt_sys_ov or "").strip() and is_social_message(message)) else _task_isolation.prepare(_runtime_config, notify=_task_note)
         _task_context = _task_isolation.execution_context(_task, _runtime_config)
         try:
             for _rt_attempt in range(2):
@@ -1103,7 +1104,7 @@ class ChatTurnMixin:
                 from ui.render.output import format_turn_footer as _format_turn_footer
                 _footer = _format_turn_footer(
                     metadata,
-                    mode=self.config.get("response_footer", "compact"),
+                    mode="off" if getattr(self, "_native_frontend", False) else self.config.get("response_footer", "compact"),
                     copy_available=bool(final_text),
                 )
                 if _footer:
@@ -1112,7 +1113,7 @@ class ChatTurnMixin:
                 from ui.render.output import format_turn_footer as _format_turn_footer
                 _footer = _format_turn_footer(
                     metadata,
-                    mode=self.config.get("response_footer", "compact"),
+                    mode="off" if getattr(self, "_native_frontend", False) else self.config.get("response_footer", "compact"),
                     copy_available=bool(final_text),
                 )
                 if _footer:

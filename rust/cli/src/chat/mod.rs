@@ -1,6 +1,8 @@
 mod app;
 mod editor;
+mod markdown;
 mod robot;
+mod theme;
 mod transport;
 mod ui;
 
@@ -80,6 +82,7 @@ pub fn run(
     let mut shutting_down = false;
     let mut external_signal = false;
     let mut dirty = true;
+    let mut tick = Instant::now();
     loop {
         for _ in 0..128 {
             match session.events.try_recv() {
@@ -111,6 +114,10 @@ pub fn run(
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(_) => return Err("Application reader disconnected".into()),
             }
+        }
+        if app.turn.is_some() && tick.elapsed() >= Duration::from_secs(1) {
+            dirty = true;
+            tick = Instant::now();
         }
         if dirty {
             terminal

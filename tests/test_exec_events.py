@@ -41,6 +41,15 @@ def test_a_file_body_is_reported_by_size():
     assert json.loads(out.getvalue())["params"] == {"path": "a.py", "content": "<5000 chars>"}
 
 
+def test_list_summary_reports_actual_returned_count_without_file_contents():
+    out = io.StringIO()
+    ExecEvents(out).tool_completed("list_files", {"success": True, "reused": True,
+        "data": {"path": "/project", "items": ["private-note", "second"], "count": 999}})
+    value = json.loads(out.getvalue())
+    assert value["item_count"] == 2 and value["reused"]
+    assert "private-note" not in out.getvalue()
+
+
 def test_no_stream_writes_nothing_and_odd_values_still_serialise():
     ExecEvents(None).emit("turn.started", prompt="x")
     path = Path("/a")

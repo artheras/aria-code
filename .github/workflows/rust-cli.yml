@@ -6,6 +6,11 @@ on:
       - 'rust/**'
       - 'src/aria_code/apps/cli/native_bridge.py'
       - 'src/aria_code/apps/cli/app_server.py'
+      - 'src/aria_code/apps/cli/conversation_policy.py'
+      - 'src/aria_code/apps/cli/tool_scope.py'
+      - 'src/aria_code/apps/cli/providers/runtime_bridge.py'
+      - 'src/aria_code/apps/cli/chat_turn.py'
+      - 'src/aria_code/apps/cli/prompts/**'
       - 'src/aria_code/apps/cli/main.py'
       - 'src/aria_code/apps/cli/native_entry.py'
       - 'src/aria_code/apps/cli/native_branding.py'
@@ -26,6 +31,7 @@ on:
       - 'tests/test_rust_state.py'
       - 'tests/test_rust_stream.py'
       - 'tests/test_native_app.py'
+      - 'tests/test_conversation_policy.py'
       - 'tests/test_exec_events.py'
       - 'tests/test_native_index.py'
       - 'scripts/bundle_native_indexer.py'
@@ -37,6 +43,11 @@ on:
       - 'rust/**'
       - 'src/aria_code/apps/cli/native_bridge.py'
       - 'src/aria_code/apps/cli/app_server.py'
+      - 'src/aria_code/apps/cli/conversation_policy.py'
+      - 'src/aria_code/apps/cli/tool_scope.py'
+      - 'src/aria_code/apps/cli/providers/runtime_bridge.py'
+      - 'src/aria_code/apps/cli/chat_turn.py'
+      - 'src/aria_code/apps/cli/prompts/**'
       - 'src/aria_code/apps/cli/main.py'
       - 'src/aria_code/apps/cli/native_entry.py'
       - 'src/aria_code/apps/cli/native_branding.py'
@@ -57,6 +68,7 @@ on:
       - 'tests/test_rust_state.py'
       - 'tests/test_rust_stream.py'
       - 'tests/test_native_app.py'
+      - 'tests/test_conversation_policy.py'
       - 'tests/test_exec_events.py'
       - 'tests/test_native_index.py'
       - 'scripts/bundle_native_indexer.py'
@@ -111,7 +123,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/onedir/_internal"
           python scripts/bundle_native_indexer.py "$RUNNER_TEMP/onedir"
       - name: Exercise real executable and existing Python tools
-        run: python -m pytest tests/test_native_app.py tests/test_native_branding.py tests/test_native_entry.py tests/test_native_bridge.py tests/test_rust_cli.py tests/test_rust_state.py tests/test_rust_stream.py tests/test_exec_events.py tests/test_headless_command_approval.py tests/test_frozen_module_aliases.py tests/test_workspace_files.py tests/test_native_index.py -q --timeout=30
+        run: python -m pytest tests/test_native_app.py tests/test_conversation_policy.py tests/test_native_branding.py tests/test_native_entry.py tests/test_native_bridge.py tests/test_rust_cli.py tests/test_rust_state.py tests/test_rust_stream.py tests/test_exec_events.py tests/test_headless_command_approval.py tests/test_frozen_module_aliases.py tests/test_workspace_files.py tests/test_native_index.py -q --timeout=30
       - name: Measure entry points (no cloud calls)
         run: python scripts/benchmark_rust_cli.py --binary "$ARIA_NATIVE_BINARY" --output rust/target/benchmark.json
       - name: Upload opt-in prototype and measurements

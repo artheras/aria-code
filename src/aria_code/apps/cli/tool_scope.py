@@ -67,10 +67,12 @@ def select_tool_schemas(
     *,
     always: Iterable[str] = (),
     activations: Optional[Sequence] = None,
+    allow_social_tools: bool = False,
 ) -> list[dict]:
     """The schemas to offer for *message*.
 
-    Core tools always; a domain tool only while its pack has claimed the
+    Standalone social messages need no tools. Otherwise core tools always;
+    a domain tool only while its pack has claimed the
     message. ``always`` forces specific names in regardless — for a caller that
     knows this turn needs one (a slash command that resolved to a tool, a
     subagent handed a narrowed brief).
@@ -80,8 +82,13 @@ def select_tool_schemas(
     the tax is the safer default.
     """
     all_schemas = list(schemas or [])
+    always = tuple(always)
     if not all_schemas:
         return all_schemas
+    from aria_code.apps.cli.conversation_policy import is_social_message
+
+    if is_social_message(message) and not always and not allow_social_tools:
+        return []
 
     # One try around the whole decision. domain_tool_names() sat outside it,
     # so a failure there propagated instead of degrading — the docstring

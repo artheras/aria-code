@@ -75,7 +75,7 @@ def test_run_chat_via_runtime_executes_a_tool_then_finishes(monkeypatch):
     seen_calls: list = []
     seen_results: list = []
     text = asyncio.run(rb.run_chat_via_runtime(
-        prompt="hi", history=[], local_tools={"ping": (ping, "Ping")}, tool_schemas=[],
+        prompt="Call ping with x=7", history=[], local_tools={"ping": (ping, "Ping")}, tool_schemas=[],
         model="m", config={}, api_url=None, ollama_url="http://x",
         on_tool_call=lambda t, p: seen_calls.append(t),
         on_tool_result=lambda t, r: seen_results.append(t),

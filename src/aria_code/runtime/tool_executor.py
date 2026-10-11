@@ -41,6 +41,8 @@ class ToolExecutor:
         self, tool_name: str, params: dict, *, approval: ApprovalDecision | None = None
     ) -> dict:
         """Execute a local tool synchronously."""
+        if self.config.get("_conversation_only"):
+            return {"success": False, "error": "This is a standalone social message. Reply directly without tools or file inspection."}
         if tool_name not in self.local_tools:
             return {"success": False, "error": f"Unknown local tool: {tool_name}"}
         if approval is not None and not approval.approved:
@@ -64,6 +66,8 @@ class ToolExecutor:
 
     async def execute(self, tool_name: str, params: dict) -> dict:
         """Execute a tool asynchronously, using remote executor when needed."""
+        if self.config.get("_conversation_only"):
+            return {"success": False, "error": "This is a standalone social message. Reply directly without tools or file inspection."}
         if tool_name in self.local_tools:
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(None, self.execute_local, tool_name, params)

@@ -135,6 +135,11 @@ class ExecEvents:
         if result.get("error"):
             fields["error"] = _redact_activity_text(result["error"], limit=PARAM_CHARS)
         data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        if result.get("reused") is True:
+            fields["reused"] = True
+        # Counts describe the returned data, never inferred model prose.
+        if tool == "list_files" and isinstance(data.get("items"), list):
+            fields["item_count"] = len(data["items"])
         for key in ("exit_code", "path", "process_id", "change_id"):
             if key in data:
                 fields[key] = data[key]

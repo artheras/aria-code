@@ -35,6 +35,8 @@ def factory(**settings):
     async def provider(prompt, history, *, on_token=None, on_thinking=None, **kw):
         nonlocal calls
         calls += 1
+        if prompt in ("你好", "Hello!"):
+            assert settings["tool_schemas"] == [], settings["tool_schemas"]
         if "wait forever" in prompt:
             if on_token: on_token("Started waiting.\n")
             await asyncio.sleep(60)
@@ -42,6 +44,11 @@ def factory(**settings):
             return {"success": True, "response": "", "provider": "fixture",
                     "tool_calls_pending": [{"tool": "write_file", "params": {
                         "path": "native-note.txt", "content": "Aria wrote this complete local document.\n你好，世界。\n"}}]}
+        if "Create two notes" in prompt and calls == 1:
+            return {"success": True, "response": "", "provider": "fixture",
+                "tool_calls_pending": [{"tool": "write_file", "params": {"path": path,
+                    "content": "A complete local document with useful text.\n"}}
+                    for path in ("first-note.txt", "second-note.txt")]}
         if "Create native-note" in prompt:
             text = "已写入文件。\n" if Path("native-note.txt").exists() else "I will follow your feedback instead.\n"
         else:
@@ -154,6 +161,37 @@ def test_multi_turn_history_and_saved_session_resume(application, native):
     resumed.until("turn.completed")
     assert any(e["type"] == "answer.delta" and "Remember apricot" in e["text"] for e in resumed.seen)
     resumed.close()
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_greeting_keeps_tools_off_and_a_later_file_task_can_still_write(application, native):
+    start, project, _, _ = application
+    c = start(native=native)
+    c.send("turn.submit", turn_id="hello", text="你好")
+    assert c.until("turn.completed")["status"] == "ok"
+    assert not any(e["type"].startswith("tool.") for e in c.seen)
+    assert c.ready["ui_lang"] == "en" and c.ready["ui_theme"] in ("light", "dark")
+    assert not any("/copy" in e.get("text", "") for e in c.seen if e["type"] == "output.delta")
+    c.send("turn.submit", turn_id="write", text="Create native-note.txt in this project")
+    menu = c.until("approval.requested")
+    assert "native-note.txt" in menu["context"]
+    c.send("dialog.respond", turn_id="write", request_id=menu["request_id"], choice=0)
+    assert c.until("turn.completed")["status"] == "ok"
+    assert (project / "native-note.txt").exists()
+    c.close()
+
+
+def test_each_approval_names_its_actual_file_in_a_multi_tool_batch(application):
+    start, project, _, _ = application
+    c = start()
+    c.send("turn.submit", turn_id="two", text="Create two notes in this project")
+    for name in ("first-note.txt", "second-note.txt"):
+        menu = c.until("approval.requested")
+        assert name in menu["context"]
+        c.send("dialog.respond", turn_id="two", request_id=menu["request_id"], choice=0)
+    assert c.until("turn.completed")["status"] == "ok"
+    assert all((project / name).exists() for name in ("first-note.txt", "second-note.txt"))
+    c.close()
 
 
 @pytest.mark.parametrize("enabled,offline", [(True, False), (False, False), (True, True)])
@@ -349,7 +387,7 @@ def test_real_terminal_paste_approval_resize_cancel_and_restore(application, ent
         wait("Remember apricot")
         os.write(master, b"\r")
         wait("你好")
-        wait("ok")
+        wait("Completed")
         os.write(master, b"Create native-note.txt in this project\r")
         wait("Your response required")
         wait("File: native-note.txt")
@@ -357,13 +395,14 @@ def test_real_terminal_paste_approval_resize_cancel_and_restore(application, ent
         os.write(master, b"n")
         wait("Tell Aria what to do instead")
         os.write(master, b"Please explain instead.\r")
-        wait("write_file  declined")
-        wait("ok · F1")
+        wait("Write file")
+        wait("declined")
+        wait("Completed")
         assert not (project / "native-note.txt").exists()
         os.write(master, b"wait forever\r")
         wait("Started waiting")
         os.write(master, b"\x1b")
-        wait("cancelled")
+        wait("Cancelled")
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 12, 40, 0, 0))
         screen.resize(12, 40)
         p.send_signal(__import__("signal").SIGWINCH)

@@ -108,7 +108,8 @@ class Server:
         choices = [[str(label), str(help_text)] for label, help_text in options]
         answer = self.ask("approval.requested", title=str(title or "Approval / selection"),
                           choices=choices, selected=selected,
-                          shortcuts=kwargs.get("shortcuts", {}))
+                          shortcuts=kwargs.get("shortcuts", {}),
+                          context=getattr(self, "approval_context", ""))
         chosen = answer.get("choice", -1)
         if type(chosen) is not int or not -1 <= chosen < len(choices):
             raise ValueError("Invalid menu response")
@@ -225,6 +226,22 @@ class Server:
                 self.stop_spinner()
 
         cli.TerminalRuntimeEventConsumer = Consumer
+        approval_base = cli.TerminalApprovalEventConsumer
+        class Approvals(approval_base):
+            async def approve(self, tool_name, tool_params, **kwargs):
+                from aria_code.apps.cli.exec_events import _param_view
+                params = _param_view(tool_params)
+                zh = str(server.terminal.config.get("ui_lang", "en")).startswith("zh")
+                context = [("工具" if zh else "Tool") + ": " + tool_name]
+                for key, en, cn in (("path", "File", "文件"), ("command", "Command", "命令"), ("directory", "Directory", "目录")):
+                    if isinstance(params.get(key), str):
+                        context.append((cn if zh else en) + ": " + params[key])
+                server.approval_context = "\n".join(context)
+                try:
+                    return await super().approve(tool_name, tool_params, **kwargs)
+                finally:
+                    server.approval_context = ""
+        cli.TerminalApprovalEventConsumer = Approvals
         config = cli.load_config()
         config["_session_workspace_root"] = str(Path.cwd().resolve())
         config["_session_write_roots"] = [str(Path(p).expanduser().resolve()) for p in self.options.add_dir]
@@ -265,6 +282,9 @@ class Server:
 
     def make_terminal(self, config):
         terminal = self.cli.ArtheraTerminal(config)
+        # The host draws its own turn footer. Keep this presentation flag out
+        # of saved user settings and retain normal Python CLI behaviour.
+        terminal._native_frontend = True
         execute = terminal.tool_executor.execute_local
         def tracked(*args, **kwargs):
             with self.tool_lock:
@@ -329,6 +349,7 @@ class Server:
 
     def snapshot(self, kind):
         from aria_code.apps.cli.native_branding import robot_rows
+        from aria_code.ui import robot
         t = self.terminal
         # A display snapshot is bounded independently of the model's context.
         messages = [{"role": m.get("role", ""), "content": str(m.get("content", ""))[:4096]}
@@ -339,7 +360,10 @@ class Server:
                   model=t.config.get("model", ""), provider=t.config.get("local_provider", ""),
                   workspace=str(Path.cwd()), commands=sorted(t.commands.commands),
                   permission=t.config.get("permission_mode", "workspace-write"),
-                  network=bool(t.config.get("network_enabled", True)))
+                  network=bool(t.config.get("network_enabled", True)),
+                  ui_lang=t.config.get("ui_lang", "en"),
+                  ui_theme=robot._theme_cache or robot._resolve_theme(),
+                  home_workspace=Path.cwd().resolve() == Path.home().resolve())
 
     def persist(self):
         t = self.terminal
