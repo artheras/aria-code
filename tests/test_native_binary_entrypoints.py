@@ -35,9 +35,9 @@ MAC_SCRIPT = ROOT / "scripts" / "build_native_binary.sh"
 # silently stops producing one of them is also a failure.
 EXPECTED_ENTRYPOINTS = {"aria_cli.py", "aria_mcp_server.py"}
 
-# A PyInstaller entry-point argument: the last positional token of the command,
-# a .py path that is not an option value.
-_PY_ARG = re.compile(r"(?<![-\w/])([\w./$\"{}]*\b\w+\.py)\b")
+# A bare continuation argument, not a YAML path-filter list item or a helper
+# command such as `python scripts/verify_native_frontend.py`.
+_PY_ARG = re.compile(r"[\w./${}]+\.py")
 
 
 def _entrypoint_args(text: str) -> set[str]:
@@ -55,11 +55,28 @@ def _entrypoint_args(text: str) -> set[str]:
         # Quotes come off before the suffix check: the shell script writes
         # "$PROJECT_ROOT/src/aria_code/aria_cli.py", which ends in a quote.
         token = stripped.strip('"').strip("'")
-        if not token.endswith(".py"):
+        if not _PY_ARG.fullmatch(token):
             continue
         token = token.replace("$PROJECT_ROOT/", "").replace("${PROJECT_ROOT}/", "")
         found.add(token)
     return found
+
+
+class EntryPointExtraction(unittest.TestCase):
+    def test_path_filters_and_helper_commands_are_not_freeze_arguments(self):
+        text = '''
+      - 'src/aria_code/apps/cli/app_server.py'
+      - 'scripts/verify_native_frontend.py'
+        python scripts/verify_native_frontend.py
+        pyinstaller --onedir --name aria-code-bin
+          src/aria_code/aria_cli.py
+          "$PROJECT_ROOT/src/aria_code/aria_mcp_server.py" \\
+          src/aria_code/missing_entrypoint.py
+        '''
+        self.assertEqual(_entrypoint_args(text), {
+            'src/aria_code/aria_cli.py', 'src/aria_code/aria_mcp_server.py',
+            'src/aria_code/missing_entrypoint.py',
+        })
 
 
 class TheBuildPointsAtFilesThatExist(unittest.TestCase):

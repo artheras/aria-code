@@ -1,9 +1,14 @@
 # Incremental Rust CLI migration
 
-The first stage adds an **opt-in `aria-native` prototype**, not a replacement
-for `aria`, `aria code`, or `aria-code`. The Rust crate has its own experimental
-version `0.4.0`; `aria-native run -- --version` reports the Python product version.
-The Go relay prototype is opt-in; production still deploys the Python relay.
+The current stage makes Rust the default interactive frontend in native/npm
+packages; `aria`, `aria code`, and `aria-code` keep their existing names and
+robot design. See **Stage 5** below for installation and fallback behavior.
+Python remains the model/tool application service. The Go relay has a separate
+Cloud Run candidate deployment; production still deploys the Python relay.
+
+Stages 1–4 below describe the earlier opt-in migration. The Rust crate has its
+own version (`0.5.0` currently); `aria-native run -- --version` reports the Aria
+product version.
 
 ## Build and try it
 
