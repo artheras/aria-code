@@ -228,6 +228,10 @@ class Server:
         config["_session_workspace_root"] = str(Path.cwd().resolve())
         config["_session_write_roots"] = [str(Path(p).expanduser().resolve()) for p in self.options.add_dir]
         config["_session_read_roots"] = [str(Path(p).expanduser().resolve()) for p in self.options.read_dir]
+        if self.options.resume_last and not self.options.resume:
+            self.options.resume = config.get("last_session_id")
+            if not self.options.resume:
+                raise ValueError("No last session to resume")
         resumed = self.load_session(self.options.resume) if self.options.resume else None
         config["last_session_id"] = self.options.resume or uuid.uuid4().hex[:8]
         if self.options.model:
@@ -255,6 +259,7 @@ class Server:
         if resumed:
             self.terminal.conversation = resumed["messages"]
         self.persist()
+        self.remember_session()
         self.snapshot("session.ready")
 
     def make_terminal(self, config):
@@ -311,15 +316,25 @@ class Server:
         if data:
             self.terminal.conversation = data["messages"]
         self.persist()
+        self.remember_session()
         self.snapshot("session.ready")
 
+    def remember_session(self):
+        # Save only the pointer in the user configuration, not transient
+        # project roots or launch-only model/permission overrides.
+        config = self.cli.load_config()
+        config["last_session_id"] = self.terminal.session_id
+        self.cli.save_config(config)
+
     def snapshot(self, kind):
+        from aria_code.apps.cli.native_branding import robot_rows
         t = self.terminal
         # A display snapshot is bounded independently of the model's context.
         messages = [{"role": m.get("role", ""), "content": str(m.get("content", ""))[:4096]}
                     for m in t.conversation[-40:]]
         self.emit(kind, session_id=t.session_id, messages=messages,
                   version=self.cli.__version__,
+                  robot=robot_rows(hidden=self.options.no_banner or self.options.banner == "off"),
                   model=t.config.get("model", ""), provider=t.config.get("local_provider", ""),
                   workspace=str(Path.cwd()), commands=sorted(t.commands.commands),
                   permission=t.config.get("permission_mode", "workspace-write"),
@@ -450,6 +465,9 @@ def main():
     parser.add_argument("--model")
     parser.add_argument("--url")
     parser.add_argument("--resume")
+    parser.add_argument("--resume-last", action="store_true")
+    parser.add_argument("--no-banner", action="store_true")
+    parser.add_argument("--banner", choices=["full", "compact", "off"])
     parser.add_argument("--thinking", action="store_true")
     parser.add_argument("--local", action="store_true")
     parser.add_argument("--add-dir", action="append", default=[])

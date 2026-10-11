@@ -1,5 +1,7 @@
 mod chat;
+mod frontend;
 mod render;
+mod runtime;
 mod sessions;
 mod state;
 mod stream;
@@ -7,8 +9,8 @@ mod updates;
 mod worker;
 
 use serde_json::{json, Value};
-use std::io::Read;
-use std::{env, ffi::OsString, path::PathBuf, process::Command, time::Duration};
+use std::io::{IsTerminal, Read};
+use std::{env, ffi::OsString, path::PathBuf, time::Duration};
 
 /// A repository file list; bounded as in the native indexer.
 const MAX_INDEX_REQUEST: u64 = 256 * 1024 * 1024;
@@ -102,8 +104,7 @@ enum Mode {
 }
 
 fn parse(args: Vec<OsString>) -> Result<Options, String> {
-    let mut python = env::var_os("ARIA_PYTHON")
-        .unwrap_or_else(|| if cfg!(windows) { "python" } else { "python3" }.into());
+    let mut python = runtime::default_python();
     let mut workspace = env::current_dir().map_err(|e| e.to_string())?;
     let mut timeout = Duration::from_secs(30);
     let mut timeout_set = false;
@@ -376,9 +377,8 @@ fn run_python(
     if !workspace.is_dir() {
         return Err("Workspace must be a directory".into());
     }
-    let mut command = Command::new(python);
+    let mut command = runtime::command(&python, "cli");
     command
-        .args(["-c", "from aria_code.apps.cli.main import main; main()"])
         .args(args)
         // Piped input/output must use the same UTF-8 contract as the tool bridge,
         // including Windows where Python otherwise uses the locale code page.
@@ -532,7 +532,32 @@ fn run(options: Options) -> Result<i32, String> {
 }
 
 fn main() {
-    let code = match parse(env::args_os().skip(1).collect()).and_then(run) {
+    let mut args: Vec<OsString> = env::args_os().skip(1).collect();
+    if args == [OsString::from("--entry-protocol")] {
+        println!("1");
+        return;
+    }
+    let explicit = args.first().is_some_and(|s| s == "--app");
+    if explicit {
+        args.remove(0);
+    }
+    let formal = explicit
+        || env::current_exe()
+            .ok()
+            .is_some_and(|p| p.file_stem().is_some_and(|s| s == "aria-code-bin"));
+    if formal && (args == [OsString::from("--version")] || args == [OsString::from("-V")]) {
+        println!("aria-code {}", env!("ARIA_PRODUCT_VERSION"));
+        return;
+    }
+    let options = if formal {
+        frontend::options(
+            args,
+            std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
+        )
+    } else {
+        parse(args)
+    };
+    let code = match options.and_then(run) {
         Ok(code) => code,
         Err(error) => {
             eprintln!("aria-native: {error}");

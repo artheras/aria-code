@@ -17,6 +17,9 @@ import sys
 
 def main() -> None:
     """Synchronous entry point for the ``aria-code`` command."""
+    from aria_code.apps.cli.native_entry import dispatch_worker, maybe_native
+    dispatch_worker()
+    maybe_native()
     if sys.argv[1:2] == ["review"]:
         # Headless review for CI: no REPL, no banner, an exit code to gate on.
         # Dispatched before the full CLI loads, so it starts quickly.

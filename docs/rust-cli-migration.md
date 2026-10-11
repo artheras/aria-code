@@ -436,3 +436,42 @@ The stable commands and release installers still open the existing Python UI.
 Try this interface explicitly with `aria-native chat`; publishing this stage does
 not silently switch existing users to the preview. Provider response quality,
 UI startup performance and installer cutover require their own measurements.
+
+
+## Stage 5: default native frontend (Rust UI 0.5)
+
+Native archives and npm platform packages now put the Rust executable at
+`aria-code-bin` and the bundled Python application at `aria-code-worker` beside
+`_internal/`. The installer/command names and archive layout stay the same.
+`aria`, `aria-code`, and `aria code` open the Rust interface in a terminal.
+The product version is compiled from `_version.py`, independently of the Rust
+crate version. The worker is discovered relative to the executable, so these
+packages do not need a system Python installation.
+
+The default route supports existing interactive model, thinking, permission,
+workspace, banner and resume flags. `-p`, pipe input, direct data/review commands,
+`--help`, `health`, and `update` retain the Python command/output contract.
+`ARIA_FRONTEND=python aria` selects the original interface for rollback.
+Pure Python wheels use the Rust frontend when an entry-protocol-1 `aria-native`
+is available via `ARIA_NATIVE_BINARY`/PATH; otherwise they retain the Python UI.
+The separate `aria-native` command still exposes index/stream/inspection tools.
+
+The mascot design is unchanged: snapshots send the exact spans returned by
+`ui.robot.get_robot_row`, and Ratatui applies their foreground and background
+colours without replacing glyphs or drawing another mascot. Robot-off and
+banner-off preferences still hide it. Tests lock the original PNG checksum,
+check both palettes and verify the rendered eyes in a real PTY.
+
+Each native release runs `scripts/verify_native_frontend.py` against the frozen
+application before archiving. It checks product-version parity, the application
+handshake, canonical robot, real local file reads and shutdown. macOS signs the
+Python worker as well as the frontend and its libraries. Source tests also run
+paste, approvals, denial follow-up, cancellation, resize and terminal restoration
+through the prototype, formal default route and installed-console bootstrap.
+
+Go relay rollout now has `cloudbuild.go.yaml`: it builds `go/relay`, deploys a
+`go-candidate` revision with `--no-traffic`, preserves the existing service's
+environment/identity and probes `/status` on its production port 8080. Production
+traffic remains unchanged until the candidate's Firestore and client contracts
+are verified. For local containers use the compose override documented in the
+Go relay README; its built-in health probe works without curl.

@@ -170,11 +170,29 @@ def test_real_file_write_is_frontend_approved_or_declined(application, decision)
         c.send("dialog.respond", turn_id="write", request_id=question["request_id"], text="Do not create files; explain your plan.")
     c.until("turn.completed")
     assert (project / "native-note.txt").exists() is (decision == "yes")
+
+
     if decision == "yes":
         assert "你好" in (project / "native-note.txt").read_text(encoding="utf-8")
         assert any(e["type"] == "tool.completed" and e["success"] for e in c.seen)
     c.close()
 
+
+def test_resume_last_keeps_history_without_saving_launch_overrides(application):
+    start, project, home, _ = application
+    c = start("--thinking", "--add-dir", str(project / "extra"))
+    c.send("turn.submit", turn_id="remember", text="Remember apricot")
+    c.until("turn.completed")
+    ident = c.ready["session_id"]
+    c.close()
+    config = json.loads((home / "config.json").read_text())
+    assert config["last_session_id"] == ident
+    assert "_session_workspace_root" not in config
+    assert config.get("thinking_mode") != "thinking"
+    resumed = start("--resume-last")
+    assert resumed.ready["session_id"] == ident
+    assert len(resumed.ready["messages"]) == 2
+    resumed.close()
 
 def test_cancel_pending_model_then_continue_same_worker(application):
     start, _, _, _ = application
@@ -235,7 +253,8 @@ print(sys.stdin.readline().strip())
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix PTY; Windows uses TestBackend and protocol tests")
-def test_real_terminal_paste_approval_resize_cancel_and_restore(application):
+@pytest.mark.parametrize("entry", ["prototype", "default", "console"])
+def test_real_terminal_paste_approval_resize_cancel_and_restore(application, entry):
     import codecs
     import fcntl
     import pty
@@ -249,8 +268,17 @@ def test_real_terminal_paste_approval_resize_cancel_and_restore(application):
     master, slave = pty.openpty()
     before = termios.tcgetattr(slave)
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 100, 0, 0))
-    p = subprocess.Popen([os.environ["ARIA_NATIVE_BINARY"], "--python", sys.executable, "chat"],
-                         cwd=project, env=dict(env, TERM="xterm-256color"), stdin=slave, stdout=slave, stderr=slave)
+    if entry == "prototype":
+        command = [os.environ["ARIA_NATIVE_BINARY"], "--python", sys.executable, "chat"]
+    elif entry == "default":
+        command = [os.environ["ARIA_NATIVE_BINARY"], "--app"]
+    else:
+        command = [sys.executable, "-c", "from aria_code.apps.cli.main import main; main()"]
+    terminal_env = dict(env, TERM="xterm-256color", ARIA_THEME="dark", ARIA_PYTHON=sys.executable)
+    terminal_env.pop("NO_COLOR", None)
+    p = subprocess.Popen(command, cwd=project,
+                         env=terminal_env,
+                         stdin=slave, stdout=slave, stderr=slave)
     screen = pyte.Screen(100, 32)
     stream = pyte.Stream(screen)
     decoder = codecs.getincrementaldecoder("utf-8")("replace")
@@ -284,6 +312,11 @@ def test_real_terminal_paste_approval_resize_cancel_and_restore(application):
         raise AssertionError((text, display()))
     try:
         wait("Ready")
+        wait("▗▛▀▀▀▀▀▜▖")
+        wait("▌▌▗▖ ▂ ▐▐")
+        assert screen.buffer[1][2].fg == "fffdf5"
+        assert screen.buffer[1][2].bg == "0e0e0e"
+        assert screen.buffer[1][5].fg == "f9b467"
         os.write(master, b"\x1b[200~Remember apricot\n\x1b[201~")
         wait("Remember apricot")
         os.write(master, b"\r")

@@ -1,0 +1,30 @@
+# Deploy a Go candidate to the existing relay service, without moving traffic.
+# Pass the same trigger substitutions as cloudbuild.yaml. After /status and
+# client/binding checks pass, promote the verified revision in Cloud Run.
+steps:
+  - id: Build
+    name: gcr.io/cloud-builders/docker
+    args: [build, --tag=$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:go-$COMMIT_SHA, go/relay]
+  - id: Push
+    name: gcr.io/cloud-builders/docker
+    args: [push, $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:go-$COMMIT_SHA]
+  - id: Deploy candidate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - services
+      - update
+      - $_SERVICE_NAME
+      - --platform=$_PLATFORM
+      - --image=$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:go-$COMMIT_SHA
+      - --region=$_DEPLOY_REGION
+      - --no-traffic
+      - --tag=go-candidate
+      - --startup-probe=httpGet.path=/status,httpGet.port=8080,timeoutSeconds=3,periodSeconds=5,failureThreshold=30
+      - --labels=managed-by=gcp-cloud-build-deploy-cloud-run,commit-sha=$COMMIT_SHA,gcb-build-id=$BUILD_ID,gcb-trigger-id=$_TRIGGER_ID
+      - --quiet
+images:
+  - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:go-$COMMIT_SHA
+options:
+  logging: CLOUD_LOGGING_ONLY

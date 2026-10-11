@@ -19,6 +19,7 @@ request must answer, or the build fails rather than shipping a broken file.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -35,6 +36,8 @@ def contents_dir(onedir: Path) -> Path:
 
 
 def main(argv: list[str]) -> int:
+    frontend = "--frontend" in argv
+    argv = [a for a in argv if a != "--frontend"]
     if len(argv) != 1:
         print(__doc__.strip().splitlines()[2].strip(), file=sys.stderr)
         return 2
@@ -45,7 +48,10 @@ def main(argv: list[str]) -> int:
 
     subprocess.run(["cargo", "build", "--release", "--locked", "-p", "aria-native"],
                    cwd=ROOT / "rust", check=True)
-    built = ROOT / "rust" / "target" / "release" / EXE
+    build_dir = Path(os.environ.get("CARGO_TARGET_DIR", str(ROOT / "rust" / "target")))
+    if not build_dir.is_absolute():
+        build_dir = ROOT / "rust" / build_dir
+    built = build_dir / "release" / EXE
     target = contents_dir(onedir) / EXE
     shutil.copy2(built, target)
     target.chmod(0o755)
@@ -58,6 +64,18 @@ def main(argv: list[str]) -> int:
         print(f"unexpected index answer: {probe.stdout!r}", file=sys.stderr)
         return 1
     print(f"bundled {version.stdout.strip()} at {target} ({target.stat().st_size // 1024} KiB)")
+    if frontend:
+        launcher = onedir / ("aria-code-bin.exe" if sys.platform == "win32" else "aria-code-bin")
+        worker = onedir / ("aria-code-worker.exe" if sys.platform == "win32" else "aria-code-worker")
+        if not launcher.is_file() or worker.exists():
+            raise RuntimeError("Expected a fresh aria-code-bin PyInstaller directory")
+        # Preserve PyInstaller's sibling _internal layout. Rust is the formal
+        # launcher; it discovers this worker without needing system Python.
+        launcher.rename(worker)
+        shutil.copy2(built, launcher)
+        launcher.chmod(0o755)
+        subprocess.run([str(launcher), "--version"], check=True, timeout=30)
+        print(f"native frontend installed; Python application worker at {worker}")
     return 0
 
 

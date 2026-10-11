@@ -60,6 +60,7 @@ pub struct App {
     pub workspace: String,
     pub permission: String,
     pub network: bool,
+    pub robot: super::robot::Robot,
     pub commands: Vec<String>,
     pub status: String,
     pub details: bool,
@@ -147,6 +148,7 @@ impl App {
                 self.workspace = safe(text("workspace"));
                 self.permission = safe(text("permission"));
                 self.network = v["network"].as_bool().unwrap_or(false);
+                self.robot = super::robot::Robot::from_event(&v["robot"]);
                 self.commands = v["commands"]
                     .as_array()
                     .ok_or("Missing command list")?

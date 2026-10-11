@@ -30,11 +30,16 @@ impl Session {
         } else {
             env::current_dir().map_err(|e| e.to_string())?.join(root)
         };
-        let mut command = Command::new(python);
-        command.args(["-u", "-c", "import sys; sys.stdin.buffer.read(1) == b'\\n' or sys.exit(2); from aria_code.apps.cli.app_server import main; main()"])
-            .args(args).current_dir(workspace).env("ARIA_HOME", root)
-            .env("PYTHONIOENCODING", "utf-8").env("ARIA_EVENTS_FULL", "0")
-            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut command = crate::runtime::command(python, "app");
+        command
+            .args(args)
+            .current_dir(workspace)
+            .env("ARIA_HOME", root)
+            .env("PYTHONIOENCODING", "utf-8")
+            .env("ARIA_EVENTS_FULL", "0")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         let mut worker = Worker::spawn(&mut command)?;
         // Worker/descendant containment is assigned before Python imports Aria.
         let mut input = worker.child.stdin.take().ok_or("Missing worker stdin")?;
