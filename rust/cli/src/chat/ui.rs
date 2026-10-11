@@ -111,6 +111,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 runtime.trim_end_matches(" · ").to_owned(),
                 Style::new().fg(MUTED),
             ),
+            Line::styled(app.update_notice.clone(), Style::new().fg(Color::Yellow)),
         ])
     } else {
         Text::from(Line::styled(
@@ -366,6 +367,17 @@ mod tests {
         assert!(rendered.contains("Directory: /project/review"));
         assert!(rendered.contains("12. Choice 11"));
         assert!(!app.details);
+    }
+    #[test]
+    fn background_update_notice_is_visible_without_replacing_the_robot() {
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        let app = App {
+            ready: true,
+            update_notice: "Update available · v0.138.0 · aria update".into(),
+            ..App::default()
+        };
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        assert!(display(&terminal).contains("Update available · v0.138.0 · aria update"));
     }
     #[test]
     fn renders_resize_unicode_code_and_secrets() {

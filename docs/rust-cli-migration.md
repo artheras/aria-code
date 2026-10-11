@@ -467,6 +467,12 @@ colours without replacing glyphs or drawing another mascot. Robot-off and
 banner-off preferences still hide it. Tests lock the original PNG checksum,
 check both palettes and verify the rendered eyes in a real PTY.
 
+The default interface also retains the existing cached/background update
+reminder after the runtime is ready. It respects offline mode and
+`check_for_update_on_startup`, displays a plain notice in the header, and never
+downloads or installs an update automatically. `/update` runs the existing
+explicit updater. The check does not delay startup or alter the active task.
+
 Each native release runs `scripts/verify_native_frontend.py` against the frozen
 application before archiving. It checks product-version parity, the application
 handshake, canonical robot, real local file reads and shutdown. macOS signs the

@@ -56,6 +56,7 @@ pub struct App {
     pub session: String,
     pub model: String,
     pub version: String,
+    pub update_notice: String,
     pub provider: String,
     pub workspace: String,
     pub permission: String,
@@ -138,6 +139,13 @@ impl App {
             return Err("Runtime event belongs to an unknown turn".into());
         }
         match kind {
+            "update.available" => {
+                self.update_notice = safe(text("text"))
+                    .chars()
+                    .filter(|c| !c.is_control())
+                    .take(256)
+                    .collect();
+            }
             "session.ready" | "session.state" => {
                 crate::sessions::validate_id(text("session_id"))?;
                 let changed_session = self.session != text("session_id");
@@ -503,6 +511,20 @@ mod tests {
         .unwrap();
         assert!(a.approval_context.is_empty());
         assert!(a.dialog.is_none());
+    }
+    #[test]
+    fn update_notice_does_not_change_the_active_turn_or_permissions() {
+        let mut a = app();
+        a.editor.insert("Inspect my project");
+        a.submit();
+        a.event(
+            json!({"protocol":1,"type":"update.available","turn_id":null,
+            "text":"Update available\n v0.138.0 · aria update\u{1b}"}),
+        )
+        .unwrap();
+        assert_eq!(a.turn.as_deref(), Some("turn-1"));
+        assert!(a.dialog.is_none());
+        assert_eq!(a.update_notice, "Update available v0.138.0 · aria update");
     }
     #[test]
     fn hostile_terminal_controls_are_removed() {

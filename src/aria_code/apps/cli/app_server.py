@@ -13,6 +13,7 @@ import builtins
 import getpass
 import io
 import json
+import os
 import queue
 import re
 import sys
@@ -398,10 +399,30 @@ class Server:
             self.turn_id = None
             self.snapshot("session.state")
 
+    async def update_notice(self):
+        # Only metadata, after session.ready. Respect the same preference as
+        # the old UI; never install software or wait on the check at startup.
+        if (os.environ.get("ARIA_OFFLINE", "").lower() in {"1", "true", "yes", "on"}
+                or not self.terminal.config.get("check_for_update_on_startup", True)):
+            return
+        try:
+            from aria_code.apps.cli.update_check import start_update_check, get_update_notice
+            from rich.text import Text
+            start_update_check(self.cli.__version__, lang=self.terminal.config.get("ui_lang", "en"))
+            for _ in range(100):
+                notice = get_update_notice(wait_ms=0)
+                if notice:
+                    self.emit("update.available", turn_id=None, text=Text.from_markup(notice).plain)
+                    return
+                await asyncio.sleep(0.1)
+        except Exception:
+            pass  # A metadata failure must not interrupt the user's task.
+
     async def serve(self):
         self.loop = asyncio.get_running_loop()
         threading.Thread(target=self.read_requests, daemon=True).start()
         self.initialize()
+        self.background.append(asyncio.create_task(self.update_notice()))
         # Start configured MCP connections without delaying the first frame.
         # Keep the same registration path used by the Python REPL.
         if self.cli._HAS_MCP:

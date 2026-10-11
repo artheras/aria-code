@@ -156,6 +156,29 @@ def test_multi_turn_history_and_saved_session_resume(application, native):
     resumed.close()
 
 
+@pytest.mark.parametrize("enabled,offline", [(True, False), (False, False), (True, True)])
+def test_cached_update_notice_follows_ready_and_respects_preferences(application, enabled, offline):
+    start, _, home, env = application
+    config = json.loads((home / 'config.json').read_text())
+    config['check_for_update_on_startup'] = enabled
+    (home / 'config.json').write_text(json.dumps(config))
+    (home / 'update_check.json').write_text(json.dumps({
+        'source': 'https://api.github.com/repos/artheras/aria-code/releases/latest',
+        'latest': 'v0.999.0', 'checked_at': time.time(),
+    }))
+    env['ARIA_OFFLINE'] = '1' if offline else '0'
+    env['ARIA_CODE_INSTALL_CHANNEL'] = 'native'
+    c = start()
+    if enabled and not offline:
+        notice = c.until('update.available')
+        assert notice['turn_id'] is None
+        assert 'v0.999.0' in notice['text'] and 'aria update' in notice['text']
+        assert '[yellow]' not in notice['text']
+        assert next(i for i, e in enumerate(c.seen) if e['type'] == 'session.ready') < len(c.seen) - 1
+    c.close()
+    assert any(e['type'] == 'update.available' for e in c.seen) is (enabled and not offline)
+
+
 @pytest.mark.parametrize("decision", ["yes", "no", "escape"])
 def test_real_file_write_is_frontend_approved_or_declined(application, decision):
     start, project, _, _ = application
