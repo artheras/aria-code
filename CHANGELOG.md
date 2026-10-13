@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.150.0] — 2026-10-13
+
+- Merge pull request #200 from Cinsoul/feat/go-eval-trajectories
+
 ## [0.149.0] — 2026-10-13
 
 - Merge pull request #196 from Cinsoul/feat/go-declared-providers
