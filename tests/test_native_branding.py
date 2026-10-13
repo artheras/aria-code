@@ -1,4 +1,4 @@
-"""The Rust protocol must carry the existing robot, not a second rendition."""
+"""Legacy span packets and the original reference asset remain compatible."""
 import hashlib
 from pathlib import Path
 

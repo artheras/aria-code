@@ -232,6 +232,20 @@ fn key_request(app: &mut App, key: KeyEvent) -> Option<Value> {
         return None;
     }
     if let Some(d) = app.dialog.as_mut() {
+        match key.code {
+            KeyCode::PageUp => {
+                d.context_scroll = d.context_scroll.saturating_sub(5);
+                return None;
+            }
+            KeyCode::PageDown => {
+                d.context_scroll = d
+                    .context_scroll
+                    .saturating_add(5)
+                    .min(d.context_max_scroll.get());
+                return None;
+            }
+            _ => (),
+        }
         if key.code == KeyCode::Esc || (ctrl && key.code == KeyCode::Char('c')) {
             if d.choices.is_empty() {
                 return app.cancel();
@@ -465,6 +479,38 @@ mod tests {
         assert_eq!(request["turn_id"], "turn-1");
         assert_eq!(request["request_id"], "a");
         assert!(app.dialog.is_none());
+    }
+    #[test]
+    fn preview_navigation_never_answers_an_approval() {
+        let mut app = App {
+            ready: true,
+            ..App::default()
+        };
+        app.editor.insert("edit a file");
+        app.submit();
+        app.event(
+            json!({"protocol":1,"type":"approval.requested","turn_id":"turn-1",
+            "request_id":"a","context":"long preview","choices":[["Allow",""],["Decline",""]]}),
+        )
+        .unwrap();
+        app.dialog.as_ref().unwrap().context_max_scroll.set(12);
+        for _ in 0..5 {
+            assert!(key_request(
+                &mut app,
+                KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)
+            )
+            .is_none());
+        }
+        assert_eq!(app.dialog.as_ref().unwrap().context_scroll, 12);
+        assert_eq!(app.dialog.as_ref().unwrap().selected, 0);
+        assert!(
+            key_request(&mut app, KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE)).is_none()
+        );
+        assert_eq!(app.dialog.as_ref().unwrap().context_scroll, 7);
+        assert_eq!(app.turn.as_deref(), Some("turn-1"));
+        let request =
+            key_request(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+        assert_eq!(request["choice"], -1);
     }
     #[test]
     fn draft_and_cancel_are_independent() {

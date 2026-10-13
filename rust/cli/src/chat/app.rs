@@ -43,6 +43,7 @@ pub struct Action {
     pub done: bool,
     pub success: bool,
     pub count: Option<u64>,
+    pub exit_code: Option<i64>,
     pub elapsed: Option<f64>,
     pub reused: bool,
     pub cancelled: bool,
@@ -53,6 +54,8 @@ pub struct Dialog {
     pub id: String,
     pub title: String,
     pub context: String,
+    pub context_scroll: u16,
+    pub context_max_scroll: Cell<u16>,
     pub choices: Vec<(String, String)>,
     pub selected: usize,
     pub secret: bool,
@@ -174,9 +177,19 @@ impl App {
                 self.permission = safe(text("permission"));
                 self.network = v["network"].as_bool().unwrap_or(false);
                 self.lang = safe(text("ui_lang"));
-                self.theme = safe(text("ui_theme"));
+                self.theme = super::theme::resolve(text("ui_theme"));
                 self.home_workspace = v["home_workspace"].as_bool().unwrap_or(false);
-                self.robot = super::robot::Robot::from_event(&v["robot"]);
+                let mut robot = v["robot"].clone();
+                if v["robot_design"] == "cream-block-v2"
+                    && robot.as_array().is_some_and(|rows| !rows.is_empty())
+                {
+                    // Python retains legacy spans for older frontends. The
+                    // current frontend owns the same artwork for both workers.
+                    robot = json!({"design": "cream-block-v2", "theme": self.theme});
+                } else if robot["design"] == "cream-block-v2" {
+                    robot["theme"] = self.theme.clone().into();
+                }
+                self.robot = super::robot::Robot::from_event(&robot);
                 self.commands = v["commands"]
                     .as_array()
                     .ok_or("Missing command list")?
@@ -286,6 +299,7 @@ impl App {
                     done: false,
                     success: false,
                     count: None,
+                    exit_code: None,
                     elapsed: None,
                     reused: false,
                     cancelled: false,
@@ -319,6 +333,7 @@ impl App {
                         done: false,
                         success: false,
                         count: None,
+                        exit_code: None,
                         elapsed: None,
                         reused: false,
                         cancelled: false,
@@ -330,11 +345,21 @@ impl App {
                 action.done = true;
                 action.success = ok;
                 action.count = v["item_count"].as_u64();
+                action.exit_code = v["exit_code"].as_i64();
+                action.success = ok && action.exit_code.is_none_or(|code| code == 0);
                 action.elapsed = v["elapsed_s"]
                     .as_f64()
                     .filter(|s| s.is_finite() && *s >= 0.0);
                 action.reused = v["reused"].as_bool().unwrap_or(false);
                 action.error = limited(text("error"));
+                if !text("output").is_empty() {
+                    let output = format!(
+                        "\n{}\n{}",
+                        self.tr("Actual output:", "实际输出:"),
+                        limited(text("output"))
+                    );
+                    self.entries[index].text.push_str(&output);
+                }
                 self.status = self.tr("Working", "正在处理").into();
             }
             "turn.status" => {
@@ -382,6 +407,8 @@ impl App {
                         String::new()
                     },
                     selected: selected.min(choices.len().saturating_sub(1)),
+                    context_scroll: 0,
+                    context_max_scroll: Cell::new(0),
                     choices,
                     editor: Editor::default(),
                     secret: v["secret"].as_bool().unwrap_or(false),
@@ -534,6 +561,36 @@ mod tests {
         }
     }
     #[test]
+    fn both_runtime_packets_draw_the_same_mascot_and_respect_hidden_banners() {
+        let legacy = json!([
+            [{"text": "▗▛▀▀▀▀▀▜▖"}], [{"text": "▌▌▗▖ ▂ ▐▐"}],
+            [{"text": "▐▙▄▄▄▄▄▟▌"}], [{"text": "▝▀▀▀▀▀▀▀▘"}]
+        ]);
+        let packet = |robot: Value, design: &str| {
+            json!({
+                "protocol": 1, "type": "session.ready", "session_id": "robot-test",
+                "commands": [], "ui_theme": "light", "robot": robot, "robot_design": design
+            })
+        };
+        let mut python = app();
+        python
+            .event(packet(legacy.clone(), "cream-block-v2"))
+            .unwrap();
+        let mut go = app();
+        go.event(packet(json!({"design": "cream-block-v2"}), ""))
+            .unwrap();
+        assert_eq!(python.robot.0, go.robot.0);
+        assert_eq!(python.robot.0.len(), 6);
+        python.event(packet(json!([]), "cream-block-v2")).unwrap();
+        assert!(python.robot.0.is_empty());
+        go.event(packet(json!([]), "")).unwrap();
+        assert!(go.robot.0.is_empty());
+        // A legacy worker without the optional field remains supported.
+        python.event(packet(legacy, "")).unwrap();
+        assert_eq!(python.robot.0.len(), 4);
+    }
+
+    #[test]
     fn stale_events_and_approvals_are_rejected() {
         let mut a = app();
         a.editor.insert("你好");
@@ -679,6 +736,29 @@ mod tests {
         .unwrap();
         assert!(a.approval_context.is_empty());
         assert!(a.dialog.is_none());
+    }
+    #[test]
+    fn command_exit_and_output_are_kept_even_when_invocation_succeeded() {
+        let mut a = app();
+        a.editor.insert("Run tests");
+        a.submit();
+        a.event(
+            json!({"protocol":1,"type":"tool.started","turn_id":"turn-1",
+            "tool":"run_command","params":{"command":"cargo test"}}),
+        )
+        .unwrap();
+        a.event(
+            json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1",
+            "tool":"run_command","success":true,"exit_code":7,
+            "output":"stderr:\nassertion failed\u{1b}"}),
+        )
+        .unwrap();
+        let row = a.entries.back().unwrap();
+        let action = row.action.as_ref().unwrap();
+        assert_eq!(action.exit_code, Some(7));
+        assert!(!action.success);
+        assert!(row.text.contains("assertion failed"));
+        assert!(!row.text.contains('\u{1b}'));
     }
     #[test]
     fn update_notice_does_not_change_the_active_turn_or_permissions() {

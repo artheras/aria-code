@@ -1,4 +1,4 @@
-"""Every turn is told to write the files it is asked for, compute numbers with code,
+"""Every task is told to write the files it is asked for, compute numbers with code,
 and keep a client's document to that client's data.
 
 In the Vertex evals the agent reported reorder.json's contents without writing
@@ -12,9 +12,14 @@ from aria_code.apps.cli.prompts.coding import CODING_SYSTEM_PROMPT
 from aria_code.apps.cli.prompts.select import OUTPUT_DISCIPLINE, build_turn_system_prompt, select_base_prompt
 
 
-def test_every_intent_gets_the_output_rules():
-    for message in ("fix the failing test", "AAPL price", "hello there", "what is a reorder point"):
+def test_tasks_and_general_questions_get_the_output_rules():
+    for message in ("fix the failing test", "AAPL price", "what can you help me do?", "what is a reorder point", "hello there, read README.md"):
         assert OUTPUT_DISCIPLINE in build_turn_system_prompt(message)
+
+
+def test_standalone_social_messages_do_not_request_file_or_computation_work():
+    for message in ("hello there", "你好", "thank you"):
+        assert OUTPUT_DISCIPLINE not in build_turn_system_prompt(message)
 
 
 def test_the_rules_say_what_the_evals_needed():

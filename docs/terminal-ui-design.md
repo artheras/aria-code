@@ -2,8 +2,9 @@
 
 Aria uses a Rust terminal frontend and a persistent Python model/tool service.
 The frontend owns display and editing; the service owns approvals, workspace
-permissions, model routing, tool execution and session persistence. The
-canonical robot artwork and its span colours remain unchanged.
+permissions, model routing, tool execution and session persistence. The installed
+path retains that worker. The Rust frontend owns the revised cream robot.
+The broader Go runtime migration is separate from this interface change.
 
 ## Public references reviewed on 2026-10-11
 
@@ -42,11 +43,49 @@ private implementation. Aria's changes are independently implemented.
   list items are not styled as deleted code.
 - UI language follows `ui_lang`. Light and dark text palettes have automated
   4.5:1 contrast checks against supported white and near-black backgrounds.
-  The robot uses its existing palette independently.
-- The input grows with multiline content. Busy input is a draft that the user
+  The robot uses its own palette independently of text contrast.
+- The input has a rounded boundary, a prompt gutter and an empty-state hint.
+  It grows from one to six visible content rows; long input scrolls within the
+  boundary. Wrapping uses exactly the available text width after borders,
+  padding and the prompt, including Chinese characters and emoji. Send/newline
+  hints shorten on narrow terminals. Busy input is a draft that the user
   sends after the current task; it is not automatically queued or submitted.
   The footer shows status and elapsed time once. Manual history scrolling keeps
   the viewport stable as new output arrives.
+
+## Compact mascot and composer, 2026-10-12
+
+The [official Claude Code 2.1.27 distribution](https://www.npmjs.com/package/@anthropic-ai/claude-code/v/2.1.27)
+contains a compact mascot made from three text rows, at most nine columns
+including its spacing. This is a measurement of that published version, not a
+claim about all versions or access to its private source repository. It informed
+the visual budget; no Claude mascot artwork is included in Aria.
+
+Aria's compact mascot uses 14 columns by six rows, including a half-row of
+transparent space above the stepped cap. This replaces the 12-by-five prototype:
+its single-column feet looked too thin and its eyes lost definition. The ivory
+eye now occupies two columns by one row; the amber dash is the same width and
+half the height, sharing its bottom edge. Each of the four attached feet is
+1.5 columns wide by one row high. Mirrored half-column edges keep the feet
+symmetrical; their gaps retain the terminal's own background.
+
+The cream shell, inset black screen, orange base line and ear details follow
+`docs/assets/aria-robot.png`. The original asset is unchanged. The compact
+terminal rendition is pixel-fitted separately, not pixel-identical image
+scaling. Standard half/quarter/eighth block glyphs avoid terminal image
+protocols. The compact size stays fixed when the window grows; pixel proportions
+also depend on the terminal's font and line height.
+
+The Python worker sends an optional `robot_design` alongside its existing span
+packet. New Rust frontends draw the named mascot;
+older frontends still receive their supported spans. `--no-banner`,
+`--banner off` and `ARIA_ROBOT_RENDER=off` keep the drawing hidden.
+
+The rounded composer keeps its two-column prompt gutter separate from editable
+text. Chinese multiline paste, long input scrolling, shrinking after deletion,
+and resizing from 100 to 60 columns were checked through the actual source-built
+Rust frontend and Python service in a pseudo-terminal. Source-build previews are reconstructed
+from captured terminal cells, not screenshots of an installed release.
 
 ## Validation
 

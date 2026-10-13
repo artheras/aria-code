@@ -1,6 +1,6 @@
 use ratatui::style::Color;
 
-/// Text colours only. The canonical robot carries its own unchanged palette.
+/// Text colours only. The mascot has its own palette.
 #[derive(Clone, Copy)]
 pub struct Palette {
     pub accent: Color,
@@ -10,6 +10,40 @@ pub struct Palette {
     pub error: Color,
     pub code_bg: Color,
     pub selection_fg: Color,
+}
+
+pub fn resolve(theme: &str) -> String {
+    for candidate in [
+        std::env::var("ARIA_THEME").unwrap_or_default(),
+        theme.into(),
+    ] {
+        if candidate == "light" || candidate == "dark" {
+            return candidate;
+        }
+    }
+    if let Ok(colors) = std::env::var("COLORFGBG") {
+        if let Some(background) = colors.rsplit(';').next().and_then(|v| v.parse::<u8>().ok()) {
+            return if background >= 7 { "light" } else { "dark" }.into();
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = std::process::Command::new("/usr/bin/defaults")
+            .args(["read", "-g", "AppleInterfaceStyle"])
+            .stderr(std::process::Stdio::null())
+            .output()
+        {
+            return if output.status.success()
+                && String::from_utf8_lossy(&output.stdout).trim() == "Dark"
+            {
+                "dark"
+            } else {
+                "light"
+            }
+            .into();
+        }
+    }
+    "dark".into()
 }
 impl Palette {
     pub fn for_theme(theme: &str) -> Self {

@@ -351,12 +351,16 @@ class Server:
         from aria_code.apps.cli.native_branding import robot_rows
         from aria_code.ui import robot
         t = self.terminal
+        rows = robot_rows(hidden=self.options.no_banner or self.options.banner == "off")
+        # Older Rust frontends still consume the spans. New frontends draw the
+        # named design themselves, sharing the same mascot as the Go runtime.
+        # An empty drawing must continue to mean that the banner is disabled.
         # A display snapshot is bounded independently of the model's context.
         messages = [{"role": m.get("role", ""), "content": str(m.get("content", ""))[:4096]}
                     for m in t.conversation[-40:]]
         self.emit(kind, session_id=t.session_id, messages=messages,
                   version=self.cli.__version__,
-                  robot=robot_rows(hidden=self.options.no_banner or self.options.banner == "off"),
+                  robot=rows, robot_design="cream-block-v2" if rows else "",
                   model=t.config.get("model", ""), provider=t.config.get("local_provider", ""),
                   workspace=str(Path.cwd()), commands=sorted(t.commands.commands),
                   permission=t.config.get("permission_mode", "workspace-write"),

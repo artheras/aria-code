@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    widgets::{Block, BorderType, Clear, Padding, Paragraph, Wrap},
     Frame,
 };
 use unicode_segmentation::UnicodeSegmentation;
@@ -78,15 +78,22 @@ pub fn draw(frame: &mut Frame, app: &App) {
         );
         return;
     }
-    let (input_rows, cursor) = app.editor.layout(area.width.saturating_sub(4));
+    // Two borders, two padding columns, and the two-column prompt gutter.
+    // Wrapping and cursor placement must use the same width as the text area.
+    let (input_rows, cursor) = app.editor.layout(area.width.saturating_sub(6));
+    let robot = &app.robot;
+    let robot_width = robot.0.first().map(|line| line.width()).unwrap_or(0) as u16;
+    let show_robot = !robot.0.is_empty() && area.width >= robot_width + 36 && area.height >= 14;
+    let left_padding = if show_robot { robot_width + 2 } else { 0 };
     let input_height = (input_rows.len().min(6) as u16)
-        .saturating_add(1)
+        .saturating_add(2)
         .min(area.height / 2);
     let parts = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(if area.height >= 14 {
-                4 + u16::from(!app.update_notice.is_empty()) + u16::from(app.details)
+                (4 + u16::from(!app.update_notice.is_empty()) + u16::from(app.details))
+                    .max(if show_robot { robot.0.len() as u16 } else { 0 })
             } else {
                 1
             }),
@@ -117,8 +124,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 app.tr("Workspace", "工作区"),
                 workspace_tail(
                     &app.workspace,
-                    usize::from(area.width)
-                        .saturating_sub(11 + app.tr("Workspace", "工作区").width() + 1),
+                    usize::from(area.width).saturating_sub(
+                        usize::from(left_padding) + app.tr("Workspace", "工作区").width() + 1
+                    ),
                 )
             )),
             Line::styled(runtime.to_owned(), Style::new().fg(p.muted)),
@@ -148,13 +156,18 @@ pub fn draw(frame: &mut Frame, app: &App) {
         ))
     };
     let mut header_area = parts[0];
-    if !app.robot.0.is_empty() && header_area.height >= 4 && header_area.width >= 45 {
+    if show_robot {
         frame.render_widget(
-            Paragraph::new(app.robot.0.clone()),
-            Rect::new(header_area.x, header_area.y, 9, 4),
+            Paragraph::new(robot.0.clone()),
+            Rect::new(
+                header_area.x,
+                header_area.y,
+                robot_width,
+                robot.0.len() as u16,
+            ),
         );
-        header_area.x += 11;
-        header_area.width -= 11;
+        header_area.x += left_padding;
+        header_area.width -= left_padding;
     }
     frame.render_widget(Paragraph::new(header), header_area);
     let mut lines = Vec::new();
@@ -180,10 +193,6 @@ pub fn draw(frame: &mut Frame, app: &App) {
             } else {
                 p.error
             };
-            let target = workspace_tail(
-                &operation_target(&action.target, &app.workspace),
-                usize::from(parts[1].width).saturating_sub(label.width() + 16),
-            );
             let count = action
                 .count
                 .map(|n| format!(" · {n} {}", app.tr("items", "项")))
@@ -195,9 +204,19 @@ pub fn draw(frame: &mut Frame, app: &App) {
             } else {
                 ""
             };
+            let exit_code = action
+                .exit_code
+                .map(|code| format!(" · {} {code}", app.tr("exit", "退出码")))
+                .unwrap_or_default();
+            let target = workspace_tail(
+                &operation_target(&action.target, &app.workspace),
+                usize::from(parts[1].width).saturating_sub(
+                    label.width() + count.width() + exit_code.width() + reused.width() + 4,
+                ),
+            );
             lines.push(Line::from(vec![
                 Span::styled(format!("{symbol} {label}"), Style::new().fg(color)),
-                Span::raw(format!(" {target}{count}{reused}")),
+                Span::raw(format!(" {target}{count}{exit_code}{reused}")),
             ]));
             if !action.error.is_empty() {
                 lines.push(Line::styled(
@@ -291,18 +310,57 @@ pub fn draw(frame: &mut Frame, app: &App) {
     .min(u16::MAX as usize) as u16;
     app.viewport_scroll.set(app.scroll);
     frame.render_widget(paragraph.scroll((offset, 0)), parts[1]);
-    let input = Block::default()
-        .borders(Borders::TOP)
-        .title(if app.turn.is_some() {
-            app.tr(" Draft · wait to send ", " 草稿 · 任务结束后按 Enter 发送 ")
-        } else {
-            app.tr(" Ask Aria · Enter sends ", " 输入消息 · Enter 发送 ")
-        })
-        .border_style(Style::new().fg(if app.ready { p.accent } else { p.muted }));
-    let inside = input.inner(parts[2]);
+    let busy = app.turn.is_some();
+    let label = if busy {
+        app.tr(" Draft ", " 草稿 ")
+    } else {
+        " Aria "
+    };
+    let hint = if !app.ready {
+        app.tr(" Starting… ", " 正在启动… ")
+    } else if busy {
+        app.tr(" Send after this task ", " 任务结束后手动发送 ")
+    } else if area.width >= 60 {
+        app.tr(
+            " Enter send · Ctrl+J newline ",
+            " Enter 发送 · Ctrl+J 换行 ",
+        )
+    } else {
+        app.tr(" Enter send ", " Enter 发送 ")
+    };
+    let mut input = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .padding(Padding::horizontal(1))
+        .title(Line::styled(label, Style::new().fg(p.accent)))
+        .border_style(Style::new().fg(p.muted));
+    if label.width() + hint.width() + 6 <= usize::from(parts[2].width) {
+        input = input.title(Line::styled(hint, Style::new().fg(p.muted)).right_aligned());
+    }
+    let mut inside = input.inner(parts[2]);
     frame.render_widget(input, parts[2]);
+    frame.render_widget(
+        Paragraph::new("›").style(Style::new().fg(if app.ready { p.accent } else { p.muted })),
+        Rect::new(inside.x, inside.y, 1, inside.height.min(1)),
+    );
+    inside.x += 2;
+    inside.width = inside.width.saturating_sub(2);
     let first = usize::from(cursor.0).saturating_sub(inside.height.saturating_sub(1) as usize);
-    frame.render_widget(Paragraph::new(input_rows[first..].join("\n")), inside);
+    if app.editor.is_empty() {
+        let placeholder = if busy {
+            app.tr("Draft your next message…", "可以先写下一条消息…")
+        } else {
+            app.tr(
+                "Describe a task, or type / for commands",
+                "描述任务，或输入 / 查看命令",
+            )
+        };
+        frame.render_widget(
+            Paragraph::new(placeholder).style(Style::new().fg(p.muted)),
+            inside,
+        );
+    } else {
+        frame.render_widget(Paragraph::new(input_rows[first..].join("\n")), inside);
+    }
     frame.set_cursor_position((
         inside.x + cursor.1.min(inside.width.saturating_sub(1)),
         inside.y
@@ -373,8 +431,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
         frame.render_widget(Clear, rect);
         let block = Block::bordered()
             .title(app.tr(
-                " Your response required · Esc declines ",
-                " 需要你的选择 · Esc 拒绝 ",
+                " Your response required · PgUp/PgDn review · Esc declines ",
+                " 需要你的选择 · PgUp/PgDn 查看预览 · Esc 拒绝 ",
             ))
             .border_style(Style::new().fg(p.accent));
         let inside = block.inner(rect);
@@ -385,7 +443,14 @@ pub fn draw(frame: &mut Frame, app: &App) {
             Constraint::Min(1),
         ])
         .split(inside);
-        frame.render_widget(heading, sections[0]);
+        let max_scroll = heading_lines
+            .saturating_sub(usize::from(sections[0].height))
+            .min(usize::from(u16::MAX)) as u16;
+        dialog.context_max_scroll.set(max_scroll);
+        frame.render_widget(
+            heading.scroll((dialog.context_scroll.min(max_scroll), 0)),
+            sections[0],
+        );
         let inside = sections[1];
         let mut scroll = 0;
         let mut rows = Vec::new();
@@ -491,20 +556,24 @@ mod tests {
 
     #[test]
     fn operation_targets_are_relative_only_inside_the_selected_workspace() {
+        // Use native absolute paths, including a drive prefix on Windows.
+        let workspace = std::env::temp_dir().join("aria-target-project");
+        let file = workspace.join("src").join("app.rs");
+        let outside = std::env::temp_dir()
+            .join("aria-target-project-other")
+            .join("app.rs");
+        let workspace = workspace.to_string_lossy();
         assert_eq!(
-            operation_target("/workspace/project/src/app.rs", "/workspace/project"),
-            "src/app.rs"
+            operation_target(&file.to_string_lossy(), &workspace),
+            std::path::Path::new("src").join("app.rs").to_string_lossy()
+        );
+        assert_eq!(operation_target(&workspace, &workspace), ".");
+        assert_eq!(
+            operation_target(&outside.to_string_lossy(), &workspace),
+            outside.to_string_lossy()
         );
         assert_eq!(
-            operation_target("/workspace/project", "/workspace/project"),
-            "."
-        );
-        assert_eq!(
-            operation_target("/workspace/project-other/a.rs", "/workspace/project"),
-            "/workspace/project-other/a.rs"
-        );
-        assert_eq!(
-            operation_target("cargo test --all", "/workspace/project"),
+            operation_target("cargo test --all", &workspace),
             "cargo test --all"
         );
     }
@@ -594,6 +663,34 @@ mod tests {
         assert!(!app.details);
     }
     #[test]
+    fn long_change_preview_can_be_read_without_hiding_the_choices() {
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        let mut app = App {
+            ready: true,
+            turn: Some("turn-1".into()),
+            ..App::default()
+        };
+        let context = (0..16)
+            .map(|n| format!("change line {n}\n"))
+            .collect::<String>();
+        app.event(
+            serde_json::json!({"protocol":1,"type":"approval.requested","turn_id":"turn-1",
+            "request_id":"approval","title":"Review changes","context":context,
+            "choices":[["Allow once",""],["Decline",""]]}),
+        )
+        .unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        assert!(display(&terminal).contains("change line 0"));
+        let max = app.dialog.as_ref().unwrap().context_max_scroll.get();
+        assert!(max > 0);
+        app.dialog.as_mut().unwrap().context_scroll = max;
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let rendered = display(&terminal);
+        assert!(rendered.contains("change line 15"));
+        assert!(rendered.contains("Allow once"));
+        assert!(rendered.contains("Decline"));
+    }
+    #[test]
     fn background_update_notice_is_visible_without_replacing_the_robot() {
         let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
         let app = App {
@@ -603,6 +700,85 @@ mod tests {
         };
         terminal.draw(|f| draw(f, &app)).unwrap();
         assert!(display(&terminal).contains("Update available · v0.138.0 · aria update"));
+    }
+    #[test]
+    fn composer_has_a_visible_prompt_and_fits_cursor_after_wide_text() {
+        use ratatui::backend::Backend;
+        for (width, height) in [(12, 6), (40, 12), (80, 24), (120, 40)] {
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            let mut app = App {
+                ready: true,
+                ..App::default()
+            };
+            terminal.draw(|f| draw(f, &app)).unwrap();
+            let empty_cursor = terminal.backend_mut().get_cursor_position().unwrap();
+            assert_eq!(empty_cursor.x, 4);
+            assert_eq!(empty_cursor.y, height - 3);
+            let buffer = terminal.backend().buffer();
+            assert_eq!(buffer[(2, height - 3)].symbol(), "›");
+            assert_eq!(buffer[(0, height - 2)].symbol(), "╰");
+            app.editor.insert("你好👩‍💻");
+            terminal.draw(|f| draw(f, &app)).unwrap();
+            let cursor = terminal.backend_mut().get_cursor_position().unwrap();
+            assert!(cursor.x >= 4 && cursor.x < width - 2);
+            assert!(cursor.y < height - 2);
+            if width > 12 {
+                assert_eq!(cursor.x, 10);
+            }
+            // Filling the content exactly creates a new row, not a cursor on
+            // the right border. A long paste scrolls only the editable area.
+            app.editor.set(&"x".repeat(usize::from(width - 6)));
+            terminal.draw(|f| draw(f, &app)).unwrap();
+            assert_eq!(terminal.backend_mut().get_cursor_position().unwrap().x, 4);
+            app.editor
+                .set(&(0..20).map(|i| format!("line{i}\n")).collect::<String>());
+            terminal.draw(|f| draw(f, &app)).unwrap();
+            assert!(display(&terminal).contains("line19") || height == 6);
+            assert_eq!(
+                terminal.backend_mut().get_cursor_position().unwrap().y,
+                height - 3
+            );
+            app.editor.clear();
+            terminal.draw(|f| draw(f, &app)).unwrap();
+            assert_eq!(
+                terminal.backend_mut().get_cursor_position().unwrap(),
+                empty_cursor
+            );
+        }
+    }
+    #[test]
+    fn busy_composer_labels_drafts_without_suggesting_they_are_sent() {
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let mut app = App {
+            ready: true,
+            lang: "zh".into(),
+            turn: Some("active".into()),
+            ..App::default()
+        };
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let rendered = display(&terminal);
+        assert!(rendered.contains("草稿") && rendered.contains("任务结束后手动发送"));
+        assert!(!rendered.contains("Enter 发送"));
+        app.editor.insert("下一条消息");
+        assert!(app.submit().is_none());
+        assert_eq!(app.editor.text(), "下一条消息");
+    }
+    #[test]
+    fn mascot_keeps_the_same_compact_size_after_resizing() {
+        for (w, h) in [(55, 18), (80, 24), (120, 40)] {
+            let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap();
+            let app = App {
+                ready: true,
+                robot: super::super::robot::Robot::cream("light", true),
+                ..App::default()
+            };
+            terminal.draw(|f| draw(f, &app)).unwrap();
+            let buffer = terminal.backend().buffer();
+            assert_eq!(buffer[(3, 5)].symbol(), "▌");
+            assert_eq!(buffer[(10, 5)].symbol(), "▐");
+            assert_eq!(buffer[(16, 0)].symbol(), "A");
+            assert!(display(&terminal).contains("Aria Code"));
+        }
     }
     #[test]
     fn renders_resize_unicode_code_and_secrets() {
@@ -626,6 +802,8 @@ mod tests {
                 id: "id".into(),
                 title: "API key".into(),
                 context: String::new(),
+                context_scroll: 0,
+                context_max_scroll: std::cell::Cell::new(0),
                 choices: vec![],
                 selected: 0,
                 secret: true,

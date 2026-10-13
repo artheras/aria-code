@@ -1,4 +1,4 @@
-"""Serialize the existing mascot without copying or changing its design."""
+"""Legacy mascot spans for native frontends predating named Rust artwork."""
 from __future__ import annotations
 
 import os
