@@ -137,8 +137,7 @@ model_providers:
 
 与上文 Python 行为的差别：
 
-- **只读用户级文件。** 项目里的 `./.aria.json`、`./.aria.yaml` 不能声明 provider：
-  克隆下来的仓库不应该能把对话和凭据发到它指定的服务器。
+- **只读用户级文件**（与 Python 相同，见上文“配置位置”）。
 - **凭据只来自环境变量（`env_key`）或命令（`auth.command`）。** 命令只能打印令牌本身；
   缓存 `refresh_interval_ms`（默认 5 分钟，0 = 只在 401 后刷新），服务器返回 401 时重取一次。
   `env_key` 与 `auth` 二选一。
