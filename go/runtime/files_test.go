@@ -4,9 +4,45 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestWindowsVerbatimSpellingsAreEquivalentWithoutDeviceRewrites(t *testing.T) {
+	for input, want := range map[string]string{
+		`\\?\C:\project\new.txt`:       `C:\project\new.txt`,
+		`\\?\UNC\server\share\new.txt`: `\\server\share\new.txt`,
+		`\\?\unc\server\share\new.txt`: `\\server\share\new.txt`,
+		`\\?\Volume{123}\file`:         `\\?\Volume{123}\file`,
+		`\\.\pipe\name`:                `\\.\pipe\name`,
+		`C:relative`:                   `C:relative`,
+	} {
+		if got := normalWindowsPath(input); got != want {
+			t.Fatalf("%q became %q, wanted %q", input, got, want)
+		}
+	}
+	if runtime.GOOS != "windows" {
+		return
+	}
+	root := t.TempDir()
+	project, err := newScope(`\\?\`+root, nil, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change, err := propose(project, "write_file", map[string]any{"path": "new.txt", "content": "complete native body"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := applyRecordedChange(context.Background(), project, t.TempDir(), "session", "write_file", change); !result.Success {
+		t.Fatal(result)
+	}
+	p, err := project.open(filepath.Join(root, "new.txt"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Close()
+}
 
 func TestFilesReadAndEditActualSourceWithoutPython(t *testing.T) {
 	root := t.TempDir()

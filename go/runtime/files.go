@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -38,6 +39,7 @@ type scopedPath struct {
 func (p *scopedPath) Close() { p.root.Close() }
 
 func canonical(path string) (string, error) {
+	path = lexicalPath(path)
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
@@ -50,7 +52,7 @@ func canonical(path string) (string, error) {
 			for i := len(missing) - 1; i >= 0; i-- {
 				resolved = filepath.Join(resolved, missing[i])
 			}
-			return resolved, nil
+			return lexicalPath(resolved), nil
 		}
 		if !os.IsNotExist(err) {
 			return "", err
@@ -62,6 +64,25 @@ func canonical(path string) (string, error) {
 		missing = append(missing, filepath.Base(cursor))
 		cursor = parent
 	}
+}
+
+// Rust canonicalize returns verbatim Windows paths; os.Getwd and legacy
+// Python checkpoints usually use ordinary drive/UNC paths. Normalize only
+// equivalent absolute spellings, without weakening symlink or root checks.
+func normalWindowsPath(path string) string {
+	if len(path) >= 8 && strings.EqualFold(path[:8], `\\?\UNC\`) {
+		return `\\` + path[8:]
+	}
+	if len(path) >= 7 && path[:4] == `\\?\` && path[5:7] == `:\` && ((path[4] >= 'A' && path[4] <= 'Z') || (path[4] >= 'a' && path[4] <= 'z')) {
+		return path[4:]
+	}
+	return path
+}
+func lexicalPath(path string) string {
+	if runtime.GOOS == "windows" {
+		path = normalWindowsPath(path)
+	}
+	return filepath.Clean(path)
 }
 func newScope(workspace string, reads, writes []string, local bool) (*scope, error) {
 	root, err := canonical(workspace)

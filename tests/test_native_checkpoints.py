@@ -52,7 +52,10 @@ def test_native_restore_matches_python_checkpoint_effects(bridge, created):
     store.restore_checkpoint(records[1].checkpoint_id)
     assert targets[0].exists() == targets[1].exists()
     if not created:
-        assert targets[0].read_bytes() == targets[1].read_bytes() == before.encode("utf-8")
+        # Legacy Python checkpoints use write_text's platform newline rules.
+        # Native checkpoints separately retain exact physical preimages.
+        expected = before.replace("\n", os.linesep).encode("utf-8")
+        assert targets[0].read_bytes() == targets[1].read_bytes() == expected
         if os.name != "nt":
             assert targets[0].stat().st_mode & 0o777 == targets[1].stat().st_mode & 0o777 == 0o751
     assert all(store.get(record.checkpoint_id).status == "restored" for record in records)

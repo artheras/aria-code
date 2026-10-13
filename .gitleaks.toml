@@ -87,3 +87,9 @@ regexes = [
     '''abc\.def-123''',
     '''ghp_abcdefghijklmnop1234''',
 ]
+
+[[allowlists]]
+description = "Invented API key in Go event-masking tests (including its original commit); allow only this exact fixture in this test file."
+condition = "AND"
+paths = ['''(^|/)go/runtime/trajectory_test\.go$''']
+regexes = ['''sk-live-1234567890abc''']

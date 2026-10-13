@@ -390,7 +390,7 @@ func planRestore(ctx context.Context, scope *scope, records []checkpoint) ([]res
 			if err != nil {
 				return nil, err
 			}
-			if p.absolute != filepath.Clean(file.Path) {
+			if p.absolute != lexicalPath(file.Path) {
 				p.Close()
 				return nil, errors.New("checkpoint path resolves to a different file")
 			}
@@ -430,8 +430,8 @@ func planRestore(ctx context.Context, scope *scope, records []checkpoint) ([]res
 			if file.Mode != nil {
 				mode = fs.FileMode(*file.Mode) & 0777
 			}
-			steps = append(steps, restoreStep{change: fileChange{path: file.Path, before: state.bytes, after: before, existed: true, mode: mode, sha: bytesHash(state.bytes)}, remove: !file.Existed, rollbackMode: state.mode})
-			simulated[file.Path] = imageState{bytes: before, exists: file.Existed, mode: mode}
+			steps = append(steps, restoreStep{change: fileChange{path: lexicalPath(file.Path), before: state.bytes, after: before, existed: true, mode: mode, sha: bytesHash(state.bytes)}, remove: !file.Existed, rollbackMode: state.mode})
+			simulated[lexicalPath(file.Path)] = imageState{bytes: before, exists: file.Existed, mode: mode}
 		}
 	}
 	return steps, nil

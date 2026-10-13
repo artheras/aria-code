@@ -108,7 +108,10 @@ func TestAppStagedApplyAndRejectCommandsUseOriginalWriteApproval(t *testing.T) {
 	if operation["staged"] != true || !strings.Contains(operation["output"].(string), "not been modified") {
 		t.Fatal("staging was rendered as a disk write", operation)
 	}
-	c.until(t, "turn.completed")
+	completed := c.until(t, "turn.completed")
+	if completed["delivery"] != nil {
+		t.Fatal("a staged-only proposal was reported as a completed disk change", completed)
+	}
 	c.until(t, "session.state")
 	if _, err := os.Stat(filepath.Join(project, "new.txt")); !os.IsNotExist(err) {
 		t.Fatal(err)
