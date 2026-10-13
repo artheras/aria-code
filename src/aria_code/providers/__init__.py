@@ -1,7 +1,7 @@
 """
 providers/ — Aria Code 统一 LLM Provider 层
 ============================================
-用户在 ~/.aria/providers.yaml 或项目 .aria.json 里声明提供商，
+用户在 ~/.aria/providers.yaml 等用户级文件里声明提供商（项目文件不能声明），
 CLI 自动按优先级路由，任何一级失败自动降级到下一级。
 
 支持的提供商:

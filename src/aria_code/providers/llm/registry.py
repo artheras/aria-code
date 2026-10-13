@@ -1,7 +1,7 @@
 """
 providers/llm/registry.py — LLM Provider 注册中心
 ==================================================
-• 从 ~/.aria/providers.yaml 或 .aria.json 加载用户配置
+• 从 ~/.aria/providers.yaml 等用户级文件加载配置（不读项目里的 .aria.json）
 • 按优先级自动路由：本地 Ollama → DeepSeek → OpenAI → Anthropic → Groq
 • 提供 stream_cloud_fallback() 供 aria_cli.py 调用
 
@@ -93,8 +93,11 @@ _CONFIG_PATHS = [
     # Legacy / alternative paths
     Path.home() / ".aria" / "providers.yaml",
     Path.home() / ".aria" / "providers.json",
-    Path(".aria.json"),
-    Path(".aria.yaml"),
+    # No project-relative ./.aria.json or ./.aria.yaml: every reader of this
+    # list chooses where conversations go or which credentials accompany them
+    # (model_providers base_url + env_key, llm.<name>.base_url, the fallback
+    # chain), and a cloned repository must not be able to decide that. The Go
+    # runtime (go/runtime/provider_declared.go) applies the same rule.
 ]
 
 
