@@ -23,8 +23,11 @@ groq、siliconflow、dashscope、moonshot、zhipu、together、local）。要接
 ~/.arthera/providers.json      # CLI 的 /apikey 命令写这里
 ~/.aria/providers.yaml         # 推荐手写这个
 ~/.aria/providers.json
-./.aria.json  ./.aria.yaml     # 项目级覆盖
 ```
+
+**只读用户级文件。** 项目里的 `./.aria.json`、`./.aria.yaml` 不能声明 provider，
+也不能设置 `llm` 节（`default`、`fallback`、各 provider 的 `base_url`）：
+克隆下来的仓库不应该能把对话和凭据发到它指定的服务器。Python 与原生运行时规则相同。
 
 ## 完整示例
 
@@ -134,8 +137,7 @@ model_providers:
 
 与上文 Python 行为的差别：
 
-- **只读用户级文件。** 项目里的 `./.aria.json`、`./.aria.yaml` 不能声明 provider：
-  克隆下来的仓库不应该能把对话和凭据发到它指定的服务器。
+- **只读用户级文件**（与 Python 相同，见上文“配置位置”）。
 - **凭据只来自环境变量（`env_key`）或命令（`auth.command`）。** 命令只能打印令牌本身；
   缓存 `refresh_interval_ms`（默认 5 分钟，0 = 只在 401 后刷新），服务器返回 401 时重取一次。
   `env_key` 与 `auth` 二选一。
