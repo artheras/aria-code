@@ -46,8 +46,20 @@
 
    输出 `train.jsonl`、`validation.jsonl`（Vertex Gemini 微调格式）和 `manifest.json`（每个输入文件的 sha256、规则、各领域样本数、被排除的原因、锁定的题目）。
 
-5. **在 Vertex 上微调** `gemini-3.5-flash`，训练集用 `train.jsonl`，验证集用 `validation.jsonl`。
-6. **在验证集上比较。** 用微调后的模型跑 Evals（同样 `--repeat 3`），然后：
+5. **在 Vertex 上微调** `gemini-3.5-flash`，训练集用 `train.jsonl`，验证集用 `validation.jsonl`：
+
+   ```bash
+   aria-runtime training tune submit sft/ --name aria-v1 --bucket gs://<桶>/aria-sft \
+     [--base gemini-3.5-flash] [--region us-central1] [--epochs N] [--adapter-size 4]
+   aria-runtime training tune status sft/tuning-aria-v1.json
+   aria-runtime training tune wait   sft/tuning-aria-v1.json      # 成功后登记到 tuned_models
+   ```
+
+   `submit` 要求数据集带 `manifest.json`，把文件按内容哈希上传到 Cloud Storage（同一路径从不覆盖），
+   再创建监督微调任务；`sft/tuning-aria-v1.json` 记录任务名、基座模型、区域、每个文件的 sha256
+   和 manifest 的 sha256——上线的模型可以追溯到它见过的每一个字节。`wait` 在任务成功后把端点以
+   `aria-v1` 登记进 `tuned_models`，**不会**把它设成默认模型：先按第 6 步比较。
+6. **在验证集上比较。** 用微调后的模型跑 Evals（`--runtime native --model aria-v1`，或在 CI 里直接写端点全名；同样 `--repeat 3`），然后：
 
    ```bash
    python -m aria_code.training.compare baseline/*.json --candidate tuned/*.json

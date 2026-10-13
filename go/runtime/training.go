@@ -13,7 +13,7 @@ import (
 
 func trainingCommand(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: aria-runtime training compare --baseline FILE... --candidate FILE...")
+		fmt.Fprintln(os.Stderr, "usage: aria-runtime training compare|dataset|tune ...")
 		return 2
 	}
 	var value any
@@ -23,6 +23,8 @@ func trainingCommand(args []string) int {
 		value, err = compareReports(args[1:])
 	case "dataset":
 		value, err = buildTrainingDataset(args[1:])
+	case "tune":
+		value, err = tuneCommand(args[1:], newTuningBackend)
 	default:
 		err = errors.New("unknown training command")
 	}
