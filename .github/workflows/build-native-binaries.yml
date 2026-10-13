@@ -21,7 +21,7 @@ on:
       - 'src/aria_code/apps/cli/native_branding.py'
       - 'src/aria_code/apps/cli/app_server.py'
       - 'scripts/build_native_binary.sh'
-      - 'scripts/bundle_native_indexer.py'
+      - 'go/buildtools/**'
       - 'scripts/verify_native_frontend.py'
       - '.github/workflows/build-native-binaries.yml'
   push:
@@ -78,6 +78,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.event.pull_request.head.sha || github.ref_name }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/buildtools/go.mod
+          cache: false
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -137,6 +141,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.event.pull_request.head.sha || github.ref_name }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/buildtools/go.mod
+          cache: false
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -153,11 +161,11 @@ jobs:
           src/aria_code/aria_cli.py
       - name: Bundle the native indexer (aria-native)
         # The Rust project-graph indexer, in _internal/ where the frozen CLI
-        # looks for it (scripts/bundle_native_indexer.py). Builds and runs it.
+        # looks for it (go/buildtools). Builds and runs it.
         shell: bash
         run: |
           (cd rust && rustup show)   # installs the toolchain rust/rust-toolchain.toml pins
-          python scripts/bundle_native_indexer.py dist-native/dist/${{ env.BIN_NAME }} --frontend
+          go -C go/buildtools run . --root "$GITHUB_WORKSPACE" --frontend "$GITHUB_WORKSPACE/dist-native/dist/${{ env.BIN_NAME }}"
           python scripts/verify_native_frontend.py dist-native/dist/${{ env.BIN_NAME }}
       - name: Smoke test
         run: dist-native\dist\${{ env.BIN_NAME }}\${{ env.BIN_NAME }}.exe --version
@@ -205,6 +213,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.event.pull_request.head.sha || github.ref_name }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/buildtools/go.mod
+          cache: false
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -221,10 +233,10 @@ jobs:
           src/aria_code/aria_cli.py
       - name: Bundle the native indexer (aria-native)
         # The Rust project-graph indexer, in _internal/ where the frozen CLI
-        # looks for it (scripts/bundle_native_indexer.py). Builds and runs it.
+        # looks for it (go/buildtools). Builds and runs it.
         run: |
           (cd rust && rustup show)   # installs the toolchain rust/rust-toolchain.toml pins
-          python scripts/bundle_native_indexer.py dist-native/dist/${{ env.BIN_NAME }} --frontend
+          go -C go/buildtools run . --root "$GITHUB_WORKSPACE" --frontend "$GITHUB_WORKSPACE/dist-native/dist/${{ env.BIN_NAME }}"
           python scripts/verify_native_frontend.py dist-native/dist/${{ env.BIN_NAME }}
       - name: Smoke test
         run: dist-native/dist/${{ env.BIN_NAME }}/${{ env.BIN_NAME }} --version
@@ -325,6 +337,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.event.pull_request.head.sha || github.ref_name }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/buildtools/go.mod
+          cache: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

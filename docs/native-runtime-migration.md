@@ -28,6 +28,7 @@ by this branch.
 | Independent review | `go/runtime/review.go` | With `review_gate` on, a coding turn the model calls done is read by the same model with a fresh context and no tools: goal, contract, checks and diff. Blocking findings go back to the builder up to `review_max_attempts` times and the review lands in the delivery report; a failed reviewer never blocks. Answer parsing, the prompt and the report text are compared with `runtime/review.py` through `aria-runtime review`. |
 | Delivery report | `go/runtime/delivery.go` | Every coding turn that changed files, ran checks or had calls refused ends with the report on `turn.completed` (shown by the Rust chat, always present headless): changed files with line counts, checks, risk, contract refusals, status and next step from evidence, compared with `runtime/delivery.py` through `aria-runtime delivery`. The checks come from the acceptance gate; with `acceptance_gate: false` they are the verification commands the model ran after its last change. Definitions touched, tests that reference them and project-graph impact need `semantic_diff`, `repo_map` and `project_graph`, which remain. |
 | Relay | `go/relay/` | Existing separately validated Go candidate and storage contracts. Production switch/old-entrypoint deletion are still separate deployment work. |
+| Release assembly | `go/buildtools/` | Standard-library Go replacement builds and probes Rust, retains the worker, and installs the formal frontend in both PyInstaller contents layouts. All release entrypoints now use it. The old `scripts/bundle_native_indexer.py` is removed; application-worker and business modules remain. |
 
 All source families are in scope. In particular, agents/packs, financial data
 and broker adapters, document/notebook/browser tools, API/daemon services,
@@ -36,6 +37,23 @@ are not covered merely by the rows above. Their Python implementations remain
 available and must not be removed to make a language count appear complete.
 
 ## Local evidence
+
+The 2026-10-14 integration is based on main v0.151.0, including the Go
+approval, delivery, acceptance, declared-provider, trajectory and tuning-job
+increments. The integrated runtime race suite, 68 Rust workspace tests, and
+230 native/packaging tests (3,144 parameter subtests) passed locally. Staged
+proposals are excluded from applied-file delivery evidence. Windows CI exposed
+verbatim path spelling differences between Rust's canonical workspace and
+Go/legacy checkpoints; the scope now normalizes equivalent absolute drive/UNC
+spellings while retaining symlink and root checks.
+
+Gradual Python removal starts with release assembly. The Go assembler verifies
+copied executables before replacing the launcher, refuses an existing worker,
+and restores the original launcher if its final install fails. It is tested
+with subprocess fixtures and the actual Rust release executable; CI repeats
+those tests on Windows, Linux and macOS. Native packages still contain the
+application worker; this build-time replacement does not remove business
+features or require users to install Go.
 
 The 2026-10-13 checkpoint/staging increment passed 148 Go cases and subcases
 under the race detector (one opt-in live-login test skipped), 66 Rust workspace

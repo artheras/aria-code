@@ -37,7 +37,7 @@ def native_binary() -> Optional[str]:
     if configured:
         return configured if Path(configured).is_file() else None
     if getattr(sys, "frozen", False):
-        # scripts/bundle_native_indexer.py puts it in the PyInstaller contents
+        # go/buildtools puts it in the PyInstaller contents
         # folder (_internal/), which is sys._MEIPASS at run time.
         bundled = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / (
             "aria-native.exe" if sys.platform == "win32" else "aria-native")

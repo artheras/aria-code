@@ -92,9 +92,10 @@ echo "── Running PyInstaller (--onedir) ──"
 # the signing loop below signs it like every other Mach-O there.
 # SKIP_NATIVE_INDEXER=1 builds without it on a machine with no Rust toolchain.
 if [[ "${SKIP_NATIVE_INDEXER:-}" != "1" ]]; then
+  command -v go >/dev/null || { echo "Go is required to assemble native releases." >&2; exit 1; }
   echo "── Bundling the native indexer (aria-native) ──"
   (cd "$PROJECT_ROOT/rust" && rustup show >/dev/null)   # the toolchain rust-toolchain.toml pins
-  "$VENV_DIR/bin/python" "$PROJECT_ROOT/scripts/bundle_native_indexer.py" "$BIN_DIR" --frontend
+  go -C "$PROJECT_ROOT/go/buildtools" run . --root "$PROJECT_ROOT" --frontend "$BIN_DIR"
   "$VENV_DIR/bin/python" "$PROJECT_ROOT/scripts/verify_native_frontend.py" "$BIN_DIR"
 fi
 

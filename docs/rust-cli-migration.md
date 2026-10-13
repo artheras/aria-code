@@ -121,7 +121,7 @@ other languages and the identifier scan for references, all in Python. The
 parser's grammar and Unicode tables grow the binary from 0.6 MB to 5.5 MB and
 `--version` by about 0.3 ms.
 
-Native releases ship it: `scripts/bundle_native_indexer.py` builds
+Native releases ship it: `go/buildtools` builds
 `aria-native` on each release runner and copies it into the PyInstaller build's
 contents folder (`_internal/`, `sys._MEIPASS` at run time), runs it, and fails
 the build if it does not answer. On macOS it is signed and notarized with the
