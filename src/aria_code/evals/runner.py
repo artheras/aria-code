@@ -99,8 +99,26 @@ def check_only_solver(prompt: str, workspace: Path) -> None:
     return None
 
 
+def native_command(prompt: str, workspace: Path, *, model: str = "", native: str = "") -> list:
+    """The native agent (Rust frontend, Go runtime) over one task, headless.
+
+    The tuned model is served by the native runtime, so its training
+    trajectories must come from it too: the tools it learns are the ones it
+    will have.
+    """
+    import os
+    import shutil
+
+    binary = native or os.environ.get("ARIA_NATIVE_BINARY") or shutil.which("aria-native") or "aria-native"
+    command = [binary, "-C", str(workspace), "exec", "--jsonl", prompt, "--", "--dangerously-skip-permissions"]
+    if model:
+        command.extend(["--model", model])
+    return command
+
+
 def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = False,
-                       trajectories: "Trajectories | None" = None, events: bool = False):
+                       trajectories: "Trajectories | None" = None, events: bool = False,
+                       runtime: str = "python", native: str = "", go_runtime: str = ""):
     """Drive the real Aria agent over one task, in the task's own workspace.
 
     The agent is invoked as a subprocess in headless mode rather than in this
@@ -117,6 +135,8 @@ def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = Fal
     import subprocess
 
     def _solve(prompt: str, workspace: Path):
+        if runtime == "native":
+            return _run(native_command(prompt, workspace, model=model, native=native), prompt, workspace)
         command = [
             sys.executable, "-m", "aria_code.aria_cli",
             "-p", prompt,
@@ -132,16 +152,24 @@ def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = Fal
             command.extend(["--model", model])
         if local:
             command.append("--local")
+        return _run(command, prompt, workspace)
+
+    def _run(command: list, prompt: str, workspace: Path):
         try:
             env = None
-            if trajectories is not None or events:
+            if trajectories is not None or events or runtime == "native":
                 import os
-                env = {**os.environ, "ARIA_EVENTS_FULL": "1"}
+                env = {**os.environ}
+                if trajectories is not None or events:
+                    env["ARIA_EVENTS_FULL"] = "1"
+                if runtime == "native" and (go_runtime or os.environ.get("ARIA_GO_RUNTIME_BINARY")):
+                    env["ARIA_RUNTIME"] = go_runtime or os.environ["ARIA_GO_RUNTIME_BINARY"]
             done = subprocess.run(
                 command,
                 cwd=str(workspace),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=timeout,
                 check=False,
                 env=env,
@@ -197,6 +225,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", default="", help="model to pass to the agent")
     parser.add_argument("--local", action="store_true",
                         help="run the agent local-only (Ollama), skipping the cloud backend")
+    parser.add_argument("--runtime", choices=("python", "native"), default="python",
+                        help="agent to run: the Python CLI, or the native Rust/Go runtime that serves Aria's tuned "
+                             "models (default python)")
+    parser.add_argument("--native-binary", default="", help="aria-native for --runtime native (default: $ARIA_NATIVE_BINARY)")
+    parser.add_argument("--go-runtime", default="",
+                        help="aria-runtime for --runtime native (default: $ARIA_GO_RUNTIME_BINARY)")
     parser.add_argument("--solve-timeout", type=int, default=900,
                         help="seconds to give the agent per task (default 900)")
     parser.add_argument("--repeat", type=int, default=1, metavar="N",
@@ -227,7 +261,8 @@ def main(argv: list[str] | None = None) -> int:
                     if args.trajectories and not args.check else None)
     solver = check_only_solver if args.check else build_agent_solver(
         model=args.model, timeout=args.solve_timeout, local=args.local, trajectories=trajectories,
-        events=any(task.behavior for task in tasks),
+        events=any(task.behavior for task in tasks), runtime=args.runtime,
+        native=args.native_binary, go_runtime=args.go_runtime,
     )
     mode = "pre-flight only" if args.check else f"agent{f' ({args.model})' if args.model else ''}"
     print(f"\n{name} — {len(tasks)} task(s), {mode}\n")

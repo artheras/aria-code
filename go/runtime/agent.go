@@ -207,7 +207,11 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 			if ctx.Err() != nil {
 				return partialContents(), answer.String(), ctx.Err()
 			}
-			hooks.emit("tool.started", map[string]any{"tool": call.Name, "params": eventParams(call.Args)})
+			params := any(eventParams(call.Args))
+			if fullEvents() {
+				params = fullParams(call.Args)
+			}
+			hooks.emit("tool.started", map[string]any{"tool": call.Name, "params": params})
 			started := time.Now()
 			result := toolResult{}
 			approval := ""
@@ -326,6 +330,9 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 				fields["item_count"] = len(items)
 			} else if items, ok := result.Data["items"].([]any); ok {
 				fields["item_count"] = len(items)
+			}
+			if fullEvents() {
+				fields["result"] = fullResult(result)
 			}
 			hooks.emit("tool.completed", fields)
 			bytes, _ := json.Marshal(result)

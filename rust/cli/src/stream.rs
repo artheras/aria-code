@@ -74,7 +74,9 @@ pub fn exec(
         .current_dir(&workspace)
         .env("ARIA_HOME", root)
         .env("ARIA_EVENTS_STREAM", "1")
-        .env("ARIA_EVENTS_FULL", "0")
+        // Short events by default. Whole parameters and results only when
+        // the caller asks for them, as the eval runner does for trajectories.
+        .env("ARIA_EVENTS_FULL", if full_events() { "1" } else { "0" })
         .env("PYTHONIOENCODING", "utf-8")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -154,4 +156,15 @@ fn interrupted(cancelled: &AtomicBool, deadline: Instant, timeout: Duration) -> 
         ));
     }
     Ok(())
+}
+
+fn full_events() -> bool {
+    env::var("ARIA_EVENTS_FULL")
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        })
+        .unwrap_or(false)
 }

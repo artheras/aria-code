@@ -55,7 +55,9 @@ func (w *streamEvents) Write(body []byte) (int, error) {
 		w.answer, _ = event["text"].(string)
 		return len(body), nil
 	case "turn.completed":
-		event["response"], event["success"] = w.answer, event["status"] == "ok"
+		// A turn whose checks are red did not succeed, however it ended.
+		verified := asMap(event["acceptance"])["verified"]
+		event["response"], event["success"] = w.answer, event["status"] == "ok" && verified != false
 	case "session.state":
 		return len(body), nil
 	default:

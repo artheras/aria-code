@@ -383,6 +383,11 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 		case err != nil:
 			stop = "error"
 		}
+		// The checks' verdict, as Python's headless result carries it: the
+		// training set leaves out a passing run whose own checks were red.
+		if acceptance := evidence.acceptance(); acceptance != nil {
+			fields["acceptance"] = acceptance
+		}
 		if report := evidence.report(stop); report.worthShowing() {
 			delivery := report.asDict()
 			delivery["text"] = report.Render("", s.scope.workspace)

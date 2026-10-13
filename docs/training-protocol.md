@@ -27,6 +27,17 @@
 1. **测基线（不训练）。** 用 `gemini-3.5-flash` 跑 Evals，`--repeat 3`，保存报告和轨迹。这是之后所有比较的基准。
 2. **扩充训练数据。** 为 core 和 operations 的题目写参数化的变体生成器（换数据、换数字、换货主），每个模板几十个变体；`hard` 套件不生成变体，保持锁定。
 3. **收集轨迹。** 在变体上跑 Evals（可以用更强的模型做「老师」，例如 `gemini-3.8-flash`），只保留验证通过的轨迹。
+   **用原生运行时收集**：微调后的模型由原生运行时（Rust + Go）提供服务，它学到的工具必须是上线后
+   真正拥有的工具（原生运行时的 8 个工具，而不是 Python CLI 的全部工具）：
+
+   ```bash
+   python -m aria_code.evals.runner evals/suites/core.yaml --runtime native \
+     --model google/gemini-3.8-flash --repeat 3 --trajectories trajectories --report evals-core.json
+   ```
+
+   `--runtime native` 通过 `aria-native exec` 驱动 Go 运行时（`$ARIA_NATIVE_BINARY`、
+   `$ARIA_GO_RUNTIME_BINARY`），并打开 `ARIA_EVENTS_FULL`：轨迹里是完整的工具参数与结果
+   （密钥形态的值已遮蔽，结果超过 2 万字符截断）。Evals 工作流的 `runtime` 输入选 `native` 同理。
 4. **构建数据集。**
 
    ```bash

@@ -43,6 +43,10 @@ on:
         description: "Attempts per task. One run is one draw; use 3 for a baseline a tuned model will be compared against"
         default: "1"
         required: false
+      runtime:
+        description: "Agent: python (the CLI) or native (Rust + Go, which serves Aria's tuned models — use it for training trajectories)"
+        default: "python"
+        required: false
 
 permissions:
   contents: read
@@ -60,6 +64,7 @@ jobs:
       READY: ${{ vars.GCP_PROJECT != '' && vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_EVAL_SERVICE_ACCOUNT != '' }}
       MODEL: ${{ github.event.inputs.model || 'google/gemini-3.5-flash' }}
       REPEAT: ${{ github.event.inputs.repeat || '1' }}
+      RUNTIME: ${{ github.event.inputs.runtime || 'python' }}
       HOLDOUT: ${{ secrets.HOLDOUT_DEPLOY_KEY != '' }}
       GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT }}
       # global: some Gemini 3 models are served only there.
@@ -97,20 +102,38 @@ jobs:
           pip install -e .
           pip install pytest pyyaml google-genai
 
+      - name: Build the native runtime
+        if: env.READY == 'true' && env.RUNTIME == 'native'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go/runtime/go.mod
+          cache-dependency-path: go/runtime/go.sum
+
+      - name: Build the native binaries
+        if: env.READY == 'true' && env.RUNTIME == 'native'
+        run: |
+          (cd rust && cargo build --release --locked)
+          (cd go/runtime && CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/aria-runtime" .)
+          echo "ARIA_NATIVE_BINARY=$GITHUB_WORKSPACE/rust/target/release/aria-native" >> "$GITHUB_ENV"
+          echo "ARIA_GO_RUNTIME_BINARY=$RUNNER_TEMP/aria-runtime" >> "$GITHUB_ENV"
+          # The native runtime reads its model from config, not --model alone.
+          mkdir -p "$RUNNER_TEMP/aria-home"
+          echo "ARIA_HOME=$RUNNER_TEMP/aria-home" >> "$GITHUB_ENV"
+
       - name: Run the suites
         if: env.READY == 'true'
         run: |
-          python -m aria_code.evals.runner evals/suites/core.yaml --model "$MODEL" \
+          python -m aria_code.evals.runner evals/suites/core.yaml --model "$MODEL" --runtime "$RUNTIME" \
             --solve-timeout 600 --repeat "$REPEAT" --report evals-core.json --trajectories trajectories || true
-          python -m aria_code.evals.runner evals/suites/operations.yaml --model "$MODEL" \
+          python -m aria_code.evals.runner evals/suites/operations.yaml --model "$MODEL" --runtime "$RUNTIME" \
             --solve-timeout 600 --repeat "$REPEAT" --report evals-operations.json --trajectories trajectories || true
-          python -m aria_code.evals.runner evals/suites/hard.yaml --model "$MODEL" \
+          python -m aria_code.evals.runner evals/suites/hard.yaml --model "$MODEL" --runtime "$RUNTIME" \
             --solve-timeout 600 --repeat "$REPEAT" --report evals-hard.json --trajectories trajectories || true
 
-          python -m aria_code.evals.runner evals/suites/projects.yaml --model "$MODEL" \
+          python -m aria_code.evals.runner evals/suites/projects.yaml --model "$MODEL" --runtime "$RUNTIME" \
             --solve-timeout 600 --repeat "$REPEAT" --report evals-projects.json --trajectories trajectories || true
           # How the agent works, not only whether it ends up right (behavior checks).
-          python -m aria_code.evals.runner evals/suites/behavior.yaml --model "$MODEL" \
+          python -m aria_code.evals.runner evals/suites/behavior.yaml --model "$MODEL" --runtime "$RUNTIME" \
             --solve-timeout 600 --repeat "$REPEAT" --report evals-behavior.json --trajectories trajectories || true
           # The independent reviewer on fixed diffs: false positives and misses.
           python -m aria_code.evals.review_probe evals/review/cases.yaml --model "$MODEL" \
@@ -130,7 +153,7 @@ jobs:
         run: |
           mkdir -p .holdout-reports
           for suite in .holdout/suites/*.yaml; do
-            python -m aria_code.evals.runner "$suite" --fixtures .holdout/fixtures --model "$MODEL" \
+            python -m aria_code.evals.runner "$suite" --fixtures .holdout/fixtures --model "$MODEL" --runtime "$RUNTIME" \
               --solve-timeout 600 --repeat "$REPEAT" --report ".holdout-reports/$(basename "$suite" .yaml).json" \
               > /dev/null 2>&1 || true
           done
