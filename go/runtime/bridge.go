@@ -73,8 +73,8 @@ func bridgeDispatch(ctx context.Context, raw []byte, workspace, root, approved s
 }
 
 func bridgeTool(ctx context.Context, workspace, root, approved, name string, args map[string]any) toolResult {
-	write := name == "write_file" || name == "edit_file"
-	if !write && name != "read_file" && name != "list_files" && name != "search_code" {
+	write := name == "write_file" || name == "edit_file" || name == "restore_checkpoint" || name == "apply_change"
+	if !write && name != "read_file" && name != "list_files" && name != "search_code" && name != "list_checkpoints" && name != "list_changes" && name != "reject_change" {
 		return failed(fmt.Errorf("Tool not exposed by native bridge: %s", name))
 	}
 	if err := noHostFlags(args); err != nil {
@@ -109,12 +109,43 @@ func bridgeTool(ctx context.Context, workspace, root, approved, name string, arg
 	if ctx.Err() != nil {
 		return failed(ctx.Err())
 	}
+	if name == "list_checkpoints" || name == "restore_checkpoint" {
+		return checkpointTool(ctx, scope, root, name, args)
+	}
+	if name == "list_changes" {
+		return stagedList(ctx, scope, root, str(args, "session_id", ""), args["include_closed"] == true)
+	}
+	if name == "reject_change" {
+		return stagedReject(ctx, scope, root, str(args, "change_id", ""))
+	}
+	if name == "apply_change" {
+		store, err := openCheckpoints(root)
+		if err != nil {
+			return failed(err)
+		}
+		change, err := store.getStage(ctx, scope, str(args, "change_id", ""))
+		store.Close()
+		if err != nil {
+			return failed(err)
+		}
+		policy, err := persistentToolPolicy(root, change.Source)
+		if err != nil {
+			return failed(err)
+		}
+		if policy == "deny" {
+			return failed(errors.New("Blocked by persistent tool policy"))
+		}
+		return stagedApply(ctx, scope, root, change)
+	}
 	if write {
 		change, err := propose(scope, name, args)
 		if err != nil {
 			return failed(err)
 		}
-		return applyChange(scope, change)
+		if staged, _ := stageOnly(args); staged {
+			return stageRecordedChange(ctx, scope, root, "", name, change)
+		}
+		return applyRecordedChange(ctx, scope, root, "", name, change)
 	}
 	switch name {
 	case "read_file":
@@ -135,7 +166,7 @@ func bridgeCommand(ctx context.Context, args []string, in io.Reader, out, diagno
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
-	if workspace == "" || len(flags.Args()) != 0 || (approved != "" && approved != "write_file" && approved != "edit_file") {
+	if workspace == "" || len(flags.Args()) != 0 || (approved != "" && approved != "write_file" && approved != "edit_file" && approved != "restore_checkpoint" && approved != "apply_change") {
 		fmt.Fprintln(diagnostics, "bridge requires --workspace and optionally one supported --approve-tool")
 		return 2
 	}

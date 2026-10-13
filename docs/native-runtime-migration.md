@@ -14,9 +14,9 @@ by this branch.
 | --- | --- | --- |
 | Terminal | `rust/cli/src/chat/` | Persistent editing, Markdown, chronological operations, Chinese/English display, reviews and cancelled-turn state. A rounded multiline composer and a hand-tuned compact cream robot with four feet, aligned eyes and a thin orange stripe. |
 | Application protocol | `go/runtime/server.go` | Actual executable barrier, approvals, multi-turn persistence, resume, idle cancellation and broken-output shutdown. Commands/events beyond the implemented catalog remain to port. |
-| Headless and file bridge | `go/runtime/stream.go`, `bridge.go` | Existing single-turn events, actual Rust/Go process tests, bounded JSON-RPC, literal arguments, per-call write grants and refusal. Full legacy command catalog and change-store routes remain. |
+| Headless and file bridge | `go/runtime/stream.go`, `bridge.go` | Existing single-turn events, bounded JSON-RPC, literal arguments, per-call write grants, refusal, persistent staged changes and checkpoint restore routes. Full legacy command catalog remains. |
 | Model providers | `go/runtime/provider_*.go`, `google_auth.go` | Google is built in: SDK and Vertex-compatible streams; Aria's own tuned Gemini endpoints (`tuned_models` short names or `projects/…/endpoints/…`, always on the Vertex SDK route in the endpoint's own region); signed calls; existing login; independent native OAuth refresh; macOS manual proxy support. Every other model is a user-declared OpenAI-compatible endpoint (`provider_declared.go`, `model_providers` as in `providers/llm/custom.py`), read from user-level files only, with credentials from an environment variable or an auth command; other provider families are deliberately not built in (see `docs/model-providers.md`). Automatic proxy discovery remains. |
-| Files | `go/runtime/files.go`, `search.go` | Actual edits/read-back, ordered atomic multi-edit, CRLF/mode preservation, root isolation and preimage conflict checks. Python-specific regex extensions, semantic patches, staged-change/undo UX and diagnostics remain. |
+| Files | `go/runtime/files.go`, `search.go`, `staged_changes.go`, `checkpoints.go` | Actual edits/read-back, ordered atomic multi-edit, CRLF/mode preservation, root isolation, persistent staged review/apply/reject, shared SQLite checkpoints, grouped conflict checks and file restoration. Python-specific regex extensions, semantic patches, whole-turn transactions and diagnostics remain. |
 | Shell | `go/runtime/command_*.go` | Actual command output/exit, refusal, exact session grants, bounded capture and cancellation. Native OS sandbox/background-service parity remains; unsupported modes reject execution. |
 | Sessions | `go/runtime/history.go`, `state.go` | Old JSON formats, unknown fields, supported images and tool history. Additional attachment formats and public import/export routes remain. |
 | Portfolio backtest core | `go/runtime/quant/` | 48 complete oracle results plus actual executable comparisons, including gaps, ordering, fees, realized PnL and benchmarks. Market feeds, live broker risk/execution, optimizer/report routes remain. |
@@ -36,6 +36,33 @@ are not covered merely by the rows above. Their Python implementations remain
 available and must not be removed to make a language count appear complete.
 
 ## Local evidence
+
+The 2026-10-13 checkpoint/staging increment passed 148 Go cases and subcases
+under the race detector (one opt-in live-login test skipped), 66 Rust workspace
+tests, and 88 actual-executable integration/domain comparisons on macOS. The
+Python oracle interpreter for this run was 3.12.14; CI continues to use 3.13.
+The terminal test verifies that `/undo` removes the rewound content immediately,
+retains an already typed draft, never calls the model, and restores terminal
+settings on exit. The JSON session and native provider history are checked too.
+Rust formatting/clippy, Go formatting/vet, Ruff correctness checks and
+`git diff --check` passed. Final Linux amd64 and Windows amd64 binaries were
+cross-compiled without CGO; runtime checks on those systems remain the CI
+matrix's responsibility.
+
+The retained Python checkpoint and staged-change implementations serve as
+independent oracles in `tests/test_native_checkpoints.py`. Native writes prepare
+durable preimages before the disk operation; restoration accepts legacy SQLite
+records, rejects changed or redirected files, preserves native physical bytes,
+and records legacy run-group restoration events. Listing and selecting the
+latest checkpoint avoid loading old file bodies. Group restores have a 64 MiB
+image-read budget and stop before changing files when that budget is exceeded;
+individual checkpoints remain selectable.
+
+This increment does not migrate the complete `/rewind turn` transaction,
+shell side effects or task worktrees. Legacy in-memory stages and the earlier
+native prototype's incomplete `changes/*.json` backups are not automatically
+imported. The latter lack postimages needed to verify a safe restore. Existing
+Python modules are retained for their remaining callers and as test oracles.
 
 On 2026-10-12 the Rust/Go path completed a real configured Google greeting
 without file tools, read an unpredictable marker from a temporary project,
@@ -78,6 +105,9 @@ verification is opt-in and is not part of normal CI.
    recoverable Git history. The integrated product checks must pass before
    pushing, merging or publishing the full migration.
 
-The existing UI PR remains a draft while the expanded migration is in progress.
-New runtime/domain work is a local checkpoint and does not constitute a
-completed product release.
+The robot/input/conversation changes were separately merged in UI PR #184.
+Native runtime/domain increments have since merged through PR #201. This
+checkpoint/staging increment is on `feat/native-checkpoints`; it does not
+constitute a completed product migration. The existing Python worker
+remains the installed default until the remaining feature and packaging checks
+are satisfied.

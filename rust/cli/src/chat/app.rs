@@ -46,6 +46,7 @@ pub struct Action {
     pub exit_code: Option<i64>,
     pub elapsed: Option<f64>,
     pub reused: bool,
+    pub staged: bool,
     pub cancelled: bool,
     pub error: String,
     /// How the host approved the call when it did not ask, e.g.
@@ -205,7 +206,8 @@ impl App {
                         self.commands.push(command.into());
                     }
                 }
-                if kind == "session.ready" || changed_session {
+                let history_reset = v["history_reset"].as_bool().unwrap_or(false);
+                if kind == "session.ready" || changed_session || history_reset {
                     self.approval_context.clear();
                     self.entries.clear();
                     self.scroll = 0;
@@ -219,6 +221,9 @@ impl App {
                                 false,
                             );
                         }
+                    }
+                    if history_reset && !text("history_notice").is_empty() {
+                        self.add("output", &limited(text("history_notice")), false);
                     }
                     self.status = self.tr("Ready", "就绪").into();
                 }
@@ -305,6 +310,7 @@ impl App {
                     exit_code: None,
                     elapsed: None,
                     reused: false,
+                    staged: false,
                     cancelled: false,
                     error: String::new(),
                     approval: String::new(),
@@ -340,6 +346,7 @@ impl App {
                         exit_code: None,
                         elapsed: None,
                         reused: false,
+                        staged: false,
                         cancelled: false,
                         error: String::new(),
                         approval: String::new(),
@@ -356,6 +363,7 @@ impl App {
                     .as_f64()
                     .filter(|s| s.is_finite() && *s >= 0.0);
                 action.reused = v["reused"].as_bool().unwrap_or(false);
+                action.staged = v["staged"].as_bool().unwrap_or(false);
                 action.error = limited(text("error"));
                 action.approval = safe(text("approval"))
                     .replace(['\n', '\t'], " ")
@@ -815,6 +823,22 @@ mod tests {
         assert!(!action.success);
         assert!(row.text.contains("assertion failed"));
         assert!(!row.text.contains('\u{1b}'));
+    }
+    #[test]
+    fn explicit_history_reset_removes_rewound_turns_and_keeps_the_draft() {
+        let mut a = app();
+        a.session = "history-reset-test".into();
+        a.add("user", "Old request", false);
+        a.add("assistant", "Old answer", false);
+        a.editor.insert("Retained draft");
+        a.event(
+            json!({"protocol":1,"type":"session.state","session_id":a.session,
+            "commands":[],"messages":[],"history_reset":true,"history_notice":"Undone."}),
+        )
+        .unwrap();
+        assert_eq!(a.entries.len(), 1);
+        assert_eq!(a.entries[0].text, "Undone.");
+        assert_eq!(a.editor.text(), "Retained draft");
     }
     #[test]
     fn update_notice_does_not_change_the_active_turn_or_permissions() {

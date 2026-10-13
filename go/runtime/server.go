@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -40,22 +39,24 @@ type pendingDialog struct {
 	replies chan request
 }
 type server struct {
-	opts     appOptions
-	cfg      config
-	scope    *scope
-	snap     snapshot
-	contents []*genai.Content
-	provider modelProvider
-	out      io.Writer
-	mu       sync.Mutex
-	outMu    sync.Mutex
-	busy     bool
-	turn     string
-	cancel   context.CancelFunc
-	done     chan struct{}
-	dialog   *pendingDialog
-	grants   map[string]bool
-	stop     context.CancelFunc
+	opts          appOptions
+	cfg           config
+	scope         *scope
+	snap          snapshot
+	contents      []*genai.Content
+	provider      modelProvider
+	out           io.Writer
+	mu            sync.Mutex
+	outMu         sync.Mutex
+	busy          bool
+	turn          string
+	cancel        context.CancelFunc
+	done          chan struct{}
+	dialog        *pendingDialog
+	grants        map[string]bool
+	stop          context.CancelFunc
+	historyReset  bool
+	historyNotice string
 }
 
 func newServer(options appOptions, out io.Writer) (*server, error) {
@@ -164,10 +165,19 @@ func (s *server) state(kind string) error {
 		fields["home_workspace"] = home == s.scope.workspace
 	}
 	fields["robot"] = map[string]any{"design": "cream-block-v2", "theme": theme}
+	if s.historyReset {
+		fields["history_reset"] = true
+		fields["history_notice"] = s.historyNotice
+	}
 	if s.opts.noBanner || s.opts.banner == "off" {
 		fields["robot"] = []any{}
 	}
-	return s.emit(kind, "", fields)
+	err := s.emit(kind, "", fields)
+	if err == nil {
+		s.historyReset = false
+		s.historyNotice = ""
+	}
+	return err
 }
 func (s *server) persist() error {
 	contents, err := json.Marshal(s.contents)
@@ -271,6 +281,9 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 		contextText += "\nBefore SHA-256: " + change.sha + fmt.Sprintf("\nNew content: %d bytes", len(change.after))
 		contextText += "\n" + changePreview(change)
 	}
+	if name == "restore_checkpoint" {
+		contextText += "\n" + str(params, "preview", "")
+	}
 	choices := [][]string{{"Allow once", "Only this operation"}, {"Allow for this session", "Same tool within the selected roots; resets with a new session"}, {"No, explain what to do differently", "Decline and provide instructions"}}
 	if name == "run_command" {
 		choices[1][1] = "Only this exact command and parameters for this session"
@@ -310,13 +323,6 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 		return false, "invalid approval response", nil
 	}
 }
-func (s *server) backup(c fileChange) error {
-	id, err := newID()
-	if err != nil {
-		return err
-	}
-	return atomicJSON(filepath.Join(s.opts.root, "changes", s.snap.ID, id+".json"), map[string]any{"path": c.path, "before": c.before, "existed": c.existed, "sha256": c.sha, "mode": uint32(c.mode), "session_id": s.snap.ID})
-}
 func (s *server) runTurn(ctx context.Context, turn, text string) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -340,11 +346,18 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 			if err := s.emit(kind, turn, fields); err != nil {
 				cancel()
 			}
-		}, approve: s.approve, backup: s.backup, evidence: newTurnEvidence(s.scope.workspace)}
+		}, approve: s.approve, apply: func(ctx context.Context, tool string, change fileChange) toolResult {
+			return applyRecordedChange(ctx, s.scope, s.opts.root, s.snap.ID, tool, change)
+		}, stage: func(ctx context.Context, tool string, change fileChange) toolResult {
+			return stageRecordedChange(ctx, s.scope, s.opts.root, s.snap.ID, tool, change)
+		}, evidence: newTurnEvidence(s.scope.workspace)}
 		s.contents, answer, err = nativeTurn(ctx, s.provider, s.scope, s.cfg, s.contents, text, hooks)
 		evidence = hooks.evidence
 	}
 	if answer != "" {
+		if s.historyReset {
+			s.historyNotice = capText(answer, 1000)
+		}
 		if err := s.emit("answer.replace", turn, map[string]any{"text": capText(answer, 65536)}); err != nil {
 			cancel()
 		}

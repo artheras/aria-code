@@ -199,6 +199,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 .unwrap_or_default();
             let reused = if action.cancelled {
                 app.tr(" · cancelled", " · 已取消")
+            } else if action.staged {
+                app.tr(" · staged only", " · 仅暂存")
             } else if action.reused {
                 app.tr(" · reused", " · 复用结果")
             } else {
@@ -661,6 +663,26 @@ mod tests {
             user_line + 1,
             "legacy blank output must not create gaps"
         );
+    }
+    #[test]
+    fn staged_write_is_visible_as_prepared_instead_of_an_applied_file() {
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let mut app = App {
+            ready: true,
+            lang: "zh".into(),
+            ..App::default()
+        };
+        app.editor.insert("Prepare a change for review");
+        app.submit();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":"write_file","params":{"path":"note.txt"}})).unwrap();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"write_file","success":true,"staged":true,"output":"Staged change review-id; the file has not been modified."})).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        assert!(display(&terminal).contains("仅暂存"));
+        app.lang = "en".into();
+        app.details = true;
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = display(&terminal);
+        assert!(text.contains("staged only") && text.contains("review-id"));
     }
     #[test]
     fn reading_history_stays_anchored_when_new_output_arrives() {

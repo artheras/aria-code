@@ -50,7 +50,14 @@ var fileDefinitions = []definition{
 func nativeTools() []*genai.Tool {
 	declarations := []*genai.FunctionDeclaration{}
 	for _, d := range fileDefinitions {
-		schema := map[string]any{"type": "object", "properties": d.properties, "additionalProperties": false}
+		properties := map[string]any{}
+		for key, value := range d.properties {
+			properties[key] = value
+		}
+		if d.mutate && d.name != "run_command" {
+			properties["stage_only"] = map[string]any{"type": "boolean", "description": "Prepare a reviewable change without modifying the file; the user can apply or reject it later."}
+		}
+		schema := map[string]any{"type": "object", "properties": properties, "additionalProperties": false}
 		if len(d.required) > 0 {
 			schema["required"] = d.required
 		}
@@ -63,6 +70,11 @@ func definitionFor(name string) (definition, bool) {
 		if d.name == name {
 			return d, true
 		}
+	}
+	// Host commands use the same policy checks without advertising restore
+	// authority as a model tool.
+	if name == "restore_checkpoint" {
+		return definition{name: name, mutate: true}, true
 	}
 	return definition{}, false
 }
@@ -79,8 +91,9 @@ func eventParams(params map[string]any) map[string]any {
 type agentHooks struct {
 	emit    func(string, map[string]any)
 	approve func(context.Context, string, map[string]any, fileChange) (bool, string, error)
-	backup  func(fileChange) error
-	// evidence, when set, records what the turn did for its delivery report.
+	apply   func(context.Context, string, fileChange) toolResult
+	stage   func(context.Context, string, fileChange) toolResult
+	// Evidence records applied effects, not merely staged proposals.
 	evidence *turnEvidence
 }
 
@@ -265,17 +278,21 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 					break
 				}
 				approval = reason
-				if hooks.backup != nil {
-					if err := hooks.backup(change); err != nil {
-						result = failed(err)
-						break
-					}
-				}
 				if ctx.Err() != nil {
 					return partialContents(), answer.String(), ctx.Err()
 				}
-				result = applyChange(s, change)
-				if result.Success {
+				if staged, _ := stageOnly(call.Args); staged {
+					if hooks.stage == nil {
+						result = failed(errors.New("staged writes require a configured change store"))
+					} else {
+						result = hooks.stage(ctx, call.Name, change)
+					}
+				} else if hooks.apply != nil {
+					result = hooks.apply(ctx, call.Name, change)
+				} else {
+					result = applyChange(s, change)
+				}
+				if result.Success && result.Data["staged"] != true {
 					hooks.evidence.applied(call.Name, call.Args, change)
 				}
 			default:
@@ -310,6 +327,10 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 			}
 			hooks.evidence.finished(call.Name, call.Args, result)
 			fields := map[string]any{"tool": call.Name, "success": result.Success, "elapsed_s": time.Since(started).Seconds()}
+			if result.Success && result.Data["staged"] == true {
+				fields["staged"] = true
+				fields["output"] = "Staged change " + str(result.Data, "change_id", "") + "; the file has not been modified."
+			}
 			if code, ok := result.Data["exit_code"].(int); ok {
 				fields["exit_code"] = code
 				fields["output"] = commandOutput(result.Data)

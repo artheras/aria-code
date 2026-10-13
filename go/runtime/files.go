@@ -402,6 +402,9 @@ func propose(s *scope, tool string, params map[string]any) (fileChange, error) {
 	if err := noHostFlags(params); err != nil {
 		return fileChange{}, err
 	}
+	if _, err := stageOnly(params); err != nil {
+		return fileChange{}, err
+	}
 	p, err := s.open(str(params, "path", ""), true)
 	if err != nil {
 		return fileChange{}, err
@@ -521,6 +524,9 @@ func applyChange(s *scope, c fileChange) toolResult {
 		return failed(err)
 	}
 	defer p.Close()
+	if p.absolute != c.path {
+		return failed(errors.New("file path resolves to a different target since review"))
+	}
 	current, err := readRegular(p, 4<<20)
 	if os.IsNotExist(err) && !c.existed {
 		current = nil
@@ -548,6 +554,10 @@ func applyChange(s *scope, c fileChange) toolResult {
 		return failed(err)
 	}
 	defer p.root.Remove(temporary)
+	if err := f.Chmod(c.mode.Perm()); err != nil {
+		f.Close()
+		return failed(err)
+	}
 	if _, err := f.Write(c.after); err != nil {
 		f.Close()
 		return failed(err)
