@@ -110,6 +110,27 @@ _BUSY_ATTEMPTS = 4
 _BUSY_BACKOFF = (2.0, 6.0, 15.0)
 
 
+def _explain(status: int, model: str, body: str) -> str:
+    """Say what a refusal means, when Vertex says it in its own vocabulary.
+
+    A project whose billing is suspended is refused with "Lightning dunning
+    decision is deny for project: projects/<number>" — internal wording that
+    reads like a fault in the request, and sends you looking through code and
+    credentials for something that is not there. It is the billing account.
+    """
+    if status == 403 and "dunning" in body.lower():
+        return (
+            "Google Cloud is refusing this project because of its billing account "
+            "(check for an unpaid balance or a suspended billing account in the "
+            "Cloud console). Nothing is wrong with the request or the credentials."
+        )
+    if status == 403:
+        return f"Google Cloud refused the call to {model}: {body[:300]}"
+    if status == 404:
+        return f"{model} is not available to this project (HTTP 404)"
+    return f"HTTP {status} from {model}: {body[:300]}"
+
+
 def _post(url: str, body: Dict[str, Any], timeout: float) -> Dict[str, Any]:
     import requests
 
@@ -134,7 +155,7 @@ def _post(url: str, body: Dict[str, Any], timeout: float) -> Dict[str, Any]:
             continue
         if response.status_code in _BUSY_STATUSES:
             raise GoogleModelError(f"{model} is busy right now (HTTP {response.status_code}); try again in a minute")
-        raise GoogleModelError(f"HTTP {response.status_code} from {model}: {response.text[:300]}")
+        raise GoogleModelError(_explain(response.status_code, model, response.text))
     raise GoogleModelError(f"{model} is busy right now; try again in a minute")
 
 

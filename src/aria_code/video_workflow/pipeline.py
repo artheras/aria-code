@@ -303,6 +303,16 @@ def plan_video(
     project_id = re.sub(r"[^a-zA-Z0-9_-]+", "-", root.name).strip("-") or "video"
     aspect = default_aspect(platform, aspect_ratio)
 
+    # Nothing to cut together, and not allowed to generate anything: the
+    # planner would be asked to pick shots from an empty list, write beats
+    # with an empty asset, and fail validation a revision later — a minute of
+    # paid model calls to reach a conclusion that is available here.
+    if not asset_paths and not allow_generation:
+        raise VideoWorkflowError(
+            "No material to make a video from: attach images or clips, "
+            "or allow shots to be generated."
+        )
+
     assets_file = root / "assets.json"
     if assets_file.exists() and not force:
         assets = [Asset(**item) for item in json.loads(assets_file.read_text(encoding="utf-8"))]

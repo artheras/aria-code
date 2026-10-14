@@ -119,3 +119,25 @@ def test_a_real_error_is_not_retried(monkeypatch):
     with pytest.raises(google_models.GoogleModelError, match="bad argument"):
         google_models._post("https://x/models/gemini:generateContent", {}, 1.0)
     assert len(calls) == 1
+
+
+def test_a_suspended_billing_account_is_named_as_such(monkeypatch):
+    # Vertex refuses a project whose billing is suspended with "Lightning
+    # dunning decision is deny for project: projects/<number>" — wording that
+    # reads like a fault in the request, and sends you through the code and
+    # the credentials looking for something that is not there.
+    _capture_posts(monkeypatch, [_Response(403, text='{"error":{"message":"Lightning dunning decision is deny for project: projects/741336310848"}}')])
+    with pytest.raises(google_models.GoogleModelError, match="billing account"):
+        google_models._post("https://x/models/gemini:generateContent", {}, 1.0)
+
+
+def test_an_ordinary_refusal_still_reports_what_google_said(monkeypatch):
+    _capture_posts(monkeypatch, [_Response(403, text="caller lacks aiplatform.endpoints.predict")])
+    with pytest.raises(google_models.GoogleModelError, match="aiplatform.endpoints.predict"):
+        google_models._post("https://x/models/gemini:generateContent", {}, 1.0)
+
+
+def test_a_model_this_project_cannot_reach_says_so(monkeypatch):
+    _capture_posts(monkeypatch, [_Response(404, text="<!DOCTYPE html>")])
+    with pytest.raises(google_models.GoogleModelError, match="not available to this project"):
+        google_models._post("https://x/models/veo-9:generateContent", {}, 1.0)
