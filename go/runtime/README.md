@@ -70,7 +70,34 @@ provide filesystem or network sandboxing.
 - The one-request JSON-RPC file bridge is limited to the selected workspace.
   Writes require the host's per-invocation named grant; notifications never
   execute. File read/list/search results are compared with the old handlers.
-  Native undo/change-store integration is still pending on this route.
+  Approved file writes prepare a durable checkpoint before changing disk.
+  `list_checkpoints` and host-approved `restore_checkpoint` work across worker
+  processes and read the existing Python SQLite checkpoint tables. Native
+  records preserve physical preimages; legacy records preserve their logical
+  text contract. Group restores preflight every file, reject changed files and
+  paths redirected to other targets, and retain the recorded file mode. Groups
+  exceeding the 64 MiB image-read budget stop before modifying files and can be
+  restored by individual checkpoint ID.
+- `stage_only: true` on file mutations prepares a persistent change without
+  writing the file. `/changes`, `/apply-change` and `/reject-change` review it;
+  the one-request bridge also exposes `list_changes`, `apply_change` and
+  `reject_change`. Applying a change requires a new explicit write grant and
+  checks the current preimage and original tool policy. Staging cannot silently
+  become an immediate write; malformed staging flags are rejected.
+- `/undo` removes the latest user turn from both display and provider history.
+  The frontend refreshes its visible history while retaining the draft; earlier
+  signed tool history remains intact. `/rewind list|code|both|conversation`
+  restores files, conversation, or both through the current application policy;
+  noninteractive restores require an explicit grant or `--yes`, which does not
+  override a persistent deny or always-ask policy.
+
+Native staging uses an additional SQLite table, leaving legacy tables available
+to the old worker. The old in-memory staged changes are not imported. SQLite
+and project files are not one crash transaction: a pending checkpoint stores
+recovery images before mutation, while an interrupted staged apply remains
+marked `applying` for manual inspection. Shell commands, task-worktree state,
+approval grants and background tasks are not restored by these file commands;
+the broader transaction/turn rewind is a separate migration item.
 
 The native robot is rendered by Rust from the `cream-block-v2` design name,
 with full/compact grids and four separated feet. No Python drawing module is

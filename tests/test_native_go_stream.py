@@ -88,6 +88,7 @@ def stream(tmp_path):
         assert events[-1]["type"] == "turn.completed"
         assert sum(e["type"] == "turn.completed" for e in events) == 1
         return process, events
+    call.env = env
     yield project, state, requests, call
     server.shutdown()
     server.server_close()

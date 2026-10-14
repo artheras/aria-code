@@ -34,7 +34,7 @@ on:
       - 'tests/test_conversation_policy.py'
       - 'tests/test_exec_events.py'
       - 'tests/test_native_index.py'
-      - 'scripts/bundle_native_indexer.py'
+      - 'go/buildtools/**'
       - 'scripts/benchmark_rust_cli.py'
       - '.github/workflows/rust-cli.yml'
   push:
@@ -71,7 +71,7 @@ on:
       - 'tests/test_conversation_policy.py'
       - 'tests/test_exec_events.py'
       - 'tests/test_native_index.py'
-      - 'scripts/bundle_native_indexer.py'
+      - 'go/buildtools/**'
       - 'scripts/benchmark_rust_cli.py'
       - '.github/workflows/rust-cli.yml'
   workflow_dispatch:
@@ -103,6 +103,10 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/buildtools/go.mod
+          cache: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -121,7 +125,13 @@ jobs:
       - name: Bundle into a PyInstaller-style directory (what native releases do)
         run: |
           mkdir -p "$RUNNER_TEMP/onedir/_internal"
-          python scripts/bundle_native_indexer.py "$RUNNER_TEMP/onedir"
+          go -C go/buildtools run . --root "$GITHUB_WORKSPACE" "$RUNNER_TEMP/onedir"
+      - name: Verify Go release assembler against the real Rust binary
+        working-directory: go/buildtools
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -race -count=1 ./...
       - name: Exercise real executable and existing Python tools
         run: python -m pytest tests/test_native_app.py tests/test_conversation_policy.py tests/test_native_branding.py tests/test_native_entry.py tests/test_native_bridge.py tests/test_rust_cli.py tests/test_rust_state.py tests/test_rust_stream.py tests/test_exec_events.py tests/test_headless_command_approval.py tests/test_frozen_module_aliases.py tests/test_workspace_files.py tests/test_native_index.py -q --timeout=30
       - name: Measure entry points (no cloud calls)

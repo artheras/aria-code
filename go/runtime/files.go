@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -38,6 +39,7 @@ type scopedPath struct {
 func (p *scopedPath) Close() { p.root.Close() }
 
 func canonical(path string) (string, error) {
+	path = lexicalPath(path)
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
@@ -50,7 +52,7 @@ func canonical(path string) (string, error) {
 			for i := len(missing) - 1; i >= 0; i-- {
 				resolved = filepath.Join(resolved, missing[i])
 			}
-			return resolved, nil
+			return lexicalPath(resolved), nil
 		}
 		if !os.IsNotExist(err) {
 			return "", err
@@ -62,6 +64,25 @@ func canonical(path string) (string, error) {
 		missing = append(missing, filepath.Base(cursor))
 		cursor = parent
 	}
+}
+
+// Rust canonicalize returns verbatim Windows paths; os.Getwd and legacy
+// Python checkpoints usually use ordinary drive/UNC paths. Normalize only
+// equivalent absolute spellings, without weakening symlink or root checks.
+func normalWindowsPath(path string) string {
+	if len(path) >= 8 && strings.EqualFold(path[:8], `\\?\UNC\`) {
+		return `\\` + path[8:]
+	}
+	if len(path) >= 7 && path[:4] == `\\?\` && path[5:7] == `:\` && ((path[4] >= 'A' && path[4] <= 'Z') || (path[4] >= 'a' && path[4] <= 'z')) {
+		return path[4:]
+	}
+	return path
+}
+func lexicalPath(path string) string {
+	if runtime.GOOS == "windows" {
+		path = normalWindowsPath(path)
+	}
+	return filepath.Clean(path)
 }
 func newScope(workspace string, reads, writes []string, local bool) (*scope, error) {
 	root, err := canonical(workspace)
@@ -402,6 +423,9 @@ func propose(s *scope, tool string, params map[string]any) (fileChange, error) {
 	if err := noHostFlags(params); err != nil {
 		return fileChange{}, err
 	}
+	if _, err := stageOnly(params); err != nil {
+		return fileChange{}, err
+	}
 	p, err := s.open(str(params, "path", ""), true)
 	if err != nil {
 		return fileChange{}, err
@@ -521,6 +545,9 @@ func applyChange(s *scope, c fileChange) toolResult {
 		return failed(err)
 	}
 	defer p.Close()
+	if p.absolute != c.path {
+		return failed(errors.New("file path resolves to a different target since review"))
+	}
 	current, err := readRegular(p, 4<<20)
 	if os.IsNotExist(err) && !c.existed {
 		current = nil
@@ -548,6 +575,10 @@ func applyChange(s *scope, c fileChange) toolResult {
 		return failed(err)
 	}
 	defer p.root.Remove(temporary)
+	if err := f.Chmod(c.mode.Perm()); err != nil {
+		f.Close()
+		return failed(err)
+	}
 	if _, err := f.Write(c.after); err != nil {
 		f.Close()
 		return failed(err)

@@ -72,7 +72,8 @@ def test_machine_replay_preserves_extra_fields_and_failed_turn_exit(native):
     assert not result.stderr
 
 
-def test_exec_preserves_literal_args_workspace_and_relative_state(native, tmp_path):
+@pytest.mark.parametrize("full", ["0", "1"])
+def test_exec_preserves_literal_args_workspace_and_relative_state(native, tmp_path, full):
     binary, env, _ = native
     literal = "你好; $(touch SHOULD_NOT_EXIST)"
     fake_runtime(tmp_path, env, f"""
@@ -82,7 +83,7 @@ emit({{'type':'turn.started','prompt':prompt,'model':'fake','args':sys.argv[1:],
       'stdin':sys.stdin.read()}})
 emit({end('回答')!r})
 """)
-    env.update(ARIA_HOME="state", ARIA_EVENTS_FULL="1", PYTHONIOENCODING="cp1252")
+    env.update(ARIA_HOME="state", ARIA_EVENTS_FULL=full, PYTHONIOENCODING="cp1252")
     workspace = tmp_path / "project"
     workspace.mkdir()
     result = subprocess.run([binary, "--python", sys.executable, "-C", str(workspace),
@@ -95,7 +96,7 @@ emit({end('回答')!r})
                               "--model", "google/test", "--allow-tools", "read_file"]
     assert Path(event["cwd"]).resolve() == workspace.resolve()
     assert Path(event["home"]).resolve() == (tmp_path / "state").resolve()
-    assert event["full"] == "0" and event["stream"] == "1" and event["stdin"] == ""
+    assert event["full"] == full and event["stream"] == "1" and event["stdin"] == ""
     assert not (workspace / "SHOULD_NOT_EXIST").exists()
 
 

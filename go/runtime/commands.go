@@ -10,7 +10,7 @@ import (
 )
 
 func nativeCommands() []string {
-	return []string{"/help", "/model", "/config", "/health", "/sessions", "/new", "/resume", "/permissions"}
+	return []string{"/help", "/model", "/config", "/health", "/sessions", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change"}
 }
 func (s *server) command(ctx context.Context, turn, text string) (string, error) {
 	fields := strings.Fields(text)
@@ -18,6 +18,15 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		return "", nil
 	}
 	switch fields[0] {
+	case "/changes", "/apply-change", "/reject-change":
+		return s.stageCommand(ctx, turn, fields[0], fields[1:])
+	case "/undo":
+		if len(fields) != 1 {
+			return "", errors.New("usage: /undo")
+		}
+		return s.undoConversation()
+	case "/rewind":
+		return s.rewindCommand(ctx, turn, fields[1:])
 	case "/help":
 		return "Aria native interface\n\nEnter sends · Ctrl+J / Alt+Enter adds a line\nEsc cancels · Ctrl+O shows operation details · F1 opens help\n\n" + strings.Join(nativeCommands(), " · "), nil
 	case "/sessions":
