@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.152.0] — 2026-10-14
+
+- feat(native): persist checkpoints and retire Python release assembler (#202)
+
 ## [0.151.0] — 2026-10-13
 
 - Merge pull request #201 from Cinsoul/feat/go-tuning-jobs
