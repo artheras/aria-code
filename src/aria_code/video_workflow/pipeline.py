@@ -20,6 +20,7 @@ import json
 import re
 import shutil
 import subprocess
+from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -194,6 +195,33 @@ _PLAN_SCHEMA = {
 }
 
 
+def _plan_schema(assets: List[Asset], allow_generation: bool) -> Dict[str, Any]:
+    """The plan schema narrowed to what is actually legal for this request.
+
+    asset_id was optional and unconstrained, and the rule that a shot taken
+    from the material must name it lived only in the prose instructions.
+    Structured output drops optional fields, so the model answered
+    source="asset" for every beat and omitted asset_id on all of them — the
+    plan then failed validation twice over ("uses asset ''"), after two full
+    rounds of paid calls, with an attached image sitting unused.
+
+    A rule the schema can state is stated here instead: the ids that exist are
+    the only ones it can choose from, and with generation switched off
+    "asset" is the only source there is, so naming one is not optional.
+    """
+    schema = deepcopy(_PLAN_SCHEMA)
+    beat = schema["properties"]["beats"]["items"]
+    ids = [asset.id for asset in assets]
+    if ids:
+        beat["properties"]["asset_id"] = {"type": "string", "enum": ids}
+    if not allow_generation:
+        # Every other source is paid, so there is nothing else to choose.
+        beat["properties"]["source"] = {"type": "string", "enum": ["asset"]}
+        if ids:
+            beat["required"] = [*beat["required"], "asset_id"]
+    return schema
+
+
 def _plan_instructions(target_seconds: int, allow_generation: bool, language: str) -> str:
     return (
         "你是短视频剪辑师，按 short-form-video-editing 技能的规则把脚本和素材写成分镜。规则：\n"
@@ -264,12 +292,13 @@ def write_edit_plan(
     )
     system = _plan_instructions(target_seconds, allow_generation, language)
     by_id = {asset.id: asset for asset in assets}
-    plan = _plan_from_model(gm.generate_json([{"text": base}], _PLAN_SCHEMA, system=system),
+    schema = _plan_schema(assets, allow_generation)
+    plan = _plan_from_model(gm.generate_json([{"text": base}], schema, system=system),
                             project_id=project_id, platform=platform, aspect=aspect, language=language)
     problems = validate_plan(plan, by_id) + _generation_problems(plan, allow_generation)
     if problems:
         retry = base + "\n\n上一版分镜有这些问题，请修正后重写完整分镜：\n- " + "\n- ".join(problems)
-        plan = _plan_from_model(gm.generate_json([{"text": retry}], _PLAN_SCHEMA, system=system),
+        plan = _plan_from_model(gm.generate_json([{"text": retry}], schema, system=system),
                                 project_id=project_id, platform=platform, aspect=aspect, language=language)
         problems = validate_plan(plan, by_id) + _generation_problems(plan, allow_generation)
         if problems:
