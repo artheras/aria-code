@@ -30,6 +30,7 @@ from .base import BaseLLMProvider, Message, ProviderConfig
 from .ollama import OllamaProvider
 from .openai_compat import (
     DeepSeekProvider, OpenAIProvider, GroqProvider, GoogleProvider,
+
     TogetherProvider, DashScopeProvider, LMStudioProvider,
     SiliconFlowProvider, MoonshotProvider, ZhiPuProvider,
 )
@@ -41,6 +42,8 @@ from aria_code.packages.aria_services.provider_health import (
     classify_provider_error,
 )
 from aria_code.packages.aria_core.paths import aria_home
+
+from .arthera_gateway import ArtheraGatewayProvider
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +57,9 @@ _PROVIDER_CLASSES: Dict[str, Type[BaseLLMProvider]] = {
     # entry, so it could not be reached through the provider chain at all.
     "google":       GoogleProvider,
     "gemini":       GoogleProvider,
+    # Google models through the Arthera gateway, authorised by the session
+    # /login stored. Needs no key from the user, which is the point.
+    "arthera":      ArtheraGatewayProvider,
     "groq":         GroqProvider,
     "together":     TogetherProvider,
     "dashscope":    DashScopeProvider,
@@ -68,6 +74,10 @@ _PROVIDER_CLASSES: Dict[str, Type[BaseLLMProvider]] = {
 # 国内环境优先走 DeepSeek / SiliconFlow / DashScope，再尝试 OpenAI / Groq
 _DEFAULT_FALLBACK_CHAIN = [
     ("ollama",       None,                    None),
+    # Before the key-based entries: a signed-in user already has Google
+    # models and should not be asked for a key to reach them. Skipped when
+    # signed out, because the provider reports itself unavailable.
+    ("arthera",      None,                    "google/gemini-3.5-flash"),
     ("deepseek",     "DEEPSEEK_API_KEY",      "deepseek-chat"),
     ("siliconflow",  "SILICONFLOW_API_KEY",   "deepseek-ai/DeepSeek-V3"),
     ("dashscope",    "DASHSCOPE_API_KEY",     "qwen-plus"),
