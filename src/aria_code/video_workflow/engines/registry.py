@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type
 
 from .base import BaseVideoEngine
 from .google_veo import GoogleCloudVeoEngine
