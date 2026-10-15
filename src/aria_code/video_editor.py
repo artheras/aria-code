@@ -269,3 +269,250 @@ def change_speed(input_path: str, factor: float, *, output_path: Optional[str] =
     if not result["success"]:
         return result
     return {"success": True, "path": str(out)}
+
+
+def create_ken_burns_clip(
+    image_path: str,
+    *,
+    duration: float = 4.0,
+    effect: str = "zoom_in",
+    aspect_ratio: str = "16:9",
+    output_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Animate a static image with a smooth Ken Burns pan/zoom camera motion into an MP4 clip.
+
+    Guarantees 100% local, free, zero-API-cost video creation for storyboards and social cuts.
+    Includes a silent stereo audio track so concat with speech-backed clips works seamlessly.
+    """
+    if not Path(image_path).exists():
+        return {"success": False, "error": f"Image file not found: {image_path}"}
+
+    duration = max(1.0, float(duration or 4.0))
+    fps = 25
+    frames = int(duration * fps)
+
+    if aspect_ratio == "9:16":
+        width, height = 1080, 1920
+    elif aspect_ratio == "1:1":
+        width, height = 1080, 1080
+    else:
+        width, height = 1920, 1080
+
+    if effect == "zoom_out":
+        zoom_expr = "if(lte(zoom,1.0),1.2,max(1.001,zoom-0.0015))"
+        x_expr = "iw/2-(iw/zoom/2)"
+        y_expr = "ih/2-(ih/zoom/2)"
+    elif effect == "pan_right":
+        zoom_expr = "1.15"
+        x_expr = "if(lte(on,1),(iw-iw/zoom)*0.2,x+0.5)"
+        y_expr = "ih/2-(ih/zoom/2)"
+    elif effect == "pan_left":
+        zoom_expr = "1.15"
+        x_expr = "if(lte(on,1),(iw-iw/zoom)*0.8,x-0.5)"
+        y_expr = "ih/2-(ih/zoom/2)"
+    else:  # zoom_in
+        zoom_expr = "min(zoom+0.0015,1.25)"
+        x_expr = "iw/2-(iw/zoom/2)"
+        y_expr = "ih/2-(ih/zoom/2)"
+
+    out = Path(output_path) if output_path else _default_output(image_path, f"kenburns_{effect}", ".mp4")
+
+    filter_str = (
+        f"scale=8000:-1,"
+        f"zoompan=z='{zoom_expr}':x='{x_expr}':y='{y_expr}':d={frames}:s={width}x{height}:fps={fps},"
+        f"format=yuv420p"
+    )
+
+    args = [
+        "-loop", "1", "-i", str(image_path),
+        "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-vf", filter_str,
+        "-c:v", "libx264", "-tune", "stillimage",
+        "-c:a", "aac", "-b:a", "128k",
+        "-t", f"{duration:.2f}",
+        "-pix_fmt", "yuv420p",
+        str(out),
+    ]
+
+    result = _run_ffmpeg(args, timeout=180.0)
+    if not result["success"]:
+        return result
+    return {
+        "success": True,
+        "path": str(out),
+        "duration": duration,
+        "aspect_ratio": aspect_ratio,
+        "effect": effect,
+    }
+
+
+def burn_subtitles_and_audio(
+    video_path: str,
+    *,
+    audio_path: Optional[str] = None,
+    srt_path: Optional[str] = None,
+    bgm_path: Optional[str] = None,
+    bgm_volume: float = 0.25,
+    output_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Overlay narration voice, background music (BGM), and/or subtitles onto a video."""
+    if not Path(video_path).exists():
+        return {"success": False, "error": f"Video file not found: {video_path}"}
+
+    out = Path(output_path) if output_path else _default_output(video_path, "mastered", ".mp4")
+
+    inputs = ["-i", video_path]
+    filter_complex = []
+    has_narration = audio_path and Path(audio_path).exists()
+    has_bgm = bgm_path and Path(bgm_path).exists()
+
+    audio_inputs_idx = 1
+    if has_narration:
+        inputs += ["-i", audio_path]
+        narration_idx = audio_inputs_idx
+        audio_inputs_idx += 1
+
+    if has_bgm:
+        inputs += ["-stream_loop", "-1", "-i", bgm_path]
+        bgm_idx = audio_inputs_idx
+        audio_inputs_idx += 1
+
+    # Audio mixing
+    if has_narration and has_bgm:
+        filter_complex.append(
+            f"[{bgm_idx}:a]volume={bgm_volume:.2f}[bgm];"
+            f"[{narration_idx}:a][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+        )
+        audio_map = ["[aout]"]
+    elif has_narration:
+        audio_map = [f"{narration_idx}:a"]
+    elif has_bgm:
+        filter_complex.append(f"[{bgm_idx}:a]volume={bgm_volume:.2f}[bgm]")
+        audio_map = ["[bgm]"]
+    else:
+        audio_map = ["0:a?"]
+
+    # Subtitles video filter
+    vf_list = []
+    if srt_path and Path(srt_path).exists():
+        # Escape path for ffmpeg subtitles filter
+        escaped_srt = str(Path(srt_path).resolve()).replace(":", "\\:").replace("'", "\\'")
+        vf_list.append(f"subtitles='{escaped_srt}':force_style='FontSize=18,PrimaryColour=&HFFFFFF,BackColour=&H80000000,BorderStyle=4'")
+
+    args = list(inputs)
+    if filter_complex:
+        args += ["-filter_complex", "".join(filter_complex)]
+    if vf_list:
+        args += ["-vf", ",".join(vf_list)]
+
+    args += ["-map", "0:v:0"]
+    for am in audio_map:
+        args += ["-map", am]
+
+    args += ["-c:v", "libx264", "-c:a", "aac", "-b:a", "192k", "-shortest", str(out)]
+    result = _run_ffmpeg(args, timeout=300.0)
+    if not result["success"]:
+        return result
+    return {"success": True, "path": str(out)}
+
+
+def assemble_storyboard(
+    storyboard: Dict[str, Any],
+    *,
+    output_path: Optional[str] = None,
+    aspect_ratio: str = "16:9",
+) -> Dict[str, Any]:
+    """Assemble a full multi-shot storyboard into a finished video package.
+
+    storyboard shape:
+    {
+        "title": "...",
+        "aspect_ratio": "16:9" | "9:16",
+        "shots": [
+            {
+                "shot_index": 1,
+                "duration": 4.0,
+                "clip_path": "/path/to/clip.mp4" (optional if source_image is set),
+                "source_image": "/path/to/image.jpg" (used for Ken Burns if clip_path missing),
+                "effect": "zoom_in" | "pan_right" | "pan_left" | "zoom_out",
+                "caption": "...",
+            },
+            ...
+        ],
+        "audio_path": optional narration wav/mp3,
+        "bgm_path": optional background music wav/mp3,
+        "subtitles_srt": optional SRT file path or text
+    }
+    """
+    shots = storyboard.get("shots") or []
+    if not shots:
+        return {"success": False, "error": "Storyboard has no shots defined"}
+
+    aspect = storyboard.get("aspect_ratio") or aspect_ratio
+    temp_clips: List[str] = []
+    effects_cycle = ["zoom_in", "pan_right", "zoom_out", "pan_left"]
+
+    try:
+        for idx, shot in enumerate(shots):
+            clip = shot.get("clip_path")
+            if clip and Path(clip).exists():
+                temp_clips.append(str(clip))
+            elif shot.get("source_image") and Path(shot["source_image"]).exists():
+                effect = shot.get("effect") or effects_cycle[idx % len(effects_cycle)]
+                dur = float(shot.get("duration") or 4.0)
+                ken_res = create_ken_burns_clip(
+                    shot["source_image"],
+                    duration=dur,
+                    effect=effect,
+                    aspect_ratio=aspect,
+                )
+                if not ken_res.get("success"):
+                    return {"success": False, "error": f"Shot {idx + 1} Ken Burns failed: {ken_res.get('error')}"}
+                temp_clips.append(ken_res["path"])
+            else:
+                return {
+                    "success": False,
+                    "error": f"Shot {idx + 1} has neither valid 'clip_path' nor 'source_image'",
+                }
+
+        # 1. Concatenate shot clips
+        if len(temp_clips) == 1:
+            concat_path = temp_clips[0]
+        else:
+            concat_res = concat_videos(temp_clips)
+            if not concat_res.get("success"):
+                return concat_res
+            concat_path = concat_res["path"]
+
+        # 2. Master audio & subtitles if present
+        audio_p = storyboard.get("audio_path")
+        bgm_p = storyboard.get("bgm_path")
+        srt_p = storyboard.get("subtitles_srt")
+
+        # If srt content is raw text instead of a file path, write to temporary file
+        srt_file: Optional[str] = None
+        if srt_p and not Path(srt_p).exists() and ("-->" in srt_p):
+            from artifacts import create_user_artifact
+            srt_art = create_user_artifact("text", "subtitles", "captions", ".srt")
+            srt_art.path.write_text(srt_p, encoding="utf-8")
+            srt_file = str(srt_art.path)
+        elif srt_p and Path(srt_p).exists():
+            srt_file = str(srt_p)
+
+        if audio_p or bgm_p or srt_file:
+            final_res = burn_subtitles_and_audio(
+                concat_path,
+                audio_path=audio_p,
+                bgm_path=bgm_p,
+                srt_path=srt_file,
+                output_path=output_path,
+            )
+            return final_res
+
+        if output_path and output_path != concat_path:
+            shutil.copy2(concat_path, output_path)
+            return {"success": True, "path": output_path, "shots_count": len(shots)}
+
+        return {"success": True, "path": concat_path, "shots_count": len(shots)}
+    except Exception as exc:
+        return {"success": False, "error": f"Failed to assemble storyboard: {exc}"}
