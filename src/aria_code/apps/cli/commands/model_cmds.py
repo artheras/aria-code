@@ -182,8 +182,36 @@ logger = logging.getLogger(__name__)
 class ModelCommandsMixin:
     """Mixin: Model/config commands: model, apikey, providers, cloud, config, tools, skills."""
 
+    def _listed_model_ids(self) -> list:
+        """The ids behind the numbers /models prints, in the order it prints them.
+
+        The number is the most prominent thing on each row, so it has to mean
+        something; the printer and this must therefore read the same order
+        from the same place. Community models are keyed by name, which is
+        their id.
+        """
+        ids = [m["id"] for m in _get_MODELS().values()]
+        for name in getattr(self, "_last_listed_community", []) or []:
+            if name not in ids:
+                ids.append(name)
+        return ids
+
     async def cmd_model(self, args: str):
         name = args.strip()
+
+        # /models prints a numbered list, so a number is the obvious thing to
+        # type back. It used to be taken as a model name and matched nothing,
+        # which left the numbers on screen decorative.
+        if name.isdigit():
+            listed = self._listed_model_ids()
+            index = int(name)
+            if 1 <= index <= len(listed):
+                name = listed[index - 1]
+            else:
+                msg = ui_text(self, f"没有第 {index} 个模型；用 /models 查看当前列表。",
+                              f"There is no model {index}; run /models for the current list.")
+                self.context.console.print(f"[yellow]{msg}[/yellow]") if self.context.has_rich else print(msg)
+                return
 
         # A model Google has retired would fail on the next request; switch
         # to its replacement and say so (model_retirement.py).
@@ -429,6 +457,8 @@ class ModelCommandsMixin:
             # Non-interactive (-p mode): show static numbered list then return.
             # The arrow picker cannot run without a TTY.
             community_list = [cm for cm in rich_models if cm["name"] not in aria_ids]
+            # What /model <number> will count through, recorded as it is printed.
+            self._last_listed_community = [cm["name"] for cm in community_list]
             for key, m in _get_MODELS().items():
                 mid    = m["id"]
                 is_cur = mid == current_id
@@ -450,7 +480,8 @@ class ModelCommandsMixin:
                     self.context.console.print(line) if self.context.has_rich else print(line)
                     idx_counter += 1
             self.context.console.print() if self.context.has_rich else print()
-            self.context.console.print("  [dim]Use /model <id> to switch. E.g. /model deepseek/deepseek-chat[/dim]") if self.context.has_rich else print("  Use /model <id> to switch.")
+            hint = "Use /model <number> from this list, or /model <id>. E.g. /model 1 or /model deepseek/deepseek-chat"
+            self.context.console.print(f"  [dim]{hint}[/dim]") if self.context.has_rich else print(f"  {hint}")
             return
 
         # ── Build compact options for _arrow_select ────────────────────────
