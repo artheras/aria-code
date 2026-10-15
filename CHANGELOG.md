@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.155.0] — 2026-10-15
+
+- fix(providers): say which cloud providers the deepseek rule is about (#206)
+
 ## [0.154.0] — 2026-10-15
 
 - Feat/gateway provider (#204)
