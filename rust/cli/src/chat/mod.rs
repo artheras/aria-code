@@ -1,5 +1,6 @@
 mod app;
 mod editor;
+mod mark;
 mod markdown;
 mod robot;
 mod theme;
