@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.153.0] — 2026-10-15
+
+- Port the video workflow and video agents onto main (#203)
+
 ## [0.152.0] — 2026-10-14
 
 - feat(native): persist checkpoints and retire Python release assembler (#202)
