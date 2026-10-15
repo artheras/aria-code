@@ -246,14 +246,41 @@ class TestNewProvidersRegistered(unittest.TestCase):
         self.assertLess(sf_idx, oa_idx,
                         "siliconflow 应排在 openai 前面")
 
-    def test_deepseek_first_in_cloud_chain(self):
-        """DeepSeek 应是 fallback 链里第一个云端 provider。"""
+    def test_deepseek_first_among_the_providers_that_need_a_key(self):
+        """DeepSeek 应是第一个需要 API key 的云端 provider。
+
+        这条断言原本写作「第一个云端 provider」，当时每个云端 provider 都要
+        用户自己提供 key，两种说法等价。Arthera 网关打破了这个前提：它是云端
+        的，但凭的是用户已经登录的会话，不需要 key。所以这里要问的是「需要
+        key 的那些里谁第一」——元组第二位就是 key 名，区分本来就在数据里。
+        """
         from aria_code.providers.llm.registry import _PROVIDER_CLASSES
-        cloud_names = [
-            name for name, _, _ in _DEFAULT_FALLBACK_CHAIN
-            if not _PROVIDER_CLASSES[name].local
+        keyed_cloud = [
+            name for name, env_key, _ in _DEFAULT_FALLBACK_CHAIN
+            if env_key and not _PROVIDER_CLASSES[name].local
         ]
-        self.assertEqual(cloud_names[0], "deepseek")
+        self.assertEqual(keyed_cloud[0], "deepseek")
+
+    def test_a_signed_in_user_is_not_asked_for_a_key_first(self):
+        """不需要 key 的云端 provider 要排在需要 key 的之前。
+
+        否则一个已经登录、已经能用 Google 模型的用户，会先被要求去申请一个
+        他并不需要的 key。
+        """
+        from aria_code.providers.llm.registry import _PROVIDER_CLASSES
+        names = [name for name, _, _ in _DEFAULT_FALLBACK_CHAIN]
+        keyless_cloud = [
+            name for name, env_key, _ in _DEFAULT_FALLBACK_CHAIN
+            if not env_key and not _PROVIDER_CLASSES[name].local
+        ]
+        keyed_cloud = [
+            name for name, env_key, _ in _DEFAULT_FALLBACK_CHAIN
+            if env_key and not _PROVIDER_CLASSES[name].local
+        ]
+        for keyless in keyless_cloud:
+            for keyed in keyed_cloud:
+                self.assertLess(names.index(keyless), names.index(keyed),
+                                f"{keyless} 不需要 key，应排在 {keyed} 之前")
 
 
 if __name__ == "__main__":
