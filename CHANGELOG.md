@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.154.0] — 2026-10-15
+
+- Feat/gateway provider (#204)
+
 ## [0.153.0] — 2026-10-15
 
 - Port the video workflow and video agents onto main (#203)
