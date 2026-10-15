@@ -1299,6 +1299,16 @@ try:
         logger.info("Registered %d image generation tools", _n_image)
 except Exception as _exc:
     logger.debug("Image tool registration error: %s", _exc)
+
+# ── Register video script analysis & production tools ───────────────────────
+try:
+    from aria_code.tools.video_tools import register_video_tools as _reg_video
+    _n_video = _reg_video(LOCAL_TOOLS, LOCAL_TOOL_SCHEMAS)
+    if _n_video:
+        logger.info("Registered %d video production tools", _n_video)
+except Exception as _exc:
+    logger.debug("Video tool registration error: %s", _exc)
+
     
 # ── Register enterprise logistics & corporate finance analysis tools ────────
 try:

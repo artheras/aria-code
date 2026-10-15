@@ -77,6 +77,10 @@ _try_import_builtin("aria_code.agents.warehouse.inventory_health", "warehouse_in
 _try_import_builtin("aria_code.agents.warehouse.logistics_cost", "warehouse_logistics_cost")
 _try_import_builtin("aria_code.agents.warehouse.fulfillment_leadtime", "warehouse_fulfillment_leadtime")
 
+# ── 视频制作与多媒体 Agent 包 ──────────────────────────────────────────────────
+_try_import_builtin("aria_code.agents.video.director", "video_director")
+
+
 
 class AgentRegistry:
     """

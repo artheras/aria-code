@@ -230,4 +230,16 @@ def default_exposures() -> List[MCPExposure]:
             "Produce a finished video from script and images end-to-end via the active video engine, with storyboard planning, audio ducking, and subtitles.",
             read_only=False,
         ),
+        MCPExposure(
+            "aria.video.project_create",
+            "tool:video_project_create",
+            "Create a desktop storyboard project with shot cards from script and reference images.",
+            read_only=False,
+        ),
+        MCPExposure(
+            "aria.video.shot_regenerate",
+            "tool:video_shot_regenerate",
+            "Regenerate a single shot in a video project and quickly re-assemble the master video without re-rendering other shots.",
+            read_only=False,
+        ),
     ]

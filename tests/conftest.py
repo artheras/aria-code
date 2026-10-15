@@ -109,3 +109,26 @@ def make_providers_file(tmp_path: pathlib.Path, llm_section: dict) -> pathlib.Pa
     p = tmp_path / "providers.json"
     p.write_text(json.dumps({"llm": llm_section}), encoding="utf-8")
     return p
+
+
+@pytest.fixture(autouse=True)
+def _isolate_video_engine_registry():
+    """Give every test a clean VideoEngineRegistry.
+
+    It is a process-wide singleton, and configuring an engine mutates it for
+    everything that runs afterwards. test_video_engines.py configures a custom
+    engine and makes it active; test_video_session.py then patches the
+    "google" engine while the director resolves the *active* one and calls the
+    custom engine instead. Each passed alone and the pair failed, which is the
+    hardest shape of failure to place.
+    """
+    try:
+        from aria_code.video_workflow.engines import VideoEngineRegistry
+    except Exception:  # the video extra is optional
+        yield
+        return
+    VideoEngineRegistry.reset_instance()
+    try:
+        yield
+    finally:
+        VideoEngineRegistry.reset_instance()

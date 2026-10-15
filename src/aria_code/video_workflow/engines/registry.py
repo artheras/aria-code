@@ -37,6 +37,18 @@ class VideoEngineRegistry:
             cls._instance = cls()
         return cls._instance
 
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Drop the singleton so the next caller builds a fresh registry.
+
+        The registry is process-wide and mutable: registering an engine or
+        setting the active one changes it for everything afterwards. In a test
+        run that leaks — configuring a custom engine in one test left another
+        patching "google" while the director resolved the active engine and
+        called something else, which failed only when both ran together.
+        """
+        cls._instance = None
+
     def register_engine(self, name: str, engine: BaseVideoEngine) -> None:
         """注册或更新一个视频引擎实例。"""
         self._engines[name.lower()] = engine

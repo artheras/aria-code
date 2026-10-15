@@ -475,6 +475,28 @@ _INPUT_SCHEMAS: Dict[str, Dict[str, Any]] = {
         },
         "required": ["script"],
     },
+    "aria.video.project_create": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "script": {"type": "string"},
+            "images": {"type": "array", "items": {"type": "string"}},
+            "aspect_ratio": {"type": "string", "enum": ["16:9", "9:16", "1:1"]},
+            "target_duration": {"type": "number"},
+            "provider": {"type": "string", "enum": ["auto", "google", "custom", "local"]},
+        },
+        "required": ["script"],
+    },
+    "aria.video.shot_regenerate": {
+        "type": "object",
+        "properties": {
+            "project_id": {"type": "string"},
+            "shot_index": {"type": "integer"},
+            "new_prompt": {"type": "string"},
+            "engine": {"type": "string", "enum": ["google", "custom", "local"]},
+        },
+        "required": ["project_id", "shot_index"],
+    },
 }
 
 # Exposures that are NOT read_only (they write a local file, a preview
@@ -508,6 +530,7 @@ _WRITE_SAFE = {
     # unless confirm_generation=true (see pipeline.render_video).
     "aria.video.workflow_plan", "aria.video.workflow_render",
     "aria.video.engine_config", "aria.video.produce_from_script",
+    "aria.video.project_create", "aria.video.shot_regenerate",
 }
 
 
@@ -1394,6 +1417,19 @@ async def _call_video_produce_from_script(args: Dict[str, Any]) -> Dict[str, Any
     return await asyncio.get_event_loop().run_in_executor(None, fn)
 
 
+async def _call_video_project_create(args: Dict[str, Any]) -> Dict[str, Any]:
+    from aria_code.tools.video_tools import tool_create_video_project
+    return tool_create_video_project(args)
+
+
+async def _call_video_shot_regenerate(args: Dict[str, Any]) -> Dict[str, Any]:
+    import asyncio
+    from functools import partial
+    from aria_code.tools.video_tools import tool_regenerate_video_shot
+    fn = partial(tool_regenerate_video_shot, args)
+    return await asyncio.get_event_loop().run_in_executor(None, fn)
+
+
 async def _call_report_docx(args: Dict[str, Any]) -> Dict[str, Any]:
     import asyncio
 
@@ -1637,6 +1673,8 @@ _HANDLERS: Dict[str, Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]] = {
     "aria.video.workflow_render": _call_video_workflow_render,
     "aria.video.engine_config": _call_video_engine_config,
     "aria.video.produce_from_script": _call_video_produce_from_script,
+    "aria.video.project_create": _call_video_project_create,
+    "aria.video.shot_regenerate": _call_video_shot_regenerate,
     "aria.report.generate": _call_report_generate,
     "aria.backtest.run": _call_backtest_run,
 }

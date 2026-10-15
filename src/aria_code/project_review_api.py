@@ -7,6 +7,9 @@ import os
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
+from fastapi.responses import Response
+from starlette.concurrency import run_in_threadpool
+from aria_code.workspace_export import export_workspace
 
 from aria_code.project_review import MAX_ARCHIVE_BYTES, ProjectReviewError, review_project_archive
 from aria_code.workspace_service import WorkspaceService, WorkspaceServiceError
@@ -33,6 +36,25 @@ class ChangeProposalRequest(BaseModel):
 
 class WorkspaceOwnerRequest(BaseModel):
     owner_id: str = Field(min_length=1, max_length=512)
+
+
+class ExportFile(BaseModel):
+    path: str = Field(min_length=1, max_length=1000)
+    content: str = Field(max_length=1_048_576)
+
+
+class WorkspaceExportRequest(WorkspaceOwnerRequest):
+    overlays: list[ExportFile] = Field(default_factory=list, max_length=2000)
+
+
+@router.post('/workspaces/{workspace_id}/export')
+async def download_workspace(workspace_id: str, payload: WorkspaceExportRequest, authorization: str | None = Header(default=None)):
+    _authorize(authorization)
+    try:
+        content = await run_in_threadpool(export_workspace, _workspaces(), workspace_id, payload.owner_id, [item.model_dump() for item in payload.overlays])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(content, media_type='application/zip', headers={'Content-Disposition': 'attachment; filename="aria-project.zip"'})
 
 
 class WorkspaceReadRequest(WorkspaceOwnerRequest):
@@ -175,14 +197,19 @@ async def propose_workspace_change(
 ):
     _authorize(authorization)
     try:
-        change = WorkspaceChangeService(_workspaces()).propose(
+        service = WorkspaceChangeService(_workspaces())
+        change = service.propose(
             workspace_id,
             owner_id=payload.owner_id,
             path=payload.path,
             content=payload.content,
             expected_sha256=payload.expected_sha256,
         )
-        return change.public_dict()
+        before_file = service._directory(workspace_id, change.change_id) / 'before.bin'
+        before_available = before_file.stat().st_size <= 1_048_576
+        return {**change.public_dict(), 'after_content': payload.content,
+                'before_content': before_file.read_text(encoding='utf-8') if before_available else '',
+                'before_content_available': before_available}
     except WorkspaceChangeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
