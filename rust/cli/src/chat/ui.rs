@@ -395,15 +395,30 @@ pub fn draw(frame: &mut Frame, app: &App) {
     } else {
         ""
     };
-    frame.render_widget(
-        Paragraph::new(format!(
+    // While a turn runs the mascot's eye breathes at the head of the status
+    // line — the one thing on screen that says the model is working, and the
+    // brand once the welcome banner has scrolled away. The frame comes from
+    // the seconds already on display rather than a timer of its own: the view
+    // redraws once a second while a turn is open (see chat/mod.rs), so the
+    // mark advances with it and the whole thing stays a pure function of
+    // state.
+    let mut status_line: Vec<Span> = Vec::new();
+    if app.turn.is_some() {
+        let second = app
+            .started
+            .map(|start| start.elapsed().as_secs())
+            .unwrap_or(0) as usize;
+        status_line.extend(super::mark::prefix(Some(second)));
+    }
+    status_line.push(Span::styled(
+        format!(
             "{}{elapsed}{cancel}{scroll} · {}",
             app.status,
             app.tr("F1 help · Ctrl+O details", "F1 帮助 · Ctrl+O 详情")
-        ))
-        .style(Style::new().fg(p.muted)),
-        parts[3],
-    );
+        ),
+        Style::new().fg(p.muted),
+    ));
+    frame.render_widget(Paragraph::new(Line::from(status_line)), parts[3]);
     if app.help {
         let rect = popup(area, 88, 24);
         frame.render_widget(Clear, rect);
@@ -834,6 +849,46 @@ mod tests {
         assert!(app.submit().is_none());
         assert_eq!(app.editor.text(), "下一条消息");
     }
+    #[test]
+    fn the_status_line_shows_the_mascots_eye_only_while_a_turn_runs() {
+        // The chat had no activity indicator at all: nothing on screen said
+        // the model was working. The mark is that, and it is the brand once
+        // the welcome banner has scrolled away — so it must appear while a
+        // turn is open and leave the line alone when none is.
+        let row = |app: &App| {
+            let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+            terminal.draw(|f| draw(f, app)).unwrap();
+            let buffer = terminal.backend().buffer().clone();
+            (0..80)
+                .map(|x| buffer[(x, 23)].symbol().to_string())
+                .collect::<String>()
+        };
+
+        let working = App {
+            ready: true,
+            turn: Some("turn-1".into()),
+            status: "Working".into(),
+            ..App::default()
+        };
+        let idle = App {
+            ready: true,
+            turn: None,
+            status: "Working".into(),
+            ..App::default()
+        };
+
+        let drawn = row(&working);
+        assert!(
+            super::super::mark::BREATH.iter().any(|f| drawn.contains(f)),
+            "a running turn should show the eye: {drawn:?}"
+        );
+        let quiet = row(&idle);
+        assert!(
+            !super::super::mark::BREATH.iter().any(|f| quiet.contains(f)),
+            "an idle status line should carry no mark: {quiet:?}"
+        );
+    }
+
     #[test]
     fn mascot_keeps_the_same_compact_size_after_resizing() {
         for (w, h) in [(55, 18), (80, 24), (120, 40)] {
