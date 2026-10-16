@@ -1,5 +1,5 @@
 use super::app::App;
-use super::{markdown, theme::Palette};
+use super::{hang, mark, markdown, theme::Palette};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
@@ -222,20 +222,20 @@ pub fn draw(frame: &mut Frame, app: &App) {
             ]));
             if !action.approval.is_empty() {
                 lines.push(Line::styled(
-                    format!("  ✓ {}", action.approval),
+                    format!("  └ {}", action.approval),
                     Style::new().fg(p.muted),
                 ));
             }
             if !action.error.is_empty() {
                 lines.push(Line::styled(
-                    format!("  {}", action.error),
+                    format!("  └ {}", action.error),
                     Style::new().fg(p.error),
                 ));
             }
             if app.details {
                 lines.push(Line::styled(
                     format!(
-                        "  {}{}",
+                        "  └ {}{}",
                         action.tool,
                         action
                             .elapsed
@@ -248,7 +248,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
                     entry
                         .text
                         .lines()
-                        .map(|line| Line::styled(format!("  {line}"), Style::new().fg(p.muted))),
+                        .map(|line| Line::styled(format!("    {line}"), Style::new().fg(p.muted))),
                 );
             }
             continue;
@@ -257,25 +257,55 @@ pub fn draw(frame: &mut Frame, app: &App) {
         if !lines.is_empty() {
             lines.push(Line::default());
         }
-        let (label, color) = match entry.role.as_str() {
-            "user" => (app.tr("You", "你"), p.accent),
-            "assistant" => ("Aria", p.assistant),
-            "error" => (app.tr("Error", "错误"), p.error),
-            _ => ("", p.muted),
+        // Who spoke is carried by the marker at the head of the message, not
+        // by a name on a line of its own: the robot's eye for Aria, the prompt
+        // glyph for the user, a cross for an error — the way Codex and Claude
+        // Code lay a conversation out. The rest of the message hangs beneath
+        // the text (chat/hang.rs), wrapped lines included.
+        let width = parts[1].width;
+        let plain = |text: &str, style: Style| -> Vec<Line<'static>> {
+            text.lines()
+                .map(|s| Line::styled(s.to_owned(), style))
+                .collect()
         };
-        if !label.is_empty() {
-            lines.push(Line::styled(
-                label,
-                Style::new().fg(color).add_modifier(Modifier::BOLD),
-            ));
+        match entry.role.as_str() {
+            "assistant" => lines.extend(hang::hang(
+                markdown::render(&entry.text, p, width.saturating_sub(hang::INDENT)),
+                mark::prefix(None),
+                width,
+            )),
+            "user" => lines.extend(hang::hang(
+                plain(&entry.text, Style::new()),
+                vec![
+                    Span::styled("›", Style::new().fg(p.accent).add_modifier(Modifier::BOLD)),
+                    Span::raw(" "),
+                ],
+                width,
+            )),
+            "error" => lines.extend(hang::hang(
+                plain(&entry.text, Style::new().fg(p.error)),
+                vec![Span::styled("✗", Style::new().fg(p.error)), Span::raw(" ")],
+                width,
+            )),
+            "delivery" => lines.extend(delivery_lines(&entry.text, p)),
+            _ => lines.extend(plain(&entry.text, Style::new())),
         }
-        if entry.role == "assistant" {
-            lines.extend(markdown::render(&entry.text, p, parts[1].width));
-        } else if entry.role == "delivery" {
-            lines.extend(delivery_lines(&entry.text, p));
+    }
+    for waiting in &app.queued {
+        if !lines.is_empty() {
+            lines.push(Line::default());
+        }
+        let first = waiting.lines().next().unwrap_or("");
+        let more = waiting.lines().count().saturating_sub(1);
+        let extra = if more > 0 {
+            format!(" (+{more})")
         } else {
-            lines.extend(entry.text.lines().map(|s| Line::raw(s.to_owned())));
-        }
+            String::new()
+        };
+        lines.push(Line::styled(
+            format!("› {first}{extra} · {}", app.tr("queued", "排队中")),
+            Style::new().fg(p.muted),
+        ));
     }
     if lines.is_empty() {
         lines = vec![
@@ -322,14 +352,17 @@ pub fn draw(frame: &mut Frame, app: &App) {
     frame.render_widget(paragraph.scroll((offset, 0)), parts[1]);
     let busy = app.turn.is_some();
     let label = if busy {
-        app.tr(" Draft ", " 草稿 ")
+        app.tr(" Queue ", " 排队 ")
     } else {
         " Aria "
     };
     let hint = if !app.ready {
         app.tr(" Starting… ", " 正在启动… ")
     } else if busy {
-        app.tr(" Send after this task ", " 任务结束后手动发送 ")
+        app.tr(
+            " Enter queues · sent when this task ends ",
+            " Enter 排队 · 任务结束后自动发送 ",
+        )
     } else if area.width >= 60 {
         app.tr(
             " Enter send · Ctrl+J newline ",
@@ -357,7 +390,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let first = usize::from(cursor.0).saturating_sub(inside.height.saturating_sub(1) as usize);
     if app.editor.is_empty() {
         let placeholder = if busy {
-            app.tr("Draft your next message…", "可以先写下一条消息…")
+            app.tr(
+                "Type your next message — Enter queues it…",
+                "可以先写下一条消息，Enter 排队…",
+            )
         } else {
             app.tr(
                 "Describe a task, or type / for commands",
@@ -833,7 +869,11 @@ mod tests {
         }
     }
     #[test]
-    fn busy_composer_labels_drafts_without_suggesting_they_are_sent() {
+    fn busy_composer_says_enter_queues_and_the_message_waits_in_view() {
+        // Enter while a turn runs used to do nothing and the box was labelled
+        // a draft to be sent by hand once the task ended. Codex and Claude
+        // Code queue it and send it when the turn completes; so does this,
+        // and the label says so.
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         let mut app = App {
             ready: true,
@@ -843,12 +883,120 @@ mod tests {
         };
         terminal.draw(|f| draw(f, &app)).unwrap();
         let rendered = display(&terminal);
-        assert!(rendered.contains("草稿") && rendered.contains("任务结束后手动发送"));
-        assert!(!rendered.contains("Enter 发送"));
+        assert!(rendered.contains("排队") && rendered.contains("任务结束后自动发送"));
+        assert!(!rendered.contains("手动发送"));
+
         app.editor.insert("下一条消息");
-        assert!(app.submit().is_none());
-        assert_eq!(app.editor.text(), "下一条消息");
+        assert!(
+            app.submit().is_none(),
+            "nothing is sent while the turn runs"
+        );
+        assert!(
+            app.editor.is_empty(),
+            "the box is free for the message after"
+        );
+        assert_eq!(app.queued.len(), 1);
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        assert!(
+            display(&terminal).contains("排队中"),
+            "a waiting message stays visible"
+        );
     }
+    #[test]
+    fn a_conversation_is_led_by_markers_not_by_name_lines() {
+        // The transcript used to print "你" and "Aria" on lines of their own.
+        // Codex and Claude Code carry who spoke in a marker at the head of
+        // the message instead, and hang the rest beneath the text.
+        let mut app = App {
+            ready: true,
+            ..App::default()
+        };
+        app.add("user", "你好", false);
+        app.add(
+            "assistant",
+            "你好，我是 Aria Code。这一行足够长，会在窄终端里折行，折行后的部分要留在正文下面。",
+            false,
+        );
+        app.add("error", "No model is reachable.", false);
+        let mut terminal = Terminal::new(TestBackend::new(40, 30)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rows: Vec<String> = (0..30)
+            .map(|y| {
+                (0..40)
+                    .map(|x| buffer[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect();
+
+        assert!(
+            !rows
+                .iter()
+                .any(|r| r.trim() == "你" || r.trim() == "Aria" || r.trim() == "错误"),
+            "a name on a line of its own: {rows:#?}"
+        );
+        // A wide character fills two cells and reads back with a blank after
+        // it, so "你好" is matched by its first character.
+        let user = rows
+            .iter()
+            .position(|r| r.starts_with("› 你"))
+            .expect("user line");
+        let aria = rows
+            .iter()
+            .position(|r| r.starts_with(super::super::mark::RESTING))
+            .expect("aria line");
+        assert!(aria > user);
+        assert!(
+            rows[aria + 1].starts_with("  ") && !rows[aria + 1].trim().is_empty(),
+            "a wrapped line must hang under the text: {:?}",
+            rows[aria + 1]
+        );
+        assert!(rows
+            .iter()
+            .any(|r| r.starts_with("✗ No model is reachable.")));
+    }
+
+    #[test]
+    fn a_waiting_message_sits_under_the_conversation_in_the_users_own_marker() {
+        // The queue and the marker layout were written separately. Together: a
+        // message waiting to be sent reads as the user's own line (›), after
+        // everything already said, and says it is still waiting.
+        let mut app = App {
+            ready: true,
+            ..App::default()
+        };
+        app.add("user", "第一个问题", false);
+        app.add("assistant", "正在处理。", false);
+        app.turn = Some("turn-1".into());
+        app.editor.insert("第二个问题");
+        app.submit();
+        let mut terminal = Terminal::new(TestBackend::new(60, 24)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rows: Vec<String> = (0..24)
+            .map(|y| {
+                (0..60)
+                    .map(|x| buffer[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect();
+        // A wide character fills two cells and reads back with a blank after
+        // it, so the answer is found by its marker, not by its text.
+        let said = rows
+            .iter()
+            .position(|r| r.starts_with(super::super::mark::RESTING))
+            .expect("answer");
+        let waiting = rows
+            .iter()
+            .position(|r| r.contains("queued"))
+            .expect("queued line");
+        assert!(
+            waiting > said,
+            "the waiting message comes after what was already said"
+        );
+        assert!(rows[waiting].starts_with("› "), "{:?}", rows[waiting]);
+    }
+
     #[test]
     fn the_status_line_shows_the_mascots_eye_only_while_a_turn_runs() {
         // The chat had no activity indicator at all: nothing on screen said

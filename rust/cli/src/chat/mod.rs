@@ -1,5 +1,6 @@
 mod app;
 mod editor;
+mod hang;
 mod mark;
 mod markdown;
 mod robot;
@@ -114,6 +115,15 @@ pub fn run(
                 Ok(Err(error)) => return Err(error),
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(_) => return Err("Application reader disconnected".into()),
+            }
+        }
+        // A message queued while the last turn ran goes out as soon as that
+        // turn has completed, in the order it was sent.
+        if !shutting_down {
+            if let Some(request) = app.next_queued() {
+                dirty = true;
+                deadline = Some(Instant::now() + timeout);
+                session.send(request)?;
             }
         }
         if app.turn.is_some() && tick.elapsed() >= Duration::from_secs(1) {
