@@ -10,8 +10,8 @@
 //! mark and the spinner are the same thing. The approach is worth taking; the
 //! glyph is not, because it is theirs.
 //!
-//! So the mark is taken from the robot instead. Its one orange eye is a lower
-//! half block in #F9B467, and the mark is that eye: the same colour, the same
+//! So the mark is taken from the robot instead. Its ears and base line are a
+//! lower block in #F9B467, and the mark is that detail: the same colour, the same
 //! vocabulary of partial blocks, breathing through heights while a turn runs.
 //! It reads as the robot looking back, not as a borrowed sparkle.
 
@@ -20,7 +20,7 @@ use ratatui::{
     text::Span,
 };
 
-/// The eye, ears and stripe are all this orange; it is what the robot is
+/// The ears and stripe are this orange; it is what the robot is
 /// recognised by once it is too small to have a face.
 pub const ORANGE: Color = Color::Rgb(249, 180, 103);
 

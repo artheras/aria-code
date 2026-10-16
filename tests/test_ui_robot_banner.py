@@ -28,7 +28,7 @@ class RobotBannerTests(unittest.TestCase):
 
         self.assertEqual(rows, [
             "▗▛▀▀▀▀▀▜▖",
-            "▌▌▗▖ ▂ ▐▐",
+            "▌▌▗▖ ▗▖▐▐",
             "▐▙▄▄▄▄▄▟▌",
             "▝▀▀▀▀▀▀▀▘",
         ])
@@ -39,7 +39,6 @@ class RobotBannerTests(unittest.TestCase):
 
         self.assertIn("#F4EBE4 on #0E0E0E", styles)   # cream shell around the black screen
         self.assertIn("#FFFDF5 on #0E0E0E", styles)   # square eye, brighter than the shell
-        self.assertIn("#F9B467 on #0E0E0E", styles)   # orange dash
         self.assertIn("#B6ADA4 on #F4EBE4", styles)   # grey ear nub on the shell
         self.assertIn("#B6ADA4 on #D5CCC3", styles)   # grey base over a light foot
 
@@ -51,9 +50,8 @@ class RobotBannerTests(unittest.TestCase):
 
         self.assertNotEqual(light, dark)
         # The shell and greys are deepened on a light terminal, where the
-        # artwork's would vanish; the screen, eye and dash stay as drawn.
+        # artwork's would vanish; the screen and eyes stay as drawn.
         self.assertIn("#E6DDD0 on #0E0E0E", light)
-        self.assertIn("#F9B467 on #0E0E0E", light)
 
     def test_idle_status_dot_does_not_blink_to_dim_dot(self):
         set_robot_state(RobotState.IDLE)

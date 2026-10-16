@@ -408,12 +408,8 @@ def test_real_terminal_paste_approval_resize_cancel_and_restore(application, ent
         wait("▄▄▄▄▄▄▄▄▄▄")
         # Coloured blank cells form the square eye and the solid feet. Text
         # matching alone cannot verify the actual terminal artwork.
-        for col in (4, 5):
+        for col in (4, 5, 8, 9):
             assert screen.buffer[2][col].bg == "fffdf5"
-        for col in (8, 9):
-            assert screen.buffer[2][col].data == "▄"
-            assert screen.buffer[2][col].fg == "f9b467"
-            assert screen.buffer[2][col].bg == "0e0e0e"
         for col in (2, 5, 8, 11):
             assert screen.buffer[5][col].bg == "cfc4b7"
         assert screen.buffer[5][3].data == "▌"

@@ -63,9 +63,8 @@ the visual budget; no Claude mascot artwork is included in Aria.
 
 Aria's compact mascot uses 14 columns by six rows, including a half-row of
 transparent space above the stepped cap. This replaces the 12-by-five prototype:
-its single-column feet looked too thin and its eyes lost definition. The ivory
-eye now occupies two columns by one row; the amber dash is the same width and
-half the height, sharing its bottom edge. Each of the four attached feet is
+its single-column feet looked too thin and its eyes lost definition. The two
+ivory eyes are identical, each two columns by one row, mirrored about the screen. Each of the four attached feet is
 1.5 columns wide by one row high. Mirrored half-column edges keep the feet
 symmetrical; their gaps retain the terminal's own background.
 

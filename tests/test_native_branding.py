@@ -16,9 +16,9 @@ def test_protocol_spans_equal_the_existing_robot(theme, monkeypatch):
     assert rows == [[{"style": style, "text": text} for style, text in robot.get_robot_row(0, row)]
                     for row in range(4)]
     assert ["".join(span["text"] for span in row) for row in rows] == [
-        "▗▛▀▀▀▀▀▜▖", "▌▌▗▖ ▂ ▐▐", "▐▙▄▄▄▄▄▟▌", "▝▀▀▀▀▀▀▀▘"]
+        "▗▛▀▀▀▀▀▜▖", "▌▌▗▖ ▗▖▐▐", "▐▙▄▄▄▄▄▟▌", "▝▀▀▀▀▀▀▀▘"]
     assert rows[1][2]["style"] == "#FFFDF5 on #0E0E0E"
-    assert rows[1][4]["style"] == "#F9B467 on #0E0E0E"
+    assert rows[1][4]["style"] == rows[1][2]["style"] == "#FFFDF5 on #0E0E0E"   # two matching eyes
 
 
 def test_explicitly_hidden_robot_stays_hidden(monkeypatch):

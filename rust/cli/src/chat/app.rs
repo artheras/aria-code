@@ -814,7 +814,7 @@ mod tests {
     #[test]
     fn both_runtime_packets_draw_the_same_mascot_and_respect_hidden_banners() {
         let legacy = json!([
-            [{"text": "▗▛▀▀▀▀▀▜▖"}], [{"text": "▌▌▗▖ ▂ ▐▐"}],
+            [{"text": "▗▛▀▀▀▀▀▜▖"}], [{"text": "▌▌▗▖ ▗▖▐▐"}],
             [{"text": "▐▙▄▄▄▄▄▟▌"}], [{"text": "▝▀▀▀▀▀▀▀▘"}]
         ]);
         let packet = |robot: Value, design: &str| {
