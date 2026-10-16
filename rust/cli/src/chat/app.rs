@@ -474,7 +474,13 @@ impl App {
                         self.add("delivery", &limited(report), false);
                     }
                 }
-                if !text("error").is_empty() {
+                // The worker says when it has already told the user what went
+                // wrong, in their language. Printing the raw text again, with
+                // its internal code, under a heading of its own showed one
+                // failure three times. Absent means "not shown yet" — the Go
+                // runtime never sets it — so the default is to show it.
+                let presented = v["presented"].as_bool().unwrap_or(false);
+                if !text("error").is_empty() && !presented {
                     self.add("error", text("error"), false);
                 }
                 self.turn = None;
@@ -756,6 +762,53 @@ mod tests {
         let request = a.submit().expect("nothing is running");
         assert_eq!(sent_text(&request), "hello");
         assert!(a.queued.is_empty());
+    }
+
+    // One failed check reached the screen three times: a status line, the
+    // worker's explanation in the user's language, and the raw error with its
+    // internal code under a red heading. The worker says when it has already
+    // explained the failure; the front end then does not repeat it.
+
+    fn failed_turn(presented: Option<bool>) -> App {
+        let mut a = app();
+        a.editor.insert("hi");
+        a.submit();
+        let mut event = json!({
+            "protocol":1,"type":"turn.completed","turn_id":"turn-1","status":"failed",
+            "error":"[ARIA-4223] Current verified financial data is required",
+        });
+        if let Some(p) = presented {
+            event["presented"] = json!(p);
+        }
+        a.event(event).unwrap();
+        a
+    }
+    fn errors(a: &App) -> usize {
+        a.entries.iter().filter(|e| e.role == "error").count()
+    }
+
+    #[test]
+    fn an_error_the_worker_already_explained_is_not_printed_again() {
+        assert_eq!(errors(&failed_turn(Some(true))), 0);
+    }
+
+    #[test]
+    fn the_turn_still_counts_as_failed_when_the_error_text_is_not_repeated() {
+        let a = failed_turn(Some(true));
+        assert!(a.turn.is_none());
+        assert_eq!(a.status, "Failed");
+    }
+
+    #[test]
+    fn an_error_nobody_explained_is_still_shown() {
+        assert_eq!(errors(&failed_turn(Some(false))), 1);
+    }
+
+    #[test]
+    fn a_runtime_that_does_not_say_shows_the_error() {
+        // The Go runtime emits turn.completed without the field. Silence must
+        // never hide a failure.
+        assert_eq!(errors(&failed_turn(None)), 1);
     }
 
     #[test]

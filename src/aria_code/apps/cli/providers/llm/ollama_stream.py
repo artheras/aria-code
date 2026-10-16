@@ -268,6 +268,50 @@ def _skill_tool_schema_allowed(schema: dict, allowed_names: set[str]) -> bool:
     return False
 
 
+def _general_turn_prompt(message: str, history: list | None = None) -> str:
+    """System prompt for a knowledge or conversational turn on a local model.
+
+    This used to be one hard-coded Chinese prompt that opened by listing what
+    Aria can do — "金融量化分析、足球/体育赛事分析与预测（含泊松算法）、编程" —
+    and then gave a long section of football and Poisson rules, for every
+    general turn. A small local model told that will offer it back, so a bare
+    你好 was answered with "是关于足球赛事还是其他方面的问题呢？".
+
+    The sports rules only mean anything when sports data is attached to the
+    message, so they are added for a sports query — the same test the sports
+    data path uses — or when the conversation already holds a prediction block
+    the model has to keep treating as fact ("那加拿大呢?" is not a sports query
+    by itself, but it is still about the match above it). Everything else gets
+    the neutral prompt every other general turn already uses.
+    """
+    from aria_code.apps.cli.prompts.select import _general_prompt
+
+    prompt = _general_prompt()
+    if _is_sports_query(message) or _recent_sports_quant_context(history or []):
+        prompt += (
+            "\n\n"
+            "## 体育量化分析规则（重要）\n"
+            "用户消息中可能包含两种特殊数据块：\n\n"
+            "### 【比赛信息】块\n"
+            "= football-data.org API 获取的真实赛程（比赛时间、状态、比分）。这是**事实**，不要质疑。\n\n"
+            "### 【泊松模型量化预测】块\n"
+            "= Aria 用 Dixon-Coles 泊松算法计算的量化结果，包含：\n"
+            "  - 两队 FIFA 排名强度参数（进攻/防守）\n"
+            "  - 预期进球数（λ值）\n"
+            "  - 主胜/平局/客胜概率（%）\n"
+            "  - 最可能比分及其概率\n"
+            "  - 隐含赔率\n"
+            "当收到此块时，你应当：\n"
+            "1. **直接引用数字**（「算法显示加拿大胜率 42.4%」），不要重新计算或质疑\n"
+            "2. **解释概率背后的逻辑**：FIFA 排名差距、进攻强度对比说明了什么\n"
+            "3. **分析高频比分区间**：比如 1-0/1-1/2-1 集中说明比赛预计紧张胶着\n"
+            "4. **补充战术/球员层面的定性分析**（这是你的训练知识，算法没有的部分）\n"
+            "5. **绝对不要**说「我没有实时数据」「世界杯尚未开始」「不包含实时数据」「以上预测基于历史」——这些与上方数据矛盾\n"
+            "6. **绝对不要**在末尾添加「若需最新数据请使用/football命令」之类的建议——用户已经有数据了\n\n"
+        )
+    return prompt
+
+
 async def stream_ollama(ollama_url: str, message: str, history: list,
                         model: str = "qwen2.5:7b",
                         on_token=None, on_thinking=None,
@@ -545,36 +589,8 @@ async def stream_ollama(ollama_url: str, message: str, history: list,
             else _build_analysis_prompt_lite(_intent_message)
         )
     elif _intent == "general":
-        # 纯知识/概念问题：注入日期，但不注入工具 schema
-        from datetime import datetime as _dt2
-        _today = _dt2.now()
-        _today_str = f"{_today.year:04d}年{_today.month:02d}月{_today.day:02d}日"
-        _base_prompt = (
-            f"你是 Aria，Arthera 的 AI 助手。今天是 {_today_str}。\n"
-            "你的能力覆盖：金融量化分析、足球/体育赛事分析与预测（含泊松算法）、编程、通用知识问答。\n\n"
-            "## 体育量化分析规则（重要）\n"
-            "用户消息中可能包含两种特殊数据块：\n\n"
-            "### 【比赛信息】块\n"
-            "= football-data.org API 获取的真实赛程（比赛时间、状态、比分）。这是**事实**，不要质疑。\n\n"
-            "### 【泊松模型量化预测】块\n"
-            "= Aria 用 Dixon-Coles 泊松算法计算的量化结果，包含：\n"
-            "  - 两队 FIFA 排名强度参数（进攻/防守）\n"
-            "  - 预期进球数（λ值）\n"
-            "  - 主胜/平局/客胜概率（%）\n"
-            "  - 最可能比分及其概率\n"
-            "  - 隐含赔率\n"
-            "当收到此块时，你应当：\n"
-            "1. **直接引用数字**（「算法显示加拿大胜率 42.4%」），不要重新计算或质疑\n"
-            "2. **解释概率背后的逻辑**：FIFA 排名差距、进攻强度对比说明了什么\n"
-            "3. **分析高频比分区间**：比如 1-0/1-1/2-1 集中说明比赛预计紧张胶着\n"
-            "4. **补充战术/球员层面的定性分析**（这是你的训练知识，算法没有的部分）\n"
-            "5. **绝对不要**说「我没有实时数据」「世界杯尚未开始」「不包含实时数据」「以上预测基于历史」——这些与上方数据矛盾\n"
-            "6. **绝对不要**在末尾添加「若需最新数据请使用/football命令」之类的建议——用户已经有数据了\n\n"
-            "## 通用规则\n"
-            "- 使用 Markdown（**粗体**、## 标题、- 列表、表格）\n"
-            "- 不要编造股价/汇率等金融数字\n"
-            "- 简洁精准，用数据说话\n"
-        )
+        # 纯知识/概念问题：不注入工具 schema
+        _base_prompt = _general_turn_prompt(_intent_message, history)
     else:
         # realtime / finance: use full finance prompt with tool access
         _base_prompt = _finance_prompt
