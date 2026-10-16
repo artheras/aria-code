@@ -146,6 +146,9 @@ class AuthCommandsMixin:
         import asyncio as _asyncio
 
         from ..google_login import login_api_url, run_google_login
+        import os as _os
+
+        from ..web_login import run_web_login
 
         rich = self.context.has_rich
         api_url = login_api_url(self.terminal.api_url)
@@ -155,7 +158,12 @@ class AuthCommandsMixin:
         )
 
         try:
-            session = await _asyncio.to_thread(run_google_login, api_url)
+            # The account page (a choice of Google, Apple or email, with sign-up)
+            # is opt-in until it is deployed; until then this goes straight to Google.
+            if _os.getenv("ARIA_LOGIN_PAGE") == "1":
+                session = await _asyncio.to_thread(run_web_login, api_url)
+            else:
+                session = await _asyncio.to_thread(run_google_login, api_url)
         except RuntimeError as exc:
             print_error(self.context, str(exc), "login")
             return
