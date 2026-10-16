@@ -291,6 +291,22 @@ pub fn draw(frame: &mut Frame, app: &App) {
             _ => lines.extend(plain(&entry.text, Style::new())),
         }
     }
+    for waiting in &app.queued {
+        if !lines.is_empty() {
+            lines.push(Line::default());
+        }
+        let first = waiting.lines().next().unwrap_or("");
+        let more = waiting.lines().count().saturating_sub(1);
+        let extra = if more > 0 {
+            format!(" (+{more})")
+        } else {
+            String::new()
+        };
+        lines.push(Line::styled(
+            format!("› {first}{extra} · {}", app.tr("queued", "排队中")),
+            Style::new().fg(p.muted),
+        ));
+    }
     if lines.is_empty() {
         lines = vec![
             Line::raw(app.tr(
@@ -336,14 +352,17 @@ pub fn draw(frame: &mut Frame, app: &App) {
     frame.render_widget(paragraph.scroll((offset, 0)), parts[1]);
     let busy = app.turn.is_some();
     let label = if busy {
-        app.tr(" Draft ", " 草稿 ")
+        app.tr(" Queue ", " 排队 ")
     } else {
         " Aria "
     };
     let hint = if !app.ready {
         app.tr(" Starting… ", " 正在启动… ")
     } else if busy {
-        app.tr(" Send after this task ", " 任务结束后手动发送 ")
+        app.tr(
+            " Enter queues · sent when this task ends ",
+            " Enter 排队 · 任务结束后自动发送 ",
+        )
     } else if area.width >= 60 {
         app.tr(
             " Enter send · Ctrl+J newline ",
@@ -371,7 +390,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let first = usize::from(cursor.0).saturating_sub(inside.height.saturating_sub(1) as usize);
     if app.editor.is_empty() {
         let placeholder = if busy {
-            app.tr("Draft your next message…", "可以先写下一条消息…")
+            app.tr(
+                "Type your next message — Enter queues it…",
+                "可以先写下一条消息，Enter 排队…",
+            )
         } else {
             app.tr(
                 "Describe a task, or type / for commands",
@@ -847,7 +869,11 @@ mod tests {
         }
     }
     #[test]
-    fn busy_composer_labels_drafts_without_suggesting_they_are_sent() {
+    fn busy_composer_says_enter_queues_and_the_message_waits_in_view() {
+        // Enter while a turn runs used to do nothing and the box was labelled
+        // a draft to be sent by hand once the task ended. Codex and Claude
+        // Code queue it and send it when the turn completes; so does this,
+        // and the label says so.
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         let mut app = App {
             ready: true,
@@ -857,11 +883,24 @@ mod tests {
         };
         terminal.draw(|f| draw(f, &app)).unwrap();
         let rendered = display(&terminal);
-        assert!(rendered.contains("草稿") && rendered.contains("任务结束后手动发送"));
-        assert!(!rendered.contains("Enter 发送"));
+        assert!(rendered.contains("排队") && rendered.contains("任务结束后自动发送"));
+        assert!(!rendered.contains("手动发送"));
+
         app.editor.insert("下一条消息");
-        assert!(app.submit().is_none());
-        assert_eq!(app.editor.text(), "下一条消息");
+        assert!(
+            app.submit().is_none(),
+            "nothing is sent while the turn runs"
+        );
+        assert!(
+            app.editor.is_empty(),
+            "the box is free for the message after"
+        );
+        assert_eq!(app.queued.len(), 1);
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        assert!(
+            display(&terminal).contains("排队中"),
+            "a waiting message stays visible"
+        );
     }
     #[test]
     fn a_conversation_is_led_by_markers_not_by_name_lines() {
@@ -915,6 +954,47 @@ mod tests {
         assert!(rows
             .iter()
             .any(|r| r.starts_with("✗ No model is reachable.")));
+    }
+
+    #[test]
+    fn a_waiting_message_sits_under_the_conversation_in_the_users_own_marker() {
+        // The queue and the marker layout were written separately. Together: a
+        // message waiting to be sent reads as the user's own line (›), after
+        // everything already said, and says it is still waiting.
+        let mut app = App {
+            ready: true,
+            ..App::default()
+        };
+        app.add("user", "第一个问题", false);
+        app.add("assistant", "正在处理。", false);
+        app.turn = Some("turn-1".into());
+        app.editor.insert("第二个问题");
+        app.submit();
+        let mut terminal = Terminal::new(TestBackend::new(60, 24)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rows: Vec<String> = (0..24)
+            .map(|y| {
+                (0..60)
+                    .map(|x| buffer[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect();
+        // A wide character fills two cells and reads back with a blank after
+        // it, so the answer is found by its marker, not by its text.
+        let said = rows
+            .iter()
+            .position(|r| r.starts_with(super::super::mark::RESTING))
+            .expect("answer");
+        let waiting = rows
+            .iter()
+            .position(|r| r.contains("queued"))
+            .expect("queued line");
+        assert!(
+            waiting > said,
+            "the waiting message comes after what was already said"
+        );
+        assert!(rows[waiting].starts_with("› "), "{:?}", rows[waiting]);
     }
 
     #[test]
