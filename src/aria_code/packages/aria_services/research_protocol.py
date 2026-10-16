@@ -9,12 +9,40 @@ from collections.abc import Iterable, Mapping
 _MARKET_IDENTIFIER = re.compile(
     r"\b[A-Z]{1,5}(?:\.[A-Z]{1,4})?\b|\b\d{6}(?:\.(?:SH|SZ|SS|HK))?\b"
 )
+# Words that name a financial subject on their own. Everyday words used to be
+# in this list too — market, share, option, volume, price, holding, fund, and
+# 市场, 组合, 加密 — so "analyze the performance of the share button", "how is
+# option parsing doing", "分析一下这个项目的市场定位" and "分析当前加密算法的风险"
+# (加密 alone is encryption) were all gated as market questions, and refused
+# after the turn had already done its real work, because no market-data tool
+# had run. Only terms that mean finance wherever they appear belong here.
 _FINANCIAL_SUBJECTS = (
-    "stock", "share", "equity", "market", "portfolio", "holding", "fund",
-    "option", "bond", "forex", "crypto", "price", "volume", "valuation",
-    "股票", "股价", "行情", "市场", "持仓", "组合", "基金", "期权", "债券",
-    "外汇", "加密", "成交量", "估值", "市值", "财报", "基本面",
+    "stock", "equity", "equities", "portfolio", "crypto", "bitcoin", "forex",
+    "etf", "dividend", "earnings", "ticker", "share price", "stock market",
+    "market cap", "trading volume", "bond yield", "mutual fund", "index fund",
+    "hedge fund", "options chain", "call option", "put option", "price target",
+    "股票", "股价", "股市", "大盘", "a股", "美股", "港股", "行情", "持仓", "基金",
+    "期权", "债券", "外汇", "加密货币", "数字货币", "币价", "成交量", "市值",
+    "财报", "基本面", "涨跌", "收盘价", "开盘价", "目标价",
 )
+
+# Words that are financial only some of the time: "how is the market doing
+# today" is a market question, "这个项目的市场定位" is not. They count when the
+# message asks about now and says nothing that places it in the user's own
+# product or code.
+_AMBIGUOUS_SUBJECTS = ("market", "price", "valuation", "市场", "价格", "估值")
+_TIME_INTENTS = (
+    "today", "current", "latest", "this week", "right now", "how's", "how is",
+    "doing", "今天", "当前", "最新", "本周", "这周", "近期", "现在", "走势", "怎么样",
+)
+_WORKSPACE_CONTEXT = (
+    "project", "product", "code", "app", "function", "button", "feature",
+    "repo", "file", "api", "cli", "page", "plan", "pricing", "subscription",
+    "competitor", "positioning", "user",
+    "项目", "产品", "代码", "函数", "功能", "页面", "应用", "仓库", "文件",
+    "定位", "竞品", "用户", "方案", "套餐",
+)
+
 _EVIDENCE_INTENTS = (
     "analyze", "analysis", "forecast", "predict", "recommend", "buy", "sell",
     "current", "latest", "today", "trend", "risk", "target", "outlook",
@@ -28,6 +56,23 @@ _GROUNDING_TOOL_FRAGMENTS = (
     "factor", "risk", "backtest", "portfolio", "prediction", "signal",
     "regime", "financial", "earnings", "valuation", "macro", "flow",
 )
+
+
+def _mentions(lowered: str, terms: Iterable[str]) -> bool:
+    """Whether any term occurs — as a word for English, as a substring for CJK.
+
+    Substrings are wrong for short English words in both directions: "market"
+    is inside "marketing" and "equity" inside "inequity", while "app" is inside
+    "happening" and "api" inside "capital". Chinese has no spaces to bound a
+    word, so it keeps substring matching.
+    """
+    for term in terms:
+        if term.isascii():
+            if re.search(rf"(?<![a-z]){re.escape(term)}(?![a-z])", lowered):
+                return True
+        elif term in lowered:
+            return True
+    return False
 
 
 def _names_an_instrument(text: str) -> bool:
@@ -63,7 +108,13 @@ def requires_financial_evidence(query: str) -> bool:
     lowered = text.lower()
     if not any(term in lowered for term in _EVIDENCE_INTENTS):
         return False
-    return any(term in lowered for term in _FINANCIAL_SUBJECTS) or _names_an_instrument(text)
+    if _mentions(lowered, _FINANCIAL_SUBJECTS) or _names_an_instrument(text):
+        return True
+    return (
+        _mentions(lowered, _AMBIGUOUS_SUBJECTS)
+        and _mentions(lowered, _TIME_INTENTS)
+        and not _mentions(lowered, _WORKSPACE_CONTEXT)
+    )
 
 
 def grounding_tool_names(tool_schemas: Iterable[Mapping]) -> frozenset[str]:
