@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.159.0] — 2026-10-16
+
+- Show a failure once, and stop a greeting offering football (#210)
+
 ## [0.158.0] — 2026-10-16
 
 - Enter while a turn runs queues the message (#209)
