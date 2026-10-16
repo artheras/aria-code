@@ -30,29 +30,52 @@ class SessionTest(unittest.TestCase):
 
     def test_the_token_login_stored_is_what_authorises_calls(self):
         self.write_config({"auth_token": "firebase-token"})
-        with mock.patch.dict(os.environ, {"ARIA_CONFIG_DIR": str(self.dir)}):
+        with mock.patch.dict(os.environ, {"ARIA_HOME": str(self.dir)}):
             self.assertEqual(gw.session_token(), "firebase-token")
 
     def test_signed_out_is_no_token_rather_than_an_empty_one(self):
         # An empty credential reaches the server and comes back 401, which
         # tells the user nothing they can act on.
         self.write_config({"auth_token": None})
-        with mock.patch.dict(os.environ, {"ARIA_CONFIG_DIR": str(self.dir)}):
+        with mock.patch.dict(os.environ, {"ARIA_HOME": str(self.dir)}):
             self.assertIsNone(gw.session_token())
             self.assertFalse(gw.ArtheraGatewayProvider.available())
 
     def test_a_missing_config_is_not_an_error(self):
-        with mock.patch.dict(os.environ, {"ARIA_CONFIG_DIR": str(self.dir / "absent")}):
+        with mock.patch.dict(os.environ, {"ARIA_HOME": str(self.dir / "absent")}):
             self.assertIsNone(gw.session_token())
 
     def test_a_corrupt_config_is_not_an_error(self):
         (self.dir / "config.json").write_text("{ not json", encoding="utf-8")
-        with mock.patch.dict(os.environ, {"ARIA_CONFIG_DIR": str(self.dir)}):
+        with mock.patch.dict(os.environ, {"ARIA_HOME": str(self.dir)}):
             self.assertIsNone(gw.session_token())
+
+    def test_a_new_install_reads_the_session_where_login_wrote_it(self):
+        # With no legacy ~/.arthera, /login saves under ~/.aria-code. The
+        # provider used to look only in ~/.arthera, so on a new install signing
+        # in never gave the user a model.
+        home = self.dir / "home"
+        (home / ".aria-code").mkdir(parents=True)
+        (home / ".aria-code" / "config.json").write_text(
+            json.dumps({"auth_token": "fresh-install"}), encoding="utf-8")
+        env = {k: v for k, v in os.environ.items() if k != "ARIA_HOME"}
+        env["HOME"] = str(home)
+        with mock.patch.dict(os.environ, env, clear=True):
+            self.assertEqual(gw.session_token(), "fresh-install")
+
+    def test_an_existing_install_keeps_reading_its_legacy_folder(self):
+        home = self.dir / "home"
+        (home / ".arthera").mkdir(parents=True)
+        (home / ".arthera" / "config.json").write_text(
+            json.dumps({"auth_token": "legacy"}), encoding="utf-8")
+        env = {k: v for k, v in os.environ.items() if k != "ARIA_HOME"}
+        env["HOME"] = str(home)
+        with mock.patch.dict(os.environ, env, clear=True):
+            self.assertEqual(gw.session_token(), "legacy")
 
     def test_a_signed_in_user_is_available(self):
         self.write_config({"auth_token": "t"})
-        with mock.patch.dict(os.environ, {"ARIA_CONFIG_DIR": str(self.dir)}):
+        with mock.patch.dict(os.environ, {"ARIA_HOME": str(self.dir)}):
             self.assertTrue(gw.ArtheraGatewayProvider.available())
 
 
@@ -77,13 +100,13 @@ class ProviderTest(unittest.TestCase):
         Path(self.tmp.name, "config.json").write_text(json.dumps({"auth_token": "t"}), encoding="utf-8")
 
     def test_it_builds_itself_from_the_session_with_nothing_supplied(self):
-        with mock.patch.dict(os.environ, {"ARIA_CONFIG_DIR": self.tmp.name, "ARIA_API_URL": ""}):
+        with mock.patch.dict(os.environ, {"ARIA_HOME": self.tmp.name, "ARIA_API_URL": ""}):
             provider = gw.ArtheraGatewayProvider(ProviderConfig(name="arthera", model=""))
         self.assertEqual(provider.config.api_key, "t")
         self.assertEqual(provider.config.base_url, "https://api.arthera.finance/api/v2/llm/v1")
 
     def test_an_explicit_base_url_is_respected(self):
-        with mock.patch.dict(os.environ, {"ARIA_CONFIG_DIR": self.tmp.name}):
+        with mock.patch.dict(os.environ, {"ARIA_HOME": self.tmp.name}):
             provider = gw.ArtheraGatewayProvider(
                 ProviderConfig(name="arthera", model="", base_url="https://elsewhere.example/v1"))
         self.assertEqual(provider.config.base_url, "https://elsewhere.example/v1")
