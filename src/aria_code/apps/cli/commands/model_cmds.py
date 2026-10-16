@@ -387,6 +387,8 @@ class ModelCommandsMixin:
             _term_cols = os.get_terminal_size().columns
         except Exception:
             _term_cols = 80
+        if getattr(self.terminal, "_native_select", None) is not None:
+            _term_cols = 110  # the host's menu is about this wide; not a TTY to measure
 
         def _cjk_width(s: str) -> int:
             """Display-column width (CJK = 2 cols each)."""
@@ -447,6 +449,19 @@ class ModelCommandsMixin:
         # Build option list (Codex: numbered, no separators within Aria section)
         options: list = []   # (label_str, desc_str)  for _arrow_select
         all_ids: list = []
+
+        # ── Native frontend: pick in the host's menu, not from a printed list ─
+        # Arrow keys and Enter, the way Claude and ChatGPT do it. The list used
+        # to be printed and the user had to type a number back.
+        native_select = getattr(self.terminal, "_native_select", None)
+        if native_select is not None and not name:
+            await self._pick_model_in_host(
+                native_select, picker_title=_picker_title, current_id=current_id,
+                current_provider=current_provider, rich_models=rich_models,
+                aria_ids=aria_ids, status_tag=_status_tag, short_desc=_short_desc,
+                lang=_lang,
+            )
+            return
 
         # ── Print numbered list only in non-interactive (-p) mode ────────────
         # In interactive TTY mode the arrow picker below already shows all items.
@@ -569,6 +584,49 @@ class ModelCommandsMixin:
             break
 
         self._set_model_by_id(all_ids[choice], provider=current_provider)
+
+    async def _pick_model_in_host(self, native_select, *, picker_title, current_id, current_provider,
+                                  rich_models, aria_ids, status_tag, short_desc, lang):
+        """Offer every model in the frontend's menu and apply the choice.
+
+        One row per model: the name (with a mark for the current one and for
+        whether it is installed) and, beneath it, what it is for and its
+        limits. Aria's catalogue comes first, then community Ollama models.
+        """
+        zh = str(lang).lower().startswith("zh")
+        rows: list = []  # (model_id, label, help)
+        for m in _get_MODELS().values():
+            mid = m["id"]
+            tags = short_desc(m)
+            current = ("  ✓ 当前" if zh else "  ✓ current") if mid == current_id else ""
+            rows.append((mid, f"{status_tag(mid, m.get('badge', ''))} {m['name']}{current}", tags))
+        if current_provider == "ollama":
+            for cm in rich_models:
+                if cm["name"] in aria_ids:
+                    continue
+                current = ("  ✓ 当前" if zh else "  ✓ current") if cm["name"] == current_id else ""
+                rows.append((cm["name"], f"● {cm['name']}{current}", "社区模型 (Ollama)" if zh else "Community model (Ollama)"))
+        if not rows:
+            return
+        start = next((i for i, row in enumerate(rows) if row[0] == current_id), 0)
+        options = [(label, help_text) for _mid, label, help_text in rows]
+        # select() blocks on the user's answer, so keep it off the event loop.
+        import asyncio as _asyncio
+
+        try:
+            choice = await _asyncio.to_thread(native_select, options, start, picker_title)
+        except (KeyboardInterrupt, ValueError):
+            choice = -1
+        if not isinstance(choice, int) or not 0 <= choice < len(rows):
+            msg = "已取消，模型未改变。" if zh else "Cancelled; the model is unchanged."
+            self.context.console.print(f"[dim]{msg}[/dim]" if self.context.has_rich else msg)
+            return
+        chosen = rows[choice][0]
+        if "/" in chosen:
+            # provider/model: the route that checks credentials and sets the provider.
+            await self.cmd_model(chosen)
+        else:
+            self._set_model_by_id(chosen)
 
     def _set_model(self, key: str):
         """Set model by _get_MODELS() key."""
