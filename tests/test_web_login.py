@@ -35,7 +35,9 @@ def _drive(monkeypatch, callback, reply=None, posts=None):
     def browser(url):
         q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
         seen.update(url=url, port=int(q["port"][0]), state=q["state"][0], challenge=q["code_challenge"][0])
-        threading.Thread(target=callback, args=(seen,), daemon=True).start()
+        worker = threading.Thread(target=callback, args=(seen,), daemon=True)
+        seen["worker"] = worker
+        worker.start()
         return True
 
     return web_login.run_web_login("https://api.example.com/", open_browser=browser, timeout=5), seen, posts
@@ -69,7 +71,10 @@ def test_a_callback_with_the_wrong_state_is_ignored_and_the_real_one_still_works
         statuses.append(_hit(s["port"], handoff_code="evil" * 10, state="x" * 32))
         statuses.append(_hit(s["port"], handoff_code="c" * 40, state=s["state"]))
 
-    session, _seen, posts = _drive(monkeypatch, callback)
+    session, seen, posts = _drive(monkeypatch, callback)
+    # The login returns as soon as the right callback arrives; wait for the
+    # test's own browser thread to record the response it got.
+    seen["worker"].join(5)
     assert statuses == [404, 200]
     assert posts[0][1]["code"] == "c" * 40, "the forged callback's code must never be redeemed"
     assert session["auth_token"] == "id-token"
