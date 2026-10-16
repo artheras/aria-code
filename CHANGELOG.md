@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.160.0] — 2026-10-16
+
+- chore: remove the plugins/ stubs, which no code loads (#212)
+
 ## [0.159.0] — 2026-10-16
 
 - Show a failure once, and stop a greeting offering football (#210)
