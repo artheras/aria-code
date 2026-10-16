@@ -1,5 +1,5 @@
 use super::app::App;
-use super::{markdown, theme::Palette};
+use super::{hang, mark, markdown, theme::Palette};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
@@ -222,20 +222,20 @@ pub fn draw(frame: &mut Frame, app: &App) {
             ]));
             if !action.approval.is_empty() {
                 lines.push(Line::styled(
-                    format!("  ✓ {}", action.approval),
+                    format!("  └ {}", action.approval),
                     Style::new().fg(p.muted),
                 ));
             }
             if !action.error.is_empty() {
                 lines.push(Line::styled(
-                    format!("  {}", action.error),
+                    format!("  └ {}", action.error),
                     Style::new().fg(p.error),
                 ));
             }
             if app.details {
                 lines.push(Line::styled(
                     format!(
-                        "  {}{}",
+                        "  └ {}{}",
                         action.tool,
                         action
                             .elapsed
@@ -248,7 +248,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
                     entry
                         .text
                         .lines()
-                        .map(|line| Line::styled(format!("  {line}"), Style::new().fg(p.muted))),
+                        .map(|line| Line::styled(format!("    {line}"), Style::new().fg(p.muted))),
                 );
             }
             continue;
@@ -257,24 +257,38 @@ pub fn draw(frame: &mut Frame, app: &App) {
         if !lines.is_empty() {
             lines.push(Line::default());
         }
-        let (label, color) = match entry.role.as_str() {
-            "user" => (app.tr("You", "你"), p.accent),
-            "assistant" => ("Aria", p.assistant),
-            "error" => (app.tr("Error", "错误"), p.error),
-            _ => ("", p.muted),
+        // Who spoke is carried by the marker at the head of the message, not
+        // by a name on a line of its own: the robot's eye for Aria, the prompt
+        // glyph for the user, a cross for an error — the way Codex and Claude
+        // Code lay a conversation out. The rest of the message hangs beneath
+        // the text (chat/hang.rs), wrapped lines included.
+        let width = parts[1].width;
+        let plain = |text: &str, style: Style| -> Vec<Line<'static>> {
+            text.lines()
+                .map(|s| Line::styled(s.to_owned(), style))
+                .collect()
         };
-        if !label.is_empty() {
-            lines.push(Line::styled(
-                label,
-                Style::new().fg(color).add_modifier(Modifier::BOLD),
-            ));
-        }
-        if entry.role == "assistant" {
-            lines.extend(markdown::render(&entry.text, p, parts[1].width));
-        } else if entry.role == "delivery" {
-            lines.extend(delivery_lines(&entry.text, p));
-        } else {
-            lines.extend(entry.text.lines().map(|s| Line::raw(s.to_owned())));
+        match entry.role.as_str() {
+            "assistant" => lines.extend(hang::hang(
+                markdown::render(&entry.text, p, width.saturating_sub(hang::INDENT)),
+                mark::prefix(None),
+                width,
+            )),
+            "user" => lines.extend(hang::hang(
+                plain(&entry.text, Style::new()),
+                vec![
+                    Span::styled("›", Style::new().fg(p.accent).add_modifier(Modifier::BOLD)),
+                    Span::raw(" "),
+                ],
+                width,
+            )),
+            "error" => lines.extend(hang::hang(
+                plain(&entry.text, Style::new().fg(p.error)),
+                vec![Span::styled("✗", Style::new().fg(p.error)), Span::raw(" ")],
+                width,
+            )),
+            "delivery" => lines.extend(delivery_lines(&entry.text, p)),
+            _ => lines.extend(plain(&entry.text, Style::new())),
         }
     }
     for waiting in &app.queued {
@@ -888,6 +902,60 @@ mod tests {
             "a waiting message stays visible"
         );
     }
+    #[test]
+    fn a_conversation_is_led_by_markers_not_by_name_lines() {
+        // The transcript used to print "你" and "Aria" on lines of their own.
+        // Codex and Claude Code carry who spoke in a marker at the head of
+        // the message instead, and hang the rest beneath the text.
+        let mut app = App {
+            ready: true,
+            ..App::default()
+        };
+        app.add("user", "你好", false);
+        app.add(
+            "assistant",
+            "你好，我是 Aria Code。这一行足够长，会在窄终端里折行，折行后的部分要留在正文下面。",
+            false,
+        );
+        app.add("error", "No model is reachable.", false);
+        let mut terminal = Terminal::new(TestBackend::new(40, 30)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rows: Vec<String> = (0..30)
+            .map(|y| {
+                (0..40)
+                    .map(|x| buffer[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect();
+
+        assert!(
+            !rows
+                .iter()
+                .any(|r| r.trim() == "你" || r.trim() == "Aria" || r.trim() == "错误"),
+            "a name on a line of its own: {rows:#?}"
+        );
+        // A wide character fills two cells and reads back with a blank after
+        // it, so "你好" is matched by its first character.
+        let user = rows
+            .iter()
+            .position(|r| r.starts_with("› 你"))
+            .expect("user line");
+        let aria = rows
+            .iter()
+            .position(|r| r.starts_with(super::super::mark::RESTING))
+            .expect("aria line");
+        assert!(aria > user);
+        assert!(
+            rows[aria + 1].starts_with("  ") && !rows[aria + 1].trim().is_empty(),
+            "a wrapped line must hang under the text: {:?}",
+            rows[aria + 1]
+        );
+        assert!(rows
+            .iter()
+            .any(|r| r.starts_with("✗ No model is reachable.")));
+    }
+
     #[test]
     fn the_status_line_shows_the_mascots_eye_only_while_a_turn_runs() {
         // The chat had no activity indicator at all: nothing on screen said

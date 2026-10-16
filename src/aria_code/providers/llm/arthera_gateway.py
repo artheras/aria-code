@@ -32,7 +32,19 @@ DEFAULT_MODEL = "google/gemini-3.5-flash"
 
 
 def _config_path() -> Path:
-    return Path(os.getenv("ARIA_CONFIG_DIR", Path.home() / ".arthera")) / "config.json"
+    """Where /login saved the session: the same file, by the same rule.
+
+    This used to be ~/.arthera/config.json, or ARIA_CONFIG_DIR. /login writes
+    through aria_home(), which is ~/.arthera only when that legacy folder
+    already exists and ~/.aria-code otherwise, and is overridden by ARIA_HOME.
+    So on a new install — the people signing in to reach a model without a
+    key — the session was saved in one folder and looked for in another, and
+    signing in never gave them a model. Asking aria_home() is what the 38
+    files that once hardcoded ~/.arthera were moved over to for this reason.
+    """
+    from aria_code.packages.aria_core.paths import aria_home
+
+    return aria_home() / "config.json"
 
 
 def session_token() -> Optional[str]:
