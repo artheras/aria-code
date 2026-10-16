@@ -264,7 +264,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
         // the text (chat/hang.rs), wrapped lines included.
         let width = parts[1].width;
         let plain = |text: &str, style: Style| -> Vec<Line<'static>> {
-            text.lines().map(|s| Line::styled(s.to_owned(), style)).collect()
+            text.lines()
+                .map(|s| Line::styled(s.to_owned(), style))
+                .collect()
         };
         match entry.role.as_str() {
             "assistant" => lines.extend(hang::hang(
@@ -866,7 +868,10 @@ mod tests {
         // The transcript used to print "你" and "Aria" on lines of their own.
         // Codex and Claude Code carry who spoke in a marker at the head of
         // the message instead, and hang the rest beneath the text.
-        let mut app = App { ready: true, ..App::default() };
+        let mut app = App {
+            ready: true,
+            ..App::default()
+        };
         app.add("user", "你好", false);
         app.add(
             "assistant",
@@ -878,19 +883,38 @@ mod tests {
         terminal.draw(|f| draw(f, &app)).unwrap();
         let buffer = terminal.backend().buffer().clone();
         let rows: Vec<String> = (0..30)
-            .map(|y| (0..40).map(|x| buffer[(x, y)].symbol().to_string()).collect::<String>())
+            .map(|y| {
+                (0..40)
+                    .map(|x| buffer[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
             .collect();
 
-        assert!(!rows.iter().any(|r| r.trim() == "你" || r.trim() == "Aria" || r.trim() == "错误"),
-                "a name on a line of its own: {rows:#?}");
+        assert!(
+            !rows
+                .iter()
+                .any(|r| r.trim() == "你" || r.trim() == "Aria" || r.trim() == "错误"),
+            "a name on a line of its own: {rows:#?}"
+        );
         // A wide character fills two cells and reads back with a blank after
         // it, so "你好" is matched by its first character.
-        let user = rows.iter().position(|r| r.starts_with("› 你")).expect("user line");
-        let aria = rows.iter().position(|r| r.starts_with(super::super::mark::RESTING)).expect("aria line");
+        let user = rows
+            .iter()
+            .position(|r| r.starts_with("› 你"))
+            .expect("user line");
+        let aria = rows
+            .iter()
+            .position(|r| r.starts_with(super::super::mark::RESTING))
+            .expect("aria line");
         assert!(aria > user);
-        assert!(rows[aria + 1].starts_with("  ") && !rows[aria + 1].trim().is_empty(),
-                "a wrapped line must hang under the text: {:?}", rows[aria + 1]);
-        assert!(rows.iter().any(|r| r.starts_with("✗ No model is reachable.")));
+        assert!(
+            rows[aria + 1].starts_with("  ") && !rows[aria + 1].trim().is_empty(),
+            "a wrapped line must hang under the text: {:?}",
+            rows[aria + 1]
+        );
+        assert!(rows
+            .iter()
+            .any(|r| r.starts_with("✗ No model is reachable.")));
     }
 
     #[test]

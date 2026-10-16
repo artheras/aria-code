@@ -22,7 +22,11 @@ pub const INDENT: u16 = 2;
 
 /// `lines` with `marker` (two columns wide, including its space) before the
 /// first, and every other line — wrapped or not — indented to match.
-pub fn hang(lines: Vec<Line<'static>>, marker: Vec<Span<'static>>, width: u16) -> Vec<Line<'static>> {
+pub fn hang(
+    lines: Vec<Line<'static>>,
+    marker: Vec<Span<'static>>,
+    width: u16,
+) -> Vec<Line<'static>> {
     let avail = usize::from(width.saturating_sub(INDENT)).max(8);
     let mut out = Vec::new();
     let mut marker = Some(marker);
@@ -132,7 +136,11 @@ mod tests {
 
     #[test]
     fn no_row_is_wider_than_the_width() {
-        let out = hang(vec![Line::raw("一二三四五六七八九十一二三四五六七八九十")], marker(), 12);
+        let out = hang(
+            vec![Line::raw("一二三四五六七八九十一二三四五六七八九十")],
+            marker(),
+            12,
+        );
         for row in &out {
             assert!(text(row).width() <= 12, "{:?}", text(row));
         }
@@ -148,14 +156,21 @@ mod tests {
     #[test]
     fn styles_survive_the_wrap() {
         let bold = Style::new().fg(Color::Red);
-        let line = Line::from(vec![Span::raw("plain "), Span::styled("redredredred", bold)]);
+        let line = Line::from(vec![
+            Span::raw("plain "),
+            Span::styled("redredredred", bold),
+        ]);
         let out = hang(vec![line], marker(), 12);
         assert!(out.iter().flat_map(|l| &l.spans).any(|s| s.style == bold));
     }
 
     #[test]
     fn a_blank_line_inside_a_message_stays_blank() {
-        let out = hang(vec![Line::raw("a"), Line::raw(""), Line::raw("b")], marker(), 20);
+        let out = hang(
+            vec![Line::raw("a"), Line::raw(""), Line::raw("b")],
+            marker(),
+            20,
+        );
         assert_eq!(text(&out[1]).trim(), "");
         assert_eq!(text(&out[2]), "  b");
     }
