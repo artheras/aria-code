@@ -957,6 +957,47 @@ mod tests {
     }
 
     #[test]
+    fn a_waiting_message_sits_under_the_conversation_in_the_users_own_marker() {
+        // The queue and the marker layout were written separately. Together: a
+        // message waiting to be sent reads as the user's own line (›), after
+        // everything already said, and says it is still waiting.
+        let mut app = App {
+            ready: true,
+            ..App::default()
+        };
+        app.add("user", "第一个问题", false);
+        app.add("assistant", "正在处理。", false);
+        app.turn = Some("turn-1".into());
+        app.editor.insert("第二个问题");
+        app.submit();
+        let mut terminal = Terminal::new(TestBackend::new(60, 24)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rows: Vec<String> = (0..24)
+            .map(|y| {
+                (0..60)
+                    .map(|x| buffer[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect();
+        // A wide character fills two cells and reads back with a blank after
+        // it, so the answer is found by its marker, not by its text.
+        let said = rows
+            .iter()
+            .position(|r| r.starts_with(super::super::mark::RESTING))
+            .expect("answer");
+        let waiting = rows
+            .iter()
+            .position(|r| r.contains("queued"))
+            .expect("queued line");
+        assert!(
+            waiting > said,
+            "the waiting message comes after what was already said"
+        );
+        assert!(rows[waiting].starts_with("› "), "{:?}", rows[waiting]);
+    }
+
+    #[test]
     fn the_status_line_shows_the_mascots_eye_only_while_a_turn_runs() {
         // The chat had no activity indicator at all: nothing on screen said
         // the model was working. The mark is that, and it is the brand once
