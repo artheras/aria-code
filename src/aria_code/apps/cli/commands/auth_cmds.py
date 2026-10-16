@@ -145,18 +145,17 @@ class AuthCommandsMixin:
         """
         import asyncio as _asyncio
 
-        from ..google_login import run_google_login
+        from ..google_login import login_api_url, run_google_login
 
         rich = self.context.has_rich
+        api_url = login_api_url(self.terminal.api_url)
         self.context.console.print(
             "[dim]Opening your browser to sign in or create an account…[/dim]"
             if rich else "Opening your browser to sign in or create an account…"
         )
 
         try:
-            session = await _asyncio.to_thread(
-                run_google_login, self.terminal.api_url
-            )
+            session = await _asyncio.to_thread(run_google_login, api_url)
         except RuntimeError as exc:
             print_error(self.context, str(exc), "login")
             return

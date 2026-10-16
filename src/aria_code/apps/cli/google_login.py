@@ -116,6 +116,32 @@ def exchange_google_token_for_firebase(google_id_token: str) -> Dict[str, Any]:
     )
 
 
+def login_api_url(configured: str) -> str:
+    """Which server serves Google sign-in for this install.
+
+    Sign-in is a route of the Arthera gateway, and the credential it returns is
+    used against that gateway. The saved ``api_url`` is something else: a
+    fresh install writes ``http://localhost:8000`` there, a developer backend
+    that has no such route, so /login opened a browser on a page reading
+    ``{"detail":"Not Found"}`` (or on a refused connection when nothing listens).
+
+    ``ARIA_API_URL`` wins, as it does for the gateway provider. Otherwise a
+    loopback ``api_url`` means "no real server was ever configured" and the
+    production gateway is used. Any other configured server is respected.
+    """
+    import os
+
+    from ...providers.llm.arthera_gateway import DEFAULT_API_URL
+
+    override = os.getenv("ARIA_API_URL", "").strip()
+    if override:
+        return override.rstrip("/")
+    host = (urllib.parse.urlparse(configured or "").hostname or "").lower()
+    if not configured or host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
+        return DEFAULT_API_URL
+    return configured.rstrip("/")
+
+
 def run_google_login(api_url: str, region: str = "GLOBAL") -> Dict[str, Any]:
     """Drive the whole flow and return the stored-credential fields.
 
@@ -193,4 +219,4 @@ def run_google_login(api_url: str, region: str = "GLOBAL") -> Dict[str, Any]:
     }
 
 
-__all__ = ["run_google_login", "exchange_google_token_for_firebase"]
+__all__ = ["run_google_login", "exchange_google_token_for_firebase", "login_api_url"]
