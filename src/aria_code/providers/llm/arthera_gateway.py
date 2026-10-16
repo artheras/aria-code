@@ -48,13 +48,14 @@ def _config_path() -> Path:
 
 
 def session_token() -> Optional[str]:
-    """The Firebase token `/login` stored, or None when signed out."""
-    try:
-        config = json.loads(_config_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    token = config.get("auth_token")
-    return str(token) if token else None
+    """The Firebase token `/login` stored, or None when signed out.
+
+    Renewed first when it is about to expire (see session_refresh), so a session
+    survives past the hour a Firebase ID token lasts.
+    """
+    from aria_code.apps.cli.session_refresh import refresh_config_file
+
+    return refresh_config_file(_config_path())
 
 
 def gateway_base_url() -> str:

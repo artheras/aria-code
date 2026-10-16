@@ -142,6 +142,21 @@ def login_api_url(configured: str) -> str:
     return configured.rstrip("/")
 
 
+def login_page_origin(api_url: str) -> str:
+    """Where the browser is sent to sign in.
+
+    The same Arthera login route is also served on the brand's auth host
+    (auth.arthera.finance), so the address bar can read like the product, the
+    way Claude Code and Codex open their own accounts site, rather than an API
+    hostname. Opt-in with ARIA_AUTH_URL until that path has been exercised end
+    to end; the handoff exchange below always goes to the API origin.
+    """
+    import os
+
+    override = os.getenv("ARIA_AUTH_URL", "").strip()
+    return (override or api_url).rstrip("/")
+
+
 def run_google_login(api_url: str, region: str = "GLOBAL") -> Dict[str, Any]:
     """Drive the whole flow and return the stored-credential fields.
 
@@ -160,7 +175,7 @@ def run_google_login(api_url: str, region: str = "GLOBAL") -> Dict[str, Any]:
 
     try:
         login_url = (
-            f"{api_url}/api/v2/auth/google/login?"
+            f"{login_page_origin(api_url)}/api/v2/auth/google/login?"
             + urllib.parse.urlencode(
                 {"platform": "cli", "region": region, "port": port}
             )
@@ -219,4 +234,4 @@ def run_google_login(api_url: str, region: str = "GLOBAL") -> Dict[str, Any]:
     }
 
 
-__all__ = ["run_google_login", "exchange_google_token_for_firebase", "login_api_url"]
+__all__ = ["run_google_login", "exchange_google_token_for_firebase", "login_api_url", "login_page_origin"]
