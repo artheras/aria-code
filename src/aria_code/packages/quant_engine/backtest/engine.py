@@ -80,8 +80,14 @@ class BacktestEngine:
         returns = equity_df['total_value'].pct_change().dropna()
         total_return = (equity_df['total_value'].iloc[-1] / self.portfolio.initial_cash) - 1.0
 
-        ann_vol = returns.std() * (252 ** 0.5) if not returns.empty else 0.0
-        sharpe = (returns.mean() * 252) / ann_vol if ann_vol > 0 else 0.0
+        # Periods a year from the equity curve's own dates; 252 when it has none.
+        from aria_code.domain import performance_stats as stats
+
+        periods = stats.periods_per_year_from_dates(
+            len(returns), equity_df.index[0], equity_df.index[-1]
+        ) or float(stats.FALLBACK_PERIODS_PER_YEAR)
+        ann_vol = returns.std() * (periods ** 0.5) if not returns.empty else 0.0
+        sharpe = (returns.mean() * periods) / ann_vol if ann_vol > 0 else 0.0
 
         cum_ret = (1 + returns).cumprod()
         peak = cum_ret.cummax()
