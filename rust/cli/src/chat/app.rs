@@ -70,6 +70,9 @@ pub struct Dialog {
 pub struct App {
     pub editor: Editor,
     pub entries: VecDeque<Entry>,
+    /// Messages sent while a turn was running, in order. Each goes out when
+    /// the turn before it completes.
+    pub queued: VecDeque<String>,
     pub dialog: Option<Dialog>,
     pub turn: Option<String>,
     pub ready: bool,
@@ -495,7 +498,19 @@ impl App {
         Ok(())
     }
     pub fn submit(&mut self) -> Option<Value> {
-        if !self.ready || self.turn.is_some() || self.editor.text().trim().is_empty() {
+        if self.editor.text().trim().is_empty() {
+            return None;
+        }
+        // Enter while a turn runs used to do nothing: the text sat in the box
+        // until the turn ended and Enter was pressed again. Codex and Claude
+        // Code both queue it and send it when the turn completes.
+        if self.ready && self.turn.is_some() {
+            let text = self.editor.take();
+            self.queued.push_back(text);
+            self.scroll = 0;
+            return None;
+        }
+        if !self.ready || self.turn.is_some() {
             return None;
         }
         let text = self.editor.take();
@@ -532,7 +547,33 @@ impl App {
         self.status = self.tr("Submitting…", "正在提交…").into();
         Some(json!({"type":"turn.submit","protocol":1,"turn_id":id,"text":text}))
     }
+    /// The next queued message, submitted, once the session is free for it.
+    pub fn next_queued(&mut self) -> Option<Value> {
+        if !self.ready || self.turn.is_some() || self.dialog.is_some() {
+            return None;
+        }
+        let text = self.queued.pop_front()?;
+        // Whatever is being typed now stays where it is.
+        let typing = self.editor.take();
+        self.editor.insert(&text);
+        let request = self.submit();
+        self.editor.insert(&typing);
+        request
+    }
     pub fn cancel(&mut self) -> Option<Value> {
+        // Stopping a turn must not start the next one. Messages still waiting
+        // go back into the input box, ahead of anything being typed, so the
+        // user can edit or resend them: nothing is sent without another Enter.
+        if !self.queued.is_empty() {
+            let waiting: Vec<String> = self.queued.drain(..).collect();
+            let typing = self.editor.take();
+            let mut restored = waiting.join("\n");
+            if !typing.is_empty() {
+                restored.push('\n');
+                restored.push_str(&typing);
+            }
+            self.editor.insert(&restored);
+        }
         self.turn.clone().map(|id| {
             self.status = self.tr("Cancelling…", "正在取消…").into();
             json!({"type":"turn.cancel","protocol":1,"turn_id":id})
@@ -585,6 +626,132 @@ mod tests {
             ..App::default()
         }
     }
+    // ── Sending while a turn runs ────────────────────────────────────────
+    // Enter while a turn runs used to do nothing: the text sat in the box and
+    // had to be sent by hand once the task ended. It is queued now, and goes
+    // out when the turn before it completes — as in Codex and Claude Code.
+
+    fn running(first: &str) -> App {
+        let mut a = app();
+        a.editor.insert(first);
+        assert!(a.submit().is_some());
+        assert!(a.turn.is_some());
+        a
+    }
+    fn complete(a: &mut App, id: &str) {
+        a.event(json!({"protocol":1,"type":"turn.completed","turn_id":id,"status":"ok"}))
+            .unwrap();
+    }
+    fn sent_text(request: &Value) -> &str {
+        request["text"].as_str().unwrap()
+    }
+
+    #[test]
+    fn a_message_sent_during_a_turn_waits_instead_of_being_lost() {
+        let mut a = running("first");
+        a.editor.insert("second");
+        assert!(a.submit().is_none(), "nothing goes out while the turn runs");
+        assert_eq!(a.queued.len(), 1);
+        assert!(a.editor.is_empty());
+    }
+
+    #[test]
+    fn a_waiting_message_is_sent_once_the_turn_completes_not_before() {
+        let mut a = running("first");
+        a.editor.insert("second");
+        a.submit();
+        assert!(a.next_queued().is_none(), "the turn is still running");
+        complete(&mut a, "turn-1");
+        let request = a.next_queued().expect("the turn is done");
+        assert_eq!(request["type"], "turn.submit");
+        assert_eq!(sent_text(&request), "second");
+        assert_eq!(a.turn.as_deref(), Some("turn-2"));
+        assert!(a.queued.is_empty());
+    }
+
+    #[test]
+    fn several_waiting_messages_go_out_one_at_a_time_in_order() {
+        let mut a = running("first");
+        for text in ["second", "third"] {
+            a.editor.insert(text);
+            a.submit();
+        }
+        complete(&mut a, "turn-1");
+        assert_eq!(sent_text(&a.next_queued().unwrap()), "second");
+        assert!(a.next_queued().is_none(), "second is running; third waits");
+        complete(&mut a, "turn-2");
+        assert_eq!(sent_text(&a.next_queued().unwrap()), "third");
+    }
+
+    #[test]
+    fn what_is_being_typed_survives_a_queued_message_going_out() {
+        let mut a = running("first");
+        a.editor.insert("second");
+        a.submit();
+        complete(&mut a, "turn-1");
+        a.editor.insert("half a thought");
+        a.next_queued().unwrap();
+        assert_eq!(a.editor.text(), "half a thought");
+    }
+
+    #[test]
+    fn stopping_a_turn_does_not_start_the_next_one() {
+        // Esc means stop. If it also fired off what was waiting, stopping one
+        // thing would immediately begin another.
+        let mut a = running("first");
+        for text in ["second", "third"] {
+            a.editor.insert(text);
+            a.submit();
+        }
+        a.editor.insert("typing");
+        let request = a.cancel().expect("a turn is running");
+        assert_eq!(request["type"], "turn.cancel");
+        assert!(a.queued.is_empty());
+        assert_eq!(a.editor.text(), "second\nthird\ntyping");
+        complete(&mut a, "turn-1");
+        assert!(a.next_queued().is_none(), "nothing is sent without another Enter");
+    }
+
+    #[test]
+    fn a_question_opened_mid_turn_holds_the_queue_until_the_turn_ends() {
+        // The runtime only raises a question for a turn that is running, and
+        // completing the turn closes it — so a waiting message never goes out
+        // underneath an approval, and is released once the question is gone.
+        let mut a = running("first");
+        a.editor.insert("second");
+        a.submit();
+        a.event(json!({
+            "protocol":1,"type":"approval.requested","turn_id":"turn-1",
+            "request_id":"approval","title":"Approval",
+            "choices":[["Allow once",""],["Decline",""]]
+        }))
+        .unwrap();
+        assert!(a.dialog.is_some(), "the question is open");
+        assert!(a.next_queued().is_none(), "a message must not go out under it");
+        assert_eq!(a.queued.len(), 1, "and it is still waiting");
+
+        complete(&mut a, "turn-1");
+        assert!(a.dialog.is_none(), "the turn ending closes the question");
+        assert_eq!(sent_text(&a.next_queued().unwrap()), "second");
+    }
+
+    #[test]
+    fn a_blank_message_is_not_queued() {
+        let mut a = running("first");
+        a.editor.insert("   ");
+        assert!(a.submit().is_none());
+        assert!(a.queued.is_empty());
+    }
+
+    #[test]
+    fn idle_enter_still_sends_straight_away() {
+        let mut a = app();
+        a.editor.insert("hello");
+        let request = a.submit().expect("nothing is running");
+        assert_eq!(sent_text(&request), "hello");
+        assert!(a.queued.is_empty());
+    }
+
     #[test]
     fn both_runtime_packets_draw_the_same_mascot_and_respect_hidden_banners() {
         let legacy = json!([
