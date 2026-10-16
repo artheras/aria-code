@@ -154,10 +154,8 @@ DEFAULT_MODEL = os.getenv("ARIA_DEFAULT_MODEL", "google/gemini-3.5-flash")
 
 def default_config() -> dict:
     return {
-        "api_url": os.getenv(
-            "ARTHERA_API_URL",
-            "http://localhost:8000",
-        ),
+        # The Arthera backend and gateway. Not localhost: see endpoint_migration.
+        "api_url": os.getenv("ARTHERA_API_URL", "").strip() or "https://api.arthera.finance",
         "local_url": "http://localhost:8000",
         "ollama_url": os.getenv("OLLAMA_URL", "http://localhost:11434"),
         # Which backend serves a bare, unprefixed model name. Only consulted
