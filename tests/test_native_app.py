@@ -575,3 +575,32 @@ def test_new_session_drops_temporary_file_write_grant(application):
     c.send('dialog.respond', turn_id='fresh', request_id=menu['request_id'], choice=-1)
     c.until('turn.completed')
     c.close()
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_a_failure_the_worker_already_explained_is_marked_as_presented(application, native):
+    # One failed check reached the screen three times: a status line, the
+    # worker's explanation in the user's language, and the raw error — with
+    # its internal code — under a red heading, because turn.completed always
+    # carried the raw text and the front end always printed it. The worker now
+    # says when it has already told the user; `error` itself stays the raw text
+    # for scripts and exec mode.
+    start, _, _, _ = application
+    c = start(native=native)
+    c.send("turn.submit", turn_id="finance", text="分析苹果股票走势和成交量")
+    done = c.until("turn.completed")
+    assert "ARIA-4223" in done["error"], done
+    assert done["presented"] is True, done
+    c.close()
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_a_turn_that_succeeds_is_not_marked_as_presented(application, native):
+    start, _, _, _ = application
+    c = start(native=native)
+    c.send("turn.submit", turn_id="hello", text="你好")
+    done = c.until("turn.completed")
+    assert done["status"] == "ok"
+    assert not done.get("error")
+    assert done["presented"] is False
+    c.close()

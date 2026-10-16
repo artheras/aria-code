@@ -845,6 +845,11 @@ class ChatTurnMixin:
                         ],
                     )
                 console.print() if HAS_RICH else print()
+                # The user has now been told, in their language, what went
+                # wrong. A host that also receives the raw error text (the
+                # native front end gets it in turn.completed) must not show it
+                # a second time under a heading of its own.
+                self._error_presented = True
                 if error_presentation.use_generic_error_prefix:
                     _print_error(error_presentation.lines[0])
                 else:

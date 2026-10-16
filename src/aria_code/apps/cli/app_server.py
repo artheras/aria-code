@@ -378,6 +378,10 @@ class Server:
         t = self.terminal
         t._last_turn_envelope = None
         t._last_response = ""
+        # Set by the turn when it has already told the user, in their own
+        # language, what went wrong; cleared here so one turn's answer is
+        # never taken for the next one's.
+        t._error_presented = False
         t.cancel_event = asyncio.Event()
         self.emit("turn.started", prompt=value["text"])
         outcome, error = "completed", ""
@@ -423,7 +427,12 @@ class Server:
                 self.persist()
             except Exception as exc:
                 outcome, error = "failed", f"Session save failed: {exc}"
-            self.emit("turn.completed", status=outcome, error=error, session_id=t.session_id)
+            # `error` stays the raw text for scripts and exec mode. `presented`
+            # tells a human-facing front end it has already been shown, so it
+            # does not print the same failure again under an error heading.
+            self.emit("turn.completed", status=outcome, error=error,
+                      presented=bool(error and getattr(t, "_error_presented", False)),
+                      session_id=t.session_id)
             self.turn_id = None
             self.snapshot("session.state")
 
