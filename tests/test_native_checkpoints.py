@@ -212,7 +212,7 @@ def test_actual_terminal_undo_refreshes_screen_state_and_preserves_draft(stream)
         pytest.fail("Terminal did not reach the expected state: " + display())
 
     try:
-        wait(lambda text: "Ready" in text and "▄▄▄▄▄▄▄▄▄▄" in text)
+        wait(lambda text: "Ready" in text and "▙▄▄▄▄▄▟" in text)
         marker = "old-turn-marker-" + os.urandom(6).hex()
         os.write(master, (marker + "\r").encode())
         wait(lambda text: marker in text and "Completed" in text)

@@ -1048,9 +1048,10 @@ mod tests {
             };
             terminal.draw(|f| draw(f, &app)).unwrap();
             let buffer = terminal.backend().buffer();
-            assert_eq!(buffer[(3, 5)].symbol(), "▌");
-            assert_eq!(buffer[(10, 5)].symbol(), "▐");
-            assert_eq!(buffer[(16, 0)].symbol(), "A");
+            // 9 columns wide and 4 rows tall: ears on row 1, text two columns on.
+            assert_eq!(buffer[(0, 1)].symbol(), "▌");
+            assert_eq!(buffer[(8, 1)].symbol(), "▐");
+            assert_eq!(buffer[(11, 0)].symbol(), "A");
             assert!(display(&terminal).contains("Aria Code"));
         }
     }
