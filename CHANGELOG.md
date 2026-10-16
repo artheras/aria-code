@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.161.0] — 2026-10-16
+
+- feat(mascot): two matching eyes (#213)
+
 ## [0.160.0] — 2026-10-16
 
 - chore: remove the plugins/ stubs, which no code loads (#212)
