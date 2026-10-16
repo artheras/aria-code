@@ -8,6 +8,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"time"
 )
 
 type Bar struct {
@@ -110,7 +111,8 @@ type Engine struct {
 	PeriodsPerYear                     int
 }
 
-func DefaultEngine() Engine { return Engine{100000, 0.0005, 0.0005, 252} }
+// DefaultEngine leaves PeriodsPerYear at 0: periods per year come from the data's dates.
+func DefaultEngine() Engine { return Engine{100000, 0.0005, 0.0005, 0} }
 func finite(n float64) bool { return !math.IsNaN(n) && !math.IsInf(n, 0) }
 
 // Decimal formatting rounds the original binary value, matching Python round.
@@ -146,7 +148,7 @@ func (e Engine) Run(data []Series, strategy Strategy) (Result, error) {
 	if strategy == nil {
 		return Result{}, errors.New("strategy is required")
 	}
-	if !finite(e.StartingCash) || e.StartingCash <= 0 || !finite(e.Commission) || e.Commission < 0 || e.Commission >= 1 || !finite(e.Slippage) || e.Slippage < 0 || e.Slippage >= 1 || e.PeriodsPerYear < 1 {
+	if !finite(e.StartingCash) || e.StartingCash <= 0 || !finite(e.Commission) || e.Commission < 0 || e.Commission >= 1 || !finite(e.Slippage) || e.Slippage < 0 || e.Slippage >= 1 || e.PeriodsPerYear < 0 {
 		return Result{}, errors.New("invalid backtest capital, costs or periods")
 	}
 	r := Result{Strategy: strategy.Name(), StartingCash: e.StartingCash, Symbols: []string{}, Equity: []Point{}, Trades: []Trade{}}
@@ -279,6 +281,33 @@ func (e Engine) Run(data []Series, strategy Strategy) (Result, error) {
 	}
 	return r, nil
 }
+
+const (
+	fallbackPeriodsPerYear = 252
+	daysPerYear            = 365.25
+)
+
+// spanYears is the calendar span of two ISO dates in years, clamped to one
+// trading day from below. ok is false when either date is unreadable or the
+// span does not run forward.
+func spanYears(first, last string) (float64, bool) {
+	a, okA := parseDay(first)
+	b, okB := parseDay(last)
+	if !okA || !okB || !b.After(a) {
+		return 0, false
+	}
+	days := math.Round(b.Sub(a).Hours() / 24)
+	return math.Max(days/daysPerYear, 1.0/fallbackPeriodsPerYear), true
+}
+
+func parseDay(text string) (time.Time, bool) {
+	if len(text) < 10 {
+		return time.Time{}, false
+	}
+	t, err := time.Parse("2006-01-02", text[:10])
+	return t, err == nil
+}
+
 func calculateMetrics(curve []Point, trades []Trade, periods int) Metrics {
 	m := Metrics{Trades: len(trades)}
 	if len(curve) < 2 || curve[0].Equity <= 0 {
@@ -298,7 +327,28 @@ func calculateMetrics(curve []Point, trades []Trade, periods int) Metrics {
 	}
 	total := curve[len(curve)-1].Equity/curve[0].Equity - 1
 	m.TotalReturn = round(total, 6)
-	m.AnnualReturn = round(math.Pow(1+total, float64(periods)/float64(len(curve)))-1, 6)
+	// periods > 0 is the caller's own periods-per-year and keeps the original
+	// formula. Otherwise the span comes from the curve's dates (see
+	// performance_stats.py, which this mirrors); unreadable dates fall back to 252.
+	sharpePeriods := float64(fallbackPeriodsPerYear)
+	annual := -1.0
+	switch years, ok := spanYears(curve[0].Date, curve[len(curve)-1].Date); {
+	case periods > 0:
+		sharpePeriods = float64(periods)
+		if total > -1 {
+			annual = math.Pow(1+total, sharpePeriods/float64(len(curve))) - 1
+		}
+	case ok:
+		sharpePeriods = float64(len(returns)) / years
+		if total > -1 {
+			annual = math.Pow(1+total, 1/years) - 1
+		}
+	default:
+		if total > -1 {
+			annual = math.Pow(1+total, sharpePeriods/float64(len(curve))) - 1
+		}
+	}
+	m.AnnualReturn = round(annual, 6)
 	m.MaxDrawdown = round(drawdown, 6)
 	if len(returns) >= 2 {
 		mean := 0.0
@@ -312,7 +362,7 @@ func calculateMetrics(curve []Point, trades []Trade, periods int) Metrics {
 		}
 		std := math.Sqrt(variance / float64(len(returns)-1))
 		if std > 0 {
-			m.Sharpe = round(mean/std*math.Sqrt(float64(periods)), 4)
+			m.Sharpe = round(mean/std*math.Sqrt(sharpePeriods), 4)
 		}
 	}
 	sells, wins := 0, 0
