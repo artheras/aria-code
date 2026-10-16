@@ -285,6 +285,9 @@ class Server:
         # The host draws its own turn footer. Keep this presentation flag out
         # of saved user settings and retain normal Python CLI behaviour.
         terminal._native_frontend = True
+        # Commands that need a choice (/model) draw it in the host's own menu.
+        # This process's stdin is a pipe, so the TTY arrow picker can never run.
+        terminal._native_select = self.select
         execute = terminal.tool_executor.execute_local
         def tracked(*args, **kwargs):
             with self.tool_lock:
