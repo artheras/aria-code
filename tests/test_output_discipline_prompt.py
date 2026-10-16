@@ -48,3 +48,25 @@ def test_a_general_question_keeps_the_general_prompt(tmp_path, monkeypatch):
 
 def test_an_override_is_left_alone():
     assert build_turn_system_prompt("x", override="only this") == "only this"
+
+
+def test_a_greeting_prompt_does_not_name_a_specialist_domain():
+    # The general prompt used to say "Finance and sports analysis are optional
+    # domain capabilities, used only when the user asks for them." Meant as
+    # neutrality, it did the opposite: a model told about two named
+    # capabilities offers them back, and a plain 你好 was answered with an offer
+    # of football and quantitative analysis. Specialist guidance is added by
+    # the packs a message activates, so the general prompt has no reason to
+    # name any domain.
+    from aria_code.apps.cli.prompts.select import _general_prompt
+
+    prompt = _general_prompt().lower()
+    for domain in ("finance", "sports", "football", "quant", "stock", "trading", "market"):
+        assert domain not in prompt, domain
+    assert "never list or offer" in prompt
+
+
+def test_a_greeting_gets_the_general_prompt_not_a_domain_one():
+    prompt = build_turn_system_prompt("你好")
+    assert "quantitative" not in prompt.lower()
+    assert "football" not in prompt.lower()
