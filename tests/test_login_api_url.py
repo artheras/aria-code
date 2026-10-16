@@ -25,3 +25,12 @@ def test_the_environment_override_wins_over_everything(monkeypatch):
     monkeypatch.setenv("ARIA_API_URL", "https://staging.example.com/")
     assert login_api_url("http://localhost:8000") == "https://staging.example.com"
     assert login_api_url("https://api.example.com") == "https://staging.example.com"
+
+
+def test_the_login_page_can_be_served_from_the_brand_auth_host(monkeypatch):
+    from aria_code.apps.cli.google_login import login_page_origin
+
+    monkeypatch.delenv("ARIA_AUTH_URL", raising=False)
+    assert login_page_origin("https://api.arthera.finance/") == "https://api.arthera.finance"
+    monkeypatch.setenv("ARIA_AUTH_URL", "https://auth.arthera.finance/")
+    assert login_page_origin("https://api.arthera.finance") == "https://auth.arthera.finance"
