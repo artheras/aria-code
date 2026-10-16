@@ -159,15 +159,53 @@ class MCPServer:
                         else:
                             fut.set_result(msg.get("result"))
         except asyncio.CancelledError:
-            pass
+            return  # stop() cancelled us; nothing is waiting on an answer
         except Exception as exc:
             logger.debug("[MCP:%s] Reader loop error: %s", self.name, exc)
+        # stdout closed: the server has exited. Nothing can answer a request that
+        # is still waiting, so fail those now. Without this, a server that
+        # refuses to start (a missing environment variable, say) is waited on
+        # for the whole timeout, 30 s at every launch, and the reason it gave on
+        # stderr is never shown.
+        await self._fail_pending()
+
+    async def _fail_pending(self):
+        reason = await self._exit_reason()
+        for rid, fut in list(self._pending.items()):
+            self._pending.pop(rid, None)
+            if not fut.done():
+                fut.set_exception(RuntimeError(f"MCP server {self.name!r} exited before answering{reason}"))
+
+    async def _exit_reason(self) -> str:
+        """Exit code and the server's own last words, for the error message."""
+        proc = self._proc
+        if proc is None:
+            return ""
+        try:
+            code = await asyncio.wait_for(proc.wait(), timeout=2)
+        except Exception:
+            code = None
+        said = ""
+        try:
+            if proc.stderr is not None:
+                said = (await asyncio.wait_for(proc.stderr.read(2000), timeout=1)).decode("utf-8", errors="ignore").strip()
+        except Exception:
+            pass
+        said = " ".join(said.split())[:300]
+        detail = f" (exit {code})" if code is not None else ""
+        return f"{detail}: {said}" if said else detail
 
     async def _request(self, method: str, params: Any = None) -> Any:
+        if self._proc is not None and self._proc.returncode is not None:
+            raise RuntimeError(f"MCP server {self.name!r} has exited (exit {self._proc.returncode})")
         rid = self._next_id()
         fut = asyncio.get_event_loop().create_future()
         self._pending[rid] = fut
-        await self._send(_make_request(method, params, rid))
+        try:
+            await self._send(_make_request(method, params, rid))
+        except (BrokenPipeError, ConnectionResetError) as exc:
+            self._pending.pop(rid, None)
+            raise RuntimeError(f"MCP server {self.name!r} closed its input: {exc}") from exc
         try:
             return await asyncio.wait_for(fut, timeout=self.timeout)
         except asyncio.TimeoutError:
