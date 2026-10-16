@@ -44,6 +44,13 @@ func TestPDFRealConverter(t *testing.T) {
 	if _, err := exec.LookPath("pdftotext"); err != nil {
 		t.Skip("Poppler not installed")
 	}
+	// Xpdf ships a differently-behaved pdftotext (no stdin input, exit 99 on
+	// "-"), and it is what some Windows runners put on PATH. The converter is
+	// written against Poppler's command line.
+	version, _ := exec.Command("pdftotext", "-v").CombinedOutput()
+	if !strings.Contains(strings.ToLower(string(version)), "poppler") {
+		t.Skip("pdftotext is not Poppler")
+	}
 	body, err := pdfText(context.Background(), pdfFixture())
 	if err != nil || !strings.Contains(string(body), "[Page 1]\nPDF_NATIVE_EVIDENCE") {
 		t.Fatalf("%s: %v", body, err)
