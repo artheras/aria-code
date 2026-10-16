@@ -62,7 +62,7 @@ class EveryManifestAgreesWithTheLicenseFile(unittest.TestCase):
     def test_the_platform_package_generator(self) -> None:
         # Each per-platform binary package is published separately, so a stale
         # string here ships five wrong manifests rather than one.
-        text = (ROOT / "scripts" / "make_platform_packages.py").read_text(encoding="utf-8")
+        text = (ROOT / "go" / "buildtools" / "packages.go").read_text(encoding="utf-8")
         found = set(re.findall(r'"license":\s*"([^"]+)"', text))
         self.assertEqual(found, {self.spdx}, f"generator stamps {found or 'nothing'}")
 

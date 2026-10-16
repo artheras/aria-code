@@ -473,7 +473,7 @@ reminder after the runtime is ready. It respects offline mode and
 downloads or installs an update automatically. `/update` runs the existing
 explicit updater. The check does not delay startup or alter the active task.
 
-Each native release runs `scripts/verify_native_frontend.py` against the frozen
+Each native release runs `go -C go/buildtools run . verify /absolute/path/to/onedir` against the frozen
 application before archiving. It checks product-version parity, the application
 handshake, canonical robot, real local file reads and shutdown. macOS signs the
 Python worker as well as the frontend and its libraries. Source tests also run

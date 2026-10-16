@@ -15,6 +15,9 @@ import (
 // An actual child executable exercises copying, execution and rename behavior
 // on each platform; it does not replace the real-Rust integration test below.
 func TestMain(m *testing.M) {
+	if mode := os.Getenv("BUILDTOOLS_VERIFY_FIXTURE"); mode != "" {
+		os.Exit(verificationFixture(mode))
+	}
 	if helper := os.Getenv("ARIA_BUNDLE_TEST_HELPER"); helper != "" {
 		switch {
 		case len(os.Args) == 2 && os.Args[1] == "--version":

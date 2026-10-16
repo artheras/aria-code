@@ -10,7 +10,7 @@ import (
 )
 
 func nativeCommands() []string {
-	return []string{"/help", "/model", "/config", "/health", "/sessions", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change"}
+	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change"}
 }
 func (s *server) command(ctx context.Context, turn, text string) (string, error) {
 	fields := strings.Fields(text)
@@ -18,6 +18,14 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		return "", nil
 	}
 	switch fields[0] {
+	case "/import":
+		return s.importCommand(ctx, turn, strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), "/import")))
+	case "/":
+		return s.command(ctx, turn, "/help")
+	case "/models":
+		return s.modelsCommand(ctx, fields[1:])
+	case "/export":
+		return s.exportCommand(ctx, turn, fields[1:])
 	case "/changes", "/apply-change", "/reject-change":
 		return s.stageCommand(ctx, turn, fields[0], fields[1:])
 	case "/undo":
@@ -28,7 +36,8 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 	case "/rewind":
 		return s.rewindCommand(ctx, turn, fields[1:])
 	case "/help":
-		return "Aria native interface\n\nEnter sends · Ctrl+J / Alt+Enter adds a line\nEsc cancels · Ctrl+O shows operation details · F1 opens help\n\n" + strings.Join(nativeCommands(), " · "), nil
+		extraHelp := "\n/import <path> — create a new session from JSON\n/export session [path] — complete session including file snapshots\n/export bundle [path] — private diagnostics and lifecycle trace (no conversation or config)\n@ references extract DOCX/PPTX text and PDF text/OCR.\n/config set document_ocr=true — OCR empty PDF pages (Tesseract language data required)\n/config set ocr_language=eng+chi_sim+chi_tra\n/config set document_vision=true — send image/PDF-page evidence to your selected vision-capable provider; off by default\n"
+		return "Aria native interface\n\nEnter sends · Ctrl+J / Alt+Enter adds a line\nEsc cancels · Ctrl+O shows operation details · F1 opens help\nTab completes /commands and @file references\n\n/model — interactive provider/model selection\n/models [google|gcp|ollama] — discover models without generation\n/model <provider> <model> — switch explicitly\n@file:path or @\"path with spaces\" — read a text file into this turn\n/config set gcp_project=PROJECT · gcp_location=REGION · ollama_base_url=URL\n/export <format> [path] — export saved conversation\n/changes · /apply-change ID · /reject-change ID — review edits\n\n" + strings.Join(nativeCommands(), " · ") + extraHelp, nil
 	case "/sessions":
 		sessions, err := listSessions(s.opts.root, 20)
 		if err != nil {
@@ -43,6 +52,13 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		return "Use the frontend session command to start or resume a session.", nil
 	case "/health":
 		if p, ok := s.provider.(*openAIProvider); ok {
+			if p.declared != nil {
+				names, err := declaredModels(ctx, p.declared)
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("%s reachable: %d models. Current model: %s. No generation performed.", p.declared.ID, len(names), p.model), nil
+			}
 			if _, _, err := p.connection(ctx); err != nil {
 				return "", err
 			}
@@ -57,16 +73,22 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		}
 		return "Google credentials configured. Network and model availability are verified by a model request; no generation was performed by this check.", nil
 	case "/model":
+		if len(fields) == 1 && !s.opts.noninteractive {
+			return s.modelPicker(ctx, turn)
+		}
+		if len(fields) == 3 {
+			return s.selectModel(fields[1], fields[2])
+		}
 		name := providerName(s.cfg)
 		if len(fields) == 1 {
 			if name == "google" {
-				text := fmt.Sprintf("google / %s\nUse /model <Google model name>.", s.cfg.text("model", "gemini-3.5-flash"))
+				text := fmt.Sprintf("google / %s\n/models google: list cloud models\n/models ollama: list local models\n/model <provider> <model>: switch provider and model\n/model <model>: switch within current provider", s.cfg.text("model", "gemini-3.5-flash"))
 				if tuned := tunedModelNames(s.cfg); len(tuned) > 0 {
 					text += "\nTuned models: " + strings.Join(tuned, ", ")
 				}
 				return text, nil
 			}
-			return fmt.Sprintf("%s / %s\nUse /model <model name served by %s>.", name, s.cfg.text("model", ""), name), nil
+			return fmt.Sprintf("%s / %s\n/models %s: list models\n/model <provider> <model>: switch provider and model", name, s.cfg.text("model", ""), name), nil
 		}
 		if len(fields) != 2 {
 			return "", errors.New("usage: /model <model name>")
@@ -113,6 +135,14 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		}
 		var stored any = value
 		switch key {
+		case "gcp_project", "gcp_location":
+			if !validID.MatchString(value) {
+				return "", errors.New("project/region must be a nonempty identifier")
+			}
+		case "ollama_base_url":
+			if _, err := declaredProviderFor(config{"local_provider": "ollama", "ollama_base_url": value}); err != nil {
+				return "", err
+			}
 		case "ui_lang":
 			if value != "zh" && value != "en" {
 				return "", errors.New("ui_lang must be zh or en")
@@ -131,7 +161,11 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 				return "", errors.New("auto_approve_level must be 0, 1 or 2 (L3 and L4 always ask)")
 			}
 			stored = int(value[0] - '0')
-		case "review_gate", "delivery_report":
+		case "ocr_language":
+			if value != "eng" && value != "chi_sim" && value != "chi_tra" && value != "eng+chi_sim+chi_tra" {
+				return "", errors.New("ocr_language must be eng, chi_sim, chi_tra or eng+chi_sim+chi_tra")
+			}
+		case "review_gate", "delivery_report", "document_ocr", "document_vision":
 			switch strings.ToLower(value) {
 			case "true", "1", "yes", "on":
 				stored = true
@@ -143,10 +177,26 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		default:
 			return "", errors.New("unknown native setting")
 		}
+		next := config{}
+		for k, v := range s.cfg {
+			next[k] = v
+		}
+		next[key] = stored
+		var replacement modelProvider
+		if key == "gcp_project" || key == "gcp_location" || key == "ollama_base_url" {
+			var err error
+			replacement, err = modelProviderFor(next)
+			if err != nil {
+				return "", err
+			}
+		}
 		if err := s.saveSetting(key, stored); err != nil {
 			return "", err
 		}
 		s.cfg[key] = stored
+		if replacement != nil {
+			s.provider = replacement
+		}
 		return fmt.Sprintf("%s=%v", key, stored), nil
 	default:
 		return "", fmt.Errorf("unknown command: %s; use /help", fields[0])

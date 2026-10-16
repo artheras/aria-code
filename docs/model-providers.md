@@ -116,9 +116,38 @@ model_providers:
 
 ## 原生运行时（Rust/Go）
 
-原生运行时内置的只有 Google（Gemini / Vertex AI）。其余模型一律通过用户自己声明的
-OpenAI 兼容端点接入——自建 vLLM、Ollama 的 `/v1`、LiteLLM、OpenRouter、公司网关——
-运行时不再内置各家协议，和 Claude Code（经网关）、Codex（`model_providers`）的做法一致。
+原生运行时支持 Google（Gemini / Vertex AI），并提供 Ollama 本地快捷配置，
+通过 Ollama 的 OpenAI 兼容 `/v1` 接口请求模型。其他服务通过用户声明的
+OpenAI 兼容端点接入，例如 vLLM、LiteLLM、OpenRouter 和公司网关。
+
+交互终端输入 `/model`，先选择服务，再从实际查询的模型列表中选择模型。
+取消保留当前选择；查询失败会显示原因，也可以手动输入模型 ID。
+无交互执行使用显式命令，不等待菜单：
+
+```text
+/models gcp
+/models ollama
+/model gcp <Google模型ID>
+/model ollama <已安装模型名称>
+/health
+```
+
+模型与服务一起持久化，后续消息使用新服务，原会话历史保留。
+模型列表和健康检查不调用生成接口；选择成功表示配置已保存，不能代替推理验证。
+`/models` 最多展示 Google 返回的第一页，菜单最多展示 98 个模型；其他模型可以按 ID 选择。
+
+Google Cloud 使用现有登录/ADC、项目与区域配置。可以在终端设置
+`/config set gcp_project=PROJECT` 和 `/config set gcp_location=REGION`；
+`GOOGLE_CLOUD_PROJECT`、`GOOGLE_CLOUD_LOCATION` 环境变量优先。
+`gcp` 是强制 Vertex AI 的选择，`google` 沿用当前 Google 认证设置。
+
+Ollama 地址依次读取 `ollama_base_url`、`OLLAMA_HOST`，默认
+`http://127.0.0.1:11434`。可以使用 `/config set ollama_base_url=URL` 修改。
+用户在 `model_providers.ollama` 中声明的配置优先，用于远程认证等定制；
+服务未启动或未安装模型会明确报错/提示，不会自动下载模型。
+
+接口参考：[Ollama OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility)、
+[Vertex AI quickstart](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/quickstart)。
 
 ```yaml
 # ~/.aria/providers.yaml（或 $ARIA_HOME/providers.json、~/.aria/providers.json）

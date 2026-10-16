@@ -17,6 +17,26 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "pack" || os.Args[1] == "unpack" || os.Args[1] == "packages") {
+		if err := packagingCommand(os.Args[1], os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "verify" {
+		if len(os.Args) != 3 {
+			fmt.Fprintln(os.Stderr, "usage: aria-bundle verify ONEDIR")
+			os.Exit(2)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		if err := verifyFrontend(ctx, os.Args[2], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	flags := flag.NewFlagSet("aria-bundle", flag.ContinueOnError)
 	root := flags.String("root", "", "Repository root (required)")
 	frontend := flags.Bool("frontend", false, "Install Rust as launcher; retain the application worker")

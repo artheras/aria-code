@@ -39,24 +39,29 @@ type pendingDialog struct {
 	replies chan request
 }
 type server struct {
-	opts          appOptions
-	cfg           config
-	scope         *scope
-	snap          snapshot
-	contents      []*genai.Content
-	provider      modelProvider
-	out           io.Writer
-	mu            sync.Mutex
-	outMu         sync.Mutex
-	busy          bool
-	turn          string
-	cancel        context.CancelFunc
-	done          chan struct{}
-	dialog        *pendingDialog
-	grants        map[string]bool
-	stop          context.CancelFunc
-	historyReset  bool
-	historyNotice string
+	traceMu          sync.Mutex
+	trace            []diagnosticEvent
+	tracePath        string
+	traceDropped     int
+	traceWriteFailed bool
+	opts             appOptions
+	cfg              config
+	scope            *scope
+	snap             snapshot
+	contents         []*genai.Content
+	provider         modelProvider
+	out              io.Writer
+	mu               sync.Mutex
+	outMu            sync.Mutex
+	busy             bool
+	turn             string
+	cancel           context.CancelFunc
+	done             chan struct{}
+	dialog           *pendingDialog
+	grants           map[string]bool
+	stop             context.CancelFunc
+	historyReset     bool
+	historyNotice    string
 }
 
 func newServer(options appOptions, out io.Writer) (*server, error) {
@@ -81,7 +86,7 @@ func newServer(options appOptions, out io.Writer) (*server, error) {
 	if options.model != "" {
 		cfg["model"] = strings.TrimPrefix(options.model, "google/")
 	}
-	// Google is built in; any other provider must be declared by the user
+	// Google and the Ollama shortcut are built in; others are user-declared
 	// (provider_declared.go). Checked before any state is touched.
 	provider, err := modelProviderFor(cfg)
 	if err != nil {
@@ -120,6 +125,7 @@ func newServer(options appOptions, out io.Writer) (*server, error) {
 	return s, nil
 }
 func (s *server) emit(kind, turn string, fields map[string]any) error {
+	s.recordDiagnostic(kind, fields)
 	if fields == nil {
 		fields = map[string]any{}
 	}
@@ -160,6 +166,7 @@ func (s *server) state(kind string) error {
 		theme = s.cfg.text("ui_theme", "auto")
 	}
 	fields["ui_theme"] = theme
+	fields["reference_completion"] = true
 	if home, err := os.UserHomeDir(); err == nil {
 		home, _ = canonical(home)
 		fields["home_workspace"] = home == s.scope.workspace
@@ -529,6 +536,12 @@ func (s *server) run(ctx context.Context, in io.Reader) error {
 			continue
 		}
 		switch r.Type {
+		case "completion.request":
+			s.mu.Unlock()
+			if !busy && r.SessionID == s.snap.ID && len(r.Text) <= 65536 {
+				s.emit("completion.result", "", map[string]any{"session_id": s.snap.ID, "text": r.Text, "candidates": s.referenceCompletions(r.Text)})
+			}
+			continue
 		case "turn.submit":
 			if !validID.MatchString(r.TurnID) || strings.TrimSpace(r.Text) == "" || len(r.Text) > 65536 {
 				s.mu.Unlock()

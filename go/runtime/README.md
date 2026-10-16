@@ -7,6 +7,15 @@ passed validation and the packaging switch is complete.
 
 ## Build and exercise
 
+To build and run this checkout without changing installed command symlinks:
+
+```sh
+bash scripts/run_native_dev.sh -C /path/to/project chat
+```
+
+Run that command from the repository root. It uses the usual user state;
+set `ARIA_HOME` to a separate directory for an isolated evaluation.
+
 From this directory:
 
 ```sh
@@ -36,6 +45,41 @@ provide filesystem or network sandboxing.
 
 ## Implemented routes
 
+- `/` and `/help` show command usage; Tab completes command prefixes.
+  `/model` opens the interactive provider/model picker; `/models [gcp|google|ollama]`
+  lists available models and `/model <provider> <model>` switches explicitly.
+  Provider and model are persisted together, with no generation during selection.
+  Ollama uses its OpenAI-compatible API, defaulting to `127.0.0.1:11434`;
+  `ollama_base_url`, `OLLAMA_HOST` and user-declared providers support other hosts.
+  Google Cloud keeps the existing authentication, project and region settings.
+- `@file:path`, `@path` and `@"path with spaces"` load actual UTF-8 files through
+  read permissions before generation. File snapshots remain in provider history
+  across resume; subsequent turns do not silently re-read changed files. Tool
+  events report reads and failures. Limits are 16 unique references, 256 KiB per
+  file and 512 KiB per turn. DOCX main-body/table text and PPTX slide text are
+  supported, in presentation relationship order rather than filename order.
+  Office input is capped at 32 MiB, XML at 8 MiB per component / 16 MiB total,
+  and extracted text at 256 KiB. PDF text layers use optional host `pdftotext`
+  (Poppler), with 32 MiB input, 256 KiB text output and 2000 pages. Empty text-layer
+  pages use Tesseract OCR (up to 20 pages, 2200px rendering, 20 seconds per
+  subprocess / 90 seconds per PDF). OCR is labelled as fallible; completely
+  unreadable pages fail explicitly. `document_ocr=false` disables OCR.
+  Default `ocr_language=eng+chi_sim+chi_tra` requires all three traineddata files;
+  missing data fails rather than silently dropping Chinese. `ARIA_OCR_DATA`
+  selects a host-provided data directory. No runtime downloads are performed.
+  Conversion additionally requires `run_command` approval/project permission.
+  macOS conversion uses Seatbelt to deny network, private/project reads and
+  writes outside temporary scratch. Restricted modes work through that adapter;
+  other platforms still refuse restricted conversion. Converters receive no
+  inherited credentials or project cwd. There is no hard OS memory quota.
+  `document_vision=true` explicitly opts into sending PNG/JPEG references and
+  PDF page images to the selected model. It must support vision. At most six
+  images/pages and 6 MiB of encoded image data are accepted per turn; split
+  larger PDFs. Images persist in provider history. Chart values are estimates
+  unless backed by exact data; this does not extract embedded Office charts.
+  Tab at the end of an `@` draft requests workspace-scoped directory completion;
+  older workers without this capability retain their existing behavior.
+
 - Google Gemini SDK and the existing Vertex Chat Completions route, including
   streamed function arguments, opaque tool signatures and cancelled batches.
 - Both model routes retry busy/empty responses within a bounded budget, stop
@@ -52,6 +96,31 @@ provide filesystem or network sandboxing.
 - Existing JSON session/config formats, preserved unknown message fields,
   bounded display snapshots, resume-last and supported image attachment blocks.
   Unsupported attachment types fail explicitly without replacing saved data.
+- `/export json|csv|md|sft|ipynb [path]` exports the saved conversation without
+  calling a model or adding the command to history. Paths use the session's
+  configured write roots, project rules and approval policy; writes create a
+  durable checkpoint and new files use mode 0600. The default is JSON in the
+  workspace. JSON retains attachment blocks and unknown fields; readable
+  formats use attachment placeholders and text-only SFT excludes media pairs.
+  The native file-tool limit is 4 MiB. The Python export module stays available
+  for the existing worker.
+- `/export bundle [path]` exports `aria.native_diagnostic_bundle.v1`, including
+  OS/architecture/Go version, conversation counts and document-support status.
+  It works for empty conversations and uses the same write approval/checkpoints.
+  It never includes conversation values, config, credentials, environment or
+  file paths, and does not probe the network. A rolling 512-event lifecycle trace
+  records timestamps, known tool names, outcomes and turn status; it persists
+  privately under the native state directory and survives restarts. Export reports
+  truncation in the current process and persistence failures. Raw model reasoning,
+  tool output and provider/MCP health probes are not collected; this is not full
+  parity with the legacy Python diagnostic bundle.
+- `/export session [path]` exports the complete native session, including
+  provider history and file snapshots. `/import <path>` accepts it or a JSON
+  message array, validates both histories and creates an independent session.
+  Use the returned `/resume ID` to open it. Imports cannot overwrite the source
+  or current session, and imported metadata cannot grant checkpoint authority.
+  Import is bounded to 16 MiB and 10,000 messages; export retains the existing
+  4 MiB write-tool limit. Malformed/unsupported history fails before saving.
 - Read, list, recursive glob, RE2 code search, write, exact edit and atomic
   ordered multi-edit. CRLF and file modes are retained. A change to a file
   while approval is pending prevents the write.

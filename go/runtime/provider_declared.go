@@ -1,7 +1,8 @@
 package main
 
 // Declared providers — the native form of src/aria_code/providers/llm/custom.py.
-// Google is the one built-in provider; any other model is reached through an
+// Google uses its SDK; Ollama has a local OpenAI-compatible shortcut. Other
+// models are reached through an
 // OpenAI-compatible Chat Completions endpoint the user declares in their own
 // configuration (a self-hosted vLLM, Ollama's /v1, LiteLLM, OpenRouter, a
 // company gateway), the way Codex's model_providers and Claude Code's gateway
@@ -226,6 +227,17 @@ func declaredProviderFor(c config) (*declaredProvider, error) {
 	}
 	if problem := problems[name]; problem != "" {
 		return nil, fmt.Errorf("model provider %q in %s %s", name, path, problem)
+	}
+	if name == "ollama" {
+		base := first(c.text("ollama_base_url", ""), os.Getenv("OLLAMA_HOST"), "http://127.0.0.1:11434")
+		if !strings.Contains(base, "://") {
+			base = "http://" + base
+		}
+		u, err := url.Parse(base)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return nil, errors.New("ollama_base_url must be an http(s) URL without credentials, query or fragment")
+		}
+		return &declaredProvider{ID: "ollama", Name: "Ollama", BaseURL: strings.TrimRight(base, "/"), Timeout: 120 * time.Second}, nil
 	}
 	where := "~/.aria/providers.yaml"
 	if path != "" {
