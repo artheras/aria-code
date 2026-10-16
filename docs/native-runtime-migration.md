@@ -15,10 +15,10 @@ by this branch.
 | Terminal | `rust/cli/src/chat/` | Persistent editing, Markdown, chronological operations, Chinese/English display, reviews and cancelled-turn state. A rounded multiline composer and a hand-tuned compact cream robot with four feet, aligned eyes and a thin orange stripe. |
 | Application protocol | `go/runtime/server.go` | Actual executable barrier, approvals, multi-turn persistence, resume, idle cancellation and broken-output shutdown. Commands/events beyond the implemented catalog remain to port. |
 | Headless and file bridge | `go/runtime/stream.go`, `bridge.go` | Existing single-turn events, bounded JSON-RPC, literal arguments, per-call write grants, refusal, persistent staged changes and checkpoint restore routes. Full legacy command catalog remains. |
-| Model providers | `go/runtime/provider_*.go`, `google_auth.go` | Google is built in: SDK and Vertex-compatible streams; Aria's own tuned Gemini endpoints (`tuned_models` short names or `projects/…/endpoints/…`, always on the Vertex SDK route in the endpoint's own region); signed calls; existing login; independent native OAuth refresh; macOS manual proxy support. Every other model is a user-declared OpenAI-compatible endpoint (`provider_declared.go`, `model_providers` as in `providers/llm/custom.py`), read from user-level files only, with credentials from an environment variable or an auth command; other provider families are deliberately not built in (see `docs/model-providers.md`). Automatic proxy discovery remains. |
+| Model providers | `go/runtime/provider_*.go`, `google_auth.go`, `model_selection.go` | Google SDK and Vertex-compatible streams, tuned endpoints, existing login and native OAuth refresh; Ollama local OpenAI-compatible shortcut; other user-declared compatible providers. `/model` menus and `/models` discovery, atomic provider/model selection, Cloud project/region settings and provider-specific health checks. Configuration comes from user-level settings. Automatic proxy discovery remains. |
 | Files | `go/runtime/files.go`, `search.go`, `staged_changes.go`, `checkpoints.go` | Actual edits/read-back, ordered atomic multi-edit, CRLF/mode preservation, root isolation, persistent staged review/apply/reject, shared SQLite checkpoints, grouped conflict checks and file restoration. Python-specific regex extensions, semantic patches, whole-turn transactions and diagnostics remain. |
 | Shell | `go/runtime/command_*.go` | Actual command output/exit, refusal, exact session grants, bounded capture and cancellation. Native OS sandbox/background-service parity remains; unsupported modes reject execution. |
-| Sessions | `go/runtime/history.go`, `state.go` | Old JSON formats, unknown fields, supported images and tool history. Additional attachment formats and public import/export routes remain. |
+| Sessions | `go/runtime/history.go`, `state.go`, `session_export.go`, `session_import.go`, `diagnostics.go`, `pdf_text.go`, `document_runner.go`, `document_vision.go`, `diagnostic_trace.go` | Persistent document snapshots, Poppler/Tesseract PDF OCR, macOS Seatbelt conversion, opt-in image/PDF-page vision and bounded private lifecycle logs. Linux/Windows restricted adapters, embedded Office visuals, model-answer accuracy and legacy health/raw-trace parity remain. |
 | Portfolio backtest core | `go/runtime/quant/` | 48 complete oracle results plus actual executable comparisons, including gaps, ordering, fees, realized PnL and benchmarks. Market feeds, live broker risk/execution, optimizer/report routes remain. |
 | Training evaluation | `go/runtime/training/compare.go` | Paired reports, fixed bootstrap sampling, confidence intervals, costs and error exclusion compared with Python. |
 | SFT dataset preparation | `go/runtime/training/dataset.go` | Holdout isolation, task splits, eligibility, deduplication, provenance and Unicode trimming compared with Python; malformed inputs preserve existing files. Eval trajectories come from the native runtime (`evals.runner --runtime native`, full events under `ARIA_EVENTS_FULL`), checked end to end into SFT records. |
@@ -112,6 +112,15 @@ builds the executable before running those comparisons. Live model/auth
 verification is opt-in and is not part of normal CI.
 
 ## Required before deleting a module
+
+The current caller audit and next migration slices are recorded in
+[Remaining Python migration work](python-migration-audit.md). Release frontend
+verification now runs in Go (`go/buildtools verify`); its Python script has been
+removed and all three platform build entrypoints use the replacement. The
+Python application worker remains required. Archive and npm platform assembly
+have also moved to Go; their Python scripts are removed and the npm assembly
+job no longer installs Python. Local fixtures exercise both formats and all
+ten platform packages; actual release artifacts remain a release-CI check.
 
 1. Its behavior and callers have an identified native replacement, including
    public CLI/API paths and saved-state compatibility.

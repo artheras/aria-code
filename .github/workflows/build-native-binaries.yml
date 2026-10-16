@@ -11,7 +11,7 @@ name: Build Native Binaries
 # Every build is PyInstaller --onedir, shipped as one archive per binary
 # (.tar.gz, or .zip on Windows). --onefile unpacked ~400 native libraries to a
 # new temp directory on every launch and macOS re-scanned each one: 90 s per
-# command. See scripts/package_onedir.py.
+# command. Go build tools preserve each onedir tree as one archive.
 
 on:
   pull_request:
@@ -22,7 +22,6 @@ on:
       - 'src/aria_code/apps/cli/app_server.py'
       - 'scripts/build_native_binary.sh'
       - 'go/buildtools/**'
-      - 'scripts/verify_native_frontend.py'
       - '.github/workflows/build-native-binaries.yml'
   push:
     tags:
@@ -166,11 +165,12 @@ jobs:
         run: |
           (cd rust && rustup show)   # installs the toolchain rust/rust-toolchain.toml pins
           go -C go/buildtools run . --root "$GITHUB_WORKSPACE" --frontend "$GITHUB_WORKSPACE/dist-native/dist/${{ env.BIN_NAME }}"
-          python scripts/verify_native_frontend.py dist-native/dist/${{ env.BIN_NAME }}
+          go -C go/buildtools run . verify "$PWD/dist-native/dist/${{ env.BIN_NAME }}"
       - name: Smoke test
         run: dist-native\dist\${{ env.BIN_NAME }}\${{ env.BIN_NAME }}.exe --version
       - name: Archive build directory
-        run: python scripts/package_onedir.py pack dist-native/dist/${{ env.BIN_NAME }} dist-native/release
+        shell: bash
+        run: go -C go/buildtools run . pack "$PWD/dist-native/dist/${{ env.BIN_NAME }}" "$PWD/dist-native/release"
       - uses: actions/upload-artifact@v4
         with:
           name: aria-code-windows-x64
@@ -187,7 +187,8 @@ jobs:
       - name: Smoke test (MCP server binary)
         run: dist-native\dist\${{ env.MCP_BIN_NAME }}\${{ env.MCP_BIN_NAME }}.exe --version
       - name: Archive the MCP server build directory
-        run: python scripts/package_onedir.py pack dist-native/dist/${{ env.MCP_BIN_NAME }} dist-native/release
+        shell: bash
+        run: go -C go/buildtools run . pack "$PWD/dist-native/dist/${{ env.MCP_BIN_NAME }}" "$PWD/dist-native/release"
       - uses: actions/upload-artifact@v4
         with:
           name: aria-code-mcp-windows-x64
@@ -237,11 +238,11 @@ jobs:
         run: |
           (cd rust && rustup show)   # installs the toolchain rust/rust-toolchain.toml pins
           go -C go/buildtools run . --root "$GITHUB_WORKSPACE" --frontend "$GITHUB_WORKSPACE/dist-native/dist/${{ env.BIN_NAME }}"
-          python scripts/verify_native_frontend.py dist-native/dist/${{ env.BIN_NAME }}
+          go -C go/buildtools run . verify "$PWD/dist-native/dist/${{ env.BIN_NAME }}"
       - name: Smoke test
         run: dist-native/dist/${{ env.BIN_NAME }}/${{ env.BIN_NAME }} --version
       - name: Archive build directory
-        run: python scripts/package_onedir.py pack dist-native/dist/${{ env.BIN_NAME }} dist-native/release
+        run: go -C go/buildtools run . pack "$PWD/dist-native/dist/${{ env.BIN_NAME }}" "$PWD/dist-native/release"
       - uses: actions/upload-artifact@v4
         with:
           name: aria-code-linux-${{ matrix.arch }}
@@ -258,7 +259,7 @@ jobs:
       - name: Smoke test (MCP server binary)
         run: dist-native/dist/${{ env.MCP_BIN_NAME }}/${{ env.MCP_BIN_NAME }} --version
       - name: Archive the MCP server build directory
-        run: python scripts/package_onedir.py pack dist-native/dist/${{ env.MCP_BIN_NAME }} dist-native/release
+        run: go -C go/buildtools run . pack "$PWD/dist-native/dist/${{ env.MCP_BIN_NAME }}" "$PWD/dist-native/release"
       - uses: actions/upload-artifact@v4
         with:
           name: aria-code-mcp-linux-${{ matrix.arch }}
@@ -341,9 +342,8 @@ jobs:
         with:
           go-version-file: go/buildtools/go.mod
           cache: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Build native package assembler
+        run: go -C go/buildtools build -o "$RUNNER_TEMP/aria-bundle" .
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -396,7 +396,7 @@ jobs:
           add linux-x64    aria-code-linux-x64     aria-code-bin.tar.gz  aria-code-mcp-linux-x64    aria-code-mcp-bin.tar.gz
           add linux-arm64  aria-code-linux-arm64   aria-code-bin.tar.gz  aria-code-mcp-linux-arm64  aria-code-mcp-bin.tar.gz
           add win32-x64    aria-code-windows-x64   aria-code-bin.zip     aria-code-mcp-windows-x64  aria-code-mcp-bin.zip
-          python scripts/make_platform_packages.py --version "$VERSION" \
+          "$RUNNER_TEMP/aria-bundle" packages --version "$VERSION" \
             --out npm/platforms "${ARGS[@]}"
 
       - name: Require npm publishing token

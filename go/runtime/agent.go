@@ -89,15 +89,22 @@ func eventParams(params map[string]any) map[string]any {
 }
 
 type agentHooks struct {
-	emit    func(string, map[string]any)
-	approve func(context.Context, string, map[string]any, fileChange) (bool, string, error)
-	apply   func(context.Context, string, fileChange) toolResult
-	stage   func(context.Context, string, fileChange) toolResult
+	referenceImages *[]*genai.Part
+	emit            func(string, map[string]any)
+	approve         func(context.Context, string, map[string]any, fileChange) (bool, string, error)
+	apply           func(context.Context, string, fileChange) toolResult
+	stage           func(context.Context, string, fileChange) toolResult
 	// Evidence records applied effects, not merely staged proposals.
 	evidence *turnEvidence
 }
 
 func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, contents []*genai.Content, prompt string, hooks agentHooks) ([]*genai.Content, string, error) {
+	var referenceImages []*genai.Part
+	hooks.referenceImages = &referenceImages
+	references, err := resolveReferences(ctx, s, prompt, hooks, c)
+	if err != nil {
+		return contents, "", err
+	}
 	contents = settlePending(contents)
 	system := "You are Aria, Arthera's assistant. Answer in the user's language. Never refer to internal agent role names."
 	tools := nativeTools()
@@ -157,7 +164,9 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 			hooks.evidence.contract = contract.Render()
 		}
 	}
-	contents = append(contents, genai.NewContentFromText(request, genai.RoleUser))
+	userContent := genai.NewContentFromText(request+references, genai.RoleUser)
+	userContent.Parts = append(userContent.Parts, referenceImages...)
+	contents = append(contents, userContent)
 	var answer strings.Builder
 	budget := c.number("max_tool_rounds", 20)
 	if budget < 1 {

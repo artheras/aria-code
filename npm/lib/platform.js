@@ -64,7 +64,7 @@ function packageNameFor(key, name = "aria-code-bin") {
  * The package carries a PyInstaller --onedir build: the executable sits in a
  * directory beside its _internal/ libraries. A --onefile binary unpacked ~400
  * libraries to a fresh temp directory on every launch and macOS re-scanned
- * each one, so every command took 90 s; see scripts/package_onedir.py.
+ * each one, so every command took 90 s; see go/buildtools/README.md.
  */
 function binaryRequestFor(key, name = "aria-code-bin") {
   const platform = key.split("-")[0];

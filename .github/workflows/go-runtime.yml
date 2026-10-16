@@ -9,6 +9,7 @@ on:
       - 'tests/test_native_training_compare.py'
       - 'tests/test_native_training_dataset.py'
       - 'tests/test_native_go_app.py'
+      - 'tests/test_native_session_export.py'
       - 'tests/test_native_go_bridge.py'
       - 'tests/test_native_go_stream.py'
       - 'tests/test_native_go_risk.py'
@@ -56,6 +57,7 @@ on:
       - 'tests/test_native_training_compare.py'
       - 'tests/test_native_training_dataset.py'
       - 'tests/test_native_go_app.py'
+      - 'tests/test_native_session_export.py'
       - 'tests/test_native_go_bridge.py'
       - 'tests/test_native_go_stream.py'
       - 'tests/test_native_go_risk.py'
@@ -146,5 +148,5 @@ jobs:
         run: |
           python -m pip install pytest pytest-timeout PyYAML pyte
           set -o pipefail
-          python -m pytest tests/test_native_runtime_domain.py tests/test_native_training_compare.py tests/test_native_training_dataset.py tests/test_native_go_app.py tests/test_native_go_bridge.py tests/test_native_go_stream.py tests/test_native_go_risk.py tests/test_native_go_contract.py tests/test_native_go_delivery.py tests/test_native_go_review.py tests/test_native_go_acceptance.py tests/test_native_go_providers.py tests/test_native_eval_trajectories.py tests/test_native_checkpoints.py -q --timeout=60 --tb=short -rf 2>&1 | tee "$RUNNER_TEMP/pytest.log" \
+          python -m pytest tests/test_native_runtime_domain.py tests/test_native_training_compare.py tests/test_native_training_dataset.py tests/test_native_go_app.py tests/test_native_session_export.py tests/test_native_go_bridge.py tests/test_native_go_stream.py tests/test_native_go_risk.py tests/test_native_go_contract.py tests/test_native_go_delivery.py tests/test_native_go_review.py tests/test_native_go_acceptance.py tests/test_native_go_providers.py tests/test_native_eval_trajectories.py tests/test_native_checkpoints.py -q --timeout=60 --tb=short -rf 2>&1 | tee "$RUNNER_TEMP/pytest.log" \
             || { .github/scripts/annotate-failure.sh pytest "$RUNNER_TEMP/pytest.log" 120; exit 1; }

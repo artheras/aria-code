@@ -104,9 +104,9 @@ class ThePlatformKeyMatchesTheOnesWePublish(unittest.TestCase):
                 self.assertEqual(doctor.npm_platform_key(system, machine), expected)
 
     def test_the_keys_match_the_package_generator(self) -> None:
-        gen = (ROOT / "scripts" / "make_platform_packages.py").read_text(encoding="utf-8")
-        match = re.search(r"PLATFORM_KEYS = \(([^)]*)\)", gen)
-        self.assertIsNotNone(match, "make_platform_packages.py has no PLATFORM_KEYS")
+        gen = (ROOT / "go" / "buildtools" / "packages.go").read_text(encoding="utf-8")
+        match = re.search(r"platformKeys = \[\]string\{([^}]*)\}", gen)
+        self.assertIsNotNone(match, "packages.go has no platformKeys")
         published = set(re.findall(r'"([a-z0-9-]+)"', match.group(1)))
         produced = {v for v in self.CASES.values() if v}
         self.assertEqual(
