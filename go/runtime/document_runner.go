@@ -102,7 +102,11 @@ func runDocumentTool(ctx context.Context, name string, args []string, input []by
 		return nil, errors.New("document conversion exceeds output limit")
 	}
 	if err != nil {
-		return nil, errors.New(name + " failed; check document, language data and sandbox availability")
+		detail := strings.TrimSpace(string(stderr.Bytes()))
+		if len(detail) > 300 {
+			detail = detail[:300]
+		}
+		return nil, errors.New(name + " failed (" + err.Error() + "; " + detail + "); check document, language data and sandbox availability")
 	}
 	return out.Bytes(), nil
 }
