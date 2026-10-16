@@ -283,7 +283,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
         }
         let first = waiting.lines().next().unwrap_or("");
         let more = waiting.lines().count().saturating_sub(1);
-        let extra = if more > 0 { format!(" (+{more})") } else { String::new() };
+        let extra = if more > 0 {
+            format!(" (+{more})")
+        } else {
+            String::new()
+        };
         lines.push(Line::styled(
             format!("› {first}{extra} · {}", app.tr("queued", "排队中")),
             Style::new().fg(p.muted),
@@ -341,7 +345,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let hint = if !app.ready {
         app.tr(" Starting… ", " 正在启动… ")
     } else if busy {
-        app.tr(" Enter queues · sent when this task ends ", " Enter 排队 · 任务结束后自动发送 ")
+        app.tr(
+            " Enter queues · sent when this task ends ",
+            " Enter 排队 · 任务结束后自动发送 ",
+        )
     } else if area.width >= 60 {
         app.tr(
             " Enter send · Ctrl+J newline ",
@@ -369,7 +376,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let first = usize::from(cursor.0).saturating_sub(inside.height.saturating_sub(1) as usize);
     if app.editor.is_empty() {
         let placeholder = if busy {
-            app.tr("Type your next message — Enter queues it…", "可以先写下一条消息，Enter 排队…")
+            app.tr(
+                "Type your next message — Enter queues it…",
+                "可以先写下一条消息，Enter 排队…",
+            )
         } else {
             app.tr(
                 "Describe a task, or type / for commands",
@@ -863,11 +873,20 @@ mod tests {
         assert!(!rendered.contains("手动发送"));
 
         app.editor.insert("下一条消息");
-        assert!(app.submit().is_none(), "nothing is sent while the turn runs");
-        assert!(app.editor.is_empty(), "the box is free for the message after");
+        assert!(
+            app.submit().is_none(),
+            "nothing is sent while the turn runs"
+        );
+        assert!(
+            app.editor.is_empty(),
+            "the box is free for the message after"
+        );
         assert_eq!(app.queued.len(), 1);
         terminal.draw(|f| draw(f, &app)).unwrap();
-        assert!(display(&terminal).contains("排队中"), "a waiting message stays visible");
+        assert!(
+            display(&terminal).contains("排队中"),
+            "a waiting message stays visible"
+        );
     }
     #[test]
     fn the_status_line_shows_the_mascots_eye_only_while_a_turn_runs() {

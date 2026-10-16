@@ -709,7 +709,10 @@ mod tests {
         assert!(a.queued.is_empty());
         assert_eq!(a.editor.text(), "second\nthird\ntyping");
         complete(&mut a, "turn-1");
-        assert!(a.next_queued().is_none(), "nothing is sent without another Enter");
+        assert!(
+            a.next_queued().is_none(),
+            "nothing is sent without another Enter"
+        );
     }
 
     #[test]
@@ -727,7 +730,10 @@ mod tests {
         }))
         .unwrap();
         assert!(a.dialog.is_some(), "the question is open");
-        assert!(a.next_queued().is_none(), "a message must not go out under it");
+        assert!(
+            a.next_queued().is_none(),
+            "a message must not go out under it"
+        );
         assert_eq!(a.queued.len(), 1, "and it is still waiting");
 
         complete(&mut a, "turn-1");
