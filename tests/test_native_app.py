@@ -415,7 +415,7 @@ def test_real_terminal_paste_approval_resize_cancel_and_restore(application, ent
         assert screen.buffer[1][0].data == "▌"
         assert screen.buffer[1][8].data == "▐"
         for col in (1, 3, 5, 7):
-            assert screen.buffer[3][col].bg == "cfc4b7"
+            assert screen.buffer[3][col].bg == "d5ccc3"
         os.write(master, b"\x1b[200~Remember apricot\n\x1b[201~")
         wait("Remember apricot")
         os.write(master, b"\r")
