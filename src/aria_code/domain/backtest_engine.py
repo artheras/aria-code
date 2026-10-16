@@ -17,10 +17,11 @@ testable offline; ``load_bars`` bridges to DataService for real runs.
 
 from __future__ import annotations
 
-import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
+
+from aria_code.domain import performance_stats as stats
 
 
 @dataclass
@@ -98,27 +99,16 @@ class BacktestResult:
     benchmark: Dict[str, Any]
 
 
-def _sharpe(returns: List[float], periods: int = 252) -> float:
-    if len(returns) < 2:
-        return 0.0
-    mean = sum(returns) / len(returns)
-    var = sum((r - mean) ** 2 for r in returns) / (len(returns) - 1)
-    std = math.sqrt(var)
-    return (mean / std) * math.sqrt(periods) if std > 0 else 0.0
-
-
-def _max_drawdown(equity: List[float]) -> float:
-    peak = equity[0] if equity else 0.0
-    mdd = 0.0
-    for v in equity:
-        peak = max(peak, v)
-        if peak > 0:
-            mdd = min(mdd, v / peak - 1.0)
-    return mdd
-
-
 def _metrics(equity_curve: List[Dict[str, Any]], trades: List[Dict[str, Any]],
-             periods: int = 252) -> Dict[str, Any]:
+             periods: Optional[int] = None) -> Dict[str, Any]:
+    """Headline statistics for a run.
+
+    `periods` is the caller's own periods-per-year when they gave one, and then
+    behaves exactly as it always did. Left out, the span comes from the equity
+    curve's dates (see performance_stats), so a year of weekly bars and a year
+    of daily bars both annualize to a year. A curve whose dates cannot be read
+    falls back to 252, the old behaviour.
+    """
     eq = [pt["equity"] for pt in equity_curve]
     if len(eq) < 2 or eq[0] <= 0:
         return {"total_return": 0.0, "annual_return": 0.0, "sharpe": 0.0,
@@ -126,14 +116,23 @@ def _metrics(equity_curve: List[Dict[str, Any]], trades: List[Dict[str, Any]],
     rets = [eq[i] / eq[i - 1] - 1 for i in range(1, len(eq)) if eq[i - 1] > 0]
     total = eq[-1] / eq[0] - 1
     n = len(eq)
-    annual = (1 + total) ** (periods / n) - 1 if n > 0 else 0.0
+    years = stats.span_years(equity_curve[0].get("date"), equity_curve[-1].get("date"))
+    if periods is not None:
+        sharpe_periods = periods
+        annual = -1.0 if total <= -1 else (1 + total) ** (periods / n) - 1
+    elif years is not None:
+        sharpe_periods = len(rets) / years
+        annual = stats.annualized_return(total, years)
+    else:
+        sharpe_periods = stats.FALLBACK_PERIODS_PER_YEAR
+        annual = -1.0 if total <= -1 else (1 + total) ** (sharpe_periods / n) - 1
     sells = [t for t in trades if t["side"] == "sell"]
     wins = [t for t in sells if t.get("realized_pnl", 0) > 0]
     return {
         "total_return": round(total, 6),
         "annual_return": round(annual, 6),
-        "sharpe": round(_sharpe(rets, periods), 4),
-        "max_drawdown": round(_max_drawdown(eq), 6),
+        "sharpe": round(stats.sharpe(rets, sharpe_periods), 4),
+        "max_drawdown": round(stats.max_drawdown(eq), 6),
         "n_trades": len(trades),
         "win_rate": round(len(wins) / len(sells), 4) if sells else 0.0,
     }
@@ -142,11 +141,12 @@ def _metrics(equity_curve: List[Dict[str, Any]], trades: List[Dict[str, Any]],
 class BacktestEngine:
     def __init__(self, *, starting_cash: float = 100_000.0,
                  commission: float = 0.0005, slippage: float = 0.0005,
-                 periods_per_year: int = 252):
+                 periods_per_year: Optional[int] = None):
         self.starting_cash = float(starting_cash)
         self.commission = float(commission)
         self.slippage = float(slippage)
-        self.periods_per_year = int(periods_per_year)
+        # None: read it from the data's dates. A number: the caller knows their data.
+        self.periods_per_year = None if periods_per_year is None else int(periods_per_year)
 
     def run(self, data: Dict[str, List[Bar]], strategy: Strategy) -> BacktestResult:
         symbols = list(data.keys())

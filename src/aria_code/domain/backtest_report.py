@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from aria_code.artifacts import create_user_artifact, write_artifact_metadata, write_artifact_raw_data
 from aria_code.data_service import DataService
+from aria_code.domain import performance_stats as stats
 
 
 @dataclass(frozen=True)
@@ -125,26 +126,6 @@ def _signals(strategy: str, closes: Sequence[float], fast: int, slow: int, momen
     return [1 if i >= period and closes[i] > closes[i - period] else 0 for i in range(n)]
 
 
-def _max_drawdown(values: Sequence[float]) -> float:
-    if not values:
-        return 0.0
-    peak = values[0]
-    worst = 0.0
-    for value in values:
-        peak = max(peak, value)
-        if peak > 0:
-            worst = min(worst, value / peak - 1.0)
-    return worst
-
-
-def _stddev(values: Sequence[float]) -> float:
-    if len(values) < 2:
-        return 0.0
-    mean = sum(values) / len(values)
-    variance = sum((v - mean) ** 2 for v in values) / (len(values) - 1)
-    return math.sqrt(max(variance, 0.0))
-
-
 def run_backtest_from_history(history: Sequence[Dict[str, Any]], config: BacktestConfig) -> Dict[str, Any]:
     rows = _clean_history_rows(history, config.start_date, config.end_date)
     min_bars = max(30, min(max(config.slow_period, config.momentum_period) + 2, 80))
@@ -192,11 +173,17 @@ def run_backtest_from_history(history: Sequence[Dict[str, Any]], config: Backtes
 
     total_return = equity[-1] / initial - 1.0
     benchmark_return = benchmark[-1] / initial - 1.0
-    span_days = max((_parse_date(dates[-1]) - _parse_date(dates[0])).days if _parse_date(dates[-1]) and _parse_date(dates[0]) else len(rows), 1)
-    years = max(span_days / 365.25, 1 / 252)
-    annualized_return = (1.0 + total_return) ** (1.0 / years) - 1.0 if total_return > -1 else -1.0
-    volatility = _stddev(daily_strategy_returns[1:]) * math.sqrt(252)
-    sharpe = (sum(daily_strategy_returns[1:]) / max(len(daily_strategy_returns) - 1, 1)) / _stddev(daily_strategy_returns[1:]) * math.sqrt(252) if _stddev(daily_strategy_returns[1:]) > 0 else 0.0
+    rets = daily_strategy_returns[1:]
+    years = stats.span_years(dates[0], dates[-1])
+    if years is None:
+        # Undatable rows: count bars as days, the long-standing fallback.
+        years = max(len(rows) / stats.DAYS_PER_YEAR, stats.MIN_YEARS)
+        periods_per_year = float(stats.FALLBACK_PERIODS_PER_YEAR)
+    else:
+        periods_per_year = len(rets) / years
+    annualized_return = stats.annualized_return(total_return, years)
+    volatility = stats.stddev(rets) * math.sqrt(periods_per_year)
+    sharpe = stats.sharpe(rets, periods_per_year)
     if entry_equity:
         trade_results.append(equity[-1] / entry_equity - 1.0)   # still open: marked at the last close
     # Winning trades over trades. This was the share of up days while holding,
@@ -228,8 +215,8 @@ def run_backtest_from_history(history: Sequence[Dict[str, Any]], config: Backtes
         "benchmark_return": round(benchmark_return, 6),
         "buy_hold_return": round(benchmark_return, 6),
         "alpha": round(total_return - benchmark_return, 6),
-        "max_drawdown": round(_max_drawdown(equity), 6),
-        "benchmark_max_drawdown": round(_max_drawdown(benchmark), 6),
+        "max_drawdown": round(stats.max_drawdown(equity), 6),
+        "benchmark_max_drawdown": round(stats.max_drawdown(benchmark), 6),
         "annual_volatility": round(volatility, 6),
         "sharpe_ratio": round(sharpe, 4),
         "win_rate": round(win_rate, 4),

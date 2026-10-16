@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"reflect"
 	"testing"
@@ -27,6 +28,11 @@ func TestBacktestParityFixturesFromExistingPythonEngine(t *testing.T) {
 			got, err := runBacktest(f.Input)
 			if err != nil {
 				t.Fatal(err)
+			}
+			// Annualizing a two-day run compounds to ~1e14, where Go's math.Pow and
+			// C's pow differ in the last digit. Everything else must match exactly.
+			if want := f.Expected.Metrics.AnnualReturn; math.Abs(got.Metrics.AnnualReturn-want) <= 1e-12*math.Abs(want) {
+				got.Metrics.AnnualReturn = want
 			}
 			if !reflect.DeepEqual(got, f.Expected) {
 				a, _ := json.Marshal(got)

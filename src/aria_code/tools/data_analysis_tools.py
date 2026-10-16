@@ -485,7 +485,7 @@ def calc_correlation_matrix(params: dict) -> dict:
                 continue
             stats[sym] = {
                 "return_total": round((s.iloc[-1]/s.iloc[0] - 1)*100, 2),
-                "volatility":   round(float(r.std() * np.sqrt(252) * 100), 2) if len(r) > 1 else None,
+                "volatility":   round(_annual_vol(r) * 100, 2) if len(r) > 1 else None,
                 "sharpe":       _calc_sharpe(r),
                 "max_drawdown": round(_max_drawdown(s) * 100, 2),
             }
@@ -586,7 +586,7 @@ def portfolio_backtest(params: dict) -> dict:
             port_cum = (1 + port_rets_w).cumprod()
 
         total_return = float(port_cum.iloc[-1] - 1) * 100
-        annual_vol   = float(port_rets_w.std() * np.sqrt(252 if freq else 252) * 100)
+        annual_vol   = _annual_vol(port_rets_w) * 100
         sharpe       = _calc_sharpe(port_rets_w)
         max_dd       = round(_max_drawdown(port_cum) * 100, 2)
 
@@ -598,7 +598,7 @@ def portfolio_backtest(params: dict) -> dict:
             bench_stats = {
                 "symbol":     benchmark,
                 "total_return": round((float(b_cum.iloc[-1]) - 1)*100, 2),
-                "volatility": round(float(bench_rets.std() * np.sqrt(252) * 100), 2),
+                "volatility": round(_annual_vol(bench_rets) * 100, 2),
                 "sharpe":     _calc_sharpe(bench_rets),
                 "max_drawdown": round(_max_drawdown(b_cum) * 100, 2),
             }
@@ -785,6 +785,28 @@ def load_csv_data(params: dict) -> dict:
 
 # ── Private Helpers ───────────────────────────────────────────────────────────
 
+def _periods_per_year(rets) -> float:
+    """Observations a year in this return series, read from its index.
+
+    Monthly-rebalanced portfolio returns are monthly, so scaling them by
+    sqrt(252) overstated volatility and Sharpe about 4.6x. An index that is not
+    dates falls back to 252 (daily), the old assumption.
+    """
+    from aria_code.domain import performance_stats as stats
+
+    try:
+        idx = rets.index
+        # N dated returns span N - 1 intervals.
+        found = stats.periods_per_year_from_dates(len(rets) - 1, idx[0], idx[-1])
+    except Exception:
+        found = None
+    return found if found else float(stats.FALLBACK_PERIODS_PER_YEAR)
+
+
+def _annual_vol(rets) -> float:
+    return float(rets.std() * np.sqrt(_periods_per_year(rets)))
+
+
 def _calc_sharpe(rets, rf_daily: float = 0.0) -> Optional[float]:
     if not _HAS_NP or not hasattr(rets, "__len__") or len(rets) < 2:
         return None
@@ -792,7 +814,7 @@ def _calc_sharpe(rets, rf_daily: float = 0.0) -> Optional[float]:
         excess = rets - rf_daily
         if float(excess.std()) == 0:
             return None
-        return round(float(excess.mean() / excess.std() * np.sqrt(252)), 3)
+        return round(float(excess.mean() / excess.std() * np.sqrt(_periods_per_year(rets))), 3)
     except Exception:
         return None
 

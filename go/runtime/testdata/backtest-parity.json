@@ -134,8 +134,8 @@
       ],
       "metrics": {
         "total_return": 0.2,
-        "annual_return": 4479448.738825,
-        "sharpe": 11.225,
+        "annual_return": 288718796973501.2,
+        "sharpe": 13.5139,
         "max_drawdown": 0.0,
         "n_trades": 1,
         "win_rate": 0.0
@@ -213,8 +213,8 @@
       ],
       "metrics": {
         "total_return": 0.176355,
-        "annual_return": 841847.4073,
-        "sharpe": 11.225,
+        "annual_return": 7622428044362.649,
+        "sharpe": 13.5139,
         "max_drawdown": 0.0,
         "n_trades": 1,
         "win_rate": 0.0
@@ -387,8 +387,8 @@
       ],
       "metrics": {
         "total_return": -0.428571,
-        "annual_return": -0.999999,
-        "sharpe": -5.0775,
+        "annual_return": -1.0,
+        "sharpe": -6.1129,
         "max_drawdown": -0.5,
         "n_trades": 2,
         "win_rate": 0.0
@@ -517,8 +517,8 @@
       ],
       "metrics": {
         "total_return": -0.1,
-        "annual_return": -0.995059,
-        "sharpe": -4.0555,
+        "annual_return": -0.999934,
+        "sharpe": -4.8825,
         "max_drawdown": -0.15,
         "n_trades": 1,
         "win_rate": 0.0
@@ -672,8 +672,8 @@
       ],
       "metrics": {
         "total_return": 0.090909,
-        "annual_return": 1492.616437,
-        "sharpe": 11.225,
+        "annual_return": 7964083.628919,
+        "sharpe": 13.5139,
         "max_drawdown": 0.0,
         "n_trades": 1,
         "win_rate": 0.0
@@ -1137,8 +1137,8 @@
       ],
       "metrics": {
         "total_return": 0.076367,
-        "annual_return": 0.698696,
-        "sharpe": 2.4363,
+        "annual_return": 1.204654,
+        "sharpe": 2.9331,
         "max_drawdown": -0.085858,
         "n_trades": 1,
         "win_rate": 0.0
@@ -1920,8 +1920,8 @@
       ],
       "metrics": {
         "total_return": -0.008473,
-        "annual_return": -0.059424,
-        "sharpe": -0.6025,
+        "annual_return": -0.087352,
+        "sharpe": -0.7253,
         "max_drawdown": -0.019986,
         "n_trades": 7,
         "win_rate": 0.3333
@@ -2951,8 +2951,8 @@
       ],
       "metrics": {
         "total_return": -0.043865,
-        "annual_return": -0.276001,
-        "sharpe": -2.1245,
+        "annual_return": -0.382376,
+        "sharpe": -2.5577,
         "max_drawdown": -0.056836,
         "n_trades": 3,
         "win_rate": 0.0
@@ -3450,8 +3450,8 @@
       ],
       "metrics": {
         "total_return": -0.030751,
-        "annual_return": -0.201388,
-        "sharpe": -0.9783,
+        "annual_return": -0.28504,
+        "sharpe": -1.1778,
         "max_drawdown": -0.056807,
         "n_trades": 5,
         "win_rate": 0.5
@@ -4190,8 +4190,8 @@
       ],
       "metrics": {
         "total_return": -0.038831,
-        "annual_return": -0.248105,
-        "sharpe": -1.7787,
+        "annual_return": -0.346535,
+        "sharpe": -2.1414,
         "max_drawdown": -0.047967,
         "n_trades": 2,
         "win_rate": 0.0
@@ -5307,8 +5307,8 @@
       ],
       "metrics": {
         "total_return": 0.040331,
-        "annual_return": 0.32934,
-        "sharpe": 3.0936,
+        "annual_return": 0.529218,
+        "sharpe": 3.7244,
         "max_drawdown": -0.020755,
         "n_trades": 13,
         "win_rate": 0.6667
@@ -5772,8 +5772,8 @@
       ],
       "metrics": {
         "total_return": 0.113931,
-        "annual_return": 1.174602,
-        "sharpe": 3.1557,
+        "annual_return": 2.187002,
+        "sharpe": 3.7991,
         "max_drawdown": -0.060216,
         "n_trades": 1,
         "win_rate": 0.0
@@ -6598,8 +6598,8 @@
       ],
       "metrics": {
         "total_return": -0.093882,
-        "annual_return": -0.508267,
-        "sharpe": -7.3474,
+        "annual_return": -0.653224,
+        "sharpe": -8.8456,
         "max_drawdown": -0.093882,
         "n_trades": 12,
         "win_rate": 0.0
@@ -7629,8 +7629,8 @@
       ],
       "metrics": {
         "total_return": -0.057142,
-        "annual_return": -0.345342,
-        "sharpe": -2.2741,
+        "annual_return": -0.468519,
+        "sharpe": -2.7378,
         "max_drawdown": -0.085892,
         "n_trades": 3,
         "win_rate": 0.0
@@ -8120,8 +8120,8 @@
       ],
       "metrics": {
         "total_return": -0.014324,
-        "annual_return": -0.098662,
-        "sharpe": -1.424,
+        "annual_return": -0.143572,
+        "sharpe": -1.7143,
         "max_drawdown": -0.022721,
         "n_trades": 4,
         "win_rate": 0.0
@@ -8860,8 +8860,8 @@
       ],
       "metrics": {
         "total_return": 0.032809,
-        "annual_return": 0.261666,
-        "sharpe": 1.4051,
+        "annual_return": 0.414531,
+        "sharpe": 1.6916,
         "max_drawdown": -0.068395,
         "n_trades": 2,
         "win_rate": 0.0
@@ -9934,8 +9934,8 @@
       ],
       "metrics": {
         "total_return": 0.065149,
-        "annual_return": 0.575272,
-        "sharpe": 4.4662,
+        "annual_return": 0.969977,
+        "sharpe": 5.3769,
         "max_drawdown": -0.018378,
         "n_trades": 8,
         "win_rate": 0.6667
@@ -10399,8 +10399,8 @@
       ],
       "metrics": {
         "total_return": 0.041794,
-        "annual_return": 0.342855,
-        "sharpe": 1.4069,
+        "annual_return": 0.552471,
+        "sharpe": 1.6938,
         "max_drawdown": -0.0552,
         "n_trades": 1,
         "win_rate": 0.0
@@ -11165,8 +11165,8 @@
       ],
       "metrics": {
         "total_return": -0.013538,
-        "annual_return": -0.093479,
-        "sharpe": -0.7651,
+        "annual_return": -0.136214,
+        "sharpe": -0.9211,
         "max_drawdown": -0.049305,
         "n_trades": 5,
         "win_rate": 0.5
@@ -12196,8 +12196,8 @@
       ],
       "metrics": {
         "total_return": 0.04838,
-        "annual_return": 0.405189,
-        "sharpe": 2.1164,
+        "annual_return": 0.661213,
+        "sharpe": 2.548,
         "max_drawdown": -0.039922,
         "n_trades": 3,
         "win_rate": 0.0
@@ -12687,8 +12687,8 @@
       ],
       "metrics": {
         "total_return": 0.041496,
-        "annual_return": 0.340092,
-        "sharpe": 1.8301,
+        "annual_return": 0.547709,
+        "sharpe": 2.2033,
         "max_drawdown": -0.044136,
         "n_trades": 4,
         "win_rate": 0.5
@@ -13427,8 +13427,8 @@
       ],
       "metrics": {
         "total_return": -0.149652,
-        "annual_return": -0.688761,
-        "sharpe": -6.5594,
+        "annual_return": -0.824741,
+        "sharpe": -7.8969,
         "max_drawdown": -0.149652,
         "n_trades": 2,
         "win_rate": 0.0
@@ -14552,8 +14552,8 @@
       ],
       "metrics": {
         "total_return": 0.075921,
-        "annual_return": 0.693637,
-        "sharpe": 3.9134,
+        "annual_return": 1.194864,
+        "sharpe": 4.7114,
         "max_drawdown": -0.030965,
         "n_trades": 14,
         "win_rate": 0.3333
@@ -15017,8 +15017,8 @@
       ],
       "metrics": {
         "total_return": 0.033379,
-        "annual_return": 0.266687,
-        "sharpe": 1.0739,
+        "annual_return": 0.422939,
+        "sharpe": 1.2929,
         "max_drawdown": -0.121595,
         "n_trades": 1,
         "win_rate": 0.0
@@ -15826,8 +15826,8 @@
       ],
       "metrics": {
         "total_return": -0.042933,
-        "annual_return": -0.270905,
-        "sharpe": -2.5852,
+        "annual_return": -0.375878,
+        "sharpe": -3.1123,
         "max_drawdown": -0.055654,
         "n_trades": 10,
         "win_rate": 0.4
@@ -16857,8 +16857,8 @@
       ],
       "metrics": {
         "total_return": 0.041519,
-        "annual_return": 0.340305,
-        "sharpe": 2.1115,
+        "annual_return": 0.548075,
+        "sharpe": 2.5421,
         "max_drawdown": -0.027017,
         "n_trades": 3,
         "win_rate": 0.0
@@ -17339,8 +17339,8 @@
       ],
       "metrics": {
         "total_return": 0.097192,
-        "annual_return": 0.950008,
-        "sharpe": 3.2335,
+        "annual_return": 1.708596,
+        "sharpe": 3.8929,
         "max_drawdown": -0.043498,
         "n_trades": 3,
         "win_rate": 0.0
@@ -18079,8 +18079,8 @@
       ],
       "metrics": {
         "total_return": -0.055063,
-        "annual_return": -0.33488,
-        "sharpe": -2.0262,
+        "annual_return": -0.455797,
+        "sharpe": -2.4394,
         "max_drawdown": -0.119756,
         "n_trades": 2,
         "win_rate": 0.0
@@ -19187,8 +19187,8 @@
       ],
       "metrics": {
         "total_return": -0.044306,
-        "annual_return": -0.278403,
-        "sharpe": -4.456,
+        "annual_return": -0.385431,
+        "sharpe": -5.3646,
         "max_drawdown": -0.051009,
         "n_trades": 12,
         "win_rate": 0.2
@@ -19652,8 +19652,8 @@
       ],
       "metrics": {
         "total_return": 0.014481,
-        "annual_return": 0.109064,
-        "sharpe": 0.5076,
+        "annual_return": 0.167017,
+        "sharpe": 0.6111,
         "max_drawdown": -0.072611,
         "n_trades": 1,
         "win_rate": 0.0
@@ -20461,8 +20461,8 @@
       ],
       "metrics": {
         "total_return": -0.087274,
-        "annual_return": -0.481856,
-        "sharpe": -5.0567,
+        "annual_return": -0.62507,
+        "sharpe": -6.0879,
         "max_drawdown": -0.097967,
         "n_trades": 10,
         "win_rate": 0.2
@@ -21492,8 +21492,8 @@
       ],
       "metrics": {
         "total_return": -0.002399,
-        "annual_return": -0.017148,
-        "sharpe": -0.0324,
+        "annual_return": -0.025478,
+        "sharpe": -0.0391,
         "max_drawdown": -0.044681,
         "n_trades": 3,
         "win_rate": 0.0
@@ -21974,8 +21974,8 @@
       ],
       "metrics": {
         "total_return": -0.019033,
-        "annual_return": -0.129213,
-        "sharpe": -1.0863,
+        "annual_return": -0.186521,
+        "sharpe": -1.3078,
         "max_drawdown": -0.035595,
         "n_trades": 3,
         "win_rate": 0.0
@@ -22714,8 +22714,8 @@
       ],
       "metrics": {
         "total_return": -0.017336,
-        "annual_return": -0.118312,
-        "sharpe": -0.6401,
+        "annual_return": -0.17128,
+        "sharpe": -0.7706,
         "max_drawdown": -0.077749,
         "n_trades": 2,
         "win_rate": 0.0
@@ -23805,8 +23805,8 @@
       ],
       "metrics": {
         "total_return": -0.001789,
-        "annual_return": -0.012811,
-        "sharpe": -0.1408,
+        "annual_return": -0.019055,
+        "sharpe": -0.1696,
         "max_drawdown": -0.020628,
         "n_trades": 10,
         "win_rate": 0.25
@@ -24270,8 +24270,8 @@
       ],
       "metrics": {
         "total_return": 0.062525,
-        "annual_return": 0.547537,
-        "sharpe": 1.7411,
+        "annual_return": 0.918453,
+        "sharpe": 2.0961,
         "max_drawdown": -0.089576,
         "n_trades": 1,
         "win_rate": 0.0
@@ -25078,8 +25078,8 @@
       ],
       "metrics": {
         "total_return": -0.015272,
-        "annual_return": -0.104885,
-        "sharpe": -1.0387,
+        "annual_return": -0.152379,
+        "sharpe": -1.2505,
         "max_drawdown": -0.04961,
         "n_trades": 10,
         "win_rate": 0.25
@@ -26109,8 +26109,8 @@
       ],
       "metrics": {
         "total_return": -0.061588,
-        "annual_return": -0.367245,
-        "sharpe": -3.3687,
+        "annual_return": -0.494832,
+        "sharpe": -4.0556,
         "max_drawdown": -0.080398,
         "n_trades": 3,
         "win_rate": 0.0
@@ -26617,8 +26617,8 @@
       ],
       "metrics": {
         "total_return": -0.014411,
-        "annual_return": -0.099239,
-        "sharpe": -0.5239,
+        "annual_return": -0.14439,
+        "sharpe": -0.6307,
         "max_drawdown": -0.041568,
         "n_trades": 6,
         "win_rate": 0.3333
@@ -27357,8 +27357,8 @@
       ],
       "metrics": {
         "total_return": 0.018445,
-        "annual_return": 0.140642,
-        "sharpe": 0.8337,
+        "annual_return": 0.216938,
+        "sharpe": 1.0037,
         "max_drawdown": -0.053405,
         "n_trades": 2,
         "win_rate": 0.0
@@ -28465,8 +28465,8 @@
       ],
       "metrics": {
         "total_return": -0.010388,
-        "annual_return": -0.072428,
-        "sharpe": -0.7408,
+        "annual_return": -0.106115,
+        "sharpe": -0.8918,
         "max_drawdown": -0.028117,
         "n_trades": 12,
         "win_rate": 0.4
@@ -28930,8 +28930,8 @@
       ],
       "metrics": {
         "total_return": 0.057803,
-        "annual_return": 0.498697,
-        "sharpe": 1.6342,
+        "annual_return": 0.82882,
+        "sharpe": 1.9674,
         "max_drawdown": -0.059191,
         "n_trades": 1,
         "win_rate": 0.0
@@ -29730,8 +29730,8 @@
       ],
       "metrics": {
         "total_return": -0.0367,
-        "annual_return": -0.236015,
-        "sharpe": -2.2324,
+        "annual_return": -0.330796,
+        "sharpe": -2.6876,
         "max_drawdown": -0.053494,
         "n_trades": 9,
         "win_rate": 0.25
@@ -30761,8 +30761,8 @@
       ],
       "metrics": {
         "total_return": 0.030282,
-        "annual_return": 0.239609,
-        "sharpe": 1.4361,
+        "annual_return": 0.377793,
+        "sharpe": 1.7289,
         "max_drawdown": -0.042034,
         "n_trades": 3,
         "win_rate": 0.0
@@ -31277,8 +31277,8 @@
       ],
       "metrics": {
         "total_return": -0.061888,
-        "annual_return": -0.368705,
-        "sharpe": -2.6489,
+        "annual_return": -0.496569,
+        "sharpe": -3.1891,
         "max_drawdown": -0.061888,
         "n_trades": 7,
         "win_rate": 0.3333
