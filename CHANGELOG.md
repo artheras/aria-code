@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.158.0] — 2026-10-16
+
+- Enter while a turn runs queues the message (#209)
+
 ## [0.157.0] — 2026-10-16
 
 - Lead a conversation with markers, not name lines (#208)
