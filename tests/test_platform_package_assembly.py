@@ -25,27 +25,21 @@ of the two shows up.
 
 from __future__ import annotations
 
-import importlib.util
 import pathlib
 import json
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 
 import yaml
+from native_packaging_support import fixture_archive, build_tool
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "build-native-binaries.yml"
 
-_spec = importlib.util.spec_from_file_location(
-    "package_onedir", ROOT / "scripts" / "package_onedir.py")
-package_onedir = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(package_onedir)
-
 # What each platform's two artifacts are called, as the upload steps name them.
-# Each artifact is the archive of a --onedir build (scripts/package_onedir.py).
+# Each artifact is the archive of a --onedir build.
 ARTIFACTS = {
     "darwin-arm64": ("aria-code-macos-arm64", "aria-code-bin.tar.gz",
                      "aria-code-mcp-macos-arm64", "aria-code-mcp-bin.tar.gz"),
@@ -83,19 +77,21 @@ def _assemble_script() -> str:
 def _run(script: str, built: pathlib.Path, *, capture_args: bool = True):
     """Run the step's script under GitHub's shell flags, in a sandbox."""
     work = built.parent
-    # The real step ends by invoking python; replace that call with an echo of
+    # The real step ends by invoking the Go packager; replace that call with an echo of
     # the arguments, so this tests the bash that builds them rather than
-    # re-testing make_platform_packages.py (which has its own tests).
+    # re-testing the native packager (which has its own tests).
     if capture_args:
         script = script.replace(
-            'python scripts/make_platform_packages.py --version "$VERSION" \\\n'
+            '"$RUNNER_TEMP/aria-bundle" packages --version "$VERSION" \\\n'
             '  --out npm/platforms "${ARGS[@]}"',
             'printf "ARG:%s\\n" "${ARGS[@]}"')
         # The folded-scalar form in YAML collapses the continuation; handle both.
         script = script.replace(
-            'python scripts/make_platform_packages.py --version "$VERSION" '
+            '"$RUNNER_TEMP/aria-bundle" packages --version "$VERSION" '
             '--out npm/platforms "${ARGS[@]}"',
             'printf "ARG:%s\\n" "${ARGS[@]}"')
+    else:
+        shutil.copy2(build_tool(), work / "aria-bundle")
     out = work / "github_output"
     out.touch()
     return subprocess.run(
@@ -103,6 +99,7 @@ def _run(script: str, built: pathlib.Path, *, capture_args: bool = True):
         cwd=work, capture_output=True, text=True, timeout=60,
         env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
              "INPUT_TAG": "v9.9.9", "GITHUB_REF_NAME": "v9.9.9",
+             "RUNNER_TEMP": str(work),
              "GITHUB_OUTPUT": str(out)},
     )
 
@@ -125,12 +122,22 @@ class _Fixture(unittest.TestCase):
             exe = build / (f"{name}.exe" if archive.endswith(".zip") else name)
             exe.write_bytes(b"\x7fELF")
             (self.built / directory).mkdir(parents=True, exist_ok=True)
-            produced = package_onedir.pack(build, self.built / directory,
+            produced = fixture_archive(build, self.built / directory,
                                            use_zip=archive.endswith(".zip"))
             assert produced.name == archive, (produced.name, archive)
 
 
 class AFullSetOfArtifactsAssembles(_Fixture):
+    def test_actual_workflow_builds_all_ten_packages_with_native_tool(self) -> None:
+        for platform in ARTIFACTS:
+            self.place(platform)
+        proc = _run(self.script, self.built, capture_args=False)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        packages = list((self.tmp / "npm" / "platforms").iterdir())
+        self.assertEqual(len(packages), 10)
+        for package in packages:
+            self.assertEqual(json.loads((package / "package.json").read_text())["version"], "9.9.9")
+
     def test_the_step_succeeds_and_passes_every_binary(self) -> None:
         for platform in ARTIFACTS:
             self.place(platform)
@@ -208,7 +215,7 @@ class PlatformPackagesAreSplit(_Fixture):
         for platform in ARTIFACTS:
             self.place(platform)
         out = self.tmp / "packages"
-        args = [sys.executable, str(ROOT / "scripts" / "make_platform_packages.py"),
+        args = [str(build_tool()), "packages",
                 "--version", "9.9.9", "--out", str(out)]
         for platform, (cli_dir, cli_file, mcp_dir, mcp_file) in ARTIFACTS.items():
             args += ["--binary", f"{platform}={self.built / cli_dir / cli_file}",

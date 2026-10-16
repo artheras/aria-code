@@ -20,6 +20,9 @@ impl Editor {
     pub fn is_empty(&self) -> bool {
         self.text.is_empty()
     }
+    pub fn at_end(&self) -> bool {
+        self.cursor == self.text.len()
+    }
     pub fn set(&mut self, text: &str) {
         self.clear();
         self.insert(text);

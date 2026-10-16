@@ -36,7 +36,7 @@ MAC_SCRIPT = ROOT / "scripts" / "build_native_binary.sh"
 EXPECTED_ENTRYPOINTS = {"aria_cli.py", "aria_mcp_server.py"}
 
 # A bare continuation argument, not a YAML path-filter list item or a helper
-# command such as `python scripts/verify_native_frontend.py`.
+# command such as `python scripts/pyinstaller_collect_args.py`.
 _PY_ARG = re.compile(r"[\w./${}]+\.py")
 
 
@@ -66,8 +66,8 @@ class EntryPointExtraction(unittest.TestCase):
     def test_path_filters_and_helper_commands_are_not_freeze_arguments(self):
         text = '''
       - 'src/aria_code/apps/cli/app_server.py'
-      - 'scripts/verify_native_frontend.py'
-        python scripts/verify_native_frontend.py
+      - 'scripts/pyinstaller_collect_args.py'
+        python scripts/pyinstaller_collect_args.py
         pyinstaller --onedir --name aria-code-bin
           src/aria_code/aria_cli.py
           "$PROJECT_ROOT/src/aria_code/aria_mcp_server.py" \\

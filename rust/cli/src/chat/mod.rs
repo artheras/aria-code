@@ -305,7 +305,19 @@ fn key_request(app: &mut App, key: KeyEvent) -> Option<Value> {
         KeyCode::Enter if !alt && !key.modifiers.contains(KeyModifiers::SHIFT) => {
             return app.submit()
         }
-        KeyCode::Tab => app.complete(),
+        KeyCode::Tab => {
+            if app.ready
+                && app.reference_completion
+                && app.turn.is_none()
+                && app.editor.at_end()
+                && app.editor.text().contains('@')
+            {
+                return Some(
+                    json!({"type":"completion.request","protocol":1,"session_id":app.session,"text":app.editor.text()}),
+                );
+            }
+            app.complete();
+        }
         KeyCode::PageUp => app.scroll = app.scroll.saturating_add(10),
         KeyCode::PageDown => app.scroll = app.scroll.saturating_sub(10),
         _ => edit(&mut app.editor, key),

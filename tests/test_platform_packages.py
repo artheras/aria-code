@@ -9,7 +9,6 @@ a filename without .exe is simply not found on Windows.
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import pathlib
@@ -17,32 +16,28 @@ import re
 import stat
 import tempfile
 import unittest
+import shutil
+
+from native_packaging_support import fixture_archive, run_tool
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts" / "make_platform_packages.py"
 JS_MODULE = ROOT / "npm" / "lib" / "platform.js"
 
 
-def _load():
-    spec = importlib.util.spec_from_file_location("make_platform_packages", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-mpp = _load()
-package_onedir = mpp.package_onedir
+GO_SOURCE = ROOT / "go" / "buildtools" / "packages.go"
 
 
 class KeysAgreeWithTheDispatcher(unittest.TestCase):
-    def test_python_and_javascript_list_the_same_platforms(self):
+    def test_go_and_javascript_list_the_same_platforms(self):
         """Two lists, one truth. A key in one and not the other ships a package
         the dispatcher never looks for, or looks for one nobody built."""
         js = JS_MODULE.read_text(encoding="utf-8")
         block = re.search(r"PLATFORM_KEYS = Object\.freeze\(\[(.*?)\]\)", js, re.S)
         self.assertIsNotNone(block, "could not find PLATFORM_KEYS in platform.js")
         from_js = tuple(re.findall(r'"([^"]+)"', block.group(1)))
-        self.assertEqual(from_js, mpp.PLATFORM_KEYS)
+        go = re.search(r'platformKeys = \[\]string\{([^}]*)\}', GO_SOURCE.read_text())
+        self.assertIsNotNone(go)
+        self.assertEqual(from_js, tuple(re.findall(r'"([^"]+)"', go.group(1))))
 
 
 def _onedir_archive(tmp: pathlib.Path, name: str, *, windows: bool = False,
@@ -70,18 +65,24 @@ def _onedir_archive(tmp: pathlib.Path, name: str, *, windows: bool = False,
         os.symlink("Python.framework/Versions/Current/Python", internal / "Python")
         if extra_link:
             os.symlink(extra_link[1], internal / extra_link[0])
-    return package_onedir.pack(root, tmp / "archives" / name, use_zip=windows)
+    return fixture_archive(root, tmp / "archives" / name, use_zip=windows)
 
 
 class GeneratedPackages(unittest.TestCase):
     def setUp(self):
         self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
         self.out = self.tmp / "platforms"
 
     def _build(self, key, mcp=False, **archive):
         name = "aria-code-mcp-bin" if mcp else "aria-code-bin"
         source = _onedir_archive(self.tmp, name, windows=key.startswith("win32"), **archive)
-        return mpp.build_one(key, "9.9.9", source, self.out, mcp=mcp)
+        other = "aria-code-bin" if mcp else "aria-code-mcp-bin"
+        peer = _onedir_archive(self.tmp, other, windows=key.startswith("win32"))
+        cli, server = (peer, source) if mcp else (source, peer)
+        run_tool("packages", "--version", "9.9.9", "--out", self.out,
+                 "--binary", f"{key}={cli}", "--mcp", f"{key}={server}")
+        return self.out / f"aria-code-{'mcp-' if mcp else ''}{key}"
 
     def test_windows_binaries_get_exe_and_nothing_else_does(self):
         win = self._build("win32-x64")
@@ -149,7 +150,8 @@ class GeneratedPackages(unittest.TestCase):
     def test_an_archive_of_the_wrong_build_is_refused(self):
         source = _onedir_archive(self.tmp, "aria-code-mcp-bin")
         with self.assertRaises(SystemExit):
-            mpp.build_one("linux-x64", "9.9.9", source, self.out)
+            run_tool("packages", "--version", "9.9.9", "--out", self.out,
+                     "--binary", f"linux-x64={source}", "--mcp", f"linux-x64={source}")
 
     def test_rebuilding_replaces_rather_than_accumulates(self):
         pkg = self._build("linux-x64")
@@ -163,15 +165,15 @@ class GeneratedPackages(unittest.TestCase):
 class ArgumentHandling(unittest.TestCase):
     def test_an_unknown_platform_key_is_refused(self):
         with self.assertRaises(SystemExit):
-            mpp._pairs(["sunos-x64=/dev/null"], "--binary")
+            run_tool("packages", "--binary", "sunos-x64=/dev/null")
 
     def test_a_missing_file_is_refused_rather_than_packaged_empty(self):
         with self.assertRaises(SystemExit):
-            mpp._pairs(["linux-x64=/nonexistent/aria-code-bin"], "--binary")
+            run_tool("packages", "--binary", "linux-x64=/nonexistent/aria-code-bin")
 
     def test_a_pair_without_an_equals_sign_is_refused(self):
         with self.assertRaises(SystemExit):
-            mpp._pairs(["linux-x64"], "--binary")
+            run_tool("packages", "--binary", "linux-x64")
 
 
 if __name__ == "__main__":

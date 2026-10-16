@@ -88,6 +88,7 @@ pub struct App {
     pub network: bool,
     pub robot: super::robot::Robot,
     pub commands: Vec<String>,
+    pub reference_completion: bool,
     pub status: String,
     pub details: bool,
     pub help: bool,
@@ -166,6 +167,31 @@ impl App {
             return Err("Runtime event belongs to an unknown turn".into());
         }
         match kind {
+            "completion.result" => {
+                // Discard responses after typing, sending, or changing sessions.
+                if self.turn.is_none()
+                    && self.editor.at_end()
+                    && self.session == text("session_id")
+                    && self.editor.text() == text("text")
+                {
+                    let candidates: Vec<String> = v["candidates"]
+                        .as_array()
+                        .map(|items| {
+                            items
+                                .iter()
+                                .filter_map(|x| x.as_str())
+                                .take(50)
+                                .map(safe)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    if candidates.len() == 1 {
+                        self.editor.set(&candidates[0]);
+                    } else if !candidates.is_empty() {
+                        self.add("status", &candidates.join("\n"), false);
+                    }
+                }
+            }
             "update.available" => {
                 self.update_notice = safe(text("text"))
                     .chars()
@@ -183,6 +209,7 @@ impl App {
                 self.workspace = safe(text("workspace"));
                 self.permission = safe(text("permission"));
                 self.network = v["network"].as_bool().unwrap_or(false);
+                self.reference_completion = v["reference_completion"].as_bool().unwrap_or(false);
                 self.lang = safe(text("ui_lang"));
                 self.theme = super::theme::resolve(text("ui_theme"));
                 self.home_workspace = v["home_workspace"].as_bool().unwrap_or(false);
@@ -391,7 +418,7 @@ impl App {
                 if self.dialog.is_some() || !v["request_id"].is_string() {
                     return Err("Invalid nested dialog".into());
                 }
-                let choices = if kind == "approval.requested" {
+                let choices = if kind == "approval.requested" || v["choices"].is_array() {
                     let rows = v["choices"].as_array().ok_or("Missing choices")?;
                     if rows.is_empty() || rows.len() > 100 {
                         return Err("Invalid number of choices".into());
@@ -414,7 +441,7 @@ impl App {
                 let selected = v["selected"].as_u64().unwrap_or(0) as usize;
                 self.dialog = Some(Dialog {
                     id: text("request_id").into(),
-                    title: safe(if kind == "approval.requested" {
+                    title: safe(if kind == "approval.requested" || v["choices"].is_array() {
                         text("title")
                     } else {
                         text("prompt")
@@ -425,7 +452,7 @@ impl App {
                             .map(safe)
                             .unwrap_or_else(|| self.approval_context.clone())
                     } else {
-                        String::new()
+                        safe(text("context"))
                     },
                     selected: selected.min(choices.len().saturating_sub(1)),
                     context_scroll: 0,
@@ -626,6 +653,33 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn model_choices_are_not_treated_as_free_text_or_approvals() {
+        let mut a = app();
+        a.turn = Some("turn-1".into());
+        a.event(json!({"protocol":1,"type":"input.requested","turn_id":"turn-1","request_id":"models","title":"Ollama models","context":"Choose local model","choices":[["qwen:test","local"],["Cancel","Keep current"]]})).unwrap();
+        let d = a.dialog.as_ref().unwrap();
+        assert_eq!(d.title, "Ollama models");
+        assert_eq!(d.context, "Choose local model");
+        assert_eq!(d.choices.len(), 2);
+        assert_eq!(a.respond(Some(0)).unwrap()["choice"], 0);
+    }
+    #[test]
+    fn reference_completion_does_not_replace_a_new_draft_or_session() {
+        let mut a = app();
+        a.session = "one".into();
+        a.editor.set("read @fi");
+        let response = json!({"protocol":1,"type":"completion.result","session_id":"one","text":"read @fi","candidates":["read @file:file.txt"]});
+        a.event(response.clone()).unwrap();
+        assert_eq!(a.editor.text(), "read @file:file.txt");
+        a.editor.set("new draft");
+        a.event(response.clone()).unwrap();
+        assert_eq!(a.editor.text(), "new draft");
+        a.editor.set("read @fi");
+        a.session = "two".into();
+        a.event(response).unwrap();
+        assert_eq!(a.editor.text(), "read @fi");
+    }
     fn app() -> App {
         App {
             ready: true,

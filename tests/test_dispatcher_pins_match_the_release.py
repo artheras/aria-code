@@ -35,7 +35,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 PACKAGE_JSON = ROOT / "npm" / "package.json"
 BUMP = ROOT / "scripts" / "bump_version.py"
 
-# Kept in step with scripts/make_platform_packages.py PLATFORM_KEYS.
+# Kept in step with go/buildtools/packages.go platformKeys.
 PLATFORM_KEYS = ("darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64", "win32-x64")
 
 

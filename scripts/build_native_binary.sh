@@ -5,7 +5,7 @@
 #
 # --onedir, not --onefile: --onefile unpacked ~400 native libraries to a new
 # temp directory on every launch and macOS re-scanned each one, so every
-# command took ~90 s. See scripts/package_onedir.py.
+# command took ~90 s. Release archives preserve the onedir tree.
 #
 # Why this exists: npm install / pip install both fetch or build a separate
 # Python runtime on the user's machine, which is what produced the whole
@@ -96,7 +96,7 @@ if [[ "${SKIP_NATIVE_INDEXER:-}" != "1" ]]; then
   echo "── Bundling the native indexer (aria-native) ──"
   (cd "$PROJECT_ROOT/rust" && rustup show >/dev/null)   # the toolchain rust-toolchain.toml pins
   go -C "$PROJECT_ROOT/go/buildtools" run . --root "$PROJECT_ROOT" --frontend "$BIN_DIR"
-  "$VENV_DIR/bin/python" "$PROJECT_ROOT/scripts/verify_native_frontend.py" "$BIN_DIR"
+  go -C "$PROJECT_ROOT/go/buildtools" run . verify "$BIN_DIR"
 fi
 
 echo "── Running PyInstaller for the MCP server binary (--onedir) ──"
@@ -132,7 +132,7 @@ BIN_DIRS=("$BIN_DIR" "$MCP_BIN_DIR")
 archive_builds() {
   rm -rf "$RELEASE_DIR"
   for d in "${BIN_DIRS[@]}"; do
-    "$VENV_DIR/bin/python" "$PROJECT_ROOT/scripts/package_onedir.py" pack "$d" "$RELEASE_DIR"
+    go -C "$PROJECT_ROOT/go/buildtools" run . pack "$d" "$RELEASE_DIR"
   done
 }
 
