@@ -885,7 +885,7 @@ mod tests {
         go.event(packet(json!({"design": "cream-block-v2"}), ""))
             .unwrap();
         assert_eq!(python.robot.0, go.robot.0);
-        assert_eq!(python.robot.0.len(), 6);
+        assert_eq!(python.robot.0.len(), 4);
         python.event(packet(json!([]), "cream-block-v2")).unwrap();
         assert!(python.robot.0.is_empty());
         go.event(packet(json!([]), "")).unwrap();

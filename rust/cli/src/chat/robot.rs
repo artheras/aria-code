@@ -133,62 +133,56 @@ impl Robot {
         Self(rows)
     }
 
-    /// A small, independently pixel-fitted rendition of docs/assets/aria-robot.png.
-    /// Quadrants keep the feet wider than a single column. The eyes use the
-    /// same baseline, with two identical square ivory eyes.
+    /// The compact mascot: 9 columns by 4 rows, the height of the four lines of
+    /// text beside it on the welcome screen. Quadrant and half blocks keep the
+    /// edges exact in any font; the two eyes are identical ivory squares. The
+    /// larger 14x6 form this replaces stood taller than the text and read as
+    /// chunky, with a half-row of empty space above it.
     fn compact_cream(theme: &str) -> Self {
-        let body = if theme == "light" {
-            Color::Rgb(241, 233, 223)
+        let (body, ear, leg) = if theme == "light" {
+            (
+                Color::Rgb(230, 221, 208),
+                Color::Rgb(156, 148, 139),
+                Color::Rgb(184, 175, 166),
+            )
         } else {
-            Color::Rgb(244, 235, 228)
+            (
+                Color::Rgb(244, 235, 228),
+                Color::Rgb(182, 173, 164),
+                Color::Rgb(213, 204, 195),
+            )
         };
-        let face = Color::Rgb(14, 14, 14);
+        let screen = Color::Rgb(14, 14, 14);
         let eye = Color::Rgb(255, 253, 245);
-        let orange = Color::Rgb(249, 180, 103);
-        let foot = Color::Rgb(207, 196, 183);
-        let ear = Color::Rgb(174, 164, 150);
-        let mut cells = vec![vec![Span::raw(" "); 14]; 6];
-        for cell in cells[0].iter_mut().take(12).skip(2) {
-            *cell = Span::styled("▄", Style::new().fg(body));
-        }
-        for row in cells.iter_mut().take(5).skip(1) {
-            for cell in row.iter_mut().take(13).skip(1) {
-                *cell = Span::styled(" ", Style::new().bg(body));
-            }
-        }
-        // Half-column frame edges preserve the inset screen without making
-        // the cream frame thicker than the eye, or rounding away the face.
-        for row in cells.iter_mut().take(4).skip(1) {
-            row[2] = Span::styled("▌", Style::new().fg(body).bg(face));
-            row[11] = Span::styled("▐", Style::new().fg(body).bg(face));
-            for cell in row.iter_mut().take(11).skip(3) {
-                *cell = Span::styled(" ", Style::new().bg(face));
-            }
-        }
-        for col in [4, 5] {
-            cells[2][col] = Span::styled(" ", Style::new().bg(eye));
-        }
-        for col in [8, 9] {
-            cells[2][col] = Span::styled(" ", Style::new().bg(eye));
-        }
-        for col in [0, 13] {
-            cells[2][col] = Span::styled("▂", Style::new().fg(orange).bg(ear));
-        }
-        for cell in cells[4].iter_mut().take(13).skip(1) {
-            *cell = Span::styled("▁", Style::new().fg(orange).bg(body));
-        }
-        // Four attached feet, each 1.5 columns wide by one row high. Mirrored
-        // half-columns avoid the thin one-column stilts of the previous icon.
-        for col in [2, 5, 8, 11] {
-            cells[5][col] = Span::styled(" ", Style::new().bg(foot));
-        }
-        for col in [3, 6] {
-            cells[5][col] = Span::styled("▌", Style::new().fg(foot));
-        }
-        for col in [7, 10] {
-            cells[5][col] = Span::styled("▐", Style::new().fg(foot));
-        }
-        Self(cells.into_iter().map(Line::from).collect())
+        let fg = |text: &'static str, color: Color| Span::styled(text, Style::new().fg(color));
+        let on =
+            |text: &'static str, f: Color, b: Color| Span::styled(text, Style::new().fg(f).bg(b));
+        let dark = |text: &'static str| Span::styled(text, Style::new().bg(screen));
+        let rows = vec![
+            vec![fg("▗", body), on("▛▀▀▀▀▀▜", body, screen), fg("▖", body)],
+            vec![
+                on("▌", ear, body),
+                on("▌", body, screen),
+                on("▗▖", eye, screen),
+                dark(" "),
+                on("▗▖", eye, screen),
+                on("▐", body, screen),
+                on("▐", ear, body),
+            ],
+            vec![fg("▐", body), on("▙▄▄▄▄▄▟", body, screen), fg("▌", body)],
+            vec![
+                fg("▝", ear),
+                on("▀", ear, leg),
+                fg("▀", ear),
+                on("▀", ear, leg),
+                fg("▀", ear),
+                on("▀", ear, leg),
+                fg("▀", ear),
+                on("▀", ear, leg),
+                fg("▘", ear),
+            ],
+        ];
+        Self(rows.into_iter().map(Line::from).collect())
     }
 }
 
@@ -222,41 +216,46 @@ mod tests {
                 robot.0[3].spans[7].style.bg,
                 Some(Color::Rgb(255, 253, 245))
             );
-            assert_eq!(Robot::cream(theme, true).0.len(), 6);
+            assert_eq!(Robot::cream(theme, true).0.len(), 4);
         }
     }
     #[test]
-    fn compact_mascot_keeps_reference_eye_baseline_and_mirrored_feet() {
+    fn compact_mascot_is_nine_by_four_with_two_identical_eyes() {
+        let ivory = Some(Color::Rgb(255, 253, 245));
+        let black = Some(Color::Rgb(14, 14, 14));
         for theme in ["light", "dark"] {
             let robot = Robot::from_event(&serde_json::json!({
                 "design": "cream-block-v2", "theme": theme
             }));
-            assert_eq!(robot.0.len(), 6);
-            assert!(robot.0.iter().all(|row| row.width() == 14));
-            // Two identical ivory squares, 2 columns x 1 row each, mirrored
-            // about the screen's centre and surrounded by black.
-            for col in [4, 5, 8, 9] {
-                assert_eq!(
-                    robot.0[2].spans[col].style.bg,
-                    Some(Color::Rgb(255, 253, 245))
-                );
-                assert_eq!(robot.0[2].spans[col].content, " ");
-            }
-            for col in [3, 6, 7, 10] {
-                assert_eq!(robot.0[2].spans[col].style.bg, Some(Color::Rgb(14, 14, 14)));
-            }
-            let feet = &robot.0[5].spans;
-            for col in [2, 5, 8, 11] {
-                assert_eq!(feet[col].style.bg, Some(Color::Rgb(207, 196, 183)));
-            }
-            assert_eq!(feet[3].content, "▌");
-            assert_eq!(feet[6].content, "▌");
-            assert_eq!(feet[7].content, "▐");
-            assert_eq!(feet[10].content, "▐");
-            // Gaps stay transparent on any terminal background.
-            assert_eq!(feet[4].style, Style::default());
-            assert_eq!(feet[9].style, Style::default());
-            assert!(robot.0[4].spans[1..13].iter().all(|s| s.content == "▁"));
+            // As tall as the four lines of text beside it, and 9 columns wide.
+            assert_eq!(robot.0.len(), 4);
+            assert!(robot.0.iter().all(|row| row.width() == 9));
+            // Row 1: ear, frame, eye, gap, eye, frame, ear. The eyes are the
+            // same glyph in the same colours, one cell either side of the gap.
+            let face = &robot.0[1].spans;
+            assert_eq!(face.len(), 7);
+            assert_eq!(face[2].content, "▗▖");
+            assert_eq!(face[4].content, "▗▖");
+            assert_eq!(face[2].style, face[4].style);
+            assert_eq!(face[2].style.fg, ivory);
+            assert_eq!(face[2].style.bg, black);
+            assert_eq!(face[3].style.bg, black);
+            // Four feet: alternating filled and open cells along the base.
+            let base: Vec<_> = robot.0[3]
+                .spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect();
+            assert_eq!(base.concat(), "▝▀▀▀▀▀▀▀▘");
+            let feet: Vec<bool> = robot.0[3]
+                .spans
+                .iter()
+                .map(|s| s.style.bg.is_some())
+                .collect();
+            assert_eq!(
+                feet,
+                [false, true, false, true, false, true, false, true, false]
+            );
         }
     }
     #[test]

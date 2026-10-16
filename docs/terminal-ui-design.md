@@ -61,12 +61,11 @@ including its spacing. This is a measurement of that published version, not a
 claim about all versions or access to its private source repository. It informed
 the visual budget; no Claude mascot artwork is included in Aria.
 
-Aria's compact mascot uses 14 columns by six rows, including a half-row of
-transparent space above the stepped cap. This replaces the 12-by-five prototype:
-its single-column feet looked too thin and its eyes lost definition. The two
-ivory eyes are identical, each two columns by one row, mirrored about the screen. Each of the four attached feet is
-1.5 columns wide by one row high. Mirrored half-column edges keep the feet
-symmetrical; their gaps retain the terminal's own background.
+Aria's compact mascot is 9 columns by four rows, the height of the four lines of
+text beside it. It replaces a 14-by-six form that stood taller than that text and
+read as chunky. The two ivory eyes are identical quadrant pairs mirrored about
+the screen, and the four feet alternate filled and open cells along the base.
+Quadrant and half blocks keep the edges exact in any font.
 
 The cream shell, inset black screen, orange base line and ear details follow
 `docs/assets/aria-robot.png`. The original asset is unchanged. The compact
