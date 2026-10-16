@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.157.0] — 2026-10-16
+
+- Lead a conversation with markers, not name lines (#208)
+
 ## [0.156.0] — 2026-10-16
 
 - Ordinary requests are no longer gated as financial; the gateway finds the session on a new install (#207)
