@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.162.0] — 2026-10-16
+
+- feat(native): document validation, session import/export, diagnostics, Go build tooling (#214)
+
 ## [0.161.0] — 2026-10-16
 
 - feat(mascot): two matching eyes (#213)
