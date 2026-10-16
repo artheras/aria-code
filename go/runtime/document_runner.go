@@ -82,6 +82,13 @@ func runDocumentTool(ctx context.Context, name string, args []string, input []by
 	}
 	cmd.Dir = dir
 	cmd.Env = []string{"HOME=" + dir, "TMPDIR=" + dir, "LANG=C", "LC_ALL=C", "OMP_THREAD_LIMIT=2"}
+	if runtime.GOOS == "windows" {
+		// A Windows process started with no SystemRoot cannot load system DLLs,
+		// and Poppler resolves its own DLLs from its directory. Give it exactly
+		// those two locations and nothing else from the caller's environment.
+		root := os.Getenv("SystemRoot")
+		cmd.Env = append(cmd.Env, "SystemRoot="+root, "PATH="+filepath.Dir(executable)+";"+filepath.Join(root, "System32"))
+	}
 	cmd.WaitDelay = time.Second
 	configureCommandTree(cmd)
 	cmd.Stdin = bytes.NewReader(input)
