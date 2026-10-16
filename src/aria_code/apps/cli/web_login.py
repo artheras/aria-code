@@ -15,7 +15,8 @@ The hand-back is bound to this process, not merely to "whoever is listening":
 * the credential never appears in a URL. The redirect carries a short code and
   the session is fetched over POST.
 
-Server side: apps/api/src/routes/auth_v2_routes.py (/cli/handoff, /cli/exchange).
+Page: apps/web/public/cli-login. Server side: apps/api/src/routes/auth_v2_routes.py
+(/cli/handoff, /cli/exchange).
 """
 
 from __future__ import annotations
@@ -32,8 +33,10 @@ from typing import Any, Dict
 
 from .google_login import _CallbackResult, _free_port, _post_json
 
-AUTH_ORIGIN = "https://auth.arthera.finance"
-LOGIN_PATH = "/cli-login"
+# The apex is Firebase Hosting and the Firebase auth domain, so the page and the
+# sign-in popup are same-origin there.
+AUTH_ORIGIN = "https://arthera.finance"
+LOGIN_PATH = "/cli-login/"
 _TIMEOUT_SECONDS = 300
 
 
