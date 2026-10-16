@@ -394,7 +394,7 @@ def write_gif(timeline: list[tuple[Frame, float]], painter: Painter, gif: Path, 
     for n, sample in enumerate(samples):
         sheet.paste(sample, (0, n * samples[0].height))
     # Every colour the CLI itself sent gets an exact slot; median cut alone
-    # folded small areas — the robot's orange dash — into larger neighbours.
+    # folded small areas — the robot's small orange details — into larger neighbours.
     exact = {_hex_rgb(painter.background), _hex_rgb(painter.foreground)}
     for frame, _ in timeline[::max(1, len(timeline) // 40)]:
         for row in frame.cells:

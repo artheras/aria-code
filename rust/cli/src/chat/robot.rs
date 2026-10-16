@@ -92,7 +92,7 @@ impl Robot {
                 }
             }
         };
-        // Stepped cap, inset black screen, white eye, amber dash and ears.
+        // Stepped cap, inset black screen, two matching white eyes, amber ears.
         fill(3..19, 2..14, body);
         fill(4..18, 1..2, body);
         fill(5..17, 3..11, face);
@@ -101,7 +101,7 @@ impl Robot {
         fill(2..3, 7..8, orange);
         fill(19..20, 7..8, orange);
         fill(7..9, 6..8, eye);
-        fill(12..15, 7..8, orange);
+        fill(13..15, 6..8, eye);
         fill(3..19, 14..15, shadow);
         for col in [4, 8, 12, 16] {
             fill(col..col + 2, 15..18, leg);
@@ -135,7 +135,7 @@ impl Robot {
 
     /// A small, independently pixel-fitted rendition of docs/assets/aria-robot.png.
     /// Quadrants keep the feet wider than a single column. The eyes use the
-    /// same baseline, with a square ivory eye and a half-height amber dash.
+    /// same baseline, with two identical square ivory eyes.
     fn compact_cream(theme: &str) -> Self {
         let body = if theme == "light" {
             Color::Rgb(241, 233, 223)
@@ -169,7 +169,7 @@ impl Robot {
             cells[2][col] = Span::styled(" ", Style::new().bg(eye));
         }
         for col in [8, 9] {
-            cells[2][col] = Span::styled("▄", Style::new().fg(orange).bg(face));
+            cells[2][col] = Span::styled(" ", Style::new().bg(eye));
         }
         for col in [0, 13] {
             cells[2][col] = Span::styled("▂", Style::new().fg(orange).bg(ear));
@@ -233,19 +233,17 @@ mod tests {
             }));
             assert_eq!(robot.0.len(), 6);
             assert!(robot.0.iter().all(|row| row.width() == 14));
-            // Ivory square: 2 columns x 1 row. Amber dash: same width and
-            // baseline, half the height. Both are surrounded by black.
-            for col in [4, 5] {
+            // Two identical ivory squares, 2 columns x 1 row each, mirrored
+            // about the screen's centre and surrounded by black.
+            for col in [4, 5, 8, 9] {
                 assert_eq!(
                     robot.0[2].spans[col].style.bg,
                     Some(Color::Rgb(255, 253, 245))
                 );
+                assert_eq!(robot.0[2].spans[col].content, " ");
             }
-            for col in [8, 9] {
-                let dash = &robot.0[2].spans[col];
-                assert_eq!(dash.content, "▄");
-                assert_eq!(dash.style.fg, Some(Color::Rgb(249, 180, 103)));
-                assert_eq!(dash.style.bg, Some(Color::Rgb(14, 14, 14)));
+            for col in [3, 6, 7, 10] {
+                assert_eq!(robot.0[2].spans[col].style.bg, Some(Color::Rgb(14, 14, 14)));
             }
             let feet = &robot.0[5].spans;
             for col in [2, 5, 8, 11] {
@@ -265,13 +263,13 @@ mod tests {
     fn spans_keep_exact_glyphs_and_foreground_background() {
         let value = serde_json::json!([
             [{"style":"#F4EBE4 on #0E0E0E", "text":"▗▛▀▀▀▀▀▜▖"}],
-            [{"style":"#F9B467 on #0E0E0E", "text":"▌▌▗▖ ▂ ▐▐"}],
+            [{"style":"#F9B467 on #0E0E0E", "text":"▌▌▗▖ ▗▖▐▐"}],
             [{"style":"on #0E0E0E", "text":"▐▙▄▄▄▄▄▟▌"}],
             [{"style":"#B6ADA4 on #D5CCC3", "text":"▝▀▀▀▀▀▀▀▘"}]
         ]);
         let robot = Robot::from_event(&value);
         assert_eq!(robot.0.len(), 4);
-        assert_eq!(robot.0[1].spans[0].content, "▌▌▗▖ ▂ ▐▐");
+        assert_eq!(robot.0[1].spans[0].content, "▌▌▗▖ ▗▖▐▐");
         assert_eq!(
             robot.0[1].spans[0].style.fg,
             Some(Color::Rgb(249, 180, 103))
