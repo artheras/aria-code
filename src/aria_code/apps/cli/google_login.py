@@ -146,7 +146,7 @@ def login_page_origin(api_url: str) -> str:
     """Where the browser is sent to sign in.
 
     The same Arthera login route is also served on the brand's auth host
-    (auth.arthera.finance), so the address bar can read like the product, the
+    (auth.arthera.xyz), so the address bar can read like the product, the
     way Claude Code and Codex open their own accounts site, rather than an API
     hostname. Opt-in with ARIA_AUTH_URL until that path has been exercised end
     to end; the handoff exchange below always goes to the API origin.
