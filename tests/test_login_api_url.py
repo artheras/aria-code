@@ -31,6 +31,6 @@ def test_the_login_page_can_be_served_from_the_brand_auth_host(monkeypatch):
     from aria_code.apps.cli.google_login import login_page_origin
 
     monkeypatch.delenv("ARIA_AUTH_URL", raising=False)
-    assert login_page_origin("https://api.arthera.finance/") == "https://api.arthera.finance"
-    monkeypatch.setenv("ARIA_AUTH_URL", "https://auth.arthera.finance/")
-    assert login_page_origin("https://api.arthera.finance") == "https://auth.arthera.finance"
+    assert login_page_origin("https://api.arthera.xyz/") == "https://api.arthera.xyz"
+    monkeypatch.setenv("ARIA_AUTH_URL", "https://auth.arthera.xyz/")
+    assert login_page_origin("https://api.arthera.xyz") == "https://auth.arthera.xyz"

@@ -35,7 +35,7 @@ from .google_login import _CallbackResult, _free_port, _post_json
 
 # The apex is Firebase Hosting and the Firebase auth domain, so the page and the
 # sign-in popup are same-origin there.
-AUTH_ORIGIN = "https://arthera.finance"
+AUTH_ORIGIN = "https://arthera.xyz"
 LOGIN_PATH = "/cli-login"
 _TIMEOUT_SECONDS = 300
 

@@ -25,8 +25,13 @@ from __future__ import annotations
 
 import os
 
-PRODUCTION_API_URL = "https://api.arthera.finance"
+PRODUCTION_API_URL = "https://api.arthera.xyz"
 LEGACY_DEFAULT_API_URL = "http://localhost:8000"
+# The product moved from arthera.finance to arthera.xyz and the old domain no
+# longer answers, so a config that was migrated to (or installed with) the old
+# production address points at nothing. It is replaced the same way the
+# localhost default is.
+RETIRED_API_URLS = ("http://localhost:8000", "https://api.arthera.finance")
 
 
 def _norm(url: object) -> str:
@@ -44,10 +49,10 @@ def migrate_config(config: dict) -> list[tuple[str, str, str]]:
     if config.get("api_url_pinned"):
         return []
     old = config.get("api_url")
-    if _norm(old) != LEGACY_DEFAULT_API_URL:
+    if _norm(old) not in RETIRED_API_URLS:
         return []
     config["api_url"] = PRODUCTION_API_URL
     return [("api_url", str(old), PRODUCTION_API_URL)]
 
 
-__all__ = ["LEGACY_DEFAULT_API_URL", "PRODUCTION_API_URL", "migrate_config"]
+__all__ = ["LEGACY_DEFAULT_API_URL", "PRODUCTION_API_URL", "RETIRED_API_URLS", "migrate_config"]

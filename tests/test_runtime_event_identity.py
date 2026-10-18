@@ -19,7 +19,7 @@ async def test_backend_answer_survives_real_adapter_and_sdk(monkeypatch, root, s
     make_provider_fn = importlib.import_module(root + ".providers.runtime_bridge").make_provider_fn
     provider = make_provider_fn(
         model="gemini-3.8-flash", config={"backend_chat": True},
-        api_url="https://api.arthera.finance", ollama_url="http://unused",
+        api_url="https://api.arthera.xyz", ollama_url="http://unused",
         tool_schemas=[],
     )
     tokens = []

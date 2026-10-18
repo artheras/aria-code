@@ -86,16 +86,16 @@ class UpdateAndHealthTests(unittest.TestCase):
     def test_health_checks_only_the_active_cloud_backend(self):
         targets, message = _health_targets({
             "model": "gemini-3.8-flash", "backend_chat": True,
-        }, "https://api.arthera.finance")
+        }, "https://api.arthera.xyz")
         self.assertEqual(targets, [
-            ("Google Cloud · Arthera API", "https://api.arthera.finance", "/health"),
+            ("Google Cloud · Arthera API", "https://api.arthera.xyz", "/health"),
         ])
         self.assertEqual(message, "")
 
     def test_direct_cloud_provider_is_not_misreported_offline(self):
         targets, message = _health_targets({
             "model": "google/gemini-2.5-pro", "backend_chat": False,
-        }, "https://api.arthera.finance")
+        }, "https://api.arthera.xyz")
         self.assertEqual(targets, [])
         self.assertIn("configured (not probed)", message)
 
@@ -103,7 +103,7 @@ class UpdateAndHealthTests(unittest.TestCase):
         targets, message = _health_targets({
             "model": "qwen2.5:7b", "backend_chat": False,
             "local_provider": "ollama",
-        }, "https://api.arthera.finance")
+        }, "https://api.arthera.xyz")
         self.assertEqual(targets[0][0], "Ollama")
         self.assertEqual(message, "")
 

@@ -31,7 +31,7 @@ from aria_code.packages.aria_services.research_protocol import requires_financia
 
 def test_the_backend_route_receives_no_local_tools():
     backend = {"backend_chat": True}
-    assert not model_receives_local_tools("gemini-3.8-flash", backend, "https://api.arthera.finance")
+    assert not model_receives_local_tools("gemini-3.8-flash", backend, "https://api.arthera.xyz")
     assert model_receives_local_tools("google/gemini-2.5-pro", {}, None)
     assert model_receives_local_tools("qwen2.5:7b", {"local_provider": "ollama"}, None)
 

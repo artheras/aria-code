@@ -41,7 +41,7 @@ def test_pinning_keeps_localhost():
 
 def test_the_environment_overrides_a_saved_value_without_reporting_a_migration(monkeypatch):
     monkeypatch.setenv("ARTHERA_API_URL", "http://localhost:8000/")
-    cfg = {"api_url": "https://api.arthera.finance"}
+    cfg = {"api_url": "https://api.arthera.xyz"}
     assert migrate_config(cfg) == []
     assert cfg["api_url"] == "http://localhost:8000"
     # So a developer with a local backend keeps it by setting one variable.
@@ -59,3 +59,13 @@ def test_loading_a_real_config_file_migrates_and_writes_back(tmp_path, monkeypat
     assert cfg["api_url"] == PRODUCTION_API_URL
     saved = json.loads((tmp_path / "config.json").read_text())
     assert saved["api_url"] == PRODUCTION_API_URL
+
+
+def test_the_retired_production_domain_is_migrated_like_the_localhost_default():
+    # arthera.finance no longer answers; a config that holds it points at nothing.
+    for old in ("https://api.arthera.finance", "https://api.arthera.finance/", "HTTPS://API.ARTHERA.FINANCE"):
+        cfg = {"api_url": old, "local_mode": True}
+        assert migrate_config(cfg) == [("api_url", old, PRODUCTION_API_URL)]
+        assert cfg["api_url"] == "https://api.arthera.xyz" and cfg["local_mode"] is True
+    pinned = {"api_url": "https://api.arthera.finance", "api_url_pinned": True}
+    assert migrate_config(pinned) == []
