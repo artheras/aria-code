@@ -1,7 +1,7 @@
-use super::app::App;
+use super::app::{App, Dialog};
 use super::{hang, mark, markdown, theme::Palette};
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Margin, Rect},
     style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, BorderType, Clear, Padding, Paragraph, Wrap},
@@ -587,7 +587,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
             rect,
         );
     }
-    if let Some(dialog) = &app.dialog {
+    if let Some(dialog) = app.dialog.as_ref().filter(|d| d.picker) {
+        draw_picker(frame, app, dialog, area, p);
+    } else if let Some(dialog) = &app.dialog {
         let mut heading = vec![
             Line::styled(dialog.title.clone(), Style::new().bold()),
             Line::raw(""),
@@ -689,6 +691,149 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 .wrap(Wrap { trim: false })
                 .scroll((scroll, 0)),
             inside,
+        );
+    }
+}
+
+/// The model picker: a searchable list, one row per model under group
+/// headings, with the highlighted model's details beneath it.
+fn draw_picker(frame: &mut Frame, app: &App, dialog: &Dialog, area: Rect, p: Palette) {
+    let visible = dialog.visible();
+    // Rows to draw: (group heading, or the choice index).
+    let mut lines_spec: Vec<(Option<&str>, usize)> = Vec::new();
+    let mut last_group: Option<&str> = None;
+    for &i in &visible {
+        if let Some(group) = dialog.groups.get(i).map(String::as_str) {
+            if last_group != Some(group) && !group.is_empty() {
+                lines_spec.push((Some(group), i));
+                last_group = Some(group);
+            }
+        }
+        lines_spec.push((None, i));
+    }
+    let list_rows = lines_spec.len().clamp(1, 20);
+    let height = (list_rows + 6 + 2).min(usize::from(area.height)) as u16;
+    let rect = popup(area, 100, height);
+    frame.render_widget(Clear, rect);
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(Style::new().fg(p.accent))
+        .title(Line::styled(
+            app.tr(" Choose ", " 选择 "),
+            Style::new().fg(p.accent),
+        ))
+        .title_bottom(Line::styled(
+            app.tr(
+                " ↑↓ choose · Enter select · type to search · Esc close ",
+                " ↑↓ 选择 · Enter 确认 · 输入即搜索 · Esc 关闭 ",
+            ),
+            Style::new().fg(p.muted),
+        ));
+    let inside = block.inner(rect).inner(Margin::new(1, 0));
+    frame.render_widget(block, rect);
+    let width = usize::from(inside.width);
+    let rows = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(1),
+        Constraint::Length(3),
+    ])
+    .split(inside);
+    frame.render_widget(
+        Paragraph::new(Line::styled(
+            fit(dialog.title.lines().next().unwrap_or(""), width),
+            Style::new().bold(),
+        )),
+        rows[0],
+    );
+    // Search box, with how many models match.
+    let count = format!("{}/{}", visible.len(), dialog.choices.len());
+    let label = app.tr("Search: ", "搜索：");
+    let typed = if dialog.filter.is_empty() {
+        Span::styled(
+            app.tr("type a name, size or provider", "输入名称、规格或服务商"),
+            Style::new().fg(p.muted),
+        )
+    } else {
+        Span::raw(dialog.filter.clone())
+    };
+    let pad = width.saturating_sub(label.width() + typed.width() + count.width());
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(label, Style::new().fg(p.accent)),
+            typed,
+            Span::raw(" ".repeat(pad)),
+            Span::styled(count, Style::new().fg(p.muted)),
+        ])),
+        rows[1],
+    );
+    frame.set_cursor_position((
+        rows[1].x + (label.width() + dialog.filter.width()).min(width.saturating_sub(1)) as u16,
+        rows[1].y,
+    ));
+    // The list, scrolled so the highlighted row stays in view.
+    let list = rows[2];
+    let room = usize::from(list.height);
+    let at = lines_spec
+        .iter()
+        .position(|(group, i)| group.is_none() && *i == dialog.selected)
+        .unwrap_or(0);
+    let start = at
+        .saturating_sub(room / 2)
+        .min(lines_spec.len().saturating_sub(room));
+    let name_width = visible
+        .iter()
+        .map(|&i| dialog.choices[i].0.width())
+        .max()
+        .unwrap_or(0)
+        .min(36);
+    let mut drawn: Vec<Line> = Vec::new();
+    for (group, i) in lines_spec.iter().skip(start).take(room) {
+        if let Some(group) = group {
+            drawn.push(Line::styled(
+                format!(" {}", fit(group, width.saturating_sub(1))),
+                Style::new().fg(p.muted).bold(),
+            ));
+            continue;
+        }
+        let (name, help) = &dialog.choices[*i];
+        let name = fit(name, name_width);
+        let detail = fit(help, width.saturating_sub(name_width + 6));
+        if *i == dialog.selected {
+            drawn.push(Line::styled(
+                format!(" › {name:<name_width$}  {detail}"),
+                Style::new().fg(p.selection_fg).bg(p.accent),
+            ));
+        } else {
+            drawn.push(Line::from(vec![
+                Span::raw(format!("   {name:<name_width$}")),
+                Span::styled(format!("  {detail}"), Style::new().fg(p.muted)),
+            ]));
+        }
+    }
+    if visible.is_empty() {
+        drawn.push(Line::styled(
+            format!(
+                " {}",
+                app.tr("No model matches that search.", "没有匹配的模型。")
+            ),
+            Style::new().fg(p.muted),
+        ));
+    }
+    frame.render_widget(Paragraph::new(drawn), list);
+    // The full line for the highlighted model, which the row may have cut.
+    if let Some((name, help)) = dialog
+        .choices
+        .get(dialog.selected)
+        .filter(|_| !visible.is_empty())
+    {
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::styled(fit(name, width), Style::new().fg(p.accent)),
+                Line::styled(help.clone(), Style::new().fg(p.muted)),
+            ])
+            .wrap(Wrap { trim: true }),
+            rows[3],
         );
     }
 }
@@ -1217,6 +1362,9 @@ mod tests {
                 secret: true,
                 editor: super::super::editor::Editor::default(),
                 shortcuts: serde_json::Value::Null,
+                picker: false,
+                groups: vec![],
+                filter: String::new(),
             });
             app.dialog.as_mut().unwrap().editor.insert("DO_NOT_DISPLAY");
             terminal.draw(|f| draw(f, &app)).unwrap();
