@@ -76,6 +76,7 @@ under a name people already know; `/test`, `/build` and `/fix` are new.
 | `/graph [path\|symbol…]` | project graph summary; with targets, what a change reaches (`/impact`) |
 | `/agents` | `.aria/agents/*.md` and the background tasks running |
 | `/test [paths]`, `/build` | the project's own command, read from `package.json` scripts, `Cargo.toml`, `go.mod`, `pyproject.toml` or Makefile targets; nothing is guessed |
+| `/sim [scenario]` | the simulation the project declares in `.aria/project.yaml`; never guessed |
 | `/fix <what is wrong>` | asks for the cause first, the smallest change, then the project's checks |
 
 `/history` already shows the conversation. These are Python-worker commands; the
@@ -101,6 +102,32 @@ Each assessment also names its **capabilities** — `filesystem.write`,
 
 It is descriptive: the existing command policy still decides what runs, and an
 assessment never reports a command milder than that policy does.
+
+## Physical actions
+
+Acting on a device cannot be undone with a checkpoint, so it is critical by default.
+Two capabilities cover it, and a contract can forbid either (`forbid: [hardware.flash,
+actuator.command]`):
+
+| Capability | Level | What triggers it |
+|---|---|---|
+| `hardware.flash` | L4, not reversible | a programmer writing or erasing a device: `esptool … write_flash`, `dfu-util -D`, `openocd … program`, `avrdude -U flash:w`, `st-flash write`, `picotool load`, `fastboot flash`, `pio run -t upload`, `west flash`, `idf.py flash` |
+| `actuator.command` | L4, not reversible | commanding a running robot: `ros2 topic pub`, `ros2 service call`, `ros2 action send_goal`, `ros2 param set`, `ros2 lifecycle set` |
+
+L4 is asked every time, even under `approval_mode: risk` and after "always allow". Reading
+and building are not affected (`esptool chip_id`, `ros2 topic echo`, `colcon build`). The Go
+runtime applies the same rules; `tests/test_native_go_risk.py` compares the two field by field.
+
+`/test` and `/build` understand ROS 2: a colcon workspace (or a single package with
+`package.xml`) builds with `colcon build` and tests with `colcon test`, followed by
+`colcon test-result --verbose`, because `colcon test` exits 0 even when tests fail. A project
+states its own commands, which win over detection, in `.aria/project.yaml`:
+
+```yaml
+commands:
+  test: ./scripts/test.sh
+  sim: ros2 launch my_robot sim_scenarios.launch.py
+```
 
 ## Change contracts
 

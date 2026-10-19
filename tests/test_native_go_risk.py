@@ -60,6 +60,15 @@ COMMANDS = [
     "echo $(whoami)", "echo `date`", "ls & sleep 1",
     "echo 'unterminated", 'echo "unterminated', "echo trailing\\", "echo 'a b' \"c d\" e\\ f",
     "echo \"esc \\\" q\"", "ls 'dir with spaces'/",
+    # Physical: firmware writes and commands to a running robot.
+    "esptool.py --port /dev/ttyUSB0 write_flash 0x0 fw.bin", "esptool.py chip_id", "esptool erase_flash",
+    "dfu-util -D fw.bin", "dfu-util -l", "openocd -f x.cfg", "openocd -f x.cfg -c 'program fw.elf verify reset exit'",
+    "avrdude -p m328p -U flash:w:fw.hex", "avrdude -p m328p", "st-flash write fw.bin 0x8000000", "st-flash --version",
+    "picotool load fw.uf2", "picotool info", "fastboot flash boot b.img", "fastboot devices", "pio run -t upload",
+    "pio run", "west flash", "west build", "idf.py flash", "idf.py build", "sudo esptool.py write_flash 0 f",
+    "ros2 topic pub /cmd_vel geometry_msgs/Twist '{}'", "ros2 topic echo /scan", "ros2 service call /reset std_srvs/Empty",
+    "ros2 action send_goal /go nav2/NavigateToPose '{}'", "ros2 param set /n speed 1", "ros2 param get /n speed",
+    "ros2 lifecycle set /n activate", "ros2 node list", "ros2 launch pkg x.launch.py", "ros2",
     "echo 你好", "cat 文件.txt", "rm 数据.csv", "git commit -m '修复 bug'", "curl https://例子.测试/路径",
     "npm install café", "echo émoji 🚀 > out.txt",
     # Python's \w, \s and \d are Unicode-aware; the port must be too.

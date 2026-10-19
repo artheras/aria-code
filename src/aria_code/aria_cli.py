@@ -3639,6 +3639,7 @@ class SlashCommands(
             "/agents":       (self.cmd_agents,        "Project agents and background tasks: /agents"),
             "/test":         (self.cmd_test,          "Run the project's tests: /test [paths]"),
             "/build":        (self.cmd_build,         "Run the project's build: /build"),
+            "/sim":          (self.cmd_sim,           "Run the simulation the project declares: /sim [scenario]"),
             "/fix":          (self.cmd_fix,           "Find the cause, make the smallest change, check: /fix <what is wrong>"),
             "/workflow":     (self.cmd_workflow,      "Project workflows in .aria/workflows: /workflow list|show|run|new <name>"),
             "/delegate":     (self.cmd_delegate,      'Delegate to another agent CLI: /delegate claude|codex "<prompt>"'),

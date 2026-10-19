@@ -9,7 +9,7 @@ import pytest
 
 from aria_code.apps.cli.commands.engineering_cmds import EngineeringCommandsMixin, detect_commands, fix_prompt
 
-NEW = ["/diff", "/commit", "/pr", "/checkpoint", "/worktree", "/graph", "/agents", "/test", "/build", "/fix"]
+NEW = ["/sim", "/diff", "/commit", "/pr", "/checkpoint", "/worktree", "/graph", "/agents", "/test", "/build", "/fix"]
 
 
 def test_every_new_command_is_registered_and_described():
@@ -165,3 +165,59 @@ def test_a_project_workflow_with_the_same_name_is_pointed_out_not_silently_shado
     assert "workflow named 'test'" in capsys.readouterr().out
     run(f.cmd_build(""))
     assert "workflow named" not in capsys.readouterr().out
+
+
+# ── robotics: ROS 2, declared commands, /sim ─────────────────────────────────
+
+def test_a_colcon_workspace_builds_with_colcon_and_reads_its_results(tmp_path):
+    (tmp_path / "src" / "my_robot").mkdir(parents=True)
+    (tmp_path / "src" / "my_robot" / "package.xml").write_text("<package/>")
+    found = detect_commands(tmp_path)
+    assert found["build"] == "colcon build" and found["test"] == "colcon test"
+    assert found["test_report"] == "colcon test-result --verbose"
+    assert "sim" not in found, "a simulation is never guessed"
+
+
+def test_a_single_ros2_package_is_recognised(tmp_path):
+    (tmp_path / "package.xml").write_text("<package/>")
+    assert detect_commands(tmp_path)["test"] == "colcon test"
+
+
+def test_project_yaml_declares_commands_that_win_over_detection(tmp_path):
+    (tmp_path / "src" / "p").mkdir(parents=True)
+    (tmp_path / "src" / "p" / "package.xml").write_text("<package/>")
+    (tmp_path / ".aria").mkdir()
+    (tmp_path / ".aria" / "project.yaml").write_text(
+        "commands:\n  test: ./scripts/test.sh\n  sim: ros2 launch my_robot sim.launch.py\n  nonsense: x\n  lint: 5\n")
+    found = detect_commands(tmp_path)
+    assert found["test"] == "./scripts/test.sh" and found["sim"] == "ros2 launch my_robot sim.launch.py"
+    assert "test_report" not in found, "the project's own test command reports for itself"
+    assert found["build"] == "colcon build" and "lint" not in found and "nonsense" not in found
+
+
+def test_a_broken_project_yaml_is_ignored(tmp_path):
+    (tmp_path / ".aria").mkdir()
+    (tmp_path / ".aria" / "project.yaml").write_text("commands: [not, a, mapping")
+    assert detect_commands(tmp_path) == {}
+
+
+def test_colcon_test_is_followed_by_its_results(tmp_path, capsys, monkeypatch):
+    (tmp_path / "package.xml").write_text("<package/>")
+    f = _Fake(tmp_path)
+    seen = []
+    monkeypatch.setattr(f, "_eng_run", lambda command, timeout=600: seen.append(command) or {"success": True, "data": {"stdout": "ok"}})
+    run(f.cmd_test(""))
+    assert seen == ["colcon test", "colcon test-result --verbose"]
+    assert "test results passed" in capsys.readouterr().out
+
+
+def test_sim_runs_only_what_the_project_declares(tmp_path, capsys, monkeypatch):
+    f = _Fake(tmp_path)
+    run(f.cmd_sim(""))
+    assert ".aria/project.yaml" in capsys.readouterr().out
+    (tmp_path / ".aria").mkdir()
+    (tmp_path / ".aria" / "project.yaml").write_text("commands:\n  sim: ros2 launch my_robot sim.launch.py\n")
+    seen = []
+    monkeypatch.setattr(f, "_eng_run", lambda command, timeout=600: seen.append(command) or {"success": True, "data": {}})
+    run(f.cmd_sim("scenario:=docking"))
+    assert seen == ["ros2 launch my_robot sim.launch.py scenario:=docking"]

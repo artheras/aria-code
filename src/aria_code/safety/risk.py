@@ -65,6 +65,8 @@ CAPABILITIES = frozenset({
     "secret.read",
     "cloud.deploy",
     "system.admin",
+    # Physical: acting on a device or a robot, which cannot be undone with a checkpoint.
+    "hardware.flash", "actuator.command",
 })
 
 
@@ -197,6 +199,35 @@ _MIGRATIONS = (
     re.compile(r"\bprisma (migrate|db push)\b"), re.compile(r"\bdb:(migrate|rollback|drop|reset)\b"),
     re.compile(r"\bknex migrate\b"), re.compile(r"\bflyway migrate\b"),
 )
+# Programmers that write firmware to a device: (command, the words that mean "write").
+_FLASHERS = {
+    "esptool": {"write_flash", "write-flash", "erase_flash", "erase-flash", "erase_region", "erase-region"},
+    "esptool.py": {"write_flash", "write-flash", "erase_flash", "erase-flash", "erase_region", "erase-region"},
+    "dfu-util": {"-D", "--download"},
+    "st-flash": {"write", "erase"},
+    "stm32flash": {"-w"},
+    "nrfjprog": {"--program", "--eraseall", "--recover"},
+    "picotool": {"load", "erase"},
+    "fastboot": {"flash", "flashall", "erase", "update"},
+    "arduino-cli": {"upload"},
+    "pio": {"upload"},
+    "platformio": {"upload"},
+    "idf.py": {"flash", "erase-flash", "erase_flash"},
+    "west": {"flash"},
+}
+def _writes_firmware(head: str, words: list, lowered: str) -> bool:
+    """True for a programmer invoked to write or erase a device, not to read it."""
+    if head == "openocd":
+        return bool(re.search(r"\b(program|flash write_image)\b", lowered))
+    if head == "avrdude":
+        return bool(re.search(r"flash:w", lowered))
+    verbs = _FLASHERS.get(head)
+    return verbs is not None and any(word in verbs for word in words[1:])
+
+
+# `ros2 <noun> <verb>` that send a command to a running robot.
+_ROS_ACTUATION = {("topic", "pub"), ("service", "call"), ("action", "send_goal"),
+                  ("param", "set"), ("lifecycle", "set")}
 _SQL_WRITE = re.compile(r"\b(insert|update|delete|drop|alter|truncate|create)\b", re.IGNORECASE)
 _DB_CLIENTS = {"psql", "mysql", "sqlite3", "mongosh", "mongo", "redis-cli", "cqlsh"}
 _SECRET_PATH = re.compile(
@@ -278,6 +309,19 @@ def _assess_segment(segment: str) -> _Draft:
                                      if head in {"brew", "apt", "apt-get"} else f"{head} environment")
             draft.summary = "Install dependency"
             return draft
+    if _writes_firmware(head, words, lowered):
+        draft.capabilities.add("hardware.flash")
+        draft.raise_to(4, "Writes firmware to a device; a bad image can leave it unusable", reversible=False)
+        draft.systems.append("Device firmware")
+        draft.summary = "Flash firmware"
+        return draft
+    if head == "ros2" and len(words) >= 3 and (words[1], words[2]) in _ROS_ACTUATION:
+        draft.capabilities.add("actuator.command")
+        draft.raise_to(4, f"Sends a command to a running robot (ros2 {words[1]} {words[2]}); it may move hardware",
+                       reversible=False)
+        draft.systems.append("Robot / actuators")
+        draft.summary = "Command a robot"
+        return draft
     for pattern in _DEPLOY:
         if pattern.search(lowered):
             draft.capabilities |= {"cloud.deploy", "network.write"}
