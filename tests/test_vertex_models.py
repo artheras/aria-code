@@ -100,8 +100,8 @@ def test_model_command_accepts_google_models_with_cloud_credentials(monkeypatch)
     monkeypatch.setattr(base, "google_cloud_available", lambda: True)
     terminal = cli.ArtheraTerminal(dict(cli.DEFAULT_CONFIG))
     monkeypatch.setattr(terminal.commands.context, "console", Console(file=io.StringIO(), color_system=None))
-    asyncio.run(terminal.commands.cmd_model("google/gemini-3.5-flash"))
-    assert terminal.config["model"] == "gemini-3.5-flash" and terminal.config["local_provider"] == "google"
+    asyncio.run(terminal.commands.cmd_model("google/gemini-3.8-flash"))
+    assert terminal.config["model"] == "gemini-3.8-flash" and terminal.config["local_provider"] == "google"
 
 
 def test_model_command_without_credentials_names_both_ways(monkeypatch):
@@ -116,7 +116,7 @@ def test_model_command_without_credentials_names_both_ways(monkeypatch):
     import aria_code.apps.cli.commands.model_cmds as model_cmds
     monkeypatch.setattr(model_cmds, "_get_provider_key", lambda provider: "", raising=False)
     before = terminal.config["model"]
-    asyncio.run(terminal.commands.cmd_model("google/gemini-3.5-flash"))
+    asyncio.run(terminal.commands.cmd_model("google/gemini-3.8-flash"))
     assert terminal.config["model"] == before
     text = console.file.getvalue()
     assert "application-default login" in text and "/apikey set google" in text

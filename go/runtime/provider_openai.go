@@ -35,7 +35,7 @@ type openAIProvider struct {
 var errNoVisibleCompletion = errors.New("model returned no visible response or tool call")
 
 func googleModelProvider(c config) modelProvider {
-	model := c.text("model", "gemini-3.5-flash")
+	model := c.text("model", "gemini-3.8-flash")
 	options := googleClientConfig(c)
 	backend := strings.ToLower(strings.TrimSpace(c.text("local_provider", "google")))
 	compat := options.Backend == genai.BackendVertexAI && !hasDefaultCredentials() && (backend == "google" || backend == "gemini")

@@ -65,7 +65,7 @@ Federation (no key in the repository):
     workload_identity_provider: ${{ vars.WIF_PROVIDER }}
     service_account: ${{ vars.REVIEW_SA }}
 - run: python3 -m pip install "aria-code[google]<4"
-- run: aria-code review --base origin/main --fail-on P1 --model google/gemini-3.5-flash
+- run: aria-code review --base origin/main --fail-on P1 --model google/gemini-3.8-flash
   env:
     GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT }}
 ```

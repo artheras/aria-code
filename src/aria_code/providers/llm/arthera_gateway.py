@@ -28,7 +28,7 @@ from .openai_compat import OpenAICompatProvider
 logger = logging.getLogger(__name__)
 
 DEFAULT_API_URL = "https://api.arthera.xyz"
-DEFAULT_MODEL = "google/gemini-3.5-flash"
+DEFAULT_MODEL = "google/gemini-3.8-flash"
 
 
 def _config_path() -> Path:

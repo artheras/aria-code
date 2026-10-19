@@ -680,7 +680,7 @@ def _iter_required_modules() -> Iterable[tuple[str, str]]:
     yield "pandas", "dataframes"
     yield "numpy", "numeric processing"
     yield "yfinance", "US/HK/global market data"
-    # The default model is google/gemini-3.5-flash, so without this a fresh
+    # The default model is google/gemini-3.8-flash, so without this a fresh
     # install cannot answer a single prompt.
     yield "google.genai", "Gemini / Vertex AI (the default model)"
 

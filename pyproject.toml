@@ -45,7 +45,7 @@ classifiers = [
 # parsers, the SQL engine and chart renderer are optional extras below — the
 # code already lazy-imports them and degrades gracefully when absent.
 dependencies = [
-    # The default model's client. DEFAULT_MODEL is google/gemini-3.5-flash, and
+    # The default model's client. DEFAULT_MODEL is google/gemini-3.8-flash, and
     # this used to be the optional `google` extra — so a plain
     # `pip install aria-code` failed on the very first prompt with "Gemini/Vertex
     # AI 需要 google-genai，当前未安装". The comment above that extra said as

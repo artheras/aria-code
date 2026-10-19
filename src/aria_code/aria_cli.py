@@ -658,17 +658,17 @@ _PROVIDER_GUIDE: Dict[str, str] = {
         "1. 打开 aistudio.google.com/app/apikey\n"
         "2. 用 Google 账号登录 → 「Create API key」\n"
         "3. 复制 AIzaSy... 格式的密钥\n\n"
-        "解锁: Gemini 3.8 Flash · Gemini 3.5 Flash · 多模态视觉\n"
-        "用法: /model google/gemini-3.5-flash\n"
+        "解锁: Gemini 4 Argon · Gemini 3.8 Flash · 多模态视觉\n"
+        "用法: /model google/gemini-3.8-flash\n"
         "免费额度以 Google AI Studio 当前公布为准"
     ),
     "gemini": (
         "同 google provider，填入 Google AI Studio 的 API Key\n\n"
         "推荐模型:\n"
-        "  gemini-3.5-flash       — 稳定版，适合生产（默认）\n"
-        "  gemini-3.8-flash       — 最新最强，迭代较快\n"
+        "  gemini-3.8-flash       — Flash 旗舰（默认）\n"
+        "  gemini-4-argon         — 最新旗舰，复杂任务\n"
         "  gemini-3.5-flash-lite  — 更快更省\n\n"
-        "用法: /model gemini/gemini-3.5-flash"
+        "用法: /model gemini/gemini-3.8-flash"
     ),
     "xai": (
         "1. 打开 console.x.ai → 注册/登录\n"

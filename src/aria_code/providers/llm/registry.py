@@ -77,13 +77,13 @@ _DEFAULT_FALLBACK_CHAIN = [
     # Before the key-based entries: a signed-in user already has Google
     # models and should not be asked for a key to reach them. Skipped when
     # signed out, because the provider reports itself unavailable.
-    ("arthera",      None,                    "google/gemini-3.5-flash"),
+    ("arthera",      None,                    "google/gemini-3.8-flash"),
     ("deepseek",     "DEEPSEEK_API_KEY",      "deepseek-chat"),
     ("siliconflow",  "SILICONFLOW_API_KEY",   "deepseek-ai/DeepSeek-V3"),
     ("dashscope",    "DASHSCOPE_API_KEY",     "qwen-plus"),
     ("moonshot",     "MOONSHOT_API_KEY",      "moonshot-v1-8k"),
     ("zhipu",        "ZHIPUAI_API_KEY",       "glm-4-flash"),
-    ("google",       "GEMINI_API_KEY",        "gemini-3.5-flash"),
+    ("google",       "GEMINI_API_KEY",        "gemini-3.8-flash"),
     ("openai",       "OPENAI_API_KEY",        "gpt-4o-mini"),
     ("anthropic",    "ANTHROPIC_API_KEY",     "claude-3-5-haiku-latest"),
     ("groq",         "GROQ_API_KEY",          "llama-3.3-70b-versatile"),

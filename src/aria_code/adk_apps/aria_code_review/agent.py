@@ -12,7 +12,7 @@ from aria_code.packages.adk_bridge import CodeReviewTools
 _tools = CodeReviewTools()
 
 root_agent = Agent(
-    model=os.getenv("ARIA_ADK_MODEL", "gemini-3.5-flash"),
+    model=os.getenv("ARIA_ADK_MODEL", "gemini-3.8-flash"),
     name="aria_code_review",
     description="A read-only code reviewer for user-submitted source text.",
     instruction="""You are Aria Code Review, a careful software reviewer.
