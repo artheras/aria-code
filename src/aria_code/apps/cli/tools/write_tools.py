@@ -414,6 +414,15 @@ def _attach_verification_hint(result_data: dict, path, console=None, has_rich: b
             pass
 
 
+# Text that stands in for content: an ellipsis, `pass`, TODO/TBD, "your code here", "<code>".
+_PLACEHOLDER_CONTENT = _re.compile(
+    r"^(?:[.…]{1,}|pass|todo|tbd|fixme|placeholder|lorem ipsum|your (?:code|content|text) here|"
+    r"(?:insert|add|put|write) (?:your )?(?:code|content|text) here|\[?(?:code|content|text)\]?|"
+    r"#\s*(?:todo|tbd|fixme|your code|code|implement|placeholder)\b.*|//\s*(?:todo|tbd|fixme|your code|code|implement|placeholder)\b.*)$",
+    _re.IGNORECASE,
+)
+
+
 def tool_write_file(params: dict) -> dict:
     """Write content to a file (create or overwrite)."""
     path = params.get("path", "")
@@ -429,10 +438,17 @@ def tool_write_file(params: dict) -> dict:
     content = _strip_markdown_fences(content)
     stripped_check = content.strip()
 
-    if len(stripped_check) < 20:
+    if not stripped_check:
+        return {"success": False, "error": "Content is empty (only whitespace). Write the file's real content."}
+
+    # A placeholder is rejected for what it says, not for how short it is. The old rule
+    # refused every file under 20 characters, which also refused real ones: a route of
+    # `RRDDRRDRRUU`, a VERSION file, a two-line CSV. A model told "write the complete
+    # script" for a file that is complete tends to pad it, and the padding breaks it.
+    if len(stripped_check) < 60 and _PLACEHOLDER_CONTENT.match(stripped_check):
         return {"success": False,
-                "error": f"Content too short ({len(stripped_check)} chars). "
-                "You must write the COMPLETE script code, not a placeholder."}
+                "error": f"Content is a placeholder ('{stripped_check[:40]}'). "
+                "Write the real, complete content of the file."}
 
     if (stripped_check.startswith("<") and stripped_check.endswith(">")
             and "\n" not in stripped_check and len(stripped_check) < 200
