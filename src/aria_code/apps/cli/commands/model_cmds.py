@@ -614,6 +614,9 @@ class ModelCommandsMixin:
                 size = " · ".join(x for x in (cm.get("size_label"), cm.get("family"), cm.get("quant")) if x)
                 rows.append((cm["name"], f"● {cm['name']}{current}", size or community))
                 groups.append(community)
+        # Every provider that has a key lists what it serves today. A hand-kept
+        # catalogue goes stale; the provider's own list does not.
+        await self._add_cloud_models(rows, groups, current_id, zh)
         if not rows:
             return
         start = next((i for i, row in enumerate(rows) if row[0] == current_id), 0)
@@ -635,6 +638,36 @@ class ModelCommandsMixin:
             await self.cmd_model(chosen)
         else:
             self._set_model_by_id(chosen)
+
+    async def _add_cloud_models(self, rows: list, groups: list, current_id: str, zh: bool) -> None:
+        """Append a section per provider with a key: what its model list endpoint returns now."""
+        import asyncio as _asyncio
+        from aria_code.apps.cli import cloud_models
+
+        def key_for(provider: str) -> str:
+            key = _get_provider_key(provider)
+            if not key and provider == "google":
+                key = os.environ.get("GEMINI_API_KEY", "")
+            return key
+
+        try:
+            found = await _asyncio.to_thread(cloud_models.collect, key_for)
+        except Exception:
+            return
+        listed = {row[0] for row in rows}
+        for provider, models in found.items():
+            heading = cloud_models.PROVIDERS[provider][0]
+            fresh = [x for x in models if f"{provider}/{x['id']}" not in listed]
+            if not fresh:
+                continue
+            group = f"{heading} · {len(fresh)}" + (" 个可用" if zh else " available")
+            for item in fresh:
+                full = f"{provider}/{item['id']}"
+                is_current = current_id in (full, item["id"])
+                tag = ("  ✓ 当前" if zh else "  ✓ current") if is_current else ""
+                detail = " · ".join(x for x in (full, item["detail"]) if x)
+                rows.append((full, f"☁ {item['name']}{tag}", detail))
+                groups.append(group)
 
     def _set_model(self, key: str):
         """Set model by _get_MODELS() key."""
