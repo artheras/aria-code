@@ -198,8 +198,13 @@ def build_review_gate(config: Optional[dict] = None, *, model: str, api_url: Opt
                       ollama_url: str, thinking_mode: str = "auto", auth_token: Optional[str] = None):
     """The independent reviewer for this turn, or None unless review_gate is on.
 
-    Same model, fresh context: no history, no tools, no project context — the
-    reviewer judges the diff it is given, not the conversation that made it.
+    Fresh context: no history, no tools, no project context — the reviewer
+    judges the diff it is given, not the conversation that made it. By default
+    it is the same model; ``review_model`` (``anthropic/claude-sonnet-5-5``,
+    ``openai/...``, ``google/...``) hands the review to a different one, so the
+    model that wrote the change is not also the one that approves it. That sends
+    the diff, the goal and the check results to that provider, which is why it
+    is a setting and never a default.
     """
     cfg = config or {}
     if not cfg.get("review_gate", False):
@@ -208,9 +213,14 @@ def build_review_gate(config: Optional[dict] = None, *, model: str, api_url: Opt
         return None
     from aria_code.runtime.review import REVIEWER_SYSTEM, ReviewGate
 
+    other = str(cfg.get("review_model") or "").strip()
+    separate = bool(other) and other != model
     reviewer_fn = make_provider_fn(
-        model=model, config=cfg, api_url=api_url, ollama_url=ollama_url,
-        tool_schemas=[], thinking_mode=thinking_mode, auth_token=auth_token,
+        model=other if separate else model, config=cfg,
+        # A separate reviewer names its own provider, so it must not go through the
+        # builder's Aria backend (api_url) or its auth token.
+        api_url=None if separate else api_url, ollama_url=ollama_url,
+        tool_schemas=[], thinking_mode=thinking_mode, auth_token=None if separate else auth_token,
         system_override=REVIEWER_SYSTEM,
     )
 
@@ -224,7 +234,7 @@ def build_review_gate(config: Optional[dict] = None, *, model: str, api_url: Opt
         attempts = int(cfg.get("review_max_attempts", 1))
     except (TypeError, ValueError):
         attempts = 1
-    return ReviewGate(reviewer=_review, max_attempts=max(0, attempts))
+    return ReviewGate(reviewer=_review, max_attempts=max(0, attempts), reviewer_name=other if separate else "")
 
 
 async def run_with_fallback(

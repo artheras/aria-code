@@ -576,3 +576,108 @@ async def test_skill_get_no_references_dir_returns_empty_list(tmp_path, monkeypa
 
     result = await _call_skill_get({"name": "my-skill"})
     assert result["references"] == []
+
+
+# ── governance tools: what other agents ask Aria about a change ─────────────────
+
+import asyncio
+import json
+
+
+def _run(coro):
+    return asyncio.run(coro)
+
+
+def test_governance_tools_are_listed_with_schemas_and_are_read_only():
+    from packages.aria_mcp.bridge import default_exposures
+
+    names = {"aria.risk.assess", "aria.contract.check", "aria.project.impact", "aria.project.commands"}
+    listed = {t["name"]: t for t in TOOLS}
+    assert names <= set(listed)
+    for name in names:
+        assert listed[name]["inputSchema"]["type"] == "object"
+    for exposure in default_exposures():
+        if exposure.name in names:
+            assert exposure.read_only, f"{exposure.name} must stay read-only"
+
+
+def test_risk_assess_rates_a_command_and_says_how_it_would_be_approved():
+    from aria_code.packages.aria_mcp.server import _call_risk_assess
+
+    deleting = _run(_call_risk_assess({"command": "rm -rf build"}))
+    assert deleting["success"] and deleting["assessment"]["level"] == 4
+    assert deleting["approval"] == {"manual": "always", "risk_mode": "always"}
+    assert any("L4" in line for line in deleting["card"])
+    reading = _run(_call_risk_assess({"command": "git status"}))
+    assert reading["assessment"]["level"] == 0 and reading["approval"]["risk_mode"] == "auto"
+
+
+def test_risk_assess_needs_a_command_or_a_tool_and_never_runs_anything(tmp_path):
+    from aria_code.packages.aria_mcp.server import _call_risk_assess
+
+    assert not _run(_call_risk_assess({}))["success"]
+    marker = tmp_path / "ran"
+    _run(_call_risk_assess({"command": f"touch {marker}"}))
+    assert not marker.exists()
+    out = _run(_call_risk_assess({"tool": "write_file", "params": {"path": "a.txt", "content": "x"}}))
+    assert out["success"] and out["assessment"]["level"] >= 1
+
+
+def test_contract_check_follows_the_projects_policy(tmp_path, monkeypatch):
+    from aria_code.packages.aria_mcp.server import _call_contract_check
+
+    monkeypatch.chdir(tmp_path)
+    none = _run(_call_contract_check({"tool": "write_file", "params": {"path": "anything.py"}}))
+    assert none["success"] and none["allowed"] and none["contract"] is None
+    (tmp_path / ".aria").mkdir()
+    (tmp_path / ".aria" / "policy.yaml").write_text(
+        "contract:\n  allow: [src/**]\n  restrict: [src/secrets.py]\n  forbid: [git.push]\n  max_level: 3\n")
+    ok = _run(_call_contract_check({"tool": "write_file", "params": {"path": "src/a.py", "content": "x"}}))
+    assert ok["allowed"] is True
+    outside = _run(_call_contract_check({"tool": "write_file", "params": {"path": "docs/a.md", "content": "x"}}))
+    assert outside["allowed"] is False and outside["rule"] == "allow"
+    push = _run(_call_contract_check({"tool": "run_command", "params": {"command": "git push origin main"}}))
+    assert push["allowed"] is False and push["rule"] == "forbid"
+
+
+def test_a_policy_that_cannot_be_read_allows_reads_only(tmp_path, monkeypatch):
+    from aria_code.packages.aria_mcp.server import _call_contract_check
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".aria").mkdir()
+    (tmp_path / ".aria" / "policy.yaml").write_text("contract: [not, a, mapping")
+    write = _run(_call_contract_check({"tool": "write_file", "params": {"path": "a.py", "content": "x"}}))
+    assert write["allowed"] is False
+    read = _run(_call_contract_check({"tool": "run_command", "params": {"command": "git status"}}))
+    assert read["allowed"] is True
+
+
+def test_project_impact_lists_what_depends_on_a_file(tmp_path, monkeypatch):
+    from aria_code.packages.aria_mcp.server import _call_project_impact
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "core.py").write_text("def f():\n    return 1\n")
+    (tmp_path / "app.py").write_text("from core import f\n\nprint(f())\n")
+    (tmp_path / "test_app.py").write_text("import app\n")
+    out = _run(_call_project_impact({"targets": ["core.py"]}))
+    assert out["success"] and out["impact"]["direct_dependents"] == ["app.py"]
+    assert out["impact"]["tests"] == ["test_app.py"] and out["breadth"] == "narrow"
+    assert not _run(_call_project_impact({"targets": []}))["success"]
+
+
+def test_project_commands_reports_what_the_project_declares(tmp_path, monkeypatch):
+    from aria_code.packages.aria_mcp.server import _call_project_commands
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "package.json").write_text(json.dumps({"scripts": {"test": "jest"}}))
+    out = _run(_call_project_commands({}))
+    assert out["success"] and out["commands"] == {"test": "npm test"}
+
+
+def test_governance_tools_refuse_a_root_outside_the_workspace_and_home(tmp_path, monkeypatch):
+    from aria_code.packages.aria_mcp.server import _call_project_commands
+
+    monkeypatch.chdir(tmp_path)
+    out = _run(_call_project_commands({"root": "/etc"}))
+    assert out["success"] is False and "inside" in out["error"]
+    assert _run(_call_project_commands({"root": str(tmp_path / "missing")}))["success"] is False

@@ -9,7 +9,7 @@ import pytest
 
 from aria_code.apps.cli.commands.engineering_cmds import EngineeringCommandsMixin, detect_commands, fix_prompt
 
-NEW = ["/sim", "/diff", "/commit", "/pr", "/checkpoint", "/worktree", "/graph", "/agents", "/test", "/build", "/fix"]
+NEW = ["/sim", "/consult", "/diff", "/commit", "/pr", "/checkpoint", "/worktree", "/graph", "/agents", "/test", "/build", "/fix"]
 
 
 def test_every_new_command_is_registered_and_described():

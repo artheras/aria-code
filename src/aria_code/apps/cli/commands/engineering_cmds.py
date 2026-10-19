@@ -362,6 +362,34 @@ class EngineeringCommandsMixin:
         self._eng_say("Project agents: " + (", ".join(names) if names else "none (add .aria/agents/<name>.md)"))
         await self._eng_call(self.cmd_tasks, "")
 
+    async def cmd_consult(self, args: str):
+        """/consult <claude|provider/model> <question> — a second opinion from another model."""
+        self._eng_note_shadow("consult")
+        from aria_code.runtime import consult
+
+        name, question = consult.split_request(args)
+        if not name or not question:
+            self._eng_say("Usage: /consult <claude|provider/model> <question>   "
+                          "e.g. /consult claude is this retry loop safe? @src/retry.py", "dim")
+            return
+        model = consult.resolve_model(name, self.terminal.config)
+        if model is None:
+            self._eng_say(f"'{name}' is not a model. Use provider/model (anthropic/claude-sonnet-5-5, "
+                          "openai/<model>, google/gemini-3.8-flash), or 'claude'. "
+                          "Add short names with /config set consult_aliases=...", "yellow")
+            return
+        provider = model.split("/", 1)[0]
+        self._eng_say(f"Asking {model}. Your question (and any @files in it) goes to {provider}.", "dim")
+        try:
+            answer = await consult.ask(model, question, self.terminal.config,
+                                       ollama_url=self.terminal.config.get("ollama_url", "http://localhost:11434"))
+        except Exception as exc:
+            self._eng_say(f"✗ {model} did not answer: {exc}", "red")
+            return
+        self._eng_say(answer)
+        # File it, so what Aria is told next can build on it.
+        self.terminal.conversation.append({"role": "user", "content": consult.note_for_conversation(model, question, answer)})
+
     async def cmd_fix(self, args: str):
         """/fix <what is wrong> — find the cause, make the smallest change, check, repair."""
         self._eng_note_shadow("fix")

@@ -34,6 +34,35 @@ def default_exposures() -> List[MCPExposure]:
         MCPExposure("aria.agent.team", "agent:team", "Run multi-agent financial research."),
         MCPExposure("aria.report.generate", "tool:report_generate", "Fetch data + generate a full HTML research report artifact for a symbol.", read_only=False),
         MCPExposure("aria.backtest.run", "tool:backtest_run", "Run a historical strategy simulation (buy_hold or sma_cross) against real price history.", read_only=False),
+        # Governance: what Aria knows about a change that another agent does not.
+        MCPExposure(
+            "aria.risk.assess",
+            "infra:risk",
+            "How risky is this action? Give a shell `command` (or a `tool` and its `params`) and get "
+            "its level L0-L4, the capabilities it uses (filesystem.write, package.install, git.push, "
+            "cloud.deploy, hardware.flash, actuator.command, ...), whether it can be undone, what it "
+            "reaches (hosts, files, systems) and whether it needs approval. Read-only: nothing runs.",
+        ),
+        MCPExposure(
+            "aria.contract.check",
+            "infra:contract",
+            "Would the project's change contract (.aria/policy.yaml) allow this tool call? Returns "
+            "allowed/blocked with the rule that decided it, and the contract in force. A project with "
+            "no contract allows everything; one whose policy cannot be read allows reads only. Read-only.",
+        ),
+        MCPExposure(
+            "aria.project.impact",
+            "infra:impact",
+            "What does changing these files or symbols reach? Dependents, tests and the services that "
+            "ship them, from the project's import graph. Use before editing code others depend on. Read-only.",
+        ),
+        MCPExposure(
+            "aria.project.commands",
+            "infra:commands",
+            "The project's own test, build, lint and simulation commands (from .aria/project.yaml, ROS 2 "
+            "packages, package.json, Cargo.toml, go.mod, pyproject.toml or Makefile targets). Read-only; "
+            "nothing is run and nothing is guessed.",
+        ),
         MCPExposure("aria.artifacts.list", "infra:artifacts", "List local generated artifacts."),
         MCPExposure(
             "aria.skill.list",

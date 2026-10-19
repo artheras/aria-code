@@ -1949,7 +1949,7 @@ class ModelCommandsMixin:
                 for key in ("api_url", "ollama_url", "local_provider", "model",
                             "provider_fallback", "llm_base_url", "thinking_mode",
                             "command_policy", "permission_mode", "network_enabled",
-                            "approval_mode", "auto_approve_level", "review_gate", "delivery_report",
+                            "approval_mode", "auto_approve_level", "review_gate", "review_model", "delivery_report",
                             "write_policy", "lsp_autocheck", "input_style", "input_theme",
                             "response_footer", "auto_compact_context",
                             "auto_compact_threshold", "auto_save_sessions"):
@@ -1997,7 +1997,7 @@ class ModelCommandsMixin:
                 for key in ("api_url", "ollama_url", "local_provider", "model",
                             "provider_fallback", "llm_base_url", "thinking_mode",
                             "command_policy", "permission_mode", "network_enabled",
-                            "approval_mode", "auto_approve_level", "review_gate", "delivery_report",
+                            "approval_mode", "auto_approve_level", "review_gate", "review_model", "delivery_report",
                             "write_policy", "lsp_autocheck", "input_style", "input_theme",
                             "response_footer", "auto_compact_context",
                             "auto_compact_threshold"):
@@ -2039,6 +2039,20 @@ class ModelCommandsMixin:
                         msg = f"{key} must be: true | false"
                         self.context.console.print(f"[red]{msg}[/red]" if self.context.has_rich else msg)
                         return
+                elif key == "review_model":
+                    # Another provider's model reads the diff; "off" (or empty) goes back to the builder.
+                    from aria_code.apps.cli.providers.chat_routing import KNOWN_MODEL_PROVIDERS, normalize_provider_name
+
+                    if val.lower() in {"", "off", "none"}:
+                        val = ""
+                    else:
+                        provider = normalize_provider_name(val.split("/", 1)[0]) if "/" in val else ""
+                        if provider not in KNOWN_MODEL_PROVIDERS:
+                            msg = ("review_model must name a provider and model, e.g. anthropic/claude-sonnet-5-5, "
+                                   "openai/<model> or google/gemini-3.8-flash (or 'off'). "
+                                   "The diff and goal are sent to that provider.")
+                            self.context.console.print(f"[red]{msg}[/red]" if self.context.has_rich else msg)
+                            return
                 elif key == "thinking_mode":
                     if val not in {"auto", "instant", "thinking"}:
                         msg = "thinking_mode must be one of: auto | instant | thinking"
