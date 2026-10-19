@@ -41,6 +41,8 @@ python -m aria_code.evals.scorecard report scorecard/ --cost aria=0.02 --cost gp
   上界都很小，学出来的路由器就不值得做。
 - 评测报告不含 token 数，所以成本用 `--cost 名字=美元/每次尝试` 自己估。
 - 本地小模型（例如 7B）在笔记本上每轮要几十秒，300 秒做不完一题；超时记为"错误"而不是"答错"，不计分。
+- 智能体命令行的退出码非零不等于崩溃：它的验收检查没过时也会以 1 退出。只要事件流里有 `turn.completed` 且 `stop_reason` 是智能体层面的结果（`completed`、`checks_failed`、`max_rounds` 等），就按任务检查计分（失败算失败）；服务商报错（如 HTTP 400）或没有任何事件的崩溃才记为"错误"。
+- 评测里的智能体进程使用与任务检查相同的 Python（排在 PATH 最前），并关闭标准输入。
 
 ## 3. 步骤
 

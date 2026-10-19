@@ -474,6 +474,24 @@ def _changed_paths(before: dict[str, str], after: dict[str, str]) -> tuple[str, 
     return tuple(touched)
 
 
+# How an agent's turn can end when the agent itself was running: these are about the
+# work, so the task's check decides. Anything else in `stop_reason` is the transport
+# or the provider failing (an HTTP error text, a crash), which is not the model's score.
+_AGENT_STOPS = frozenset({"completed", "checks_failed", "max_rounds", "budget_exhausted", "loop_guard"})
+
+
+def _agent_finished(stdout: str) -> bool:
+    """True when the agent's event stream ends with a turn.completed that ran to an agent-level stop."""
+    last = None
+    for line in stdout.splitlines():
+        if line.startswith("{") and '"turn.completed"' in line:
+            try:
+                last = json.loads(line)
+            except ValueError:
+                continue
+    return bool(last) and str(last.get("stop_reason") or "") in _AGENT_STOPS
+
+
 def _solver_failure(outcome: Any) -> Optional[tuple[int, str]]:
     """``(exit_code, log)`` when the solver reports it did not complete.
 
@@ -485,6 +503,10 @@ def _solver_failure(outcome: Any) -> Optional[tuple[int, str]]:
         return None
     code = getattr(outcome, "returncode", None)
     if not isinstance(code, int) or code == 0:
+        return None
+    if _agent_finished(str(getattr(outcome, "stdout", "") or "")):
+        # The agent ran its turn and said how it ended; the non-zero exit is its verdict on
+        # its own work (its acceptance checks were red), not a crash. The check scores it.
         return None
     log = "\n".join(
         part for part in (

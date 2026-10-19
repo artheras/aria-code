@@ -69,6 +69,7 @@ class DeliveryReport:
     status: str                          # "done" | "incomplete"
     changed: tuple = ()
     checks: tuple = ()                   # ({"command", "passed", "exit_code"}, …)
+    not_run: tuple = ()                  # ({"command", "reason"}, …): checks whose tool is missing
     verified: Optional[bool] = None
     review: str = "Not reviewed"
     review_lines: tuple = ()
@@ -94,7 +95,9 @@ class DeliveryReport:
         return sum(item.removed for item in self.changed)
 
     def as_dict(self) -> dict:
+        extra = {"not_run": [dict(item) for item in self.not_run]} if self.not_run else {}  # absent unless used: the Go report has no such field
         return {
+            **extra,
             "status": self.status,
             "changed": [vars(item).copy() for item in self.changed],
             "checks": [dict(item) for item in self.checks],
@@ -120,6 +123,7 @@ class DeliveryReport:
                                          "tested_by": tuple(item.get("tested_by") or ())})
                           for item in data.get("changed") or ()),
             checks=tuple(dict(item) for item in data.get("checks") or ()),
+            not_run=tuple(dict(item) for item in data.get("not_run") or ()),
             verified=data.get("verified"),
             review=str(data.get("review") or "Not reviewed"),
             review_lines=tuple(data.get("review_lines") or ()),
@@ -167,8 +171,10 @@ class DeliveryReport:
                     lines.append(f"      new failures: {shown}")
             if self.verified is None and self.changed:
                 lines.append("  ⚠ changed again after the last check")
-        else:
+        elif not self.not_run:
             lines.append("  — no check ran" + (" (none could be inferred)" if self.changed else ""))
+        for item in self.not_run:
+            lines.append(f"  · not run: {item.get('command', '')} — {item.get('reason', '')}")
         if self.behaviour:
             lines += ["", "Behaviour"]
             for key in ("before", "after", "why", "impact"):
@@ -333,14 +339,17 @@ class DeliveryLedger:
         stop_reason: str = "completed",
     ) -> DeliveryReport:
         checks: list = []
+        not_run: list = []
         reports = list((acceptance or {}).get("reports") or [])
         if reports:
-            checks = [
-                {"command": c.get("command", ""), "passed": bool(c.get("passed")), "exit_code": c.get("exit_code"),
-                 **({"preexisting": True} if c.get("preexisting") else {}),
-                 **({"new_failures": list(c["new_failures"])} if c.get("new_failures") else {})}
-                for c in reports[-1].get("checks") or []
-            ]
+            for c in reports[-1].get("checks") or []:
+                if c.get("not_run"):
+                    not_run.append({"command": c.get("command", ""), "reason": str(c["not_run"])})
+                    continue
+                checks.append(
+                    {"command": c.get("command", ""), "passed": bool(c.get("passed")), "exit_code": c.get("exit_code"),
+                     **({"preexisting": True} if c.get("preexisting") else {}),
+                     **({"new_failures": list(c["new_failures"])} if c.get("new_failures") else {})})
         verified = (acceptance or {}).get("verified")
         refused = tuple(dict(item) for item in (contract or {}).get("refused") or ())
         changed = tuple(self._changed.values())
@@ -366,6 +375,10 @@ class DeliveryLedger:
         elif verified is False or any(not c["passed"] for c in checks):
             status = "incomplete"
             next_step = "Fix the failing checks"
+        elif not_run and changed and verified is None:
+            # What could run passed; the tests did not run. Not verified, and not a failure.
+            status = "done"
+            next_step = f"Run the tests yourself — {not_run[0]['reason']}"
         elif changed:
             status = "done"
             next_step = ("Ready to commit" if verified else
@@ -386,6 +399,7 @@ class DeliveryLedger:
             status=status,
             changed=changed,
             checks=tuple(checks),
+            not_run=tuple(not_run),
             verified=verified,
             impact=self._impact(changed),
             review=str((review or {}).get("headline") or "Not reviewed"),
