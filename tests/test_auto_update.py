@@ -1,7 +1,16 @@
 """Background self-update: native only, opt-out, no retry storms, no double installs."""
 from pathlib import Path
 
+import pytest
+
 from aria_code.apps.cli import auto_update as au
+
+
+@pytest.fixture(autouse=True)
+def _clean_env(monkeypatch):
+    # CI runs offline; these tests choose their own environment.
+    monkeypatch.delenv("ARIA_OFFLINE", raising=False)
+    monkeypatch.delenv("ARIA_AUTO_UPDATE", raising=False)
 
 
 def run(tmp_path, *, channel="native", config=None, latest="0.2.0", current="0.1.0", install=None, now=1000.0):
