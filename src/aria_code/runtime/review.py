@@ -138,7 +138,7 @@ class ReviewReport:
         )
 
     def as_dict(self) -> dict:
-        return {
+        data = {
             "verdict": self.verdict,
             "summary": self.summary,
             "findings": [finding.as_dict() for finding in self.findings],
@@ -147,8 +147,12 @@ class ReviewReport:
             "headline": self.headline(),
             "lines": self.lines(),
             "behaviour": dict(self.behaviour) if self.behaviour else None,
-            "reviewer": self.reviewer,
         }
+        # Only when another model reviewed: the Go runtime's report has no such field,
+        # and tests/test_native_go_review.py compares the two field by field.
+        if self.reviewer:
+            data["reviewer"] = self.reviewer
+        return data
 
 
 def parse_review(text: str, *, attempt: int = 1) -> ReviewReport:

@@ -29,6 +29,7 @@ def test_a_separate_reviewer_is_named_in_the_report_and_the_delivery_lines():
 def test_the_builders_own_review_says_nothing_extra():
     report = run(ReviewGate(reviewer=lambda prompt: PASS).run(goal="g", diff="+x"))
     assert report.reviewer == "" and "reviewed by" not in report.lines()[0]
+    assert "reviewer" not in report.as_dict(), "the Go runtime's report has no such field"
 
 
 def test_a_reviewer_that_fails_is_named_too():
