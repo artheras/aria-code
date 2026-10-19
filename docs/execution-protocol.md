@@ -61,6 +61,25 @@ The Rust frontend draws the protocol instead of printing text from it:
   `reasons` and an optional `impact` line. The frontend draws it above the
   choices (level coloured green / yellow / red). Both the Python worker and the Go
   runtime send it; without it the dialog shows only the tool and its target.
+## Everyday commands
+
+Short names for the things a coding session does all day. Most are another command
+under a name people already know; `/test`, `/build` and `/fix` are new.
+
+| Command | What it does |
+|---|---|
+| `/diff [path…] \| --patch` | `git status` and `git diff --stat`, or the patch |
+| `/commit [message]` | commit everything that changed (`/git commit`) |
+| `/pr [status\|view\|create [title]]` | the branch's pull request, through `gh` |
+| `/checkpoint [list\|restore [N\|id]]` | file checkpoints and turn points (`/rewind`) |
+| `/worktree [diff\|apply\|discard]` | the task's worktree (`/task`) |
+| `/graph [path\|symbol…]` | project graph summary; with targets, what a change reaches (`/impact`) |
+| `/agents` | `.aria/agents/*.md` and the background tasks running |
+| `/test [paths]`, `/build` | the project's own command, read from `package.json` scripts, `Cargo.toml`, `go.mod`, `pyproject.toml` or Makefile targets; nothing is guessed |
+| `/fix <what is wrong>` | asks for the cause first, the smallest change, then the project's checks |
+
+`/history` already shows the conversation. These are Python-worker commands; the
+Go runtime's command set is still the sixteen listed in `/help`.
 
 ## Risk levels
 
