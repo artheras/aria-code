@@ -857,12 +857,12 @@ def test_real_terminal_shows_the_phase_and_a_risk_card_on_approval(application):
         pytest.skip("build the Rust prototype first")
     _, project, _, env = application
     master, slave = pty.openpty()
-    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 100, 0, 0))
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 44, 100, 0, 0))
     terminal_env = dict(env, TERM="xterm-256color", ARIA_THEME="dark", ARIA_PYTHON=sys.executable)
     terminal_env.pop("NO_COLOR", None)
     p = subprocess.Popen([os.environ["ARIA_NATIVE_BINARY"], "--python", sys.executable, "chat"], cwd=project,
                          env=terminal_env, stdin=slave, stdout=slave, stderr=slave)
-    screen = pyte.Screen(100, 32)
+    screen = pyte.Screen(100, 44)
     stream = pyte.Stream(screen)
     decoder = codecs.getincrementaldecoder("utf-8")("replace")
 
@@ -900,6 +900,7 @@ def test_real_terminal_shows_the_phase_and_a_risk_card_on_approval(application):
         shown = "\n".join(rows())
         assert "native-note.txt" in shown, "the card names the file"
         assert "reversible" in shown
+        # Tall terminal: the approval dialog (up to 25 rows, centred) must not cover the header.
         assert "Edit" in shown, "the header says the turn is editing"
         os.write(master, b"\r")  # the first choice: allow
         wait(lambda r: not any("Risk" in x for x in r), "the card closes after the answer")
