@@ -138,7 +138,7 @@ steps:
 
 @pytest.mark.asyncio
 async def test_a_prompt_step_fails_when_its_turn_breaks_the_checks(terminal, tmp_path, monkeypatch):
-    write_workflow(tmp_path, "fix", "steps:\n  - prompt: fix it\n  - run: python3 -c \"open('after.txt','w')\"\n")
+    write_workflow(tmp_path, "repair", "steps:\n  - prompt: fix it\n  - run: python3 -c \"open('after.txt','w')\"\n")
 
     async def fake_send(message, **_kwargs):
         terminal.conversation += [{"role": "user", "content": message},
@@ -147,7 +147,7 @@ async def test_a_prompt_step_fails_when_its_turn_breaks_the_checks(terminal, tmp
 
     monkeypatch.setattr(terminal, "send_message", fake_send)
     terminal.answers = [True]
-    await terminal.commands.execute("/fix")
+    await terminal.commands.execute("/repair")
     assert terminal.conversation[0]["content"] == "fix it"
     assert not (tmp_path / "after.txt").exists()
     assert "checks failed after this step" in terminal.out.getvalue()
