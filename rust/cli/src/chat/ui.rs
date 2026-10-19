@@ -435,7 +435,15 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 .min(inside.height.saturating_sub(1)),
     ));
     // The command list: opens above the input on `/`, narrows as you type.
-    let items = app.slash_items();
+    let (rows_found, for_files) = app.popup_rows();
+    let items: Vec<(String, String)> = if for_files {
+        rows_found
+            .into_iter()
+            .map(|(label, _)| (label, String::new()))
+            .collect()
+    } else {
+        rows_found
+    };
     if !items.is_empty() && parts[2].y > area.y {
         let rows = items.len() as u16;
         let height = (rows + 2).min(parts[2].y - area.y);
@@ -446,7 +454,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
             .map(|(name, _)| name.width())
             .max()
             .unwrap_or(0)
-            .min(24);
+            .min(if for_files { 60 } else { 24 });
         let inner_width = usize::from(rect.width.saturating_sub(4));
         let selected = app.popup_index.min(items.len() - 1);
         let lines: Vec<Line> = items
@@ -478,7 +486,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
                     .border_type(BorderType::Rounded)
                     .border_style(Style::new().fg(p.muted))
                     .title(Line::styled(
-                        app.tr(" Commands ", " 命令 "),
+                        if for_files {
+                            app.tr(" Files ", " 文件 ")
+                        } else {
+                            app.tr(" Commands ", " 命令 ")
+                        },
                         Style::new().fg(p.accent),
                     ))
                     .title_bottom(Line::styled(

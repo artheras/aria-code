@@ -228,6 +228,13 @@ pub fn run(
 fn key_request(app: &mut App, key: KeyEvent) -> Option<Value> {
     let request = key_request_inner(app, key);
     app.sync_popup();
+    // Typing an `@file` asks the runtime for matches as you go.
+    if request.is_none() && app.wants_reference_lookup() {
+        app.file_asked = app.editor.text().to_owned();
+        return Some(
+            json!({"type":"completion.request","protocol":1,"session_id":app.session,"text":app.editor.text()}),
+        );
+    }
     request
 }
 
@@ -294,7 +301,7 @@ fn key_request_inner(app: &mut App, key: KeyEvent) -> Option<Value> {
     }
     // The command list that opens on `/` takes the arrow keys, Tab, Enter and
     // Esc while it is showing; everything else types as usual.
-    if !app.slash_items().is_empty() && !ctrl && !alt {
+    if !app.popup_rows().0.is_empty() && !ctrl && !alt {
         match key.code {
             KeyCode::Up => {
                 app.popup_move(false);
@@ -312,10 +319,11 @@ fn key_request_inner(app: &mut App, key: KeyEvent) -> Option<Value> {
             // partly typed `/mo` cannot run the wrong thing; a second Enter runs it.
             KeyCode::Enter if !key.modifiers.contains(KeyModifiers::SHIFT) => {
                 // Already the highlighted command, in full: Enter runs it.
-                let items = app.slash_items();
+                let (items, files) = app.popup_rows();
                 let typed = app.editor.text().to_owned();
                 let highlighted = items.get(app.popup_index).map(|(name, _)| name.as_str());
-                if highlighted != Some(typed.as_str()) && app.popup_accept() {
+                // A file is always filled in, never sent: Enter on `@src/` must not submit.
+                if (files || highlighted != Some(typed.as_str())) && app.popup_accept() {
                     return None;
                 }
             }
@@ -742,5 +750,84 @@ mod tests {
         app.ready = false;
         app.editor.insert("/mo");
         assert!(names(&app).is_empty());
+    }
+
+    // ── The file list that opens on `@` ──────────────────────────────────
+    fn answer(app: &mut App, candidates: &[&str]) {
+        let text = app.editor.text().to_owned();
+        app.event(
+            json!({"protocol":1,"type":"completion.result","session_id":app.session,
+            "text":text,"candidates":candidates}),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn typing_at_asks_for_files_once_per_change_and_lists_the_answer() {
+        let mut app = with_commands();
+        app.reference_completion = true;
+        typed(&mut app, "read @");
+        // The last keystroke asked; nothing is listed until the answer arrives.
+        assert_eq!(app.file_asked, "read @");
+        assert!(app.file_items().is_empty());
+        answer(&mut app, &["read @src/", "read @README.md"]);
+        let rows: Vec<String> = app.file_items().into_iter().map(|(l, _)| l).collect();
+        assert_eq!(rows, vec!["@src/", "@README.md"]);
+        // An answer for older text is ignored.
+        press(&mut app, KeyCode::Char('x'));
+        assert!(app.file_items().is_empty());
+    }
+
+    #[test]
+    fn no_lookup_without_runtime_support_or_outside_a_token() {
+        let mut app = with_commands();
+        let sent = typed_last(&mut app, "read @a");
+        assert!(
+            sent.is_none(),
+            "runtime did not advertise reference_completion"
+        );
+        let mut app = with_commands();
+        app.reference_completion = true;
+        let sent = typed_last(&mut app, "mail me@a");
+        assert!(sent.is_none(), "an @ inside a word is not a file reference");
+    }
+
+    fn typed_last(app: &mut App, text: &str) -> Option<Value> {
+        let mut last = None;
+        for c in text.chars() {
+            last = press(app, KeyCode::Char(c));
+        }
+        last
+    }
+
+    #[test]
+    fn tab_and_enter_fill_in_a_file_and_a_folder_keeps_listing() {
+        let mut app = with_commands();
+        app.reference_completion = true;
+        typed(&mut app, "see @s");
+        answer(&mut app, &["see @src/", "see @setup.py"]);
+        assert!(press(&mut app, KeyCode::Down).is_none());
+        // Enter fills the file in; it must not submit the prompt.
+        assert!(press(&mut app, KeyCode::Enter).is_none());
+        assert_eq!(app.editor.text(), "see @setup.py ");
+        assert!(app.turn.is_none());
+        // A folder is filled without a space, and the next level is asked for.
+        let mut app = with_commands();
+        app.reference_completion = true;
+        typed(&mut app, "see @s");
+        answer(&mut app, &["see @src/"]);
+        let request = press(&mut app, KeyCode::Tab).expect("asks for the folder's contents");
+        assert_eq!(request["type"], "completion.request");
+        assert_eq!(request["text"], "see @src/");
+    }
+
+    #[test]
+    fn esc_closes_the_file_list_until_the_text_changes() {
+        let mut app = with_commands();
+        app.reference_completion = true;
+        typed(&mut app, "see @s");
+        answer(&mut app, &["see @src/"]);
+        press(&mut app, KeyCode::Esc);
+        assert!(app.file_items().is_empty());
     }
 }

@@ -107,6 +107,12 @@ pub struct App {
     /// Esc closes the popup for this exact text. Typing more brings it back.
     pub popup_dismissed: Option<String>,
     pub reference_completion: bool,
+    /// Whole-prompt replacements the runtime offered for the `@file` being
+    /// typed, and the text they were offered for.
+    pub file_candidates: Vec<String>,
+    pub file_for: String,
+    /// The last text a lookup was sent for, so each keystroke asks at most once.
+    pub file_asked: String,
     pub status: String,
     pub details: bool,
     pub help: bool,
@@ -203,11 +209,10 @@ impl App {
                                 .collect()
                         })
                         .unwrap_or_default();
-                    if candidates.len() == 1 {
-                        self.editor.set(&candidates[0]);
-                    } else if !candidates.is_empty() {
-                        self.add("status", &candidates.join("\n"), false);
-                    }
+                    // The list under the input shows them; nothing is typed for you.
+                    self.file_candidates = candidates;
+                    self.file_for = self.editor.text().to_owned();
+                    self.popup_index = 0;
                 }
             }
             "update.available" => {
@@ -735,8 +740,69 @@ impl App {
         }
     }
 
+    /// Where the `@token` being typed starts, when the cursor is in one.
+    fn reference_start(&self) -> Option<usize> {
+        let text = self.editor.text();
+        let at = text.rfind('@')?;
+        let before_ok = at == 0 || text[..at].ends_with(char::is_whitespace);
+        let rest = &text[at + 1..];
+        let quoted = rest.starts_with('"') || rest.starts_with("file:\"");
+        if !before_ok || (!quoted && rest.contains(char::is_whitespace)) || rest.contains('\n') {
+            return None;
+        }
+        Some(at)
+    }
+
+    /// True when a lookup for the `@file` at the end of the draft should go out.
+    pub fn wants_reference_lookup(&self) -> bool {
+        self.ready
+            && self.reference_completion
+            && self.turn.is_none()
+            && self.dialog.is_none()
+            && !self.help
+            && self.editor.at_end()
+            && self.reference_start().is_some()
+            && self.file_asked != self.editor.text()
+    }
+
+    /// The files the list offers for the `@token` being typed: (what to show,
+    /// the whole prompt that choosing it would leave). Empty unless the
+    /// runtime's answer is for exactly this text.
+    pub fn file_items(&self) -> Vec<(String, String)> {
+        let text = self.editor.text();
+        if !self.ready
+            || self.turn.is_some()
+            || self.dialog.is_some()
+            || self.help
+            || !self.editor.at_end()
+            || self.file_for != text
+            || self.popup_dismissed.as_deref() == Some(text)
+        {
+            return Vec::new();
+        }
+        let Some(at) = self.reference_start() else {
+            return Vec::new();
+        };
+        self.file_candidates
+            .iter()
+            .take(Self::POPUP_ROWS)
+            .filter(|c| c.len() > at)
+            .map(|c| (c[at..].to_owned(), c.clone()))
+            .collect()
+    }
+
+    /// Whatever list is showing: commands after `/`, files after `@`.
+    /// Each row is (label, detail); for files the detail is the replacement.
+    pub fn popup_rows(&self) -> (Vec<(String, String)>, bool) {
+        let commands = self.slash_items();
+        if !commands.is_empty() {
+            return (commands, false);
+        }
+        (self.file_items(), true)
+    }
+
     pub fn popup_move(&mut self, down: bool) {
-        let n = self.slash_items().len();
+        let n = self.popup_rows().0.len();
         if n == 0 {
             return;
         }
@@ -749,11 +815,22 @@ impl App {
 
     /// Put the highlighted command in the input, ready for arguments.
     pub fn popup_accept(&mut self) -> bool {
-        let items = self.slash_items();
-        let Some((name, _)) = items.get(self.popup_index.min(items.len().saturating_sub(1))) else {
+        let (items, files) = self.popup_rows();
+        let Some((name, whole)) = items.get(self.popup_index.min(items.len().saturating_sub(1)))
+        else {
             return false;
         };
-        let completed = format!("{name} ");
+        // A folder stays open so the next level lists at once; anything else
+        // is finished and gets a space for the rest of the prompt.
+        let completed = if files {
+            if whole.ends_with('/') {
+                whole.clone()
+            } else {
+                format!("{whole} ")
+            }
+        } else {
+            format!("{name} ")
+        };
         self.editor.set(&completed);
         true
     }
@@ -803,14 +880,18 @@ mod tests {
         a.editor.set("read @fi");
         let response = json!({"protocol":1,"type":"completion.result","session_id":"one","text":"read @fi","candidates":["read @file:file.txt"]});
         a.event(response.clone()).unwrap();
-        assert_eq!(a.editor.text(), "read @file:file.txt");
+        // Offered, not typed: the draft is untouched until the user picks one.
+        assert_eq!(a.editor.text(), "read @fi");
+        assert_eq!(a.file_candidates, vec!["read @file:file.txt".to_string()]);
         a.editor.set("new draft");
+        a.file_candidates.clear();
         a.event(response.clone()).unwrap();
-        assert_eq!(a.editor.text(), "new draft");
+        assert!(a.file_candidates.is_empty());
         a.editor.set("read @fi");
         a.session = "two".into();
         a.event(response).unwrap();
         assert_eq!(a.editor.text(), "read @fi");
+        assert!(a.file_candidates.is_empty());
     }
     fn app() -> App {
         App {

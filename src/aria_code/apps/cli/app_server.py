@@ -158,6 +158,11 @@ class Server:
                         continue
                     if kind == "shutdown":
                         break
+                    if kind == "completion.request":
+                        # Answered here, not queued behind a running turn: it is
+                        # a lookup, and the list it feeds should not wait.
+                        self.complete_reference(value)
+                        continue
                     self.requests.put_nowait(value)
                 except (ValueError, UnicodeError, queue.Full) as error:
                     self.emit("protocol.error", error=str(error))
@@ -350,6 +355,19 @@ class Server:
         config["last_session_id"] = self.terminal.session_id
         self.cli.save_config(config)
 
+    def complete_reference(self, value):
+        """Answer a completion request with candidates for the `@file` being typed."""
+        text = value.get("text")
+        if not isinstance(text, str) or len(text.encode("utf-8")) > MAX_INPUT:
+            raise ValueError("Completion text must be at most 65536 UTF-8 bytes")
+        from aria_code.apps.cli.file_references import reference_candidates
+
+        try:
+            candidates = reference_candidates(text, Path.cwd())
+        except Exception:
+            candidates = []
+        self.emit("completion.result", session_id=value.get("session_id", ""), text=text, candidates=candidates)
+
     def commands_info(self):
         """Every slash command with what it does, in the order the list shows them.
 
@@ -389,7 +407,7 @@ class Server:
                   robot=rows, robot_design="cream-block-v2" if rows else "",
                   model=t.config.get("model", ""), provider=t.config.get("local_provider", ""),
                   workspace=str(Path.cwd()), commands=sorted(t.commands.commands),
-                  commands_info=self.commands_info(),
+                  commands_info=self.commands_info(), reference_completion=True,
                   permission=t.config.get("permission_mode", "workspace-write"),
                   network=bool(t.config.get("network_enabled", True)),
                   ui_lang=t.config.get("ui_lang", "en"),
