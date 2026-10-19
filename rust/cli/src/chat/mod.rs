@@ -255,6 +255,40 @@ fn key_request_inner(app: &mut App, key: KeyEvent) -> Option<Value> {
         app.details = !app.details;
         return None;
     }
+    if let Some(d) = app.dialog.as_mut().filter(|d| d.picker) {
+        match key.code {
+            KeyCode::Up => d.step(-1),
+            KeyCode::Down => d.step(1),
+            KeyCode::PageUp => d.step(-8),
+            KeyCode::PageDown => d.step(8),
+            KeyCode::Enter => {
+                if d.visible().contains(&d.selected) {
+                    return app.respond(None);
+                }
+            }
+            // Esc clears the search first; with nothing typed it closes the picker.
+            KeyCode::Esc if !d.filter.is_empty() => {
+                d.filter.clear();
+                d.refilter();
+            }
+            KeyCode::Esc => return app.respond(Some(-1)),
+            KeyCode::Char('c') if ctrl => return app.respond(Some(-1)),
+            KeyCode::Char('u') if ctrl => {
+                d.filter.clear();
+                d.refilter();
+            }
+            KeyCode::Backspace => {
+                d.filter.pop();
+                d.refilter();
+            }
+            KeyCode::Char(c) if !ctrl && !alt => {
+                d.filter.push(c);
+                d.refilter();
+            }
+            _ => (),
+        }
+        return None;
+    }
     if let Some(d) = app.dialog.as_mut() {
         match key.code {
             KeyCode::PageUp => {
@@ -829,5 +863,77 @@ mod tests {
         answer(&mut app, &["see @src/"]);
         press(&mut app, KeyCode::Esc);
         assert!(app.file_items().is_empty());
+    }
+
+    // ── The searchable model picker ──────────────────────────────────────
+    fn picker_app() -> App {
+        let mut app = with_commands();
+        app.turn = Some("t".into());
+        app.event(
+            json!({"protocol":1,"type":"approval.requested","turn_id":"t","request_id":"pick",
+            "title":"Select Model","picker":true,
+            "choices":[["Gemini Flash","google/gemini-3.5-flash"],["Qwen 2.5","qwen2.5:7b"],
+                       ["Qwen 2.5","qwen2.5:14b"],["Llama 3.1","llama3.1:8b"]],
+            "groups":["Aria","Aria","Aria","Community"],"selected":1}),
+        )
+        .unwrap();
+        app
+    }
+
+    #[test]
+    fn typing_in_the_picker_searches_instead_of_choosing_by_number() {
+        let mut app = picker_app();
+        let d = app.dialog.as_ref().unwrap();
+        assert!(d.picker && d.groups.len() == 4);
+        assert_eq!(d.selected, 1, "opens on the current model");
+        typed(&mut app, "14");
+        let d = app.dialog.as_ref().unwrap();
+        assert_eq!(d.visible(), vec![2], "the id in the detail is searchable");
+        assert_eq!(d.selected, 2);
+        assert!(app.dialog.is_some(), "digits did not answer the dialog");
+    }
+
+    #[test]
+    fn picker_arrows_skip_hidden_rows_and_enter_answers_with_the_original_index() {
+        let mut app = picker_app();
+        typed(&mut app, "qwen");
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.dialog.as_ref().unwrap().selected, 2);
+        press(&mut app, KeyCode::Down);
+        assert_eq!(
+            app.dialog.as_ref().unwrap().selected,
+            2,
+            "stops at the last match"
+        );
+        let request = press(&mut app, KeyCode::Enter).expect("answers");
+        assert_eq!(request["type"], "dialog.respond");
+        assert_eq!(request["choice"], 2);
+    }
+
+    #[test]
+    fn picker_esc_clears_the_search_first_then_closes_and_enter_needs_a_match() {
+        let mut app = picker_app();
+        typed(&mut app, "zzz");
+        assert!(
+            press(&mut app, KeyCode::Enter).is_none(),
+            "nothing matches, nothing to choose"
+        );
+        assert!(app.dialog.is_some());
+        assert!(press(&mut app, KeyCode::Esc).is_none());
+        let d = app.dialog.as_ref().unwrap();
+        assert!(d.filter.is_empty() && d.visible().len() == 4);
+        let request = press(&mut app, KeyCode::Esc).expect("closes");
+        assert_eq!(request["choice"], -1);
+    }
+
+    #[test]
+    fn picker_backspace_widens_the_search_again() {
+        let mut app = picker_app();
+        typed(&mut app, "llama");
+        assert_eq!(app.dialog.as_ref().unwrap().visible(), vec![3]);
+        for _ in 0..5 {
+            press(&mut app, KeyCode::Backspace);
+        }
+        assert_eq!(app.dialog.as_ref().unwrap().visible().len(), 4);
     }
 }

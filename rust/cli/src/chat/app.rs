@@ -65,6 +65,54 @@ pub struct Dialog {
     pub secret: bool,
     pub editor: Editor,
     pub shortcuts: Value,
+    /// A long list to choose from (models), not an approval: one row per
+    /// choice, a search box, group headings, no number shortcuts.
+    pub picker: bool,
+    /// The heading each choice sits under, when the host grouped them.
+    pub groups: Vec<String>,
+    pub filter: String,
+}
+impl Dialog {
+    /// Indices of the choices the search leaves showing, in their original order.
+    pub fn visible(&self) -> Vec<usize> {
+        let words: Vec<String> = self
+            .filter
+            .to_lowercase()
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect();
+        (0..self.choices.len())
+            .filter(|&i| {
+                let (label, help) = &self.choices[i];
+                let label = label.to_lowercase();
+                let hay = format!("{label} {}", help.to_lowercase());
+                words
+                    .iter()
+                    .all(|w| hay.contains(w.as_str()) || is_subsequence(w, &label))
+            })
+            .collect()
+    }
+
+    /// After the search changed: land on the first match.
+    pub fn refilter(&mut self) {
+        if let Some(&first) = self.visible().first() {
+            self.selected = first;
+        }
+    }
+
+    /// Move the highlight `by` rows among the matches, stopping at the ends.
+    pub fn step(&mut self, by: isize) {
+        let visible = self.visible();
+        if visible.is_empty() {
+            return;
+        }
+        let at = visible
+            .iter()
+            .position(|&i| i == self.selected)
+            .unwrap_or(0) as isize;
+        let to = (at + by).clamp(0, visible.len() as isize - 1) as usize;
+        self.selected = visible[to];
+    }
 }
 /// True when every character of `needle` appears in `haystack`, in order.
 fn is_subsequence(needle: &str, haystack: &str) -> bool {
@@ -478,6 +526,12 @@ impl App {
                     vec![]
                 };
                 let selected = v["selected"].as_u64().unwrap_or(0) as usize;
+                let picker = v["picker"].as_bool().unwrap_or(false) && !choices.is_empty();
+                let groups: Vec<String> = v["groups"]
+                    .as_array()
+                    .map(|rows| rows.iter().filter_map(|x| x.as_str()).map(safe).collect())
+                    .filter(|g: &Vec<String>| g.len() == choices.len())
+                    .unwrap_or_default();
                 self.dialog = Some(Dialog {
                     id: text("request_id").into(),
                     title: safe(if kind == "approval.requested" || v["choices"].is_array() {
@@ -500,6 +554,9 @@ impl App {
                     editor: Editor::default(),
                     secret: v["secret"].as_bool().unwrap_or(false),
                     shortcuts: v["shortcuts"].clone(),
+                    picker,
+                    groups,
+                    filter: String::new(),
                 });
                 self.status = self.tr("Waiting for your response", "等待你的选择").into();
             }

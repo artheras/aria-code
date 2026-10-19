@@ -106,10 +106,18 @@ class Server:
         # an index to it preserves deny lists, L4 ask-every-time, hooks, symbol
         # previews and the exact scope of session grants.
         choices = [[str(label), str(help_text)] for label, help_text in options]
+        extra = {}
+        if kwargs.get("picker"):
+            # A long list to search (models): the frontend draws a picker, not an approval.
+            extra["picker"] = True
+            groups = kwargs.get("groups")
+            if isinstance(groups, list) and len(groups) == len(choices):
+                extra["groups"] = [str(group) for group in groups]
         answer = self.ask("approval.requested", title=str(title or "Approval / selection"),
                           choices=choices, selected=selected,
                           shortcuts=kwargs.get("shortcuts", {}),
-                          context=getattr(self, "approval_context", ""))
+                          context="" if extra else getattr(self, "approval_context", ""),
+                          **extra)
         chosen = answer.get("choice", -1)
         if type(chosen) is not int or not -1 <= chosen < len(choices):
             raise ValueError("Invalid menu response")

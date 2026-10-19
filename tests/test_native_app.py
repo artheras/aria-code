@@ -762,3 +762,78 @@ def test_real_terminal_at_lists_workspace_files_you_can_pick(application):
         p.wait(timeout=5)
         os.close(master)
         os.close(slave)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix PTY")
+def test_real_terminal_model_picker_searches_and_selects(application):
+    """/model opens a searchable picker, not an approval prompt: typing narrows, Esc clears then closes."""
+    import codecs
+    import fcntl
+    import pty
+    import select
+    import struct
+    import termios
+    pyte = pytest.importorskip("pyte")
+    if not os.environ.get("ARIA_NATIVE_BINARY"):
+        pytest.skip("build the Rust prototype first")
+    _, project, _, env = application
+    master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 100, 0, 0))
+    terminal_env = dict(env, TERM="xterm-256color", ARIA_THEME="dark", ARIA_PYTHON=sys.executable)
+    terminal_env.pop("NO_COLOR", None)
+    p = subprocess.Popen([os.environ["ARIA_NATIVE_BINARY"], "--python", sys.executable, "chat"], cwd=project,
+                         env=terminal_env, stdin=slave, stdout=slave, stderr=slave)
+    screen = pyte.Screen(100, 32)
+    stream = pyte.Stream(screen)
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+
+    def pump(seconds=0.2):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            if select.select([master], [], [], 0.05)[0]:
+                stream.feed(decoder.decode(os.read(master, 65_536)))
+
+    def rows():
+        # pyte's display() raises on some wide characters (the models' Chinese
+        # descriptions); read the buffer cell by cell instead.
+        return ["".join((screen.buffer[y][x].data or " ") for x in range(screen.columns)).rstrip()
+                for y in range(screen.lines)]
+
+    def wait(predicate, what):
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            pump(0.1)
+            if predicate(rows()):
+                return
+            assert p.poll() is None, "the application exited"
+        raise AssertionError((what, "\n".join(rows())))
+
+    def input_line():
+        for row in rows():
+            if row.lstrip("│ ").startswith("›"):
+                return row.strip("│ ").strip()
+        return ""
+
+    try:
+        wait(lambda r: any("Ready" in x for x in r), "ready")
+        os.write(master, b"/model\r")
+        wait(lambda r: any("Select Model" in x for x in r) and any("Search:" in x for x in r), "the model picker")
+        shown = "\n".join(rows())
+        assert "Your response required" not in shown, "a model list is not an approval prompt"
+        assert "Aria catalogue" in shown, "models are grouped under a heading"
+        total = [x for x in rows() if "/" in x and "Search:" in x][0].split()[-2]
+        os.write(master, b"deepseek 14")
+        wait(lambda r: any("1/" in x and "Search:" in x for x in r), "the search narrows to one model")
+        assert "deepseek-r1:14b" in "\n".join(rows())
+        os.write(master, b"\x1b")  # the first Esc clears the search
+        wait(lambda r: not any("deepseek 14" in x for x in r) and any("Search:" in x for x in r), "search cleared")
+        os.write(master, b"\x1b")  # the second closes the picker
+        wait(lambda r: not any("Search:" in x for x in r), "the picker closes")
+        os.write(master, b"\x04")
+        pump(0.5)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        p.wait(timeout=5)
+        os.close(master)
+        os.close(slave)

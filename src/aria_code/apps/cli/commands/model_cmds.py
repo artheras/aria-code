@@ -595,17 +595,25 @@ class ModelCommandsMixin:
         """
         zh = str(lang).lower().startswith("zh")
         rows: list = []  # (model_id, label, help)
+        groups: list = []
+        catalogue = "Aria 精选" if zh else "Aria catalogue"
         for m in _get_MODELS().values():
             mid = m["id"]
             tags = short_desc(m)
             current = ("  ✓ 当前" if zh else "  ✓ current") if mid == current_id else ""
-            rows.append((mid, f"{status_tag(mid, m.get('badge', ''))} {m['name']}{current}", tags))
+            # The id leads the detail: several catalogue entries share a display name
+            # ("Qwen 2.5"), and the id is what tells them apart.
+            rows.append((mid, f"{status_tag(mid, m.get('badge', ''))} {m['name']}{current}", f"{mid} · {tags}"))
+            groups.append(catalogue)
         if current_provider == "ollama":
+            community = "社区模型 (Ollama)" if zh else "Community models (Ollama)"
             for cm in rich_models:
                 if cm["name"] in aria_ids:
                     continue
                 current = ("  ✓ 当前" if zh else "  ✓ current") if cm["name"] == current_id else ""
-                rows.append((cm["name"], f"● {cm['name']}{current}", "社区模型 (Ollama)" if zh else "Community model (Ollama)"))
+                size = " · ".join(x for x in (cm.get("size_label"), cm.get("family"), cm.get("quant")) if x)
+                rows.append((cm["name"], f"● {cm['name']}{current}", size or community))
+                groups.append(community)
         if not rows:
             return
         start = next((i for i, row in enumerate(rows) if row[0] == current_id), 0)
@@ -614,7 +622,7 @@ class ModelCommandsMixin:
         import asyncio as _asyncio
 
         try:
-            choice = await _asyncio.to_thread(native_select, options, start, picker_title)
+            choice = await _asyncio.to_thread(native_select, options, start, picker_title, picker=True, groups=groups)
         except (KeyboardInterrupt, ValueError):
             choice = -1
         if not isinstance(choice, int) or not 0 <= choice < len(rows):
