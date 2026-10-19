@@ -16,9 +16,10 @@ MODELS = {
     # ════════════════════════════════════════════════════════════════════
     # ── Google Gemini 平台核心默认模型（Google Cloud）───────────────────────
     # ════════════════════════════════════════════════════════════════════
-    # Gemini 2.5 retires in October 2026 (model_retirement.py). The default is
-    # a stable model; the newest Flash is offered beside it, but its line is
-    # replaced every few months.
+    # Gemini 2.5 retires in October 2026 (model_retirement.py). Google's release
+    # notes (checked 2026-10-19) deprecated gemini-3.5-flash on 8 October and
+    # route it to 3.6 Flash, so it still answers; the newer ids are listed
+    # beside it, and /model also lists everything the provider serves today.
     "gemini-flash": {
         "id": "google/gemini-3.5-flash",
         "name": "Gemini Flash",
@@ -26,7 +27,7 @@ MODELS = {
         "tag": "Platform",
         "speed": "★★★★★",
         "intelligence": "★★★★★",
-        "description": "平台默认：稳定版（至少到 2027 年 5 月）、百万级上下文、代码与金融分析",
+        "description": "平台默认（Google 已于 2026-10-08 标记弃用并转到 3.6 Flash，仍可用）、百万级上下文",
         "capabilities": ["multimodal", "1M context", "tool calls", "quant", "code"],
         "thinking": True, "tools": True,
         "max_tokens": 8192, "num_ctx": 1048576, "temperature": 0.2,
@@ -34,16 +35,29 @@ MODELS = {
     },
     "gemini-pro": {
         "id": "google/gemini-3.8-flash",
-        "name": "Gemini Flash (latest)",
+        "name": "Gemini 3.8 Flash",
         "version": "3.8",
         "tag": "Platform",
         "speed": "★★★★★",
         "intelligence": "★★★★★",
-        "description": "最新最强：推理与工具调用最好；迭代快，Google 几个月内会推出替代版",
+        "description": "Flash 旗舰（2026-09 GA）：工程与智能体工作流，推理与工具调用强",
         "capabilities": ["multimodal", "1M context", "tool calls", "quant", "code"],
         "thinking": True, "tools": True,
         "max_tokens": 8192, "num_ctx": 1048576, "temperature": 0.2,
         "badge": "Latest",
+    },
+    "gemini-4": {
+        "id": "google/gemini-4-argon",
+        "name": "Gemini 4 Argon",
+        "version": "4",
+        "tag": "Platform",
+        "speed": "★★★★",
+        "intelligence": "★★★★★",
+        "description": "Google 最新旗舰（2026-10-13 GA）：复杂编码、智能体、数学与科学；比 Flash 贵",
+        "capabilities": ["multimodal", "1M context", "tool calls", "quant", "code"],
+        "thinking": True, "tools": True,
+        "max_tokens": 8192, "num_ctx": 1048576, "temperature": 0.2,
+        "badge": "Flagship",
     },
     "gemini-lite": {
         "id": "google/gemini-3.5-flash-lite",

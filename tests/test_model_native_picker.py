@@ -102,6 +102,33 @@ class NativePickerTest(unittest.IsolatedAsyncioTestCase):
         await _call(mixin, lambda o, s, t, **kw: 99)
         self.assertEqual((mixin.set_ids, mixin.routed), ([], []))
 
+    async def test_providers_with_a_key_get_their_own_section_and_route_through_cmd_model(self):
+        from aria_code.apps.cli import cloud_models
+
+        seen = {}
+
+        def select(options, start, title, **kwargs):
+            seen.update(options=options, groups=kwargs.get("groups"))
+            return len(options) - 1  # the last row: an OpenAI model
+
+        found = {
+            "google": [{"id": "gemini-4-argon", "name": "Gemini 4 Argon", "detail": "ctx 1M"},
+                       {"id": "gemini-3.5-flash", "name": "dup", "detail": ""}],
+            "openai": [{"id": "gpt-5", "name": "gpt-5", "detail": ""}],
+        }
+        mixin = _Mixin()
+        # google/gemini-3.5-flash is already in the Aria catalogue, so it is not listed twice.
+        with mock.patch.object(cloud_models, "collect", lambda key_for, **kw: found):
+            await _call(mixin, select)
+        labels = [label for label, _ in seen["options"]]
+        self.assertFalse(any("dup" in label for label in labels))
+        ids = [h.split(" · ")[0] for _l, h in seen["options"]]
+        self.assertIn("google/gemini-4-argon", ids)
+        self.assertEqual(ids.count("google/gemini-3.5-flash"), 1, "already in the catalogue, not repeated")
+        self.assertTrue(any(g.startswith("Google Gemini") for g in seen["groups"]))
+        self.assertTrue(seen["groups"][-1].startswith("OpenAI"))
+        self.assertEqual(mixin.routed, ["openai/gpt-5"], "goes through the credential-checking route")
+
 
 if __name__ == "__main__":
     unittest.main()
