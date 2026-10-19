@@ -495,10 +495,31 @@ class Server:
                 notice = get_update_notice(wait_ms=0)
                 if notice:
                     self.emit("update.available", turn_id=None, text=Text.from_markup(notice).plain)
+                    await self.install_update_quietly()
                     return
                 await asyncio.sleep(0.1)
         except Exception:
             pass  # A metadata failure must not interrupt the user's task.
+
+    async def install_update_quietly(self):
+        """Native installs update themselves; the header then asks for a restart."""
+        from aria_code.apps.cli import auto_update, updater
+        from aria_code.apps.cli.update_check import _install_channel, _newer
+
+        loop = asyncio.get_running_loop()
+        installed = await loop.run_in_executor(
+            None,
+            lambda: auto_update.install_if_newer(
+                self.cli.__version__, _install_channel(), self.terminal.config,
+                check=updater.check_update, install=updater.install_native,
+                newer=_newer, app_root=updater._app_root(),
+            ),
+        )
+        if installed:
+            zh = self.terminal.config.get("ui_lang", "en") == "zh"
+            text = (f"已更新到 {installed} · 重启 Aria 后生效" if zh
+                    else f"Updated to {installed} · restart Aria to use it")
+            self.emit("update.available", turn_id=None, text=text)
 
     async def serve(self):
         self.loop = asyncio.get_running_loop()
