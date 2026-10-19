@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -115,7 +117,7 @@ func (s *server) availableModels(ctx context.Context, name string) ([]string, bo
 			if _, tail, ok := strings.Cut(id, "/models/"); ok {
 				id = tail
 			}
-			if strings.HasPrefix(id, "gemini-") || strings.HasPrefix(id, "gemma-") {
+			if (strings.HasPrefix(id, "gemini-") || strings.HasPrefix(id, "gemma-")) && !notChatModel.MatchString(id) {
 				names = append(names, id)
 			}
 		}
@@ -134,8 +136,37 @@ func (s *server) availableModels(ctx context.Context, name string) ([]string, bo
 			names, more = names[:100], true
 		}
 	}
-	sort.Strings(names)
+	sortNewestFirst(names)
 	return names, more, nil
+}
+
+// notChatModel matches ids of models that do not answer chat prompts:
+// embeddings, speech, images, video, music, live audio, robotics.
+var notChatModel = regexp.MustCompile(`(?i)embed|whisper|tts|transcribe|speech|audio|realtime|image|imagen|veo|lyria|omni-|nano-banana|moderation|rerank|guard|-live|robotics|computer-use|aqa`)
+
+var digitRun = regexp.MustCompile(`\d+|\D+`)
+
+// naturalLess orders ids so that 3.10 follows 3.9 and a bigger number is later.
+func naturalLess(a, b string) bool {
+	pa, pb := digitRun.FindAllString(strings.ToLower(a), -1), digitRun.FindAllString(strings.ToLower(b), -1)
+	for i := 0; i < len(pa) && i < len(pb); i++ {
+		if pa[i] == pb[i] {
+			continue
+		}
+		na, ea := strconv.Atoi(pa[i])
+		nb, eb := strconv.Atoi(pb[i])
+		if ea == nil && eb == nil {
+			return na < nb
+		}
+		return pa[i] < pb[i]
+	}
+	return len(pa) < len(pb)
+}
+
+// sortNewestFirst puts the highest version first: gemini-4-argon before
+// gemini-3.8-flash. Tuned-model names sort among them by the same rule.
+func sortNewestFirst(names []string) {
+	sort.SliceStable(names, func(i, j int) bool { return naturalLess(names[j], names[i]) })
 }
 
 func (s *server) modelPicker(ctx context.Context, turn string) (string, error) {
@@ -176,12 +207,29 @@ func (s *server) modelPicker(ctx context.Context, turn string) (string, error) {
 	if more {
 		contextText += "\nFirst 100 models shown."
 	}
+	// The picker has no separate context area, so what the old dialog said
+	// there (a failed discovery, a truncated list) goes in its title.
+	pickerTitle := name + " models"
+	if listErr != nil {
+		pickerTitle += " — " + listErr.Error()
+	} else if more {
+		pickerTitle += " — first 100 shown"
+	}
 	choices = nil
-	for _, model := range names {
-		choices = append(choices, []string{model, name})
+	current := s.cfg.text("model", "")
+	selected := 0
+	for i, model := range names {
+		label := model
+		if model == strings.TrimPrefix(current, "google/") {
+			label += "  ✓ current"
+			selected = i
+		}
+		// No detail text: the provider is in the title, and repeating it on every
+		// row would make a search for "llama" match every Ollama model.
+		choices = append(choices, []string{label, ""})
 	}
 	choices = append(choices, []string{"Enter model ID / 输入模型名称", "Use an exact ID if discovery is unavailable"}, []string{"Cancel / 取消", "Keep the current model"})
-	r, err = s.dialogRequest(ctx, "input.requested", turn, map[string]any{"title": name + " models", "context": contextText, "choices": choices, "selected": 0})
+	r, err = s.dialogRequest(ctx, "input.requested", turn, map[string]any{"title": pickerTitle, "context": contextText, "choices": choices, "selected": selected, "picker": true})
 	if err != nil {
 		return "", err
 	}
