@@ -158,6 +158,11 @@ class Server:
                         continue
                     if kind == "shutdown":
                         break
+                    if kind == "completion.request":
+                        # Answered here, not queued behind a running turn: it is
+                        # a lookup, and the list it feeds should not wait.
+                        self.complete_reference(value)
+                        continue
                     self.requests.put_nowait(value)
                 except (ValueError, UnicodeError, queue.Full) as error:
                     self.emit("protocol.error", error=str(error))
@@ -350,6 +355,42 @@ class Server:
         config["last_session_id"] = self.terminal.session_id
         self.cli.save_config(config)
 
+    def complete_reference(self, value):
+        """Answer a completion request with candidates for the `@file` being typed."""
+        text = value.get("text")
+        if not isinstance(text, str) or len(text.encode("utf-8")) > MAX_INPUT:
+            raise ValueError("Completion text must be at most 65536 UTF-8 bytes")
+        from aria_code.apps.cli.file_references import reference_candidates
+
+        try:
+            candidates = reference_candidates(text, Path.cwd())
+        except Exception:
+            candidates = []
+        self.emit("completion.result", session_id=value.get("session_id", ""), text=text, candidates=candidates)
+
+    def commands_info(self):
+        """Every slash command with what it does, in the order the list shows them.
+
+        The frontend's list opens on a bare `/`, so what comes first matters: the
+        core commands and the entry points, then the rest alphabetically, the same
+        order the terminal completer has always used. Descriptions are localised.
+        """
+        from aria_code.apps.cli.commands.catalog import CORE_SLASH_COMMANDS, ENTRY_SLASH_COMMANDS, describe
+
+        t = self.terminal
+        registry = t.commands.commands
+        lang = t.config.get("ui_lang", "en")
+        first = [n for n in (*CORE_SLASH_COMMANDS, *ENTRY_SLASH_COMMANDS) if n in registry]
+        rest = [n for n in sorted(registry) if n not in set(first)]
+        info = []
+        for name in first + rest:
+            try:
+                detail = describe(name, registry[name][1], lang)
+            except Exception:
+                detail = ""
+            info.append({"name": name, "description": str(detail or "")[:160]})
+        return info
+
     def snapshot(self, kind):
         from aria_code.apps.cli.native_branding import robot_rows
         from aria_code.ui import robot
@@ -366,6 +407,7 @@ class Server:
                   robot=rows, robot_design="cream-block-v2" if rows else "",
                   model=t.config.get("model", ""), provider=t.config.get("local_provider", ""),
                   workspace=str(Path.cwd()), commands=sorted(t.commands.commands),
+                  commands_info=self.commands_info(), reference_completion=True,
                   permission=t.config.get("permission_mode", "workspace-write"),
                   network=bool(t.config.get("network_enabled", True)),
                   ui_lang=t.config.get("ui_lang", "en"),
@@ -453,10 +495,31 @@ class Server:
                 notice = get_update_notice(wait_ms=0)
                 if notice:
                     self.emit("update.available", turn_id=None, text=Text.from_markup(notice).plain)
+                    await self.install_update_quietly()
                     return
                 await asyncio.sleep(0.1)
         except Exception:
             pass  # A metadata failure must not interrupt the user's task.
+
+    async def install_update_quietly(self):
+        """Native installs update themselves; the header then asks for a restart."""
+        from aria_code.apps.cli import auto_update, updater
+        from aria_code.apps.cli.update_check import _install_channel, _newer
+
+        loop = asyncio.get_running_loop()
+        installed = await loop.run_in_executor(
+            None,
+            lambda: auto_update.install_if_newer(
+                self.cli.__version__, _install_channel(), self.terminal.config,
+                check=updater.check_update, install=updater.install_native,
+                newer=_newer, app_root=updater._app_root(),
+            ),
+        )
+        if installed:
+            zh = self.terminal.config.get("ui_lang", "en") == "zh"
+            text = (f"已更新到 {installed} · 重启 Aria 后生效" if zh
+                    else f"Updated to {installed} · restart Aria to use it")
+            self.emit("update.available", turn_id=None, text=text)
 
     async def serve(self):
         self.loop = asyncio.get_running_loop()

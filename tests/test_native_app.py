@@ -602,3 +602,163 @@ def test_a_turn_that_succeeds_is_not_marked_as_presented(application, native):
     assert not done.get("error")
     assert done["presented"] is False
     c.close()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix PTY")
+def test_real_terminal_slash_opens_a_command_list_you_can_navigate(application):
+    """Typing / lists commands with what they do; arrows, Tab and Esc work in a real terminal."""
+    import codecs
+    import fcntl
+    import pty
+    import select
+    import struct
+    import termios
+    pyte = pytest.importorskip("pyte")
+    if not os.environ.get("ARIA_NATIVE_BINARY"):
+        pytest.skip("build the Rust prototype first")
+    _, project, _, env = application
+    master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 100, 0, 0))
+    terminal_env = dict(env, TERM="xterm-256color", ARIA_THEME="dark", ARIA_PYTHON=sys.executable)
+    terminal_env.pop("NO_COLOR", None)
+    p = subprocess.Popen([os.environ["ARIA_NATIVE_BINARY"], "--python", sys.executable, "chat"], cwd=project,
+                         env=terminal_env, stdin=slave, stdout=slave, stderr=slave)
+    screen = pyte.Screen(100, 32)
+    stream = pyte.Stream(screen)
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+
+    def pump(seconds=0.2):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            if select.select([master], [], [], 0.05)[0]:
+                stream.feed(decoder.decode(os.read(master, 65_536)))
+
+    def rows():
+        return [row.rstrip() for row in screen.display]
+
+    def wait(predicate, what):
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            pump(0.1)
+            if predicate(rows()):
+                return
+            assert p.poll() is None, "the application exited"
+        raise AssertionError((what, "\n".join(rows())))
+
+    def input_line():
+        for row in rows():
+            if row.lstrip("│ ").startswith("›"):
+                return row.strip("│ ").strip()
+        return ""
+
+    try:
+        wait(lambda r: any("Ready" in x for x in r), "ready")
+        os.write(master, b"/")
+        wait(lambda r: any("Commands" in x for x in r) and any("/help" in x for x in r), "the command list")
+        listed = "\n".join(rows())
+        assert "↑↓" in listed and "Tab" in listed, "the list says how to use it"
+        first_names = [x for x in rows() if x.strip().startswith("│ /")]
+        assert len(first_names) >= 5, "a bare slash lists several commands"
+        assert "Show commands and examples" in listed, "each row carries a description"
+        assert first_names[0].split()[1] == "/help", "the core commands come first, not an alphabetical dump"
+        os.write(master, b"\x1b[B")  # Down
+        pump(0.4)
+        os.write(master, b"\t")  # Tab fills in the highlighted command
+        pump(0.6)
+        assert input_line().startswith("› /"), input_line()
+        assert "Commands" not in "\n".join(rows()), "the list closes once a command is filled in"
+        # Esc closes the list without touching what was typed.
+        os.write(master, b"\x15/mo")  # Ctrl+U to clear, then type /mo
+        wait(lambda r: any("Commands" in x for x in r), "the list again")
+        os.write(master, b"\x1b")
+        pump(0.6)
+        assert "Commands" not in "\n".join(rows())
+        assert input_line().startswith("› /mo"), input_line()
+        os.write(master, b"\x15\x04")
+        pump(0.5)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        p.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix PTY")
+def test_real_terminal_at_lists_workspace_files_you_can_pick(application):
+    """Typing @ lists workspace files, narrows by fuzzy match, and Tab fills one in a real terminal."""
+    import codecs
+    import fcntl
+    import pty
+    import select
+    import struct
+    import termios
+    pyte = pytest.importorskip("pyte")
+    if not os.environ.get("ARIA_NATIVE_BINARY"):
+        pytest.skip("build the Rust prototype first")
+    _, project, _, env = application
+    master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 100, 0, 0))
+    terminal_env = dict(env, TERM="xterm-256color", ARIA_THEME="dark", ARIA_PYTHON=sys.executable)
+    terminal_env.pop("NO_COLOR", None)
+    p = subprocess.Popen([os.environ["ARIA_NATIVE_BINARY"], "--python", sys.executable, "chat"], cwd=project,
+                         env=terminal_env, stdin=slave, stdout=slave, stderr=slave)
+    screen = pyte.Screen(100, 32)
+    stream = pyte.Stream(screen)
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+
+    def pump(seconds=0.2):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            if select.select([master], [], [], 0.05)[0]:
+                stream.feed(decoder.decode(os.read(master, 65_536)))
+
+    def rows():
+        return [row.rstrip() for row in screen.display]
+
+    def wait(predicate, what):
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            pump(0.1)
+            if predicate(rows()):
+                return
+            assert p.poll() is None, "the application exited"
+        raise AssertionError((what, "\n".join(rows())))
+
+    def input_line():
+        for row in rows():
+            if row.lstrip("│ ").startswith("›"):
+                return row.strip("│ ").strip()
+        return ""
+
+    (project / "docs").mkdir(exist_ok=True)
+    (project / "docs" / "architecture.md").write_text("# notes\n")
+    (project / "setup_notes.txt").write_text("x\n")
+    try:
+        wait(lambda r: any("Ready" in x for x in r), "ready")
+        os.write(master, b"read @")
+        wait(lambda r: any("Files" in x for x in r) and any("docs/" in x for x in r), "the file list")
+        listed = "\n".join(rows())
+        assert "↑↓" in listed and "Tab" in listed, "the list says how to use it"
+        # A fuzzy fragment finds a file in a folder without typing the path.
+        os.write(master, b"archi")
+        wait(lambda r: any("@docs/architecture.md" in x for x in r), "the nested file by fuzzy match")
+        os.write(master, b"\t")  # Tab fills it in
+        pump(0.6)
+        assert input_line().startswith("› read @docs/architecture.md"), input_line()
+        assert "Files" not in "\n".join(rows()), "the list closes once a file is filled in"
+        # Esc closes the list and leaves the text alone.
+        os.write(master, b"\x15read @setup")
+        wait(lambda r: any("Files" in x for x in r), "the list again")
+        os.write(master, b"\x1b")
+        pump(0.6)
+        assert "Files" not in "\n".join(rows())
+        assert input_line().startswith("› read @setup"), input_line()
+        os.write(master, b"\x15\x04")
+        pump(0.5)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        p.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
