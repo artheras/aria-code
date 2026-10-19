@@ -160,7 +160,7 @@ func (s *server) state(kind string) error {
 	if s.scope.readOnly {
 		permission = "read-only"
 	}
-	fields := map[string]any{"session_id": s.snap.ID, "model": s.cfg.text("model", "gemini-3.5-flash"), "provider": providerName(s.cfg), "version": version, "workspace": s.scope.workspace, "permission": permission, "network": s.cfg.boolean("network_enabled", true), "ui_lang": s.cfg.text("ui_lang", "en"), "ui_theme": "dark", "messages": displayMessages(s.snap.Messages), "commands": nativeCommands()}
+	fields := map[string]any{"session_id": s.snap.ID, "model": s.cfg.text("model", "gemini-3.5-flash"), "provider": providerName(s.cfg), "version": version, "workspace": s.scope.workspace, "permission": permission, "network": s.cfg.boolean("network_enabled", true), "ui_lang": s.cfg.text("ui_lang", "en"), "ui_theme": "dark", "messages": displayMessages(s.snap.Messages), "commands": nativeCommands(), "commands_info": commandInfoList(s.cfg.text("ui_lang", "en"))}
 	theme := strings.ToLower(os.Getenv("ARIA_THEME"))
 	if theme != "light" && theme != "dark" {
 		theme = s.cfg.text("ui_theme", "auto")

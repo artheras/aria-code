@@ -23,6 +23,29 @@ fn operation_target<'a>(target: &'a str, workspace: &str) -> std::borrow::Cow<'a
     target.into()
 }
 
+/// `/Users/me/project` as `~/project`, the way a shell prompt shows it.
+fn home_short(path: &str) -> String {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
+    home_short_in(path, &home)
+}
+
+fn home_short_in(path: &str, home: &str) -> String {
+    let home = home.trim_end_matches(['/', '\\']);
+    if home.len() > 1 {
+        if path == home {
+            return "~".into();
+        }
+        if let Some(rest) = path.strip_prefix(home) {
+            if rest.starts_with(['/', '\\']) {
+                return format!("~{rest}");
+            }
+        }
+    }
+    path.to_owned()
+}
+
 fn workspace_tail(text: &str, width: usize) -> String {
     if text.width() <= width {
         return text.to_owned();
@@ -41,9 +64,9 @@ fn workspace_tail(text: &str, width: usize) -> String {
     }
     format!("…{}", kept.into_iter().rev().collect::<String>())
 }
-const HELP: &str = "Aria interactive interface\n\nEnter  send · Alt+Enter / Ctrl+J  newline\nArrow keys  edit / browse history · Tab  complete /commands\nCtrl+U / K / W  delete line / end / previous word\nPgUp / PgDn or mouse wheel  scroll transcript\nCtrl+O  toggle tool details · F1  this help\nEsc or Ctrl+C  cancel current task / dismiss dialog\nCtrl+D  exit (or delete character when input is non-empty)\n\n/new  start a new session · /resume ID  restore a session\n/sessions  list saved sessions · /help  all Aria commands\n/model  choose your model · /health  check configured services\n@file:path  reference a file · !command  run a shell command\n\nFile permissions, task isolation, checks and model routing are managed by Aria.\nApproval menus require your choice. Hidden reasoning and secret inputs\nare never written to the native transcript.";
+const HELP: &str = "Aria interactive interface\n\nEnter  send · Alt+Enter / Ctrl+J  newline\nArrow keys  edit / browse history · /  list commands · @  pick a file · Tab  fill in\nCtrl+U / K / W  delete line / end / previous word\nPgUp / PgDn or mouse wheel  scroll transcript\nCtrl+O  toggle tool details · F1  this help\nEsc or Ctrl+C  cancel current task / dismiss dialog\nCtrl+D  exit (or delete character when input is non-empty)\n\n/new  start a new session · /resume ID  restore a session\n/sessions  list saved sessions · /help  all Aria commands\n/model  choose your model · /health  check configured services\n@file:path  reference a file · !command  run a shell command\n\nFile permissions, task isolation, checks and model routing are managed by Aria.\nApproval menus require your choice. Hidden reasoning and secret inputs\nare never written to the native transcript.";
 
-const HELP_ZH: &str = "Aria 交互界面\n\nEnter 发送 · Alt+Enter / Ctrl+J 换行\n方向键编辑 / 浏览输入历史 · Tab 补全命令\nCtrl+U / K / W 删除行首 / 行尾 / 前一个词\nPgUp / PgDn 或鼠标滚轮查看对话历史\nCtrl+O 展开工具详情 · F1 打开帮助\nEsc / Ctrl+C 取消当前任务或关闭对话框\nCtrl+D 退出（输入非空时删除字符）\n\n/new 新会话 · /resume ID 恢复会话\n/sessions 会话列表 · /help 所有命令\n/model 选择模型 · /health 服务检查\n@file:path 引用文件 · !command 执行命令\naria -C <项目目录> 在指定项目中启动\n/config set ui_lang=zh 设置中文界面\n\n运行时管理文件权限、任务隔离与验证。\n审批需要你明确选择；秘密输入与隐藏推理不会写入界面记录。";
+const HELP_ZH: &str = "Aria 交互界面\n\nEnter 发送 · Alt+Enter / Ctrl+J 换行\n方向键编辑 / 浏览输入历史 · 输入 / 列出命令 · @ 选择文件 · Tab 补全\nCtrl+U / K / W 删除行首 / 行尾 / 前一个词\nPgUp / PgDn 或鼠标滚轮查看对话历史\nCtrl+O 展开工具详情 · F1 打开帮助\nEsc / Ctrl+C 取消当前任务或关闭对话框\nCtrl+D 退出（输入非空时删除字符）\n\n/new 新会话 · /resume ID 恢复会话\n/sessions 会话列表 · /help 所有命令\n/model 选择模型 · /health 服务检查\n@file:path 引用文件 · !command 执行命令\naria -C <项目目录> 在指定项目中启动\n/config set ui_lang=zh 设置中文界面\n\n运行时管理文件权限、任务隔离与验证。\n审批需要你明确选择；秘密输入与隐藏推理不会写入界面记录。";
 
 fn tool_label<'a>(tool: &'a str, app: &App) -> &'a str {
     match tool {
@@ -142,7 +165,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 "{} {}",
                 app.tr("Workspace", "工作区"),
                 workspace_tail(
-                    &app.workspace,
+                    &home_short(&app.workspace),
                     usize::from(area.width).saturating_sub(
                         usize::from(left_padding) + app.tr("Workspace", "工作区").width() + 1
                     ),
@@ -338,7 +361,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
                     if app.home_workspace {
                         app.tr("Home directory · use aria -C <project> to select a project. Files are read only when needed for your task.", "当前是主目录。用 aria -C <项目目录> 选择项目；仅按任务需要读取文件。")
                     } else {
-                        app.tr("Enter a prompt to start.", "输入消息开始。")
+                        app.tr(
+                            "Type / for commands · @ to attach a file",
+                            "输入 / 查看命令 · @ 引用文件",
+                        )
                     }
                 } else {
                     app.tr("The runtime is starting…", "正在启动…")
@@ -439,7 +465,14 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let items: Vec<(String, String)> = if for_files {
         rows_found
             .into_iter()
-            .map(|(label, _)| (label, String::new()))
+            .map(|(label, _)| {
+                let tag = if label.ends_with('/') {
+                    app.tr("folder", "文件夹").to_owned()
+                } else {
+                    String::new()
+                };
+                (label, tag)
+            })
             .collect()
     } else {
         rows_found
@@ -1084,6 +1117,17 @@ mod tests {
             "the waiting message comes after what was already said"
         );
         assert!(rows[waiting].starts_with("› "), "{:?}", rows[waiting]);
+    }
+
+    #[test]
+    fn home_is_shown_as_a_tilde() {
+        assert_eq!(home_short_in("/Users/me/project", "/Users/me"), "~/project");
+        assert_eq!(home_short_in("/Users/me", "/Users/me"), "~");
+        assert_eq!(
+            home_short_in("/Users/medal/x", "/Users/me"),
+            "/Users/medal/x"
+        );
+        assert_eq!(home_short_in("/tmp/x", "/Users/me"), "/tmp/x");
     }
 
     #[test]
