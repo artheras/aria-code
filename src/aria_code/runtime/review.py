@@ -19,6 +19,7 @@ review did not complete, and the turn ends on its other evidence.
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import json
 import re
@@ -86,6 +87,9 @@ class ReviewReport:
     attempt: int = 1
     error: str = ""
     behaviour: Optional[dict] = None
+    # The model that read the diff, when it is not the one that wrote it
+    # (`review_model`); empty for a same-model review.
+    reviewer: str = ""
 
     @property
     def blocking(self) -> tuple:
@@ -109,7 +113,8 @@ class ReviewReport:
         """The Review section of the delivery report."""
         if self.verdict == "error":
             return [f"⚠ did not complete: {self.error}"]
-        out = [("✗ " if self.blocking else "✓ ") + self.headline().removeprefix("Review: ")]
+        by = f" (reviewed by {self.reviewer})" if self.reviewer else ""
+        out = [("✗ " if self.blocking else "✓ ") + self.headline().removeprefix("Review: ") + by]
         for finding in (self.blocking + self.suggestions)[:limit]:
             mark = "✗" if finding.blocking else "·"
             where = f"{finding.where()} — " if finding.where() else ""
@@ -142,6 +147,7 @@ class ReviewReport:
             "headline": self.headline(),
             "lines": self.lines(),
             "behaviour": dict(self.behaviour) if self.behaviour else None,
+            "reviewer": self.reviewer,
         }
 
 
@@ -206,6 +212,8 @@ class ReviewGate:
     reviewer: Reviewer
     max_attempts: int = 1
     max_diff_chars: int = 24_000
+    # Which model reviews, shown in the report; set when it differs from the builder.
+    reviewer_name: str = ""
     reports: list = field(default_factory=list)
 
     @property
@@ -235,8 +243,11 @@ class ReviewGate:
             if inspect.isawaitable(answer):
                 answer = await answer
             report = parse_review(str(answer or ""), attempt=self.attempts + 1)
+            if self.reviewer_name:
+                report = dataclasses.replace(report, reviewer=self.reviewer_name)
         except Exception as exc:
-            report = ReviewReport("error", attempt=self.attempts + 1, error=f"{type(exc).__name__}: {exc}")
+            report = ReviewReport("error", attempt=self.attempts + 1, error=f"{type(exc).__name__}: {exc}",
+                                  reviewer=self.reviewer_name)
         self.reports.append(report)
         return report
 

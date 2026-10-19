@@ -182,6 +182,8 @@ def default_config() -> dict:
         # Independent review of a turn's changes by a fresh-context reviewer
         # before it ends (runtime/review.py). Costs one extra model call.
         "review_gate": False,
+        # A different model for that review (provider/model); "" = the builder itself.
+        "review_model": "",
         # The runtime's DONE/INCOMPLETE report under coding answers.
         "delivery_report": True,
         "network_enabled": True,
