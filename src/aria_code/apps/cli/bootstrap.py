@@ -146,7 +146,7 @@ def initialize_cli_environment() -> None:
 # Provider configuration is the user's to make (that is what `/model` and
 # `.ariarc` are for); the code's job is to have a sane default and then get
 # out of the way.
-DEFAULT_MODEL = os.getenv("ARIA_DEFAULT_MODEL", "google/gemini-3.5-flash")
+DEFAULT_MODEL = os.getenv("ARIA_DEFAULT_MODEL", "google/gemini-3.8-flash")
 # A stable model (Google: available until at least May 2027), not a short-term
 # one: an install that is rarely updated should not lose its default within
 # months. gemini-2.5-pro, the previous default, retires in October 2026.
@@ -160,7 +160,7 @@ def default_config() -> dict:
         "ollama_url": os.getenv("OLLAMA_URL", "http://localhost:11434"),
         # Which backend serves a bare, unprefixed model name. Only consulted
         # for names that do not name their own provider ("qwen2.5:7b"); a
-        # prefixed id like "google/gemini-3.5-flash" always wins.
+        # prefixed id like "google/gemini-3.8-flash" always wins.
         "local_provider": os.getenv("ARIA_LLM_PROVIDER", "ollama"),
         "provider_fallback": "configured",
         "model": DEFAULT_MODEL,

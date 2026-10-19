@@ -225,7 +225,7 @@ class GoogleProvider(OpenAICompatProvider):
 
     provider_name    = "google"
     DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
-    DEFAULT_MODEL    = "gemini-3.5-flash"
+    DEFAULT_MODEL    = "gemini-3.8-flash"
 
     def __init__(self, config: ProviderConfig):
         if not config.api_key:

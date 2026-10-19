@@ -17,34 +17,34 @@ MODELS = {
     # ── Google Gemini 平台核心默认模型（Google Cloud）───────────────────────
     # ════════════════════════════════════════════════════════════════════
     # Gemini 2.5 retires in October 2026 (model_retirement.py). Google's release
-    # notes (checked 2026-10-19) deprecated gemini-3.5-flash on 8 October and
-    # route it to 3.6 Flash, so it still answers; the newer ids are listed
-    # beside it, and /model also lists everything the provider serves today.
+    # notes (checked 2026-10-19) deprecated gemini-3.5-flash on 8 October (it is
+    # routed to 3.6 Flash), so the default is 3.8 Flash, the GA Flash flagship.
+    # /model also lists everything each provider serves today.
     "gemini-flash": {
-        "id": "google/gemini-3.5-flash",
-        "name": "Gemini Flash",
-        "version": "3.5",
-        "tag": "Platform",
-        "speed": "★★★★★",
-        "intelligence": "★★★★★",
-        "description": "平台默认（Google 已于 2026-10-08 标记弃用并转到 3.6 Flash，仍可用）、百万级上下文",
-        "capabilities": ["multimodal", "1M context", "tool calls", "quant", "code"],
-        "thinking": True, "tools": True,
-        "max_tokens": 8192, "num_ctx": 1048576, "temperature": 0.2,
-        "badge": "Default",
-    },
-    "gemini-pro": {
         "id": "google/gemini-3.8-flash",
         "name": "Gemini 3.8 Flash",
         "version": "3.8",
         "tag": "Platform",
         "speed": "★★★★★",
         "intelligence": "★★★★★",
-        "description": "Flash 旗舰（2026-09 GA）：工程与智能体工作流，推理与工具调用强",
+        "description": "平台默认（2026-09 GA）：Flash 旗舰，工程与智能体工作流，百万级上下文",
         "capabilities": ["multimodal", "1M context", "tool calls", "quant", "code"],
         "thinking": True, "tools": True,
         "max_tokens": 8192, "num_ctx": 1048576, "temperature": 0.2,
-        "badge": "Latest",
+        "badge": "Default",
+    },
+    "gemini-pro": {
+        "id": "google/gemini-3.1-pro-preview",
+        "name": "Gemini 3.1 Pro (preview)",
+        "version": "3.1",
+        "tag": "Platform",
+        "speed": "★★★★",
+        "intelligence": "★★★★★",
+        "description": "Pro 级推理（预览版）：复杂分析与长文档，比 Flash 慢且贵",
+        "capabilities": ["multimodal", "1M context", "tool calls", "quant", "code"],
+        "thinking": True, "tools": True,
+        "max_tokens": 8192, "num_ctx": 1048576, "temperature": 0.2,
+        "badge": "Pro",
     },
     "gemini-4": {
         "id": "google/gemini-4-argon",
@@ -496,7 +496,7 @@ _MODEL_ID_INDEX: dict[str, str] | None = None
 def _model_id_index() -> dict[str, str]:
     """Lazily build a lowercase {model id -> MODELS key} index.
 
-    The config stores the provider-qualified *id* ("google/gemini-3.5-flash")
+    The config stores the provider-qualified *id* ("google/gemini-3.8-flash")
     while MODELS is keyed by short name ("gemini-pro"), so without this lookup
     a registered model resolves to "_community_" and its own registry entry is
     never used.

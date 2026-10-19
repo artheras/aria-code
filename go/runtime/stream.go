@@ -90,7 +90,7 @@ func (s *server) runStream(ctx context.Context, prompt string) error {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	w := &streamEvents{out: s.out, prompt: prompt, model: providerName(s.cfg) + "/" + strings.TrimPrefix(s.cfg.text("model", "gemini-3.5-flash"), providerName(s.cfg)+"/")}
+	w := &streamEvents{out: s.out, prompt: prompt, model: providerName(s.cfg) + "/" + strings.TrimPrefix(s.cfg.text("model", "gemini-3.8-flash"), providerName(s.cfg)+"/")}
 	s.out = w
 	s.stop = cancel
 	s.opts.noninteractive = true

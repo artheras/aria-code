@@ -78,7 +78,7 @@ class OrchestratorCommandsMixin:
             return
             
         if self.context.has_rich:
-            provider = ConfiguredProvider(self.context.config, "gemini-3.5-flash")
+            provider = ConfiguredProvider(self.context.config, "gemini-3.8-flash")
         
         with self.context.console.status(f"[dim]{ui_text(self, 'Orchestrator 正在编排智能体网络', 'Orchestrator is planning the agent network')}...[/dim]"): 
             result = await dynamic_agent_orchestration(request, provider)

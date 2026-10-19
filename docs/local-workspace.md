@@ -18,7 +18,7 @@ aria-code -C ~/Projects/my-app
 使用 Google Cloud 时，选用已授权项目可访问的模型：
 
 ```sh
-aria -C ~/Projects/my-app --model google/gemini-3.5-flash
+aria -C ~/Projects/my-app --model google/gemini-3.8-flash
 ```
 
 本机需要 Google 凭据和项目配置：可使用 Application Default Credentials，
@@ -64,7 +64,7 @@ Aria 无法绕过该限制。远程工作区应使用受限制的执行上下文
 
 ```sh
 aria-code -C ~/Projects/my-app -p "修复这个项目的失败测试并运行检查" \
-  --model google/gemini-3.5-flash --allow-tools read_file,edit_file,run_command --json
+  --model google/gemini-3.8-flash --allow-tools read_file,edit_file,run_command --json
 ```
 
 `--allow-tools` 是本次进程的工具确认授权，适用于无人值守任务；不改变目录范围。

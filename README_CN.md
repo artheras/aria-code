@@ -112,7 +112,7 @@ aria-code -p "修复失败的测试并运行" --format jsonl --allow-tools edit_
 | --- | --- |
 | 本地 Ollama | 已安装并运行的 Ollama 模型；本地推理无需云端账户。 |
 | 直接连接云端供应商 | 对应供应商的 API 凭证和网络连接。 |
-| 直接连接 Google Cloud Vertex AI | `GOOGLE_CLOUD_PROJECT`，外加 `gcloud auth login` 登录（Aria 用该登录的令牌访问 Vertex AI 的 OpenAI 兼容端点），或安装 `aria-code[google]` 并配置应用默认凭证。`GOOGLE_CLOUD_LOCATION` 默认为 `global`。项目可用的模型都无需 API key：`/model google/gemini-3.5-flash`、Gemini 3 预览版（仅在 `global` 提供），以及 Gemma 等 Model Garden 托管模型（`/model google/<模型 ID>`，经 Vertex 的 OpenAI 兼容端点调用）。 |
+| 直接连接 Google Cloud Vertex AI | `GOOGLE_CLOUD_PROJECT`，外加 `gcloud auth login` 登录（Aria 用该登录的令牌访问 Vertex AI 的 OpenAI 兼容端点），或安装 `aria-code[google]` 并配置应用默认凭证。`GOOGLE_CLOUD_LOCATION` 默认为 `global`。项目可用的模型都无需 API key：`/model google/gemini-3.8-flash`、Gemini 3 预览版（仅在 `global` 提供），以及 Gemma 等 Model Garden 托管模型（`/model google/<模型 ID>`，经 Vertex 的 OpenAI 兼容端点调用）。 |
 | Arthera 托管服务 | 安装 `aria-code[google]`，然后在 CLI 中使用 `/login` 登录。Arthera 账户登录不会自动给本机授予 Vertex AI 凭证。 |
 
 只安装所需功能的可选依赖；当前安装选项以 [pyproject.toml](pyproject.toml) 为准。本地推理可以离线运行，但实时行情、远程集成、登录和云端模型不能离线使用。

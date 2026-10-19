@@ -116,7 +116,7 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		name := providerName(s.cfg)
 		if len(fields) == 1 {
 			if name == "google" {
-				text := fmt.Sprintf("google / %s\n/models google: list cloud models\n/models ollama: list local models\n/model <provider> <model>: switch provider and model\n/model <model>: switch within current provider", s.cfg.text("model", "gemini-3.5-flash"))
+				text := fmt.Sprintf("google / %s\n/models google: list cloud models\n/models ollama: list local models\n/model <provider> <model>: switch provider and model\n/model <model>: switch within current provider", s.cfg.text("model", "gemini-3.8-flash"))
 				if tuned := tunedModelNames(s.cfg); len(tuned) > 0 {
 					text += "\nTuned models: " + strings.Join(tuned, ", ")
 				}
@@ -157,7 +157,7 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 				autoLevel = 1
 			}
 			return fmt.Sprintf("ui_lang=%s\nmodel=%s\nui_theme=%s\napproval_mode=%s\nauto_approve_level=%d\nreview_gate=%t\ndelivery_report=%t",
-				s.cfg.text("ui_lang", "en"), s.cfg.text("model", "gemini-3.5-flash"), s.cfg.text("ui_theme", "dark"),
+				s.cfg.text("ui_lang", "en"), s.cfg.text("model", "gemini-3.8-flash"), s.cfg.text("ui_theme", "dark"),
 				s.cfg.text("approval_mode", "manual"), autoLevel, s.cfg.boolean("review_gate", false), s.cfg.boolean("delivery_report", true)), nil
 		}
 		if len(fields) != 3 || fields[1] != "set" {

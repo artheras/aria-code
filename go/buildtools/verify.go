@@ -204,7 +204,7 @@ func verifyFrontend(ctx context.Context, directory string, output io.Writer) err
 	if err := os.Mkdir(state, 0o700); err != nil {
 		return err
 	}
-	config := []byte(`{"model":"gemini-3.5-flash","local_provider":"google","check_for_update_on_startup":false,"auto_save_sessions":true,"task_isolation":"off"}`)
+	config := []byte(`{"model":"gemini-3.8-flash","local_provider":"google","check_for_update_on_startup":false,"auto_save_sessions":true,"task_isolation":"off"}`)
 	if err := os.WriteFile(filepath.Join(state, "config.json"), config, 0o600); err != nil {
 		return err
 	}
