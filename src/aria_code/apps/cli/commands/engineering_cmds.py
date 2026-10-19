@@ -126,6 +126,21 @@ class EngineeringCommandsMixin:
         else:
             print(text)
 
+    def _eng_note_shadow(self, name: str) -> None:
+        """A project workflow with this command's name is not shadowed in silence.
+
+        Built-in commands win over `.aria/workflows/<name>.yaml` (a repository
+        file must not replace a command the user knows), but `/test`, `/build`
+        and `/fix` are names projects plausibly gave their own workflows, so
+        say how to reach it.
+        """
+        try:
+            shadowed = self._workflow_named("/" + name)
+        except Exception:
+            shadowed = False
+        if shadowed:
+            self._eng_say(f"Note: this project also has a workflow named '{name}'; run it with /workflow run {name}.", "dim")
+
     def _eng_root(self) -> str:
         return self.terminal.config.get("_session_workspace_root") or os.getcwd()
 
@@ -136,7 +151,9 @@ class EngineeringCommandsMixin:
             await result
 
     def _eng_run(self, command: str, *, timeout: int = 600) -> dict:
-        from aria_cli import _tool_run_command
+        # The wrapper lives in tool_executor; importing it from aria_cli would add a
+        # reverse dependency (tests/test_import_graph_budget.py forbids growing them).
+        from aria_code.apps.cli.tool_executor import _tool_run_command
 
         return _tool_run_command({
             "command": command,
@@ -176,15 +193,18 @@ class EngineeringCommandsMixin:
 
     async def cmd_test(self, args: str):
         """/test [paths] — run the project's tests."""
+        self._eng_note_shadow("test")
         await self._eng_check("test", args)
 
     async def cmd_build(self, args: str):
         """/build — run the project's build."""
+        self._eng_note_shadow("build")
         await self._eng_check("build", "")
 
     # ── git ─────────────────────────────────────────────────────────────────
     async def cmd_diff(self, args: str):
         """/diff [path ...] | --patch — what changed: a summary, or the patch."""
+        self._eng_note_shadow("diff")
         text = args.strip()
         if not text:
             # Two plain read-only commands, not /git summary's `a && b`: the default
@@ -198,10 +218,12 @@ class EngineeringCommandsMixin:
 
     async def cmd_commit(self, args: str):
         """/commit [message] — commit everything that changed."""
+        self._eng_note_shadow("commit")
         await self._eng_call(self.cmd_git, ("commit " + args.strip()).strip())
 
     async def cmd_pr(self, args: str):
         """/pr [status|view|create [title]] — the branch's pull request."""
+        self._eng_note_shadow("pr")
         words = shlex.split(args) if args.strip() else []
         sub = words[0].lower() if words else "status"
         if shutil.which("gh") is None:
@@ -224,6 +246,7 @@ class EngineeringCommandsMixin:
     # ── session and project ─────────────────────────────────────────────────
     async def cmd_checkpoint(self, args: str):
         """/checkpoint [list | restore [N|id]] — file checkpoints and turn points."""
+        self._eng_note_shadow("checkpoint")
         words = args.split()
         sub = words[0].lower() if words else "list"
         if sub == "list":
@@ -236,10 +259,12 @@ class EngineeringCommandsMixin:
 
     async def cmd_worktree(self, args: str):
         """/worktree [diff|apply|discard] — the coding task's worktree (same as /task)."""
+        self._eng_note_shadow("worktree")
         await self._eng_call(self.cmd_task, args)
 
     async def cmd_graph(self, args: str):
         """/graph [path|symbol ...] — the project graph; with targets, what a change reaches."""
+        self._eng_note_shadow("graph")
         if args.strip():
             await self._eng_call(self.cmd_impact, args)
             return
@@ -258,6 +283,7 @@ class EngineeringCommandsMixin:
 
     async def cmd_agents(self, args: str):
         """/agents — project agents in .aria/agents and the background tasks running."""
+        self._eng_note_shadow("agents")
         folder = Path(self._eng_root()) / ".aria" / "agents"
         names = sorted(p.stem for p in folder.glob("*.md")) if folder.is_dir() else []
         self._eng_say("Project agents: " + (", ".join(names) if names else "none (add .aria/agents/<name>.md)"))
@@ -265,6 +291,7 @@ class EngineeringCommandsMixin:
 
     async def cmd_fix(self, args: str):
         """/fix <what is wrong> — find the cause, make the smallest change, check, repair."""
+        self._eng_note_shadow("fix")
         if not args.strip():
             self._eng_say("Usage: /fix <what is wrong>   e.g. /fix expired sessions are not refreshed", "dim")
             return

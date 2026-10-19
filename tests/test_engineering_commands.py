@@ -156,3 +156,12 @@ def test_pr_needs_gh_and_a_known_subcommand(tmp_path, capsys, monkeypatch):
     run(f.cmd_pr("create Fix refresh")); run(f.cmd_pr("")); run(f.cmd_pr("nonsense"))
     assert ran == ["gh pr create --fill --title 'Fix refresh'", "gh pr status"]
     assert "Usage: /pr" in capsys.readouterr().out
+
+
+def test_a_project_workflow_with_the_same_name_is_pointed_out_not_silently_shadowed(tmp_path, capsys):
+    f = _Fake(tmp_path)
+    f._workflow_named = lambda cmd: cmd == "/test"
+    run(f.cmd_test(""))
+    assert "workflow named 'test'" in capsys.readouterr().out
+    run(f.cmd_build(""))
+    assert "workflow named" not in capsys.readouterr().out
