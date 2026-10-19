@@ -107,16 +107,19 @@ class Server:
         # previews and the exact scope of session grants.
         choices = [[str(label), str(help_text)] for label, help_text in options]
         extra = {}
-        if kwargs.get("picker"):
+        picker = bool(kwargs.get("picker"))
+        if picker:
             # A long list to search (models): the frontend draws a picker, not an approval.
             extra["picker"] = True
             groups = kwargs.get("groups")
             if isinstance(groups, list) and len(groups) == len(choices):
                 extra["groups"] = [str(group) for group in groups]
+        if not picker and getattr(self, "approval_risk", None):
+            extra["risk"] = self.approval_risk
         answer = self.ask("approval.requested", title=str(title or "Approval / selection"),
                           choices=choices, selected=selected,
                           shortcuts=kwargs.get("shortcuts", {}),
-                          context="" if extra else getattr(self, "approval_context", ""),
+                          context="" if picker else getattr(self, "approval_context", ""),
                           **extra)
         chosen = answer.get("choice", -1)
         if type(chosen) is not int or not -1 <= chosen < len(choices):
@@ -250,10 +253,12 @@ class Server:
                     if isinstance(params.get(key), str):
                         context.append((cn if zh else en) + ": " + params[key])
                 server.approval_context = "\n".join(context)
+                server.approval_risk = server.assess_for_approval(tool_name, tool_params)
                 try:
                     return await super().approve(tool_name, tool_params, **kwargs)
                 finally:
                     server.approval_context = ""
+                    server.approval_risk = None
         cli.TerminalApprovalEventConsumer = Approvals
         config = cli.load_config()
         config["_session_workspace_root"] = str(Path.cwd().resolve())
@@ -375,6 +380,26 @@ class Server:
         except Exception:
             candidates = []
         self.emit("completion.result", session_id=value.get("session_id", ""), text=text, candidates=candidates)
+
+    def assess_for_approval(self, tool_name, params):
+        """What the action reaches, for the approval card: level, files, hosts, why.
+
+        The same assessment the terminal's text card is built from, sent as data
+        so the frontend can draw it. None when it cannot be assessed; the dialog
+        then shows only the tool and its target.
+        """
+        try:
+            from aria_code.safety.risk import assess_tool
+            from aria_code.ui.render.output import _file_impact
+
+            assessment = assess_tool(tool_name, dict(params or {}), root=os.getcwd())
+            card = assessment.as_dict()
+            card["impact"] = _file_impact(assessment)
+            for key in ("hosts", "files", "systems", "reasons"):
+                card[key] = [str(x)[:200] for x in card.get(key, [])[:8]]
+            return card
+        except Exception:
+            return None
 
     def commands_info(self):
         """Every slash command with what it does, in the order the list shows them.

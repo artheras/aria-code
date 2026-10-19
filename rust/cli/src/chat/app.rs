@@ -1,5 +1,6 @@
 //! UI state/reducer. Protocol events cannot create host approval grants.
 use super::editor::Editor;
+use super::phase::{self, Phase, PhaseTrack};
 use serde_json::{json, Value};
 use std::cell::Cell;
 use std::collections::VecDeque;
@@ -53,6 +54,49 @@ pub struct Action {
     /// "auto-approved · L1 low · Edit files" under approval_mode=risk.
     pub approval: String,
 }
+/// What an action reaches, as the runtime assessed it before asking.
+#[derive(Debug, Clone, Default)]
+pub struct Risk {
+    pub level: u8,
+    pub name: String,
+    pub score: u32,
+    pub reversible: bool,
+    pub hosts: Vec<String>,
+    pub files: Vec<String>,
+    pub systems: Vec<String>,
+    pub reasons: Vec<String>,
+    pub impact: String,
+}
+
+impl Risk {
+    fn from_value(v: &Value) -> Option<Risk> {
+        let level = v["level"].as_u64()?.min(4) as u8;
+        let list = |key: &str| -> Vec<String> {
+            v[key]
+                .as_array()
+                .map(|rows| {
+                    rows.iter()
+                        .filter_map(|x| x.as_str())
+                        .take(8)
+                        .map(safe)
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        Some(Risk {
+            level,
+            name: safe(v["name"].as_str().unwrap_or("")),
+            score: v["score"].as_u64().unwrap_or(0).min(100) as u32,
+            reversible: v["reversible"].as_bool().unwrap_or(true),
+            hosts: list("hosts"),
+            files: list("files"),
+            systems: list("systems"),
+            reasons: list("reasons"),
+            impact: safe(v["impact"].as_str().unwrap_or("")),
+        })
+    }
+}
+
 #[derive(Debug)]
 pub struct Dialog {
     pub id: String,
@@ -71,6 +115,8 @@ pub struct Dialog {
     /// The heading each choice sits under, when the host grouped them.
     pub groups: Vec<String>,
     pub filter: String,
+    /// The runtime's assessment of the action being approved, when it sent one.
+    pub risk: Option<Risk>,
 }
 impl Dialog {
     /// Indices of the choices the search leaves showing, in their original order.
@@ -136,6 +182,8 @@ pub struct App {
     pub model: String,
     pub version: String,
     pub update_notice: String,
+    /// Where the running turn is: inspecting, editing, verifying…
+    pub phase: PhaseTrack,
     pub provider: String,
     pub workspace: String,
     pub permission: String,
@@ -177,6 +225,9 @@ pub struct App {
 }
 
 impl App {
+    pub fn zh(&self) -> bool {
+        self.lang.starts_with("zh")
+    }
     pub fn tr<'a>(&self, en: &'a str, zh: &'a str) -> &'a str {
         if self.lang.starts_with("zh") {
             zh
@@ -346,7 +397,17 @@ impl App {
                 }
                 self.ready = true;
             }
-            "turn.started" => self.status = self.tr("Working", "正在处理").into(),
+            "turn.started" => {
+                self.phase.clear();
+                self.status = self.tr("Working", "正在处理").into();
+            }
+            // A runtime that knows the phase says so; otherwise it is read off the tools.
+            "turn.phase" => {
+                if let Some(p) = Phase::from_name(text("phase")) {
+                    self.phase.enter(p, &safe(text("label")));
+                    self.status = self.phase.doing(self.zh());
+                }
+            }
             "answer.delta" => {
                 self.status = self.tr("Responding", "正在回复").into();
                 self.delta("assistant", text("text"));
@@ -394,7 +455,6 @@ impl App {
             }
             "output.delta" => self.delta("output", text("text")),
             "tool.started" => {
-                self.status = format!("{} {}", self.tr("Running", "正在执行"), safe(text("tool")));
                 let params = &v["params"];
                 self.approval_context =
                     format!("{}: {}", self.tr("Tool", "工具"), safe(text("tool")));
@@ -413,6 +473,10 @@ impl App {
                     .iter()
                     .find_map(|key| params[*key].as_str())
                     .unwrap_or("");
+                let one_line: String = safe(target).replace('\n', " ");
+                self.phase
+                    .enter(phase::classify(text("tool"), params), &one_line);
+                self.status = self.phase.doing(self.zh());
                 self.add(
                     "action",
                     &serde_json::to_string_pretty(params).unwrap_or_default(),
@@ -498,6 +562,10 @@ impl App {
                 self.status = self.tr("Working", "正在处理").into();
             }
             "turn.status" => {
+                let reviewing = format!("{} {}", text("state"), text("message")).to_lowercase();
+                if reviewing.contains("review") {
+                    self.phase.enter(Phase::Review, "");
+                }
                 self.status = safe(&format!("{}: {}", text("state"), text("message")));
                 self.add("status", &self.status.clone(), false);
             }
@@ -557,6 +625,7 @@ impl App {
                     picker,
                     groups,
                     filter: String::new(),
+                    risk: Risk::from_value(&v["risk"]),
                 });
                 self.status = self.tr("Waiting for your response", "等待你的选择").into();
             }
@@ -570,6 +639,7 @@ impl App {
                 }
             }
             "turn.completed" => {
+                self.phase.finish();
                 self.approval_context.clear();
                 self.elapsed = self.started.take().map(|start| start.elapsed());
                 for entry in self

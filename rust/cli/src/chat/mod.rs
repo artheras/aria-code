@@ -3,6 +3,7 @@ mod editor;
 mod hang;
 mod mark;
 mod markdown;
+mod phase;
 mod robot;
 mod theme;
 mod transport;
