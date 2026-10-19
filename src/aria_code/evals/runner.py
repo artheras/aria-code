@@ -156,10 +156,15 @@ def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = Fal
 
     def _run(command: list, prompt: str, workspace: Path):
         try:
-            env = None
+            import os
+
+            # The task's own check runs under `{python}`, this interpreter, which has
+            # what the suite `requires:` (pytest). The agent types `python3`: put this
+            # interpreter first on its PATH, or its acceptance check meets a different
+            # python with no pytest, reports "No module named pytest", and the model
+            # spends its budget trying to install it.
+            env = {**os.environ, "PATH": os.pathsep.join([str(Path(sys.executable).parent), os.environ.get("PATH", "")])}
             if trajectories is not None or events or runtime == "native":
-                import os
-                env = {**os.environ}
                 if trajectories is not None or events:
                     env["ARIA_EVENTS_FULL"] = "1"
                 if runtime == "native" and (go_runtime or os.environ.get("ARIA_GO_RUNTIME_BINARY")):
@@ -167,6 +172,9 @@ def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = Fal
             done = subprocess.run(
                 command,
                 cwd=str(workspace),
+                # A headless agent must never wait for input: inheriting an open stdin
+                # (a terminal, a pipe that never closes) stalls it before its first event.
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",

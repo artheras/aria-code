@@ -511,12 +511,13 @@ class LocalLLMProvider:
 
         from aria_code.providers.tool_messages import to_openai_tool_protocol
 
+        from aria_code.providers.openai_params import sampling_params
+
         payload: Dict[str, Any] = {
             "model":       self.model,
             "messages":    to_openai_tool_protocol(messages),
             "stream":      True,
-            "temperature": temp,
-            "max_tokens":  max_tokens,
+            **sampling_params(url, self.model, temp, max_tokens),
         }
         if tools and cap.tool_calls:
             payload["tools"] = tools

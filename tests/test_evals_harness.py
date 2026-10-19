@@ -714,3 +714,37 @@ class AgentTailTests(HarnessBase):
         _fixture(self.fixtures, "broken", {"check.py": _GUARD})
         result = self._run(self._task(), lambda p, w: None)
         self.assertNotIn("--- agent", result.log)
+
+
+class FinishedButRedTests(HarnessBase):
+    """A non-zero exit is not a crash when the agent says how its turn ended."""
+
+    def _ended(self, code, stop_reason=None, error=""):
+        import json
+        from types import SimpleNamespace
+
+        events = [json.dumps({"type": "turn.started"})]
+        if stop_reason is not None:
+            events.append(json.dumps({"type": "turn.completed", "success": False, "error": error, "stop_reason": stop_reason}))
+        return SimpleNamespace(returncode=code, stdout="\n".join(events), stderr="")
+
+    def _score(self, outcome):
+        _fixture(self.fixtures, "broken", {"check.py": _GUARD})
+        return self._run(self._task(), lambda p, w: outcome)
+
+    def test_an_agent_whose_own_checks_stayed_red_is_scored_not_excluded(self):
+        for stop in ("checks_failed", "completed", "max_rounds", "budget_exhausted", "loop_guard"):
+            self.assertEqual(self._score(self._ended(1, stop)).outcome, FAIL, stop)
+
+    def test_a_provider_error_is_still_an_error_not_the_models_score(self):
+        http = "HTTP 400: Unsupported parameter: 'max_tokens'"
+        self.assertEqual(self._score(self._ended(1, http, error=http)).outcome, ERROR)
+
+    def test_a_run_that_never_reported_a_turn_is_still_an_error(self):
+        self.assertEqual(self._score(self._ended(1, None)).outcome, ERROR)
+        self.assertEqual(self._score(self._ended(124, None)).outcome, ERROR)
+
+    def test_a_green_check_is_a_pass_whatever_the_exit_code(self):
+        _fixture(self.fixtures, "broken", {"check.py": _GUARD})
+        solved = lambda p, w: (Path(w) / "fixed.txt").write_text("x") or self._ended(1, "checks_failed")  # noqa: E731
+        self.assertEqual(self._run(self._task(), solved).outcome, PASS)

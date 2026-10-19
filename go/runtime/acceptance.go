@@ -356,7 +356,7 @@ func planVerification(root string, paths []string) verificationPlan {
 		}
 		commands = append(commands, "python3 -m py_compile "+strings.Join(quoted, " "))
 		reasons = append(reasons, "Python files changed")
-		if hasAny(root, "pytest.ini", "pyproject.toml", "setup.cfg", "tox.ini") || exists(filepath.Join(root, "tests")) {
+		if hasAny(root, "pytest.ini", "pyproject.toml", "setup.cfg", "tox.ini") || exists(filepath.Join(root, "tests")) || hasPythonTests(root) {
 			commands = append(commands, pythonTestCommand(root))
 		}
 	}
@@ -398,6 +398,48 @@ func planVerification(root string, paths []string) verificationPlan {
 		reason = strings.Join(appendNew(nil, reasons...), "; ")
 	}
 	return verificationPlan{Commands: orEmpty(appendNew(nil, commands...)), Reason: reason}
+}
+
+var skipTestDirs = map[string]bool{
+	".git": true, "node_modules": true, ".venv": true, "venv": true, "env": true,
+	"__pycache__": true, "build": true, "dist": true, "site-packages": true,
+}
+
+// hasPythonTests is VerificationPlanner._has_python_tests: test files beside the
+// code count as a test suite even with no tests/ directory and no config file.
+// The root and two levels below it are looked at; virtualenvs and hidden
+// directories are not.
+func hasPythonTests(root string) bool {
+	found := false
+	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || found {
+			return filepath.SkipDir
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return filepath.SkipDir
+		}
+		depth := 0
+		if rel != "." {
+			depth = strings.Count(rel, string(filepath.Separator)) + 1
+		}
+		if d.IsDir() {
+			if depth > 0 && (skipTestDirs[d.Name()] || strings.HasPrefix(d.Name(), ".")) {
+				return filepath.SkipDir
+			}
+			if depth > 2 {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name := d.Name()
+		if strings.HasPrefix(name, "test_") && strings.HasSuffix(name, ".py") || strings.HasSuffix(name, "_test.py") || name == "conftest.py" {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 func hasAny(root string, names ...string) bool {
@@ -454,6 +496,8 @@ func pythonTestCommand(root string) string {
 	} else {
 		testsRoot = root
 		matches, _ := filepath.Glob(filepath.Join(root, "test*.py"))
+		suffixed, _ := filepath.Glob(filepath.Join(root, "*_test.py"))
+		matches = append(matches, suffixed...)
 		candidates = matches[:min(100, len(matches))]
 	}
 	usesUnittest := false
