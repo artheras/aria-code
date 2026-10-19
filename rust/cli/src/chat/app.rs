@@ -66,6 +66,12 @@ pub struct Dialog {
     pub editor: Editor,
     pub shortcuts: Value,
 }
+/// True when every character of `needle` appears in `haystack`, in order.
+fn is_subsequence(needle: &str, haystack: &str) -> bool {
+    let mut chars = haystack.chars();
+    needle.chars().all(|n| chars.any(|h| h == n))
+}
+
 #[derive(Debug, Default)]
 pub struct App {
     pub editor: Editor,
@@ -88,6 +94,18 @@ pub struct App {
     pub network: bool,
     pub robot: super::robot::Robot,
     pub commands: Vec<String>,
+    /// What each command does, for the list that opens when `/` is typed. Sent
+    /// by the runtime as `commands_info`; absent from older runtimes, in which
+    /// case the list shows names only.
+    pub command_info: std::collections::HashMap<String, String>,
+    /// The order the runtime wants commands listed in: the ones people reach
+    /// for first, then the rest. `commands` stays alphabetical for Tab.
+    pub command_order: Vec<String>,
+    pub popup_index: usize,
+    /// The text the popup was last laid out for; a change resets the selection.
+    pub popup_text: String,
+    /// Esc closes the popup for this exact text. Typing more brings it back.
+    pub popup_dismissed: Option<String>,
     pub reference_completion: bool,
     pub status: String,
     pub details: bool,
@@ -234,6 +252,22 @@ impl App {
                 for command in ["/new", "/resume", "/help-native"] {
                     if !self.commands.iter().any(|c| c == command) {
                         self.commands.push(command.into());
+                    }
+                }
+                self.command_info.clear();
+                self.command_order.clear();
+                if let Some(items) = v["commands_info"].as_array() {
+                    for item in items.iter().take(1000) {
+                        let Some(name) = item["name"].as_str().map(safe) else {
+                            continue;
+                        };
+                        let detail: String = safe(item["description"].as_str().unwrap_or(""))
+                            .chars()
+                            .filter(|c| !c.is_control())
+                            .take(160)
+                            .collect();
+                        self.command_order.push(name.clone());
+                        self.command_info.insert(name, detail);
                     }
                 }
                 let history_reset = v["history_reset"].as_bool().unwrap_or(false);
@@ -626,6 +660,104 @@ impl App {
         self.status = self.tr("Continuing…", "正在继续…").into();
         Some(request)
     }
+    /// How many commands the list shows at once.
+    pub const POPUP_ROWS: usize = 8;
+
+    /// The commands the list offers for what is typed, best first: the ones
+    /// that start with it, then the ones that contain it, then loose matches
+    /// (every letter in order, as `/mdl` finds `/model`). Empty when the list
+    /// should not be showing: a turn is running, a dialog is open, the cursor is
+    /// not at the end, the text is past the command word, it was dismissed with
+    /// Esc, or what is typed already is a command and the only match.
+    pub fn slash_items(&self) -> Vec<(String, String)> {
+        let text = self.editor.text();
+        if !self.ready
+            || self.turn.is_some()
+            || self.dialog.is_some()
+            || self.help
+            || !text.starts_with('/')
+            || text.contains(char::is_whitespace)
+            || !self.editor.at_end()
+            || self.popup_dismissed.as_deref() == Some(text)
+        {
+            return Vec::new();
+        }
+        let ordered: Vec<&String> = if self.command_order.is_empty() {
+            self.commands.iter().collect()
+        } else {
+            let mut all: Vec<&String> = self.command_order.iter().collect();
+            for c in &self.commands {
+                if !self.command_order.contains(c) {
+                    all.push(c);
+                }
+            }
+            all
+        };
+        let query = text.trim_start_matches('/').to_lowercase();
+        let mut scored: Vec<(u8, usize, &String)> = ordered
+            .iter()
+            .enumerate()
+            .filter_map(|(i, name)| {
+                let bare = name.trim_start_matches('/').to_lowercase();
+                let tier = if query.is_empty() || bare.starts_with(&query) {
+                    0
+                } else if bare.contains(&query) {
+                    1
+                } else if is_subsequence(&query, &bare) {
+                    2
+                } else {
+                    return None;
+                };
+                Some((tier, i, *name))
+            })
+            .collect();
+        scored.sort_by_key(|(tier, i, _)| (*tier, *i));
+        let items: Vec<(String, String)> = scored
+            .into_iter()
+            .take(Self::POPUP_ROWS)
+            .map(|(_, _, name)| {
+                let detail = self.command_info.get(name).cloned().unwrap_or_default();
+                (name.clone(), detail)
+            })
+            .collect();
+        if items.len() == 1 && items[0].0 == text {
+            return Vec::new();
+        }
+        items
+    }
+
+    /// Keep the selection in step with the text: typing starts again from the top.
+    pub fn sync_popup(&mut self) {
+        if self.editor.text() != self.popup_text {
+            self.popup_text = self.editor.text().to_owned();
+            self.popup_index = 0;
+            self.popup_dismissed = None;
+        }
+    }
+
+    pub fn popup_move(&mut self, down: bool) {
+        let n = self.slash_items().len();
+        if n == 0 {
+            return;
+        }
+        self.popup_index = if down {
+            (self.popup_index + 1) % n
+        } else {
+            (self.popup_index + n - 1) % n
+        };
+    }
+
+    /// Put the highlighted command in the input, ready for arguments.
+    pub fn popup_accept(&mut self) -> bool {
+        let items = self.slash_items();
+        let Some((name, _)) = items.get(self.popup_index.min(items.len().saturating_sub(1))) else {
+            return false;
+        };
+        let completed = format!("{name} ");
+        self.editor.set(&completed);
+        true
+    }
+
     pub fn complete(&mut self) {
         let text = self.editor.text();
         let candidates: Vec<_> = self

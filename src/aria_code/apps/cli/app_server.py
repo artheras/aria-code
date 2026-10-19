@@ -350,6 +350,29 @@ class Server:
         config["last_session_id"] = self.terminal.session_id
         self.cli.save_config(config)
 
+    def commands_info(self):
+        """Every slash command with what it does, in the order the list shows them.
+
+        The frontend's list opens on a bare `/`, so what comes first matters: the
+        core commands and the entry points, then the rest alphabetically, the same
+        order the terminal completer has always used. Descriptions are localised.
+        """
+        from aria_code.apps.cli.commands.catalog import CORE_SLASH_COMMANDS, ENTRY_SLASH_COMMANDS, describe
+
+        t = self.terminal
+        registry = t.commands.commands
+        lang = t.config.get("ui_lang", "en")
+        first = [n for n in (*CORE_SLASH_COMMANDS, *ENTRY_SLASH_COMMANDS) if n in registry]
+        rest = [n for n in sorted(registry) if n not in set(first)]
+        info = []
+        for name in first + rest:
+            try:
+                detail = describe(name, registry[name][1], lang)
+            except Exception:
+                detail = ""
+            info.append({"name": name, "description": str(detail or "")[:160]})
+        return info
+
     def snapshot(self, kind):
         from aria_code.apps.cli.native_branding import robot_rows
         from aria_code.ui import robot
@@ -366,6 +389,7 @@ class Server:
                   robot=rows, robot_design="cream-block-v2" if rows else "",
                   model=t.config.get("model", ""), provider=t.config.get("local_provider", ""),
                   workspace=str(Path.cwd()), commands=sorted(t.commands.commands),
+                  commands_info=self.commands_info(),
                   permission=t.config.get("permission_mode", "workspace-write"),
                   network=bool(t.config.get("network_enabled", True)),
                   ui_lang=t.config.get("ui_lang", "en"),

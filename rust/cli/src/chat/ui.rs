@@ -68,6 +68,25 @@ fn popup(area: Rect, width: u16, height: u16) -> Rect {
     )
 }
 
+/// `text` cut to at most `max` display columns, with an ellipsis when it was cut.
+fn fit(text: &str, max: usize) -> String {
+    if text.width() <= max {
+        return text.to_owned();
+    }
+    let mut out = String::new();
+    let mut used = 0;
+    for g in text.graphemes(true) {
+        let w = g.width();
+        if used + w + 1 > max {
+            break;
+        }
+        out.push_str(g);
+        used += w;
+    }
+    out.push('…');
+    out
+}
+
 pub fn draw(frame: &mut Frame, app: &App) {
     let area = frame.area();
     let p = Palette::for_theme(&app.theme);
@@ -415,6 +434,64 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 .saturating_sub(first as u16)
                 .min(inside.height.saturating_sub(1)),
     ));
+    // The command list: opens above the input on `/`, narrows as you type.
+    let items = app.slash_items();
+    if !items.is_empty() && parts[2].y > area.y {
+        let rows = items.len() as u16;
+        let height = (rows + 2).min(parts[2].y - area.y);
+        let width = parts[2].width; // as wide as the input it belongs to
+        let rect = Rect::new(parts[2].x, parts[2].y - height, width, height);
+        let name_width = items
+            .iter()
+            .map(|(name, _)| name.width())
+            .max()
+            .unwrap_or(0)
+            .min(24);
+        let inner_width = usize::from(rect.width.saturating_sub(4));
+        let selected = app.popup_index.min(items.len() - 1);
+        let lines: Vec<Line> = items
+            .iter()
+            .enumerate()
+            .take(usize::from(height.saturating_sub(2)))
+            .map(|(i, (name, detail))| {
+                let name = fit(name, name_width);
+                let used = name_width + 2;
+                let detail = fit(detail, inner_width.saturating_sub(used));
+                let text = format!("{name:<name_width$}  {detail}");
+                if i == selected {
+                    Line::styled(
+                        format!(" {text}"),
+                        Style::new().fg(p.selection_fg).bg(p.accent),
+                    )
+                } else {
+                    Line::from(vec![
+                        Span::styled(format!(" {name:<name_width$}"), Style::new().fg(p.accent)),
+                        Span::styled(format!("  {detail}"), Style::new().fg(p.muted)),
+                    ])
+                }
+            })
+            .collect();
+        frame.render_widget(Clear, rect);
+        frame.render_widget(
+            Paragraph::new(lines).block(
+                Block::bordered()
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::new().fg(p.muted))
+                    .title(Line::styled(
+                        app.tr(" Commands ", " 命令 "),
+                        Style::new().fg(p.accent),
+                    ))
+                    .title_bottom(Line::styled(
+                        app.tr(
+                            " ↑↓ choose · Tab fill in · Esc close ",
+                            " ↑↓ 选择 · Tab 补全 · Esc 关闭 ",
+                        ),
+                        Style::new().fg(p.muted),
+                    )),
+            ),
+            rect,
+        );
+    }
     let elapsed = app
         .started
         .map(|start| start.elapsed())
@@ -1089,5 +1166,57 @@ mod tests {
             terminal.draw(|f| draw(f, &app)).unwrap();
             assert!(!format!("{:?}", terminal.backend().buffer()).contains("DO_NOT_DISPLAY"));
         }
+    }
+
+    #[test]
+    fn the_command_list_is_drawn_above_the_input_with_the_highlight_on_the_first_row() {
+        let mut app = App {
+            ready: true,
+            ..App::default()
+        };
+        app.commands = vec!["/help".into(), "/model".into()];
+        app.command_order = app.commands.clone();
+        app.command_info.insert("/help".into(), "Show help".into());
+        app.command_info
+            .insert("/model".into(), "Choose a model".into());
+        app.editor.insert("/");
+        let mut terminal = Terminal::new(TestBackend::new(70, 24)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rows: Vec<String> = (0..24)
+            .map(|y| {
+                (0..70)
+                    .map(|x| buffer[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect();
+        let help = rows
+            .iter()
+            .position(|r| r.contains("/help") && r.contains("Show help"))
+            .expect("first row");
+        let model = rows
+            .iter()
+            .position(|r| r.contains("/model") && r.contains("Choose a model"))
+            .expect("second row");
+        let input = rows
+            .iter()
+            .position(|r| r.contains("╭ Aria"))
+            .expect("input box title");
+        assert!(
+            help < model && model < input,
+            "the list sits above the input, in order: {rows:#?}"
+        );
+        let highlighted =
+            (0..70).any(|x| buffer[(x, help as u16)].bg != ratatui::style::Color::Reset);
+        assert!(highlighted, "the first row is highlighted");
+        // Closing it removes it.
+        app.editor.insert("zzz");
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let text: String = (0..24)
+            .flat_map(|y| (0..70).map(move |x| (x, y)))
+            .map(|(x, y)| buffer[(x, y)].symbol().to_string())
+            .collect();
+        assert!(!text.contains("Show help"));
     }
 }

@@ -226,6 +226,12 @@ pub fn run(
 }
 
 fn key_request(app: &mut App, key: KeyEvent) -> Option<Value> {
+    let request = key_request_inner(app, key);
+    app.sync_popup();
+    request
+}
+
+fn key_request_inner(app: &mut App, key: KeyEvent) -> Option<Value> {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
     if key.code == KeyCode::F(1) {
@@ -285,6 +291,40 @@ fn key_request(app: &mut App, key: KeyEvent) -> Option<Value> {
         }
         edit(&mut d.editor, key);
         return None;
+    }
+    // The command list that opens on `/` takes the arrow keys, Tab, Enter and
+    // Esc while it is showing; everything else types as usual.
+    if !app.slash_items().is_empty() && !ctrl && !alt {
+        match key.code {
+            KeyCode::Up => {
+                app.popup_move(false);
+                return None;
+            }
+            KeyCode::Down => {
+                app.popup_move(true);
+                return None;
+            }
+            KeyCode::Tab => {
+                app.popup_accept();
+                return None;
+            }
+            // Enter fills in the highlighted command rather than running it, so a
+            // partly typed `/mo` cannot run the wrong thing; a second Enter runs it.
+            KeyCode::Enter if !key.modifiers.contains(KeyModifiers::SHIFT) => {
+                // Already the highlighted command, in full: Enter runs it.
+                let items = app.slash_items();
+                let typed = app.editor.text().to_owned();
+                let highlighted = items.get(app.popup_index).map(|(name, _)| name.as_str());
+                if highlighted != Some(typed.as_str()) && app.popup_accept() {
+                    return None;
+                }
+            }
+            KeyCode::Esc => {
+                app.popup_dismissed = Some(app.editor.text().to_owned());
+                return None;
+            }
+            _ => (),
+        }
     }
     match key.code {
         KeyCode::Esc => {
@@ -549,5 +589,158 @@ mod tests {
             key_request(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
         assert_eq!(cancel["type"], "turn.cancel");
         assert_eq!(app.editor.text(), "next draft");
+    }
+
+    // ── The command list that opens on `/` ──────────────────────────────
+    fn with_commands() -> App {
+        let mut app = App {
+            ready: true,
+            ..App::default()
+        };
+        let info = [
+            ("/help", "Show help"),
+            ("/model", "Choose a model"),
+            ("/models", "List models"),
+            ("/review", "Review changes"),
+            ("/memory", "Manage memory"),
+        ];
+        app.commands = info.iter().map(|(n, _)| n.to_string()).collect();
+        app.command_order = app.commands.clone();
+        app.command_info = info
+            .iter()
+            .map(|(n, d)| (n.to_string(), d.to_string()))
+            .collect();
+        app
+    }
+    fn press(app: &mut App, code: KeyCode) -> Option<Value> {
+        key_request(app, KeyEvent::new(code, KeyModifiers::NONE))
+    }
+    fn typed(app: &mut App, text: &str) {
+        for c in text.chars() {
+            press(app, KeyCode::Char(c));
+        }
+    }
+    fn names(app: &App) -> Vec<String> {
+        app.slash_items().into_iter().map(|(n, _)| n).collect()
+    }
+
+    #[test]
+    fn typing_a_slash_opens_the_list_and_narrows_as_you_type() {
+        let mut app = with_commands();
+        typed(&mut app, "/");
+        assert_eq!(names(&app).len(), 5, "a bare slash lists the commands");
+        typed(&mut app, "mo");
+        // Starts-with first, then contains ("memory" has m..o inside), in the runtime's order.
+        assert_eq!(names(&app), ["/model", "/models", "/memory"]);
+        assert_eq!(
+            app.slash_items()[0].1,
+            "Choose a model",
+            "each row carries its description"
+        );
+        typed(&mut app, "x");
+        assert!(
+            names(&app).is_empty(),
+            "nothing matches, so the list closes"
+        );
+    }
+
+    #[test]
+    fn letters_in_order_find_a_command_the_way_mdl_finds_model() {
+        let mut app = with_commands();
+        typed(&mut app, "/mdl");
+        assert_eq!(names(&app), ["/model", "/models"]);
+    }
+
+    #[test]
+    fn arrows_move_the_highlight_and_wrap() {
+        let mut app = with_commands();
+        typed(&mut app, "/m");
+        assert_eq!(app.popup_index, 0);
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.popup_index, 1);
+        press(&mut app, KeyCode::Up);
+        press(&mut app, KeyCode::Up);
+        assert_eq!(
+            app.popup_index,
+            names(&app).len() - 1,
+            "Up from the first row wraps to the last"
+        );
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.popup_index, 0);
+        assert!(
+            app.editor.text() == "/m",
+            "arrows must not touch the text or the history"
+        );
+    }
+
+    #[test]
+    fn tab_fills_in_the_highlighted_command_ready_for_arguments() {
+        let mut app = with_commands();
+        typed(&mut app, "/mo");
+        press(&mut app, KeyCode::Down);
+        assert!(press(&mut app, KeyCode::Tab).is_none());
+        assert_eq!(app.editor.text(), "/models ");
+        assert!(
+            names(&app).is_empty(),
+            "the list closes once the command word is complete"
+        );
+    }
+
+    #[test]
+    fn enter_fills_in_a_partial_command_and_only_a_second_enter_runs_it() {
+        let mut app = with_commands();
+        typed(&mut app, "/rev");
+        assert!(
+            press(&mut app, KeyCode::Enter).is_none(),
+            "the first Enter must not send anything"
+        );
+        assert_eq!(app.editor.text(), "/review ");
+        let request = press(&mut app, KeyCode::Enter).expect("the second Enter sends");
+        assert_eq!(request["type"], "turn.submit");
+    }
+
+    #[test]
+    fn enter_on_a_complete_command_runs_it_at_once() {
+        let mut app = with_commands();
+        typed(&mut app, "/model");
+        assert_eq!(names(&app), ["/model", "/models"]);
+        let request = press(&mut app, KeyCode::Enter).expect("a typed-out command runs on Enter");
+        assert_eq!(request["type"], "turn.submit");
+        assert!(request["text"].as_str().unwrap().starts_with("/model"));
+    }
+
+    #[test]
+    fn escape_closes_the_list_for_this_text_and_typing_reopens_it() {
+        let mut app = with_commands();
+        typed(&mut app, "/m");
+        assert!(press(&mut app, KeyCode::Esc).is_none());
+        assert!(names(&app).is_empty());
+        assert_eq!(app.editor.text(), "/m", "Esc must not clear what was typed");
+        typed(&mut app, "o");
+        assert!(!names(&app).is_empty(), "more typing brings the list back");
+    }
+
+    #[test]
+    fn the_list_stays_out_of_the_way_when_it_does_not_apply() {
+        let mut app = with_commands();
+        typed(&mut app, "hello /mo");
+        assert!(
+            names(&app).is_empty(),
+            "a slash mid-sentence is not a command"
+        );
+        let mut app = with_commands();
+        typed(&mut app, "/model gpt");
+        assert!(
+            names(&app).is_empty(),
+            "after the command word it is arguments"
+        );
+        let mut app = with_commands();
+        app.turn = Some("turn-1".into());
+        typed(&mut app, "/mo");
+        assert!(names(&app).is_empty(), "no list while a turn is running");
+        let mut app = with_commands();
+        app.ready = false;
+        app.editor.insert("/mo");
+        assert!(names(&app).is_empty());
     }
 }
