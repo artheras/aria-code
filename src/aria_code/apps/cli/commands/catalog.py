@@ -76,7 +76,7 @@ VISIBLE_SLASH_COMMANDS: FrozenSet[str] = frozenset({
     "/broker", "/account", "/positions", "/orders", "/paper", "/trade",
     # Code & project
     "/project", "/init", "/review", "/code", "/plan", "/orchestrate", "/run", "/task", "/tasks", "/impact", "/workflow", "/delegate",
-    "/diff", "/commit", "/pr", "/checkpoint", "/worktree", "/graph", "/agents", "/test", "/build", "/fix", "/canva", "/completions", "/lsp",
+    "/diff", "/commit", "/pr", "/checkpoint", "/worktree", "/graph", "/agents", "/test", "/build", "/sim", "/fix", "/canva", "/completions", "/lsp",
     # Research
     "/team", "/warehouse", "/deep",
     # Quant
@@ -122,7 +122,7 @@ HELP_TOPICS: Tuple[HelpTopic, ...] = (
     HelpTopic("code", "Code and projects", "代码与项目", (
         "/code", "/project", "/init", "/review", "/plan", "/run", "/read", "/write", "/edit", "/ls",
         "/search", "/verify", "/scaffold", "/apply", "/changes", "/git",
-        "/diff", "/commit", "/pr", "/test", "/build", "/fix", "/graph", "/impact", "/agents", "/task", "/worktree", "/checkpoint")),
+        "/diff", "/commit", "/pr", "/test", "/build", "/sim", "/fix", "/graph", "/impact", "/agents", "/task", "/worktree", "/checkpoint")),
     HelpTopic("market", "Market research", "市场研究", (
         "/quote", "/analyze", "/ta", "/chart", "/tv", "/deep", "/team", "/report", "/news", "/markets",
         "/watch", "/alert")),
@@ -176,7 +176,7 @@ COMMAND_DESCRIPTIONS_ZH = {
     "/diff": "查看改动：摘要或补丁", "/commit": "提交所有改动", "/pr": "当前分支的 Pull Request",
     "/checkpoint": "检查点与回合还原点", "/worktree": "编码任务的工作树", "/graph": "项目图谱与改动影响",
     "/agents": "项目智能体与后台任务", "/test": "运行项目测试", "/build": "运行项目构建",
-    "/fix": "定位原因、最小改动、验证",
+    "/fix": "定位原因、最小改动、验证", "/sim": "运行项目声明的仿真",
     "/inventory": "3PL 库存策略：补货点、安全库存、ABC/XYZ、呆滞库存",
     "/carriers": "3PL 承运商评分：按线路排名、成本异常与节省",
 }

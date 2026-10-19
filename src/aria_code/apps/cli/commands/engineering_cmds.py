@@ -41,18 +41,68 @@ def _make_targets(root: Path) -> set:
     return set()
 
 
+_DECLARED_KINDS = ("test", "build", "lint", "sim")
+
+
+def _is_ros2_workspace(root: Path) -> bool:
+    """A colcon workspace (src/<pkg>/package.xml) or a single ROS 2 package."""
+    if (root / "package.xml").is_file():
+        return True
+    src = root / "src"
+    if not src.is_dir():
+        return False
+    try:
+        return any((child / "package.xml").is_file() for child in src.iterdir() if child.is_dir()) or any(
+            True for _ in src.glob("*/*/package.xml"))
+    except OSError:
+        return False
+
+
+def declared_commands(root) -> Dict[str, str]:
+    """Commands the project states for itself in `.aria/project.yaml`:
+
+        commands:
+          test: ./scripts/test.sh
+          sim: ros2 launch my_robot sim_scenarios.launch.py
+
+    These win over anything detected. `sim` has no detection: running a robot
+    simulation is never guessed.
+    """
+    path = Path(root) / ".aria" / "project.yaml"
+    if not path.is_file():
+        return {}
+    try:
+        import yaml
+
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
+    block = data.get("commands") if isinstance(data, dict) else None
+    if not isinstance(block, dict):
+        return {}
+    return {k: v.strip() for k, v in block.items() if k in _DECLARED_KINDS and isinstance(v, str) and v.strip()}
+
+
 def detect_commands(root) -> Dict[str, str]:
     """The project's own test, build and lint commands: {"test": ..., "build": ..., "lint": ...}.
 
-    Read from what the project declares (package.json scripts, Cargo.toml,
-    go.mod, pyproject.toml, Makefile targets), first match per kind. Nothing
-    is guessed for a kind the project does not declare.
+    What `.aria/project.yaml` declares wins; otherwise read from what the
+    project has (ROS 2 packages, package.json scripts, Cargo.toml, go.mod,
+    pyproject.toml, Makefile targets), first match per kind. Nothing is
+    guessed for a kind the project does not declare. A colcon test run also
+    yields `test_report`, the command that prints its results.
     """
     root = Path(root)
     found: Dict[str, str] = {}
 
     def set_(kind: str, command: str) -> None:
         found.setdefault(kind, command)
+
+    if _is_ros2_workspace(root):
+        # colcon test only runs; the verdicts are in `colcon test-result`.
+        set_("build", "colcon build")
+        set_("test", "colcon test")
+        found["test_report"] = "colcon test-result --verbose"
 
     package = root / "package.json"
     if package.is_file():
@@ -93,6 +143,10 @@ def detect_commands(root) -> Dict[str, str]:
     for kind in ("test", "build", "lint"):
         if kind in targets:
             set_(kind, f"make {kind}")
+    declared = declared_commands(root)
+    found.update(declared)
+    if "test" in declared:
+        found.pop("test_report", None)  # the project's own test command reports for itself
     return found
 
 
@@ -178,11 +232,17 @@ class EngineeringCommandsMixin:
 
     # ── checks ──────────────────────────────────────────────────────────────
     async def _eng_check(self, kind: str, extra: str) -> None:
-        command = detect_commands(self._eng_root()).get(kind)
+        commands = detect_commands(self._eng_root())
+        command = commands.get(kind)
         if not command:
-            self._eng_say(
-                f"No {kind} command found. Aria looked for package.json scripts, Cargo.toml, go.mod, "
-                "pyproject.toml and Makefile targets.", "dim")
+            if kind == "sim":
+                self._eng_say(
+                    "No simulation command declared. Add it to .aria/project.yaml:\n"
+                    "  commands:\n    sim: ros2 launch my_robot sim_scenarios.launch.py", "dim")
+            else:
+                self._eng_say(
+                    f"No {kind} command found. Aria looked for .aria/project.yaml, ROS 2 packages, package.json "
+                    "scripts, Cargo.toml, go.mod, pyproject.toml and Makefile targets.", "dim")
             return
         if extra.strip():
             command += " " + " ".join(shlex.quote(p) for p in shlex.split(extra))
@@ -190,11 +250,24 @@ class EngineeringCommandsMixin:
         started = time.monotonic()
         result = await asyncio.to_thread(self._eng_run, command)
         self._eng_show(result, kind, started)
+        report = commands.get("test_report") if kind == "test" else None
+        if report:
+            # The run's own exit code says little (colcon test exits 0 with failures);
+            # the report is the verdict.
+            self._eng_say(f"$ {report}", "dim")
+            started = time.monotonic()
+            result = await asyncio.to_thread(self._eng_run, report)
+            self._eng_show(result, "test results", started)
 
     async def cmd_test(self, args: str):
         """/test [paths] — run the project's tests."""
         self._eng_note_shadow("test")
         await self._eng_check("test", args)
+
+    async def cmd_sim(self, args: str):
+        """/sim [scenario] — run the simulation the project declares (never guessed)."""
+        self._eng_note_shadow("sim")
+        await self._eng_check("sim", args)
 
     async def cmd_build(self, args: str):
         """/build — run the project's build."""
