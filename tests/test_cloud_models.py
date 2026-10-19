@@ -76,3 +76,25 @@ def test_failed_request_leaves_the_provider_out_and_the_key_is_never_cached(tmp_
     assert list(out) == ["groq"]
     cached = (tmp_path / "cloud_models" / "groq.json").read_text()
     assert "sk-very-secret" not in cached and json.loads(cached)["models"][0]["id"] == "m"
+
+
+def test_openai_style_lists_sort_by_the_providers_creation_date_and_drop_video_and_research():
+    payload = {"data": [
+        {"id": "gpt-5.4-mini", "created": 1_773_000_000},
+        {"id": "sora-2", "created": 1_790_000_000},
+        {"id": "o4-mini-deep-research", "created": 1_780_000_000},
+        {"id": "gpt-6.1-sol", "created": 1_790_500_000},
+        {"id": "o3", "created": 1_744_000_000},
+    ]}
+    rows = cm.parse("openai", payload)
+    assert [r["id"] for r in rows] == ["gpt-6.1-sol", "gpt-5.4-mini", "o3"]
+    assert rows[0]["detail"].startswith("20") and "created" not in rows[0]
+
+
+def test_a_model_past_its_shutdown_date_is_not_offered():
+    now = 1_790_000_000
+    assert cm._is_shut_down(1_700_000_000, now) and not cm._is_shut_down(1_800_000_000, now)
+    assert cm._is_shut_down("2020-01-01", now) and not cm._is_shut_down("2099-01-01", now)
+    assert not cm._is_shut_down(None, now) and not cm._is_shut_down("soon", now)
+    gone = cm.parse("openai", {"data": [{"id": "old-model", "shutdown_date": 1_000_000_000}, {"id": "new-model"}]})
+    assert [r["id"] for r in gone] == ["new-model"]

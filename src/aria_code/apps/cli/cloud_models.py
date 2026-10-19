@@ -49,7 +49,7 @@ PROVIDERS: Dict[str, tuple] = {
 #: Not chat models: embeddings, speech, images, video, music, moderation, live audio.
 _NOT_CHAT = re.compile(
     r"embed|whisper|tts|transcribe|speech|audio|realtime|dall-e|image|imagen|veo|lyria|"
-    r"omni-|nano-banana|moderation|rerank|guard|-live|robotics|computer-use|"
+    r"omni-|nano-banana|moderation|rerank|guard|-live|robotics|computer-use|sora|deep-research|"
     r"search-preview|davinci|babbage|aqa|text-bison|vision-preview",
     re.IGNORECASE,
 )
@@ -85,6 +85,30 @@ def _ctx_label(tokens) -> str:
     return f"ctx {n // 1000}K" if n >= 1000 else ""
 
 
+def _date(epoch: int) -> str:
+    import datetime
+
+    try:
+        return datetime.date.fromtimestamp(epoch).isoformat()
+    except (OverflowError, OSError, ValueError):
+        return ""
+
+
+def _is_shut_down(value: object, today: Optional[float] = None) -> bool:
+    """True when a provider's `shutdown_date` (epoch seconds or ISO date) has passed."""
+    now = time.time() if today is None else today
+    if isinstance(value, (int, float)) and value > 0:
+        return float(value) < now
+    if isinstance(value, str) and value:
+        import datetime
+
+        try:
+            return datetime.date.fromisoformat(value[:10]) < datetime.date.fromtimestamp(now)
+        except ValueError:
+            return False
+    return False
+
+
 def parse(provider: str, payload: object) -> List[dict]:
     """The chat models in a provider's list response, newest first: [{id, name, detail}]."""
     kind = PROVIDERS[provider][1]
@@ -106,10 +130,16 @@ def parse(provider: str, payload: object) -> List[dict]:
         items = payload.get("data", []) if isinstance(payload, dict) else payload
         for item in items if isinstance(items, list) else []:
             ident = str(item.get("id", "")) if isinstance(item, dict) else ""
-            if ident and not _NOT_CHAT.search(ident):
-                rows.append({"id": ident, "name": ident, "detail": ""})
-    rows.sort(key=lambda r: _natural_key(r["id"]), reverse=True)
-    return rows[:MAX_PER_PROVIDER]
+            if not ident or _NOT_CHAT.search(ident) or _is_shut_down(item.get("shutdown_date")):
+                continue
+            created = item.get("created")
+            created = int(created) if isinstance(created, (int, float)) and created > 0 else 0
+            detail = _date(created) if created else ""
+            rows.append({"id": ident, "name": ident, "detail": detail, "created": created})
+    # Newest first by the provider's own creation date where it gives one (OpenAI does);
+    # otherwise by version number in the id, which is only a rough proxy.
+    rows.sort(key=lambda r: (r.get("created", 0), _natural_key(r["id"])), reverse=True)
+    return [{k: v for k, v in r.items() if k != "created"} for r in rows[:MAX_PER_PROVIDER]]
 
 
 def fetch(provider: str, key: str, timeout: float = FETCH_TIMEOUT_S) -> Optional[List[dict]]:

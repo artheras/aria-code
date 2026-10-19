@@ -68,11 +68,12 @@ class OpenAICompatProvider(BaseLLMProvider):
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type":  "application/json",
         }
+        from aria_code.providers.openai_params import sampling_params
+
         payload: Dict[str, Any] = {
             "model":       self.model,
             "messages":    [{"role": m.role, "content": m.content} for m in messages],
-            "temperature": temp,
-            "max_tokens":  n_tokens,
+            **sampling_params(self.base_url, self.model, temp, n_tokens),
             "stream":      True,
         }
         if tools:

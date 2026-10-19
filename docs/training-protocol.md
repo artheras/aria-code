@@ -22,6 +22,26 @@
 - **能微调的模型**：Vertex AI 的监督微调支持 `gemini-3.5-flash`（也是 Aria 的默认模型）和 `gemini-3.1-flash-lite`；2.5 系列随模型一起退役。Gemma 走开源模型微调路径。见 [Tune Gemini models with supervised fine-tuning](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini-use-supervised-tuning)。
 - **数据还不够**：50 道题、每题几次，只有几十条轨迹；监督微调一般需要几百到几千条高质量样本。在数据够之前训练，得到的只会是过拟合。
 
+## 2a. 步骤 0：先测各模型的成绩单
+
+训练一个"路由器"之前，先回答一个更便宜的问题：在 Aria 真正会遇到的任务上，便宜的模型是否常常做得出来？
+用同一批可验证的题目、同一套检查，跑几个模型，比较通过率、耗时，并算出"理想路由"能省多少：
+
+```bash
+# 默认只打印计划和调用次数，什么都不跑、不花钱
+python -m aria_code.evals.scorecard run \
+  --model aria=google/gemini-3.8-flash --model gpt=openai/gpt-5.4-mini --model local=qwen2.5:7b --local local \
+  --suite evals/suites/core.yaml --suite evals/suites/operations.yaml --repeat 3 --out scorecard/
+# 先用一道题冒烟，确认流程和花费：--only csv-quoted-fields --repeat 1 --yes
+python -m aria_code.evals.scorecard report scorecard/ --cost aria=0.02 --cost gpt=0.05
+```
+
+- 每个模型的轨迹同时保存在 `scorecard/<名字>/trajectories/`：这是第一批可用于训练的素材，只有通过验证的才会被数据集构建器采用。
+- 报告里的"理想路由"是**上界**：它假设事先知道哪个模型会做对。真实的路由器要猜，失败的便宜尝试也要付费。
+  上界都很小，学出来的路由器就不值得做。
+- 评测报告不含 token 数，所以成本用 `--cost 名字=美元/每次尝试` 自己估。
+- 本地小模型（例如 7B）在笔记本上每轮要几十秒，300 秒做不完一题；超时记为"错误"而不是"答错"，不计分。
+
 ## 3. 步骤
 
 1. **测基线（不训练）。** 用 `gemini-3.5-flash` 跑 Evals，`--repeat 3`，保存报告和轨迹。这是之后所有比较的基准。
