@@ -1,8 +1,8 @@
-use super::app::{App, Dialog};
+use super::app::{App, Dialog, Risk};
 use super::{hang, mark, markdown, theme::Palette};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Margin, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, BorderType, Clear, Padding, Paragraph, Wrap},
     Frame,
@@ -134,8 +134,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(if area.height >= 14 {
-                (4 + u16::from(!app.update_notice.is_empty()) + u16::from(app.details))
-                    .max(if show_robot { robot.0.len() as u16 } else { 0 })
+                (4 + u16::from(!app.update_notice.is_empty())
+                    + u16::from(app.details)
+                    + u16::from(app.turn.is_some() && !app.phase.is_empty()))
+                .max(if show_robot { robot.0.len() as u16 } else { 0 })
             } else {
                 1
             }),
@@ -178,6 +180,17 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 app.update_notice.clone(),
                 Style::new().fg(p.accent),
             ));
+        }
+        // Where the turn is: Inspect ✓ · Edit ● · Verify ○ — what the work is,
+        // not which tools the model happens to call.
+        if app.turn.is_some() && !app.phase.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled(app.phase.strip(app.zh()), Style::new().fg(p.accent)),
+                Span::styled(
+                    format!("  {}", fit(&app.phase.doing(app.zh()), 60)),
+                    Style::new().fg(p.muted),
+                ),
+            ]));
         }
         if app.details {
             lines.push(Line::styled(
@@ -603,6 +616,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
             );
             heading.push(Line::raw(""));
         }
+        if let Some(risk) = &dialog.risk {
+            heading.extend(risk_card(app, risk, p));
+            heading.push(Line::raw(""));
+        }
         let heading = Paragraph::new(heading).wrap(Wrap { trim: false });
         let heading_lines = heading.line_count(area.width.min(90).saturating_sub(2));
         let height = (heading_lines
@@ -624,7 +641,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
         frame.render_widget(block, rect);
         // Keep the operation visible while scrolling through approval choices.
         let sections = Layout::vertical([
-            Constraint::Length((heading_lines.min(8) as u16).min(inside.height.saturating_sub(3))),
+            Constraint::Length(
+                (heading_lines.min(if dialog.risk.is_some() { 12 } else { 8 }) as u16)
+                    .min(inside.height.saturating_sub(3)),
+            ),
             Constraint::Min(1),
         ])
         .split(inside);
@@ -693,6 +713,60 @@ pub fn draw(frame: &mut Frame, app: &App) {
             inside,
         );
     }
+}
+
+/// What an action reaches, drawn above its approval: a coloured level, then
+/// the hosts, files and systems it touches and why it is rated that way.
+fn risk_card(app: &App, risk: &Risk, p: Palette) -> Vec<Line<'static>> {
+    let level_color = match risk.level {
+        0 | 1 => p.assistant,
+        2 => Color::Yellow,
+        _ => Color::Red,
+    };
+    let undo = if risk.reversible {
+        app.tr("reversible", "可撤销")
+    } else {
+        app.tr("not reversible", "不可撤销")
+    };
+    let mut lines = vec![Line::from(vec![
+        Span::styled(
+            format!("{:<9}", app.tr("Risk", "风险")),
+            Style::new().fg(p.muted),
+        ),
+        Span::styled(
+            format!("L{} {}", risk.level, risk.name),
+            Style::new().fg(level_color).bold(),
+        ),
+        Span::styled(
+            format!(" · {}/100 · {undo}", risk.score),
+            Style::new().fg(p.muted),
+        ),
+    ])];
+    let mut row = |label: &str, values: &[String]| {
+        if values.is_empty() {
+            return;
+        }
+        let shown: Vec<&str> = values.iter().take(4).map(String::as_str).collect();
+        let more = values.len().saturating_sub(4);
+        let tail = if more > 0 {
+            format!(" +{more}")
+        } else {
+            String::new()
+        };
+        lines.push(Line::from(vec![
+            Span::styled(format!("{label:<9}"), Style::new().fg(p.muted)),
+            Span::raw(format!("{}{tail}", shown.join(", "))),
+        ]));
+    };
+    row(app.tr("Network", "网络"), &risk.hosts);
+    row(app.tr("Files", "文件"), &risk.files);
+    if !risk.impact.is_empty() {
+        row(app.tr("Impact", "影响"), std::slice::from_ref(&risk.impact));
+    }
+    row(app.tr("Affects", "涉及"), &risk.systems);
+    let why: Vec<String> = risk.reasons.iter().take(2).cloned().collect();
+    row(app.tr("Why", "原因"), &why);
+    lines
 }
 
 /// The model picker: a searchable list, one row per model under group
@@ -899,6 +973,66 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n")
     }
+    #[test]
+    fn the_header_shows_where_a_running_turn_is() {
+        let mut terminal = Terminal::new(TestBackend::new(90, 24)).unwrap();
+        let mut app = App {
+            permission: "workspace-write".into(),
+            ready: true,
+            ..App::default()
+        };
+        app.editor.insert("fix the refresh bug");
+        app.submit();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":"read_file","params":{"path":"src/auth.py"}})).unwrap();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"read_file","success":true})).unwrap();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":"edit_file","params":{"path":"src/auth.py"}})).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let shown = display(&terminal);
+        assert!(shown.contains("Inspect ✓ · Edit ● · Verify ○"), "{shown}");
+        assert!(shown.contains("Editing src/auth.py"), "{shown}");
+        // Once the turn ends the strip goes away; the header returns to its usual rows.
+        app.event(serde_json::json!({"protocol":1,"type":"turn.completed","turn_id":"turn-1","status":"completed"})).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        assert!(!display(&terminal).contains("Verify ○"));
+    }
+
+    #[test]
+    fn an_approval_shows_what_the_action_reaches() {
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        let mut app = App {
+            turn: Some("turn-1".into()),
+            ..App::default()
+        };
+        app.event(serde_json::json!({"protocol":1,"type":"approval.requested","turn_id":"turn-1","request_id":"a",
+            "title":"Approve","context":"Command: npm install jose","choices":[["Allow once",""],["Deny",""]],
+            "risk":{"level":2,"name":"medium","score":43,"reversible":true,"hosts":["registry.npmjs.org"],
+                    "files":["package.json","package-lock.json"],"systems":[],"reasons":["Changes installed dependencies"],
+                    "impact":"3 files depend on this"}})).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let shown = display(&terminal);
+        for want in [
+            "Command: npm install jose",
+            "L2 medium",
+            "43/100",
+            "reversible",
+            "registry.npmjs.org",
+            "package.json, package-lock.json",
+            "Changes installed dependencies",
+            "3 files depend on this",
+        ] {
+            assert!(shown.contains(want), "missing {want:?}\n{shown}");
+        }
+        // No assessment: the dialog is as it was.
+        let mut plain = App {
+            turn: Some("turn-1".into()),
+            ..App::default()
+        };
+        plain.event(serde_json::json!({"protocol":1,"type":"approval.requested","turn_id":"turn-1","request_id":"b",
+            "title":"Approve","choices":[["Yes",""]]})).unwrap();
+        terminal.draw(|f| draw(f, &plain)).unwrap();
+        assert!(!display(&terminal).contains("Risk"));
+    }
+
     #[test]
     fn long_workspaces_leave_policy_and_project_name_visible() {
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
@@ -1365,6 +1499,7 @@ mod tests {
                 picker: false,
                 groups: vec![],
                 filter: String::new(),
+                risk: None,
             });
             app.dialog.as_mut().unwrap().editor.insert("DO_NOT_DISPLAY");
             terminal.draw(|f| draw(f, &app)).unwrap();

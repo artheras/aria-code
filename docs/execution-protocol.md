@@ -43,6 +43,25 @@ INSPECT → PLAN → (approval if needed) → EXECUTE → VERIFY → REVIEW → 
 | **User workflows** (`.aria/workflows/*.yaml`) | `runtime/workflows.py`, `apps/cli/workflow_runner.py` | **phase 4** |
 | **Test baseline** — pre-existing failures are not repaired | `runtime/baseline.py` | **phase 4** |
 
+## In the native terminal
+
+The Rust frontend draws the protocol instead of printing text from it:
+
+* **Phase.** While a turn runs, the header shows where it is, `Inspect ✓ · Edit ●
+  · Verify ○`, and the status line says what is happening (`Editing src/auth.py`).
+  The phase is read off the tool events the frontend already receives
+  (`read_file`/`grep`/`git diff` inspect, `edit_file`/`write_file` edit, `pytest`,
+  `tsc`, `cargo clippy`… verify), so every runtime gets it without a protocol
+  change. After an edit with no check yet, `Verify ○` shows what is still
+  expected. A runtime that knows better may send `{"type":"turn.phase",
+  "phase":"verify","label":"pytest -q"}`; `turn.status` mentioning *review* enters
+  the Review phase.
+* **Approval card.** `approval.requested` may carry `risk`, the assessment as
+  data: `level`, `name`, `score`, `reversible`, `hosts`, `files`, `systems`,
+  `reasons` and an optional `impact` line. The frontend draws it above the
+  choices (level coloured green / yellow / red). Both the Python worker and the Go
+  runtime send it; without it the dialog shows only the tool and its target.
+
 ## Risk levels
 
 `assess_command()` / `assess_tool()` describe what an action touches.
