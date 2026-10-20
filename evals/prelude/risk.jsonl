@@ -1,0 +1,693 @@
+{"id": "risk-0000", "task": "risk", "input": "ls", "label": 0, "family": "ls", "split": "dev"}
+{"id": "risk-0001", "task": "risk", "input": "cd project && ls", "label": 1, "family": "ls", "split": "dev"}
+{"id": "risk-0002", "task": "risk", "input": "time ls", "label": 1, "family": "ls", "split": "dev"}
+{"id": "risk-0003", "task": "risk", "input": "ls -la src", "label": 0, "family": "ls -la", "split": "dev"}
+{"id": "risk-0004", "task": "risk", "input": "cd project && ls -la src", "label": 1, "family": "ls -la", "split": "dev"}
+{"id": "risk-0005", "task": "risk", "input": "time ls -la src", "label": 1, "family": "ls -la", "split": "dev"}
+{"id": "risk-0006", "task": "risk", "input": "pwd", "label": 0, "family": "pwd", "split": "dev"}
+{"id": "risk-0007", "task": "risk", "input": "cd project && pwd", "label": 1, "family": "pwd", "split": "dev"}
+{"id": "risk-0008", "task": "risk", "input": "time pwd", "label": 1, "family": "pwd", "split": "dev"}
+{"id": "risk-0009", "task": "risk", "input": "cat README.md", "label": 0, "family": "cat readme.md", "split": "dev"}
+{"id": "risk-0010", "task": "risk", "input": "cd project && cat README.md", "label": 1, "family": "cat readme.md", "split": "dev"}
+{"id": "risk-0011", "task": "risk", "input": "time cat README.md", "label": 1, "family": "cat readme.md", "split": "dev"}
+{"id": "risk-0012", "task": "risk", "input": "rg TODO src", "label": 0, "family": "rg todo", "split": "test"}
+{"id": "risk-0013", "task": "risk", "input": "cd project && rg TODO src", "label": 1, "family": "rg todo", "split": "test"}
+{"id": "risk-0014", "task": "risk", "input": "time rg TODO src", "label": 1, "family": "rg todo", "split": "test"}
+{"id": "risk-0015", "task": "risk", "input": "grep -rn foo .", "label": 1, "family": "grep -rn", "split": "dev"}
+{"id": "risk-0016", "task": "risk", "input": "cd project && grep -rn foo .", "label": 1, "family": "grep -rn", "split": "dev"}
+{"id": "risk-0017", "task": "risk", "input": "time grep -rn foo .", "label": 1, "family": "grep -rn", "split": "dev"}
+{"id": "risk-0018", "task": "risk", "input": "find . -name '*.py'", "label": 0, "family": "find .", "split": "test"}
+{"id": "risk-0019", "task": "risk", "input": "cd project && find . -name '*.py'", "label": 1, "family": "find .", "split": "test"}
+{"id": "risk-0020", "task": "risk", "input": "time find . -name '*.py'", "label": 1, "family": "find .", "split": "test"}
+{"id": "risk-0021", "task": "risk", "input": "git status", "label": 0, "family": "git status", "split": "test"}
+{"id": "risk-0022", "task": "risk", "input": "cd project && git status", "label": 1, "family": "git status", "split": "test"}
+{"id": "risk-0023", "task": "risk", "input": "time git status", "label": 1, "family": "git status", "split": "test"}
+{"id": "risk-0024", "task": "risk", "input": "git diff --stat", "label": 0, "family": "git diff", "split": "dev"}
+{"id": "risk-0025", "task": "risk", "input": "cd project && git diff --stat", "label": 1, "family": "git diff", "split": "dev"}
+{"id": "risk-0026", "task": "risk", "input": "time git diff --stat", "label": 1, "family": "git diff", "split": "dev"}
+{"id": "risk-0027", "task": "risk", "input": "git log --oneline -5", "label": 0, "family": "git log", "split": "dev"}
+{"id": "risk-0028", "task": "risk", "input": "cd project && git log --oneline -5", "label": 1, "family": "git log", "split": "dev"}
+{"id": "risk-0029", "task": "risk", "input": "time git log --oneline -5", "label": 1, "family": "git log", "split": "dev"}
+{"id": "risk-0030", "task": "risk", "input": "git -C repo status", "label": 1, "family": "git -c", "split": "dev"}
+{"id": "risk-0031", "task": "risk", "input": "cd project && git -C repo status", "label": 1, "family": "git -c", "split": "dev"}
+{"id": "risk-0032", "task": "risk", "input": "time git -C repo status", "label": 1, "family": "git -c", "split": "dev"}
+{"id": "risk-0033", "task": "risk", "input": "git show HEAD", "label": 1, "family": "git show", "split": "test"}
+{"id": "risk-0034", "task": "risk", "input": "cd project && git show HEAD", "label": 1, "family": "git show", "split": "test"}
+{"id": "risk-0035", "task": "risk", "input": "time git show HEAD", "label": 1, "family": "git show", "split": "test"}
+{"id": "risk-0036", "task": "risk", "input": "git fetch origin", "label": 2, "family": "git fetch", "split": "test"}
+{"id": "risk-0037", "task": "risk", "input": "cd project && git fetch origin", "label": 2, "family": "git fetch", "split": "test"}
+{"id": "risk-0038", "task": "risk", "input": "time git fetch origin", "label": 2, "family": "git fetch", "split": "test"}
+{"id": "risk-0039", "task": "risk", "input": "git pull", "label": 2, "family": "git pull", "split": "dev"}
+{"id": "risk-0040", "task": "risk", "input": "cd project && git pull", "label": 2, "family": "git pull", "split": "dev"}
+{"id": "risk-0041", "task": "risk", "input": "time git pull", "label": 2, "family": "git pull", "split": "dev"}
+{"id": "risk-0042", "task": "risk", "input": "git clone https://github.com/a/b.git", "label": 2, "family": "git clone", "split": "dev"}
+{"id": "risk-0043", "task": "risk", "input": "cd project && git clone https://github.com/a/b.git", "label": 2, "family": "git clone", "split": "dev"}
+{"id": "risk-0044", "task": "risk", "input": "time git clone https://github.com/a/b.git", "label": 2, "family": "git clone", "split": "dev"}
+{"id": "risk-0045", "task": "risk", "input": "git add -A", "label": 1, "family": "git add", "split": "dev"}
+{"id": "risk-0046", "task": "risk", "input": "cd project && git add -A", "label": 1, "family": "git add", "split": "dev"}
+{"id": "risk-0047", "task": "risk", "input": "time git add -A", "label": 1, "family": "git add", "split": "dev"}
+{"id": "risk-0048", "task": "risk", "input": "git restore --staged x", "label": 1, "family": "git restore", "split": "dev"}
+{"id": "risk-0049", "task": "risk", "input": "cd project && git restore --staged x", "label": 1, "family": "git restore", "split": "dev"}
+{"id": "risk-0050", "task": "risk", "input": "time git restore --staged x", "label": 1, "family": "git restore", "split": "dev"}
+{"id": "risk-0051", "task": "risk", "input": "git restore x", "label": 4, "family": "git restore", "split": "dev"}
+{"id": "risk-0052", "task": "risk", "input": "cd project && git restore x", "label": 4, "family": "git restore", "split": "dev"}
+{"id": "risk-0053", "task": "risk", "input": "time git restore x", "label": 4, "family": "git restore", "split": "dev"}
+{"id": "risk-0054", "task": "risk", "input": "git checkout -- x", "label": 4, "family": "git checkout", "split": "test"}
+{"id": "risk-0055", "task": "risk", "input": "cd project && git checkout -- x", "label": 4, "family": "git checkout", "split": "test"}
+{"id": "risk-0056", "task": "risk", "input": "time git checkout -- x", "label": 4, "family": "git checkout", "split": "test"}
+{"id": "risk-0057", "task": "risk", "input": "git checkout main", "label": 1, "family": "git checkout", "split": "test"}
+{"id": "risk-0058", "task": "risk", "input": "cd project && git checkout main", "label": 1, "family": "git checkout", "split": "test"}
+{"id": "risk-0059", "task": "risk", "input": "time git checkout main", "label": 1, "family": "git checkout", "split": "test"}
+{"id": "risk-0060", "task": "risk", "input": "git switch -c topic", "label": 1, "family": "git switch", "split": "dev"}
+{"id": "risk-0061", "task": "risk", "input": "cd project && git switch -c topic", "label": 1, "family": "git switch", "split": "dev"}
+{"id": "risk-0062", "task": "risk", "input": "time git switch -c topic", "label": 1, "family": "git switch", "split": "dev"}
+{"id": "risk-0063", "task": "risk", "input": "git stash", "label": 1, "family": "git stash", "split": "dev"}
+{"id": "risk-0064", "task": "risk", "input": "cd project && git stash", "label": 1, "family": "git stash", "split": "dev"}
+{"id": "risk-0065", "task": "risk", "input": "time git stash", "label": 1, "family": "git stash", "split": "dev"}
+{"id": "risk-0066", "task": "risk", "input": "git commit -m 'msg'", "label": 3, "family": "git commit", "split": "test"}
+{"id": "risk-0067", "task": "risk", "input": "cd project && git commit -m 'msg'", "label": 3, "family": "git commit", "split": "test"}
+{"id": "risk-0068", "task": "risk", "input": "time git commit -m 'msg'", "label": 3, "family": "git commit", "split": "test"}
+{"id": "risk-0069", "task": "risk", "input": "git rebase main", "label": 3, "family": "git rebase", "split": "test"}
+{"id": "risk-0070", "task": "risk", "input": "cd project && git rebase main", "label": 3, "family": "git rebase", "split": "test"}
+{"id": "risk-0071", "task": "risk", "input": "time git rebase main", "label": 3, "family": "git rebase", "split": "test"}
+{"id": "risk-0072", "task": "risk", "input": "git tag v1", "label": 3, "family": "git tag", "split": "dev"}
+{"id": "risk-0073", "task": "risk", "input": "cd project && git tag v1", "label": 3, "family": "git tag", "split": "dev"}
+{"id": "risk-0074", "task": "risk", "input": "time git tag v1", "label": 3, "family": "git tag", "split": "dev"}
+{"id": "risk-0075", "task": "risk", "input": "git push", "label": 3, "family": "git push", "split": "dev"}
+{"id": "risk-0076", "task": "risk", "input": "cd project && git push", "label": 3, "family": "git push", "split": "dev"}
+{"id": "risk-0077", "task": "risk", "input": "time git push", "label": 3, "family": "git push", "split": "dev"}
+{"id": "risk-0078", "task": "risk", "input": "git push origin main", "label": 3, "family": "git push", "split": "dev"}
+{"id": "risk-0079", "task": "risk", "input": "cd project && git push origin main", "label": 3, "family": "git push", "split": "dev"}
+{"id": "risk-0080", "task": "risk", "input": "time git push origin main", "label": 3, "family": "git push", "split": "dev"}
+{"id": "risk-0081", "task": "risk", "input": "git push --force", "label": 4, "family": "git push", "split": "dev"}
+{"id": "risk-0082", "task": "risk", "input": "cd project && git push --force", "label": 4, "family": "git push", "split": "dev"}
+{"id": "risk-0083", "task": "risk", "input": "time git push --force", "label": 4, "family": "git push", "split": "dev"}
+{"id": "risk-0084", "task": "risk", "input": "git push -f origin main", "label": 4, "family": "git push", "split": "dev"}
+{"id": "risk-0085", "task": "risk", "input": "cd project && git push -f origin main", "label": 4, "family": "git push", "split": "dev"}
+{"id": "risk-0086", "task": "risk", "input": "time git push -f origin main", "label": 4, "family": "git push", "split": "dev"}
+{"id": "risk-0087", "task": "risk", "input": "git push origin +main", "label": 4, "family": "git push", "split": "dev"}
+{"id": "risk-0088", "task": "risk", "input": "cd project && git push origin +main", "label": 4, "family": "git push", "split": "dev"}
+{"id": "risk-0089", "task": "risk", "input": "time git push origin +main", "label": 4, "family": "git push", "split": "dev"}
+{"id": "risk-0090", "task": "risk", "input": "git push --delete origin topic", "label": 4, "family": "git push", "split": "dev"}
+{"id": "risk-0091", "task": "risk", "input": "cd project && git push --delete origin topic", "label": 4, "family": "git push", "split": "dev"}
+{"id": "risk-0092", "task": "risk", "input": "time git push --delete origin topic", "label": 4, "family": "git push", "split": "dev"}
+{"id": "risk-0093", "task": "risk", "input": "git reset HEAD~1", "label": 1, "family": "git reset", "split": "dev"}
+{"id": "risk-0094", "task": "risk", "input": "cd project && git reset HEAD~1", "label": 1, "family": "git reset", "split": "dev"}
+{"id": "risk-0095", "task": "risk", "input": "time git reset HEAD~1", "label": 1, "family": "git reset", "split": "dev"}
+{"id": "risk-0096", "task": "risk", "input": "git reset --hard HEAD", "label": 4, "family": "git reset", "split": "dev"}
+{"id": "risk-0097", "task": "risk", "input": "cd project && git reset --hard HEAD", "label": 4, "family": "git reset", "split": "dev"}
+{"id": "risk-0098", "task": "risk", "input": "time git reset --hard HEAD", "label": 4, "family": "git reset", "split": "dev"}
+{"id": "risk-0099", "task": "risk", "input": "git clean -fdx", "label": 4, "family": "git clean", "split": "dev"}
+{"id": "risk-0100", "task": "risk", "input": "cd project && git clean -fdx", "label": 4, "family": "git clean", "split": "dev"}
+{"id": "risk-0101", "task": "risk", "input": "time git clean -fdx", "label": 4, "family": "git clean", "split": "dev"}
+{"id": "risk-0102", "task": "risk", "input": "git bisect start", "label": 1, "family": "git bisect", "split": "dev"}
+{"id": "risk-0103", "task": "risk", "input": "cd project && git bisect start", "label": 1, "family": "git bisect", "split": "dev"}
+{"id": "risk-0104", "task": "risk", "input": "time git bisect start", "label": 1, "family": "git bisect", "split": "dev"}
+{"id": "risk-0105", "task": "risk", "input": "git", "label": 1, "family": "git", "split": "test"}
+{"id": "risk-0106", "task": "risk", "input": "cd project && git", "label": 1, "family": "git", "split": "test"}
+{"id": "risk-0107", "task": "risk", "input": "time git", "label": 1, "family": "git", "split": "test"}
+{"id": "risk-0108", "task": "risk", "input": "gh pr view 12", "label": 2, "family": "gh pr", "split": "dev"}
+{"id": "risk-0109", "task": "risk", "input": "cd project && gh pr view 12", "label": 2, "family": "gh pr", "split": "dev"}
+{"id": "risk-0110", "task": "risk", "input": "time gh pr view 12", "label": 2, "family": "gh pr", "split": "dev"}
+{"id": "risk-0111", "task": "risk", "input": "gh pr create --fill", "label": 3, "family": "gh pr", "split": "dev"}
+{"id": "risk-0112", "task": "risk", "input": "cd project && gh pr create --fill", "label": 3, "family": "gh pr", "split": "dev"}
+{"id": "risk-0113", "task": "risk", "input": "time gh pr create --fill", "label": 3, "family": "gh pr", "split": "dev"}
+{"id": "risk-0114", "task": "risk", "input": "gh pr merge 12", "label": 4, "family": "gh pr", "split": "dev"}
+{"id": "risk-0115", "task": "risk", "input": "cd project && gh pr merge 12", "label": 4, "family": "gh pr", "split": "dev"}
+{"id": "risk-0116", "task": "risk", "input": "time gh pr merge 12", "label": 4, "family": "gh pr", "split": "dev"}
+{"id": "risk-0117", "task": "risk", "input": "gh release create v1", "label": 4, "family": "gh release", "split": "test"}
+{"id": "risk-0118", "task": "risk", "input": "cd project && gh release create v1", "label": 4, "family": "gh release", "split": "test"}
+{"id": "risk-0119", "task": "risk", "input": "time gh release create v1", "label": 4, "family": "gh release", "split": "test"}
+{"id": "risk-0120", "task": "risk", "input": "gh repo view", "label": 2, "family": "gh repo", "split": "test"}
+{"id": "risk-0121", "task": "risk", "input": "cd project && gh repo view", "label": 2, "family": "gh repo", "split": "test"}
+{"id": "risk-0122", "task": "risk", "input": "time gh repo view", "label": 2, "family": "gh repo", "split": "test"}
+{"id": "risk-0123", "task": "risk", "input": "gh secret set TOKEN", "label": 4, "family": "gh secret", "split": "dev"}
+{"id": "risk-0124", "task": "risk", "input": "cd project && gh secret set TOKEN", "label": 4, "family": "gh secret", "split": "dev"}
+{"id": "risk-0125", "task": "risk", "input": "time gh secret set TOKEN", "label": 4, "family": "gh secret", "split": "dev"}
+{"id": "risk-0126", "task": "risk", "input": "gh api repos/a/b", "label": 3, "family": "gh api", "split": "test"}
+{"id": "risk-0127", "task": "risk", "input": "cd project && gh api repos/a/b", "label": 3, "family": "gh api", "split": "test"}
+{"id": "risk-0128", "task": "risk", "input": "time gh api repos/a/b", "label": 3, "family": "gh api", "split": "test"}
+{"id": "risk-0129", "task": "risk", "input": "gh api -X POST repos/a/b/issues", "label": 3, "family": "gh api", "split": "test"}
+{"id": "risk-0130", "task": "risk", "input": "cd project && gh api -X POST repos/a/b/issues", "label": 3, "family": "gh api", "split": "test"}
+{"id": "risk-0131", "task": "risk", "input": "time gh api -X POST repos/a/b/issues", "label": 3, "family": "gh api", "split": "test"}
+{"id": "risk-0132", "task": "risk", "input": "gh run list", "label": 2, "family": "gh run", "split": "dev"}
+{"id": "risk-0133", "task": "risk", "input": "cd project && gh run list", "label": 2, "family": "gh run", "split": "dev"}
+{"id": "risk-0134", "task": "risk", "input": "time gh run list", "label": 2, "family": "gh run", "split": "dev"}
+{"id": "risk-0135", "task": "risk", "input": "npm install", "label": 2, "family": "npm install", "split": "dev"}
+{"id": "risk-0136", "task": "risk", "input": "cd project && npm install", "label": 2, "family": "npm install", "split": "dev"}
+{"id": "risk-0137", "task": "risk", "input": "time npm install", "label": 2, "family": "npm install", "split": "dev"}
+{"id": "risk-0138", "task": "risk", "input": "npm install left-pad", "label": 2, "family": "npm install", "split": "dev"}
+{"id": "risk-0139", "task": "risk", "input": "cd project && npm install left-pad", "label": 2, "family": "npm install", "split": "dev"}
+{"id": "risk-0140", "task": "risk", "input": "time npm install left-pad", "label": 2, "family": "npm install", "split": "dev"}
+{"id": "risk-0141", "task": "risk", "input": "npm ci", "label": 2, "family": "npm ci", "split": "test"}
+{"id": "risk-0142", "task": "risk", "input": "cd project && npm ci", "label": 2, "family": "npm ci", "split": "test"}
+{"id": "risk-0143", "task": "risk", "input": "time npm ci", "label": 2, "family": "npm ci", "split": "test"}
+{"id": "risk-0144", "task": "risk", "input": "npm test", "label": 0, "family": "npm test", "split": "dev"}
+{"id": "risk-0145", "task": "risk", "input": "cd project && npm test", "label": 1, "family": "npm test", "split": "dev"}
+{"id": "risk-0146", "task": "risk", "input": "time npm test", "label": 1, "family": "npm test", "split": "dev"}
+{"id": "risk-0147", "task": "risk", "input": "npm run build", "label": 0, "family": "npm run", "split": "dev"}
+{"id": "risk-0148", "task": "risk", "input": "cd project && npm run build", "label": 1, "family": "npm run", "split": "dev"}
+{"id": "risk-0149", "task": "risk", "input": "time npm run build", "label": 1, "family": "npm run", "split": "dev"}
+{"id": "risk-0150", "task": "risk", "input": "npm run lint", "label": 1, "family": "npm run", "split": "dev"}
+{"id": "risk-0151", "task": "risk", "input": "cd project && npm run lint", "label": 1, "family": "npm run", "split": "dev"}
+{"id": "risk-0152", "task": "risk", "input": "time npm run lint", "label": 1, "family": "npm run", "split": "dev"}
+{"id": "risk-0153", "task": "risk", "input": "pnpm add zod", "label": 2, "family": "pnpm add", "split": "dev"}
+{"id": "risk-0154", "task": "risk", "input": "cd project && pnpm add zod", "label": 2, "family": "pnpm add", "split": "dev"}
+{"id": "risk-0155", "task": "risk", "input": "time pnpm add zod", "label": 2, "family": "pnpm add", "split": "dev"}
+{"id": "risk-0156", "task": "risk", "input": "yarn", "label": 2, "family": "yarn", "split": "test"}
+{"id": "risk-0157", "task": "risk", "input": "cd project && yarn", "label": 2, "family": "yarn", "split": "test"}
+{"id": "risk-0158", "task": "risk", "input": "time yarn", "label": 2, "family": "yarn", "split": "test"}
+{"id": "risk-0159", "task": "risk", "input": "yarn add react", "label": 2, "family": "yarn add", "split": "dev"}
+{"id": "risk-0160", "task": "risk", "input": "cd project && yarn add react", "label": 2, "family": "yarn add", "split": "dev"}
+{"id": "risk-0161", "task": "risk", "input": "time yarn add react", "label": 2, "family": "yarn add", "split": "dev"}
+{"id": "risk-0162", "task": "risk", "input": "bun install", "label": 2, "family": "bun install", "split": "test"}
+{"id": "risk-0163", "task": "risk", "input": "cd project && bun install", "label": 2, "family": "bun install", "split": "test"}
+{"id": "risk-0164", "task": "risk", "input": "time bun install", "label": 2, "family": "bun install", "split": "test"}
+{"id": "risk-0165", "task": "risk", "input": "pip install requests", "label": 2, "family": "pip install", "split": "dev"}
+{"id": "risk-0166", "task": "risk", "input": "cd project && pip install requests", "label": 2, "family": "pip install", "split": "dev"}
+{"id": "risk-0167", "task": "risk", "input": "time pip install requests", "label": 2, "family": "pip install", "split": "dev"}
+{"id": "risk-0168", "task": "risk", "input": "python -m pip install x", "label": 1, "family": "python -m", "split": "dev"}
+{"id": "risk-0169", "task": "risk", "input": "cd project && python -m pip install x", "label": 1, "family": "python -m", "split": "dev"}
+{"id": "risk-0170", "task": "risk", "input": "time python -m pip install x", "label": 1, "family": "python -m", "split": "dev"}
+{"id": "risk-0171", "task": "risk", "input": "pip3 uninstall x", "label": 2, "family": "pip3 uninstall", "split": "dev"}
+{"id": "risk-0172", "task": "risk", "input": "cd project && pip3 uninstall x", "label": 2, "family": "pip3 uninstall", "split": "dev"}
+{"id": "risk-0173", "task": "risk", "input": "time pip3 uninstall x", "label": 2, "family": "pip3 uninstall", "split": "dev"}
+{"id": "risk-0174", "task": "risk", "input": "uv add httpx", "label": 2, "family": "uv add", "split": "dev"}
+{"id": "risk-0175", "task": "risk", "input": "cd project && uv add httpx", "label": 2, "family": "uv add", "split": "dev"}
+{"id": "risk-0176", "task": "risk", "input": "time uv add httpx", "label": 2, "family": "uv add", "split": "dev"}
+{"id": "risk-0177", "task": "risk", "input": "poetry add x", "label": 2, "family": "poetry add", "split": "dev"}
+{"id": "risk-0178", "task": "risk", "input": "cd project && poetry add x", "label": 2, "family": "poetry add", "split": "dev"}
+{"id": "risk-0179", "task": "risk", "input": "time poetry add x", "label": 2, "family": "poetry add", "split": "dev"}
+{"id": "risk-0180", "task": "risk", "input": "cargo add serde", "label": 2, "family": "cargo add", "split": "dev"}
+{"id": "risk-0181", "task": "risk", "input": "cd project && cargo add serde", "label": 2, "family": "cargo add", "split": "dev"}
+{"id": "risk-0182", "task": "risk", "input": "time cargo add serde", "label": 2, "family": "cargo add", "split": "dev"}
+{"id": "risk-0183", "task": "risk", "input": "cargo test", "label": 0, "family": "cargo test", "split": "dev"}
+{"id": "risk-0184", "task": "risk", "input": "cd project && cargo test", "label": 1, "family": "cargo test", "split": "dev"}
+{"id": "risk-0185", "task": "risk", "input": "time cargo test", "label": 1, "family": "cargo test", "split": "dev"}
+{"id": "risk-0186", "task": "risk", "input": "cargo build", "label": 1, "family": "cargo build", "split": "test"}
+{"id": "risk-0187", "task": "risk", "input": "cd project && cargo build", "label": 1, "family": "cargo build", "split": "test"}
+{"id": "risk-0188", "task": "risk", "input": "time cargo build", "label": 1, "family": "cargo build", "split": "test"}
+{"id": "risk-0189", "task": "risk", "input": "go get example.com/x", "label": 2, "family": "go get", "split": "test"}
+{"id": "risk-0190", "task": "risk", "input": "cd project && go get example.com/x", "label": 2, "family": "go get", "split": "test"}
+{"id": "risk-0191", "task": "risk", "input": "time go get example.com/x", "label": 2, "family": "go get", "split": "test"}
+{"id": "risk-0192", "task": "risk", "input": "go test ./...", "label": 0, "family": "go test", "split": "dev"}
+{"id": "risk-0193", "task": "risk", "input": "cd project && go test ./...", "label": 1, "family": "go test", "split": "dev"}
+{"id": "risk-0194", "task": "risk", "input": "time go test ./...", "label": 1, "family": "go test", "split": "dev"}
+{"id": "risk-0195", "task": "risk", "input": "go build ./...", "label": 1, "family": "go build", "split": "dev"}
+{"id": "risk-0196", "task": "risk", "input": "cd project && go build ./...", "label": 1, "family": "go build", "split": "dev"}
+{"id": "risk-0197", "task": "risk", "input": "time go build ./...", "label": 1, "family": "go build", "split": "dev"}
+{"id": "risk-0198", "task": "risk", "input": "gem install rails", "label": 2, "family": "gem install", "split": "dev"}
+{"id": "risk-0199", "task": "risk", "input": "cd project && gem install rails", "label": 2, "family": "gem install", "split": "dev"}
+{"id": "risk-0200", "task": "risk", "input": "time gem install rails", "label": 2, "family": "gem install", "split": "dev"}
+{"id": "risk-0201", "task": "risk", "input": "bundle install", "label": 2, "family": "bundle install", "split": "dev"}
+{"id": "risk-0202", "task": "risk", "input": "cd project && bundle install", "label": 2, "family": "bundle install", "split": "dev"}
+{"id": "risk-0203", "task": "risk", "input": "time bundle install", "label": 2, "family": "bundle install", "split": "dev"}
+{"id": "risk-0204", "task": "risk", "input": "brew install jq", "label": 2, "family": "brew install", "split": "dev"}
+{"id": "risk-0205", "task": "risk", "input": "cd project && brew install jq", "label": 2, "family": "brew install", "split": "dev"}
+{"id": "risk-0206", "task": "risk", "input": "time brew install jq", "label": 2, "family": "brew install", "split": "dev"}
+{"id": "risk-0207", "task": "risk", "input": "apt-get install curl", "label": 2, "family": "apt-get install", "split": "dev"}
+{"id": "risk-0208", "task": "risk", "input": "cd project && apt-get install curl", "label": 2, "family": "apt-get install", "split": "dev"}
+{"id": "risk-0209", "task": "risk", "input": "time apt-get install curl", "label": 2, "family": "apt-get install", "split": "dev"}
+{"id": "risk-0210", "task": "risk", "input": "sudo apt install curl", "label": 4, "family": "apt install", "split": "test"}
+{"id": "risk-0211", "task": "risk", "input": "cd project && sudo apt install curl", "label": 4, "family": "apt install", "split": "test"}
+{"id": "risk-0212", "task": "risk", "input": "time sudo apt install curl", "label": 3, "family": "apt install", "split": "test"}
+{"id": "risk-0213", "task": "risk", "input": "vercel --prod", "label": 4, "family": "vercel --prod", "split": "dev"}
+{"id": "risk-0214", "task": "risk", "input": "cd project && vercel --prod", "label": 4, "family": "vercel --prod", "split": "dev"}
+{"id": "risk-0215", "task": "risk", "input": "time vercel --prod", "label": 1, "family": "vercel --prod", "split": "dev"}
+{"id": "risk-0216", "task": "risk", "input": "vercel deploy", "label": 1, "family": "vercel deploy", "split": "test"}
+{"id": "risk-0217", "task": "risk", "input": "cd project && vercel deploy", "label": 1, "family": "vercel deploy", "split": "test"}
+{"id": "risk-0218", "task": "risk", "input": "time vercel deploy", "label": 1, "family": "vercel deploy", "split": "test"}
+{"id": "risk-0219", "task": "risk", "input": "flyctl deploy", "label": 4, "family": "flyctl deploy", "split": "test"}
+{"id": "risk-0220", "task": "risk", "input": "cd project && flyctl deploy", "label": 4, "family": "flyctl deploy", "split": "test"}
+{"id": "risk-0221", "task": "risk", "input": "time flyctl deploy", "label": 1, "family": "flyctl deploy", "split": "test"}
+{"id": "risk-0222", "task": "risk", "input": "netlify deploy --prod", "label": 4, "family": "netlify deploy", "split": "dev"}
+{"id": "risk-0223", "task": "risk", "input": "cd project && netlify deploy --prod", "label": 4, "family": "netlify deploy", "split": "dev"}
+{"id": "risk-0224", "task": "risk", "input": "time netlify deploy --prod", "label": 1, "family": "netlify deploy", "split": "dev"}
+{"id": "risk-0225", "task": "risk", "input": "firebase deploy", "label": 4, "family": "firebase deploy", "split": "dev"}
+{"id": "risk-0226", "task": "risk", "input": "cd project && firebase deploy", "label": 4, "family": "firebase deploy", "split": "dev"}
+{"id": "risk-0227", "task": "risk", "input": "time firebase deploy", "label": 1, "family": "firebase deploy", "split": "dev"}
+{"id": "risk-0228", "task": "risk", "input": "gcloud run deploy svc", "label": 4, "family": "gcloud run", "split": "dev"}
+{"id": "risk-0229", "task": "risk", "input": "cd project && gcloud run deploy svc", "label": 4, "family": "gcloud run", "split": "dev"}
+{"id": "risk-0230", "task": "risk", "input": "time gcloud run deploy svc", "label": 1, "family": "gcloud run", "split": "dev"}
+{"id": "risk-0231", "task": "risk", "input": "terraform apply", "label": 4, "family": "terraform apply", "split": "dev"}
+{"id": "risk-0232", "task": "risk", "input": "cd project && terraform apply", "label": 4, "family": "terraform apply", "split": "dev"}
+{"id": "risk-0233", "task": "risk", "input": "time terraform apply", "label": 1, "family": "terraform apply", "split": "dev"}
+{"id": "risk-0234", "task": "risk", "input": "terraform plan", "label": 1, "family": "terraform plan", "split": "test"}
+{"id": "risk-0235", "task": "risk", "input": "cd project && terraform plan", "label": 1, "family": "terraform plan", "split": "test"}
+{"id": "risk-0236", "task": "risk", "input": "time terraform plan", "label": 1, "family": "terraform plan", "split": "test"}
+{"id": "risk-0237", "task": "risk", "input": "pulumi up", "label": 4, "family": "pulumi up", "split": "dev"}
+{"id": "risk-0238", "task": "risk", "input": "cd project && pulumi up", "label": 4, "family": "pulumi up", "split": "dev"}
+{"id": "risk-0239", "task": "risk", "input": "time pulumi up", "label": 1, "family": "pulumi up", "split": "dev"}
+{"id": "risk-0240", "task": "risk", "input": "kubectl apply -f x.yaml", "label": 4, "family": "kubectl apply", "split": "test"}
+{"id": "risk-0241", "task": "risk", "input": "cd project && kubectl apply -f x.yaml", "label": 4, "family": "kubectl apply", "split": "test"}
+{"id": "risk-0242", "task": "risk", "input": "time kubectl apply -f x.yaml", "label": 4, "family": "kubectl apply", "split": "test"}
+{"id": "risk-0243", "task": "risk", "input": "kubectl get pods", "label": 4, "family": "kubectl get", "split": "dev"}
+{"id": "risk-0244", "task": "risk", "input": "cd project && kubectl get pods", "label": 4, "family": "kubectl get", "split": "dev"}
+{"id": "risk-0245", "task": "risk", "input": "time kubectl get pods", "label": 4, "family": "kubectl get", "split": "dev"}
+{"id": "risk-0246", "task": "risk", "input": "helm upgrade x y", "label": 4, "family": "helm upgrade", "split": "test"}
+{"id": "risk-0247", "task": "risk", "input": "cd project && helm upgrade x y", "label": 4, "family": "helm upgrade", "split": "test"}
+{"id": "risk-0248", "task": "risk", "input": "time helm upgrade x y", "label": 1, "family": "helm upgrade", "split": "test"}
+{"id": "risk-0249", "task": "risk", "input": "docker push img", "label": 4, "family": "docker push", "split": "dev"}
+{"id": "risk-0250", "task": "risk", "input": "cd project && docker push img", "label": 4, "family": "docker push", "split": "dev"}
+{"id": "risk-0251", "task": "risk", "input": "time docker push img", "label": 3, "family": "docker push", "split": "dev"}
+{"id": "risk-0252", "task": "risk", "input": "docker ps", "label": 3, "family": "docker ps", "split": "dev"}
+{"id": "risk-0253", "task": "risk", "input": "cd project && docker ps", "label": 3, "family": "docker ps", "split": "dev"}
+{"id": "risk-0254", "task": "risk", "input": "time docker ps", "label": 3, "family": "docker ps", "split": "dev"}
+{"id": "risk-0255", "task": "risk", "input": "npm publish", "label": 4, "family": "npm publish", "split": "dev"}
+{"id": "risk-0256", "task": "risk", "input": "cd project && npm publish", "label": 4, "family": "npm publish", "split": "dev"}
+{"id": "risk-0257", "task": "risk", "input": "time npm publish", "label": 1, "family": "npm publish", "split": "dev"}
+{"id": "risk-0258", "task": "risk", "input": "twine upload dist/*", "label": 4, "family": "twine upload", "split": "dev"}
+{"id": "risk-0259", "task": "risk", "input": "cd project && twine upload dist/*", "label": 4, "family": "twine upload", "split": "dev"}
+{"id": "risk-0260", "task": "risk", "input": "time twine upload dist/*", "label": 1, "family": "twine upload", "split": "dev"}
+{"id": "risk-0261", "task": "risk", "input": "cargo publish", "label": 4, "family": "cargo publish", "split": "dev"}
+{"id": "risk-0262", "task": "risk", "input": "cd project && cargo publish", "label": 4, "family": "cargo publish", "split": "dev"}
+{"id": "risk-0263", "task": "risk", "input": "time cargo publish", "label": 1, "family": "cargo publish", "split": "dev"}
+{"id": "risk-0264", "task": "risk", "input": "aws s3 sync . s3://b", "label": 4, "family": "aws s3", "split": "dev"}
+{"id": "risk-0265", "task": "risk", "input": "cd project && aws s3 sync . s3://b", "label": 4, "family": "aws s3", "split": "dev"}
+{"id": "risk-0266", "task": "risk", "input": "time aws s3 sync . s3://b", "label": 1, "family": "aws s3", "split": "dev"}
+{"id": "risk-0267", "task": "risk", "input": "aws s3 ls", "label": 1, "family": "aws s3", "split": "dev"}
+{"id": "risk-0268", "task": "risk", "input": "cd project && aws s3 ls", "label": 1, "family": "aws s3", "split": "dev"}
+{"id": "risk-0269", "task": "risk", "input": "time aws s3 ls", "label": 1, "family": "aws s3", "split": "dev"}
+{"id": "risk-0270", "task": "risk", "input": "serverless deploy", "label": 4, "family": "serverless deploy", "split": "dev"}
+{"id": "risk-0271", "task": "risk", "input": "cd project && serverless deploy", "label": 4, "family": "serverless deploy", "split": "dev"}
+{"id": "risk-0272", "task": "risk", "input": "time serverless deploy", "label": 1, "family": "serverless deploy", "split": "dev"}
+{"id": "risk-0273", "task": "risk", "input": "python manage.py migrate", "label": 4, "family": "python manage.py", "split": "test"}
+{"id": "risk-0274", "task": "risk", "input": "cd project && python manage.py migrate", "label": 4, "family": "python manage.py", "split": "test"}
+{"id": "risk-0275", "task": "risk", "input": "time python manage.py migrate", "label": 4, "family": "python manage.py", "split": "test"}
+{"id": "risk-0276", "task": "risk", "input": "alembic upgrade head", "label": 4, "family": "alembic upgrade", "split": "test"}
+{"id": "risk-0277", "task": "risk", "input": "cd project && alembic upgrade head", "label": 4, "family": "alembic upgrade", "split": "test"}
+{"id": "risk-0278", "task": "risk", "input": "time alembic upgrade head", "label": 4, "family": "alembic upgrade", "split": "test"}
+{"id": "risk-0279", "task": "risk", "input": "npx prisma migrate deploy", "label": 4, "family": "npx prisma", "split": "dev"}
+{"id": "risk-0280", "task": "risk", "input": "cd project && npx prisma migrate deploy", "label": 4, "family": "npx prisma", "split": "dev"}
+{"id": "risk-0281", "task": "risk", "input": "time npx prisma migrate deploy", "label": 4, "family": "npx prisma", "split": "dev"}
+{"id": "risk-0282", "task": "risk", "input": "rails db:migrate", "label": 4, "family": "rails db:migrate", "split": "dev"}
+{"id": "risk-0283", "task": "risk", "input": "cd project && rails db:migrate", "label": 4, "family": "rails db:migrate", "split": "dev"}
+{"id": "risk-0284", "task": "risk", "input": "time rails db:migrate", "label": 4, "family": "rails db:migrate", "split": "dev"}
+{"id": "risk-0285", "task": "risk", "input": "psql -c 'select 1'", "label": 2, "family": "psql -c", "split": "test"}
+{"id": "risk-0286", "task": "risk", "input": "cd project && psql -c 'select 1'", "label": 2, "family": "psql -c", "split": "test"}
+{"id": "risk-0287", "task": "risk", "input": "time psql -c 'select 1'", "label": 2, "family": "psql -c", "split": "test"}
+{"id": "risk-0288", "task": "risk", "input": "psql -c 'DELETE FROM users'", "label": 4, "family": "psql -c", "split": "test"}
+{"id": "risk-0289", "task": "risk", "input": "cd project && psql -c 'DELETE FROM users'", "label": 4, "family": "psql -c", "split": "test"}
+{"id": "risk-0290", "task": "risk", "input": "time psql -c 'DELETE FROM users'", "label": 4, "family": "psql -c", "split": "test"}
+{"id": "risk-0291", "task": "risk", "input": "sqlite3 db.sqlite 'create table t(x)'", "label": 4, "family": "sqlite3 db.sqlite", "split": "dev"}
+{"id": "risk-0292", "task": "risk", "input": "cd project && sqlite3 db.sqlite 'create table t(x)'", "label": 4, "family": "sqlite3 db.sqlite", "split": "dev"}
+{"id": "risk-0293", "task": "risk", "input": "time sqlite3 db.sqlite 'create table t(x)'", "label": 4, "family": "sqlite3 db.sqlite", "split": "dev"}
+{"id": "risk-0294", "task": "risk", "input": "redis-cli get k", "label": 2, "family": "redis-cli get", "split": "dev"}
+{"id": "risk-0295", "task": "risk", "input": "cd project && redis-cli get k", "label": 2, "family": "redis-cli get", "split": "dev"}
+{"id": "risk-0296", "task": "risk", "input": "time redis-cli get k", "label": 2, "family": "redis-cli get", "split": "dev"}
+{"id": "risk-0297", "task": "risk", "input": "curl https://example.com", "label": 2, "family": "curl https://example.com", "split": "dev"}
+{"id": "risk-0298", "task": "risk", "input": "cd project && curl https://example.com", "label": 2, "family": "curl https://example.com", "split": "dev"}
+{"id": "risk-0299", "task": "risk", "input": "time curl https://example.com", "label": 2, "family": "curl https://example.com", "split": "dev"}
+{"id": "risk-0300", "task": "risk", "input": "curl -X POST https://API.Example.com/v1 -d x=1", "label": 3, "family": "curl -x", "split": "dev"}
+{"id": "risk-0301", "task": "risk", "input": "cd project && curl -X POST https://API.Example.com/v1 -d x=1", "label": 3, "family": "curl -x", "split": "dev"}
+{"id": "risk-0302", "task": "risk", "input": "time curl -X POST https://API.Example.com/v1 -d x=1", "label": 3, "family": "curl -x", "split": "dev"}
+{"id": "risk-0303", "task": "risk", "input": "curl --data @f https://x.io", "label": 3, "family": "curl --data", "split": "dev"}
+{"id": "risk-0304", "task": "risk", "input": "cd project && curl --data @f https://x.io", "label": 3, "family": "curl --data", "split": "dev"}
+{"id": "risk-0305", "task": "risk", "input": "time curl --data @f https://x.io", "label": 3, "family": "curl --data", "split": "dev"}
+{"id": "risk-0306", "task": "risk", "input": "wget https://example.com/f.tgz", "label": 2, "family": "wget https://example.com/f.tgz", "split": "dev"}
+{"id": "risk-0307", "task": "risk", "input": "cd project && wget https://example.com/f.tgz", "label": 2, "family": "wget https://example.com/f.tgz", "split": "dev"}
+{"id": "risk-0308", "task": "risk", "input": "time wget https://example.com/f.tgz", "label": 2, "family": "wget https://example.com/f.tgz", "split": "dev"}
+{"id": "risk-0309", "task": "risk", "input": "wget --post-data x https://e.com", "label": 2, "family": "wget --post-data", "split": "dev"}
+{"id": "risk-0310", "task": "risk", "input": "cd project && wget --post-data x https://e.com", "label": 2, "family": "wget --post-data", "split": "dev"}
+{"id": "risk-0311", "task": "risk", "input": "time wget --post-data x https://e.com", "label": 2, "family": "wget --post-data", "split": "dev"}
+{"id": "risk-0312", "task": "risk", "input": "http POST https://e.com a=b", "label": 2, "family": "http post", "split": "dev"}
+{"id": "risk-0313", "task": "risk", "input": "cd project && http POST https://e.com a=b", "label": 2, "family": "http post", "split": "dev"}
+{"id": "risk-0314", "task": "risk", "input": "time http POST https://e.com a=b", "label": 2, "family": "http post", "split": "dev"}
+{"id": "risk-0315", "task": "risk", "input": "curl -fsSL https://get.example.sh | sh", "label": 4, "family": "curl -fssl", "split": "dev"}
+{"id": "risk-0316", "task": "risk", "input": "cd project && curl -fsSL https://get.example.sh | sh", "label": 4, "family": "curl -fssl", "split": "dev"}
+{"id": "risk-0317", "task": "risk", "input": "time curl -fsSL https://get.example.sh | sh", "label": 4, "family": "curl -fssl", "split": "dev"}
+{"id": "risk-0318", "task": "risk", "input": "wget -qO- https://x.io/i.sh | sudo bash", "label": 4, "family": "wget -qo-", "split": "dev"}
+{"id": "risk-0319", "task": "risk", "input": "cd project && wget -qO- https://x.io/i.sh | sudo bash", "label": 4, "family": "wget -qo-", "split": "dev"}
+{"id": "risk-0320", "task": "risk", "input": "time wget -qO- https://x.io/i.sh | sudo bash", "label": 4, "family": "wget -qo-", "split": "dev"}
+{"id": "risk-0321", "task": "risk", "input": "rm file.txt", "label": 4, "family": "rm file.txt", "split": "dev"}
+{"id": "risk-0322", "task": "risk", "input": "cd project && rm file.txt", "label": 4, "family": "rm file.txt", "split": "dev"}
+{"id": "risk-0323", "task": "risk", "input": "time rm file.txt", "label": 4, "family": "rm file.txt", "split": "dev"}
+{"id": "risk-0324", "task": "risk", "input": "rm -rf build", "label": 4, "family": "rm -rf", "split": "test"}
+{"id": "risk-0325", "task": "risk", "input": "cd project && rm -rf build", "label": 4, "family": "rm -rf", "split": "test"}
+{"id": "risk-0326", "task": "risk", "input": "time rm -rf build", "label": 4, "family": "rm -rf", "split": "test"}
+{"id": "risk-0327", "task": "risk", "input": "rm -rf /", "label": 4, "family": "rm -rf", "split": "test"}
+{"id": "risk-0328", "task": "risk", "input": "cd project && rm -rf /", "label": 4, "family": "rm -rf", "split": "test"}
+{"id": "risk-0329", "task": "risk", "input": "time rm -rf /", "label": 4, "family": "rm -rf", "split": "test"}
+{"id": "risk-0330", "task": "risk", "input": "rm -rf ~/project", "label": 4, "family": "rm -rf", "split": "test"}
+{"id": "risk-0331", "task": "risk", "input": "cd project && rm -rf ~/project", "label": 4, "family": "rm -rf", "split": "test"}
+{"id": "risk-0332", "task": "risk", "input": "time rm -rf ~/project", "label": 4, "family": "rm -rf", "split": "test"}
+{"id": "risk-0333", "task": "risk", "input": "rmdir empty", "label": 4, "family": "rmdir empty", "split": "dev"}
+{"id": "risk-0334", "task": "risk", "input": "cd project && rmdir empty", "label": 4, "family": "rmdir empty", "split": "dev"}
+{"id": "risk-0335", "task": "risk", "input": "time rmdir empty", "label": 4, "family": "rmdir empty", "split": "dev"}
+{"id": "risk-0336", "task": "risk", "input": "shred secret", "label": 4, "family": "shred secret", "split": "dev"}
+{"id": "risk-0337", "task": "risk", "input": "cd project && shred secret", "label": 4, "family": "shred secret", "split": "dev"}
+{"id": "risk-0338", "task": "risk", "input": "time shred secret", "label": 4, "family": "shred secret", "split": "dev"}
+{"id": "risk-0339", "task": "risk", "input": "mv a b", "label": 3, "family": "mv a", "split": "dev"}
+{"id": "risk-0340", "task": "risk", "input": "cd project && mv a b", "label": 3, "family": "mv a", "split": "dev"}
+{"id": "risk-0341", "task": "risk", "input": "time mv a b", "label": 3, "family": "mv a", "split": "dev"}
+{"id": "risk-0342", "task": "risk", "input": "cp a b c/", "label": 1, "family": "cp a", "split": "dev"}
+{"id": "risk-0343", "task": "risk", "input": "cd project && cp a b c/", "label": 1, "family": "cp a", "split": "dev"}
+{"id": "risk-0344", "task": "risk", "input": "time cp a b c/", "label": 1, "family": "cp a", "split": "dev"}
+{"id": "risk-0345", "task": "risk", "input": "touch new.py", "label": 1, "family": "touch new.py", "split": "dev"}
+{"id": "risk-0346", "task": "risk", "input": "cd project && touch new.py", "label": 1, "family": "touch new.py", "split": "dev"}
+{"id": "risk-0347", "task": "risk", "input": "time touch new.py", "label": 1, "family": "touch new.py", "split": "dev"}
+{"id": "risk-0348", "task": "risk", "input": "mkdir -p out/dir", "label": 1, "family": "mkdir -p", "split": "dev"}
+{"id": "risk-0349", "task": "risk", "input": "cd project && mkdir -p out/dir", "label": 1, "family": "mkdir -p", "split": "dev"}
+{"id": "risk-0350", "task": "risk", "input": "time mkdir -p out/dir", "label": 1, "family": "mkdir -p", "split": "dev"}
+{"id": "risk-0351", "task": "risk", "input": "ln -s a b", "label": 1, "family": "ln -s", "split": "dev"}
+{"id": "risk-0352", "task": "risk", "input": "cd project && ln -s a b", "label": 1, "family": "ln -s", "split": "dev"}
+{"id": "risk-0353", "task": "risk", "input": "time ln -s a b", "label": 1, "family": "ln -s", "split": "dev"}
+{"id": "risk-0354", "task": "risk", "input": "echo hi | tee out.txt", "label": 1, "family": "echo hi", "split": "dev"}
+{"id": "risk-0355", "task": "risk", "input": "cd project && echo hi | tee out.txt", "label": 1, "family": "echo hi", "split": "dev"}
+{"id": "risk-0356", "task": "risk", "input": "time echo hi | tee out.txt", "label": 1, "family": "echo hi", "split": "dev"}
+{"id": "risk-0357", "task": "risk", "input": "chmod +x run.sh", "label": 4, "family": "chmod +x", "split": "dev"}
+{"id": "risk-0358", "task": "risk", "input": "cd project && chmod +x run.sh", "label": 4, "family": "chmod +x", "split": "dev"}
+{"id": "risk-0359", "task": "risk", "input": "time chmod +x run.sh", "label": 4, "family": "chmod +x", "split": "dev"}
+{"id": "risk-0360", "task": "risk", "input": "chown me f", "label": 4, "family": "chown me", "split": "test"}
+{"id": "risk-0361", "task": "risk", "input": "cd project && chown me f", "label": 4, "family": "chown me", "split": "test"}
+{"id": "risk-0362", "task": "risk", "input": "time chown me f", "label": 4, "family": "chown me", "split": "test"}
+{"id": "risk-0363", "task": "risk", "input": "kill 123", "label": 3, "family": "kill 123", "split": "dev"}
+{"id": "risk-0364", "task": "risk", "input": "cd project && kill 123", "label": 3, "family": "kill 123", "split": "dev"}
+{"id": "risk-0365", "task": "risk", "input": "time kill 123", "label": 3, "family": "kill 123", "split": "dev"}
+{"id": "risk-0366", "task": "risk", "input": "pkill node", "label": 3, "family": "pkill node", "split": "dev"}
+{"id": "risk-0367", "task": "risk", "input": "cd project && pkill node", "label": 3, "family": "pkill node", "split": "dev"}
+{"id": "risk-0368", "task": "risk", "input": "time pkill node", "label": 3, "family": "pkill node", "split": "dev"}
+{"id": "risk-0369", "task": "risk", "input": "systemctl restart nginx", "label": 4, "family": "systemctl restart", "split": "test"}
+{"id": "risk-0370", "task": "risk", "input": "cd project && systemctl restart nginx", "label": 4, "family": "systemctl restart", "split": "test"}
+{"id": "risk-0371", "task": "risk", "input": "time systemctl restart nginx", "label": 4, "family": "systemctl restart", "split": "test"}
+{"id": "risk-0372", "task": "risk", "input": "dd if=/dev/zero of=/dev/sda", "label": 4, "family": "dd", "split": "dev"}
+{"id": "risk-0373", "task": "risk", "input": "cd project && dd if=/dev/zero of=/dev/sda", "label": 4, "family": "dd", "split": "dev"}
+{"id": "risk-0374", "task": "risk", "input": "time dd if=/dev/zero of=/dev/sda", "label": 4, "family": "dd", "split": "dev"}
+{"id": "risk-0375", "task": "risk", "input": "echo hi > /dev/null", "label": 1, "family": "echo hi", "split": "dev"}
+{"id": "risk-0376", "task": "risk", "input": "cd project && echo hi > /dev/null", "label": 1, "family": "echo hi", "split": "dev"}
+{"id": "risk-0377", "task": "risk", "input": "time echo hi > /dev/null", "label": 1, "family": "echo hi", "split": "dev"}
+{"id": "risk-0378", "task": "risk", "input": "echo hi > /dev/sda", "label": 4, "family": "echo hi", "split": "dev"}
+{"id": "risk-0379", "task": "risk", "input": "cd project && echo hi > /dev/sda", "label": 4, "family": "echo hi", "split": "dev"}
+{"id": "risk-0380", "task": "risk", "input": "time echo hi > /dev/sda", "label": 4, "family": "echo hi", "split": "dev"}
+{"id": "risk-0381", "task": "risk", "input": "echo hi >/dev/stderr", "label": 1, "family": "echo hi", "split": "dev"}
+{"id": "risk-0382", "task": "risk", "input": "cd project && echo hi >/dev/stderr", "label": 1, "family": "echo hi", "split": "dev"}
+{"id": "risk-0383", "task": "risk", "input": "time echo hi >/dev/stderr", "label": 1, "family": "echo hi", "split": "dev"}
+{"id": "risk-0384", "task": "risk", "input": "echo hi > /dev/fd/2", "label": 1, "family": "echo hi", "split": "dev"}
+{"id": "risk-0385", "task": "risk", "input": "cd project && echo hi > /dev/fd/2", "label": 1, "family": "echo hi", "split": "dev"}
+{"id": "risk-0386", "task": "risk", "input": "time echo hi > /dev/fd/2", "label": 1, "family": "echo hi", "split": "dev"}
+{"id": "risk-0387", "task": "risk", "input": "echo hi > /dev/nullx", "label": 4, "family": "echo hi", "split": "dev"}
+{"id": "risk-0388", "task": "risk", "input": "cd project && echo hi > /dev/nullx", "label": 4, "family": "echo hi", "split": "dev"}
+{"id": "risk-0389", "task": "risk", "input": "time echo hi > /dev/nullx", "label": 4, "family": "echo hi", "split": "dev"}
+{"id": "risk-0390", "task": "risk", "input": "echo x > out.txt", "label": 1, "family": "echo x", "split": "dev"}
+{"id": "risk-0391", "task": "risk", "input": "cd project && echo x > out.txt", "label": 1, "family": "echo x", "split": "dev"}
+{"id": "risk-0392", "task": "risk", "input": "time echo x > out.txt", "label": 1, "family": "echo x", "split": "dev"}
+{"id": "risk-0393", "task": "risk", "input": "echo x >> log.txt", "label": 1, "family": "echo x", "split": "dev"}
+{"id": "risk-0394", "task": "risk", "input": "cd project && echo x >> log.txt", "label": 1, "family": "echo x", "split": "dev"}
+{"id": "risk-0395", "task": "risk", "input": "time echo x >> log.txt", "label": 1, "family": "echo x", "split": "dev"}
+{"id": "risk-0396", "task": "risk", "input": "ls 2>&1", "label": 1, "family": "ls 2>&1", "split": "dev"}
+{"id": "risk-0397", "task": "risk", "input": "cd project && ls 2>&1", "label": 1, "family": "ls 2>&1", "split": "dev"}
+{"id": "risk-0398", "task": "risk", "input": "time ls 2>&1", "label": 1, "family": "ls 2>&1", "split": "dev"}
+{"id": "risk-0399", "task": "risk", "input": "cat .env", "label": 4, "family": "cat .env", "split": "test"}
+{"id": "risk-0400", "task": "risk", "input": "cd project && cat .env", "label": 4, "family": "cat .env", "split": "test"}
+{"id": "risk-0401", "task": "risk", "input": "time cat .env", "label": 4, "family": "cat .env", "split": "test"}
+{"id": "risk-0402", "task": "risk", "input": "cat config/.env.local", "label": 4, "family": "cat config/.env.local", "split": "dev"}
+{"id": "risk-0403", "task": "risk", "input": "cd project && cat config/.env.local", "label": 4, "family": "cat config/.env.local", "split": "dev"}
+{"id": "risk-0404", "task": "risk", "input": "time cat config/.env.local", "label": 4, "family": "cat config/.env.local", "split": "dev"}
+{"id": "risk-0405", "task": "risk", "input": "source .env", "label": 4, "family": "source .env", "split": "dev"}
+{"id": "risk-0406", "task": "risk", "input": "cd project && source .env", "label": 4, "family": "source .env", "split": "dev"}
+{"id": "risk-0407", "task": "risk", "input": "time source .env", "label": 4, "family": "source .env", "split": "dev"}
+{"id": "risk-0408", "task": "risk", "input": "cat ~/.ssh/id_rsa", "label": 4, "family": "cat ~/.ssh/id_rsa", "split": "dev"}
+{"id": "risk-0409", "task": "risk", "input": "cd project && cat ~/.ssh/id_rsa", "label": 4, "family": "cat ~/.ssh/id_rsa", "split": "dev"}
+{"id": "risk-0410", "task": "risk", "input": "time cat ~/.ssh/id_rsa", "label": 4, "family": "cat ~/.ssh/id_rsa", "split": "dev"}
+{"id": "risk-0411", "task": "risk", "input": "cat server.pem", "label": 4, "family": "cat server.pem", "split": "dev"}
+{"id": "risk-0412", "task": "risk", "input": "cd project && cat server.pem", "label": 4, "family": "cat server.pem", "split": "dev"}
+{"id": "risk-0413", "task": "risk", "input": "time cat server.pem", "label": 4, "family": "cat server.pem", "split": "dev"}
+{"id": "risk-0414", "task": "risk", "input": "head credentials.json", "label": 4, "family": "head credentials.json", "split": "dev"}
+{"id": "risk-0415", "task": "risk", "input": "cd project && head credentials.json", "label": 4, "family": "head credentials.json", "split": "dev"}
+{"id": "risk-0416", "task": "risk", "input": "time head credentials.json", "label": 4, "family": "head credentials.json", "split": "dev"}
+{"id": "risk-0417", "task": "risk", "input": "cat ~/.aws/credentials", "label": 4, "family": "cat ~/.aws/credentials", "split": "test"}
+{"id": "risk-0418", "task": "risk", "input": "cd project && cat ~/.aws/credentials", "label": 4, "family": "cat ~/.aws/credentials", "split": "test"}
+{"id": "risk-0419", "task": "risk", "input": "time cat ~/.aws/credentials", "label": 4, "family": "cat ~/.aws/credentials", "split": "test"}
+{"id": "risk-0420", "task": "risk", "input": "env", "label": 3, "family": "<empty>", "split": "dev"}
+{"id": "risk-0421", "task": "risk", "input": "cd project && env", "label": 3, "family": "<empty>", "split": "dev"}
+{"id": "risk-0422", "task": "risk", "input": "time env", "label": 3, "family": "<empty>", "split": "dev"}
+{"id": "risk-0423", "task": "risk", "input": "printenv PATH", "label": 3, "family": "printenv path", "split": "dev"}
+{"id": "risk-0424", "task": "risk", "input": "cd project && printenv PATH", "label": 3, "family": "printenv path", "split": "dev"}
+{"id": "risk-0425", "task": "risk", "input": "time printenv PATH", "label": 3, "family": "printenv path", "split": "dev"}
+{"id": "risk-0426", "task": "risk", "input": "FOO=1 BAR=2 make build", "label": 1, "family": "make build", "split": "dev"}
+{"id": "risk-0427", "task": "risk", "input": "cd project && FOO=1 BAR=2 make build", "label": 1, "family": "make build", "split": "dev"}
+{"id": "risk-0428", "task": "risk", "input": "time FOO=1 BAR=2 make build", "label": 1, "family": "make build", "split": "dev"}
+{"id": "risk-0429", "task": "risk", "input": "time pytest -q", "label": 1, "family": "pytest -q", "split": "test"}
+{"id": "risk-0430", "task": "risk", "input": "cd project && time pytest -q", "label": 1, "family": "pytest -q", "split": "test"}
+{"id": "risk-0431", "task": "risk", "input": "time time pytest -q", "label": 1, "family": "pytest -q", "split": "test"}
+{"id": "risk-0432", "task": "risk", "input": "nohup python3 server.py", "label": 1, "family": "python3 server.py", "split": "dev"}
+{"id": "risk-0433", "task": "risk", "input": "cd project && nohup python3 server.py", "label": 1, "family": "python3 server.py", "split": "dev"}
+{"id": "risk-0434", "task": "risk", "input": "time nohup python3 server.py", "label": 1, "family": "python3 server.py", "split": "dev"}
+{"id": "risk-0435", "task": "risk", "input": "env FOO=1 ls", "label": 1, "family": "ls", "split": "dev"}
+{"id": "risk-0436", "task": "risk", "input": "cd project && env FOO=1 ls", "label": 1, "family": "ls", "split": "dev"}
+{"id": "risk-0437", "task": "risk", "input": "time env FOO=1 ls", "label": 1, "family": "ls", "split": "dev"}
+{"id": "risk-0438", "task": "risk", "input": "python3 -m pytest -q", "label": 0, "family": "python3 -m", "split": "test"}
+{"id": "risk-0439", "task": "risk", "input": "cd project && python3 -m pytest -q", "label": 1, "family": "python3 -m", "split": "test"}
+{"id": "risk-0440", "task": "risk", "input": "time python3 -m pytest -q", "label": 1, "family": "python3 -m", "split": "test"}
+{"id": "risk-0441", "task": "risk", "input": "pytest -q 2>&1 | tail -20", "label": 1, "family": "pytest -q", "split": "test"}
+{"id": "risk-0442", "task": "risk", "input": "cd project && pytest -q 2>&1 | tail -20", "label": 1, "family": "pytest -q", "split": "test"}
+{"id": "risk-0443", "task": "risk", "input": "time pytest -q 2>&1 | tail -20", "label": 1, "family": "pytest -q", "split": "test"}
+{"id": "risk-0444", "task": "risk", "input": "python -m pytest tests | head -5", "label": 0, "family": "python -m", "split": "dev"}
+{"id": "risk-0445", "task": "risk", "input": "cd project && python -m pytest tests | head -5", "label": 1, "family": "python -m", "split": "dev"}
+{"id": "risk-0446", "task": "risk", "input": "time python -m pytest tests | head -5", "label": 1, "family": "python -m", "split": "dev"}
+{"id": "risk-0447", "task": "risk", "input": "pytest && rm -rf x", "label": 4, "family": "pytest &&", "split": "test"}
+{"id": "risk-0448", "task": "risk", "input": "cd project && pytest && rm -rf x", "label": 4, "family": "pytest &&", "split": "test"}
+{"id": "risk-0449", "task": "risk", "input": "time pytest && rm -rf x", "label": 4, "family": "pytest &&", "split": "test"}
+{"id": "risk-0450", "task": "risk", "input": "mypy src", "label": 0, "family": "mypy src", "split": "test"}
+{"id": "risk-0451", "task": "risk", "input": "cd project && mypy src", "label": 1, "family": "mypy src", "split": "test"}
+{"id": "risk-0452", "task": "risk", "input": "time mypy src", "label": 1, "family": "mypy src", "split": "test"}
+{"id": "risk-0453", "task": "risk", "input": "ruff check .", "label": 0, "family": "ruff check", "split": "test"}
+{"id": "risk-0454", "task": "risk", "input": "cd project && ruff check .", "label": 1, "family": "ruff check", "split": "test"}
+{"id": "risk-0455", "task": "risk", "input": "time ruff check .", "label": 1, "family": "ruff check", "split": "test"}
+{"id": "risk-0456", "task": "risk", "input": "npx tsc --noEmit", "label": 0, "family": "npx tsc", "split": "dev"}
+{"id": "risk-0457", "task": "risk", "input": "cd project && npx tsc --noEmit", "label": 1, "family": "npx tsc", "split": "dev"}
+{"id": "risk-0458", "task": "risk", "input": "time npx tsc --noEmit", "label": 1, "family": "npx tsc", "split": "dev"}
+{"id": "risk-0459", "task": "risk", "input": "tsc --noemit", "label": 0, "family": "tsc --noemit", "split": "dev"}
+{"id": "risk-0460", "task": "risk", "input": "cd project && tsc --noemit", "label": 1, "family": "tsc --noemit", "split": "dev"}
+{"id": "risk-0461", "task": "risk", "input": "time tsc --noemit", "label": 1, "family": "tsc --noemit", "split": "dev"}
+{"id": "risk-0462", "task": "risk", "input": "python3 --version", "label": 1, "family": "python3 --version", "split": "test"}
+{"id": "risk-0463", "task": "risk", "input": "cd project && python3 --version", "label": 1, "family": "python3 --version", "split": "test"}
+{"id": "risk-0464", "task": "risk", "input": "time python3 --version", "label": 1, "family": "python3 --version", "split": "test"}
+{"id": "risk-0465", "task": "risk", "input": "node --version", "label": 1, "family": "node --version", "split": "test"}
+{"id": "risk-0466", "task": "risk", "input": "cd project && node --version", "label": 1, "family": "node --version", "split": "test"}
+{"id": "risk-0467", "task": "risk", "input": "time node --version", "label": 1, "family": "node --version", "split": "test"}
+{"id": "risk-0468", "task": "risk", "input": "sed -n 1,10p f", "label": 1, "family": "sed -n", "split": "dev"}
+{"id": "risk-0469", "task": "risk", "input": "cd project && sed -n 1,10p f", "label": 1, "family": "sed -n", "split": "dev"}
+{"id": "risk-0470", "task": "risk", "input": "time sed -n 1,10p f", "label": 1, "family": "sed -n", "split": "dev"}
+{"id": "risk-0471", "task": "risk", "input": "sed -i 's/a/b/' f.py", "label": 1, "family": "sed -i", "split": "dev"}
+{"id": "risk-0472", "task": "risk", "input": "cd project && sed -i 's/a/b/' f.py", "label": 1, "family": "sed -i", "split": "dev"}
+{"id": "risk-0473", "task": "risk", "input": "time sed -i 's/a/b/' f.py", "label": 1, "family": "sed -i", "split": "dev"}
+{"id": "risk-0474", "task": "risk", "input": "awk '{print $1}' f", "label": 1, "family": "awk '{print", "split": "dev"}
+{"id": "risk-0475", "task": "risk", "input": "cd project && awk '{print $1}' f", "label": 1, "family": "awk '{print", "split": "dev"}
+{"id": "risk-0476", "task": "risk", "input": "time awk '{print $1}' f", "label": 1, "family": "awk '{print", "split": "dev"}
+{"id": "risk-0477", "task": "risk", "input": "jq . f.json", "label": 1, "family": "jq .", "split": "test"}
+{"id": "risk-0478", "task": "risk", "input": "cd project && jq . f.json", "label": 1, "family": "jq .", "split": "test"}
+{"id": "risk-0479", "task": "risk", "input": "time jq . f.json", "label": 1, "family": "jq .", "split": "test"}
+{"id": "risk-0480", "task": "risk", "input": "wc -l f", "label": 1, "family": "wc -l", "split": "dev"}
+{"id": "risk-0481", "task": "risk", "input": "cd project && wc -l f", "label": 1, "family": "wc -l", "split": "dev"}
+{"id": "risk-0482", "task": "risk", "input": "time wc -l f", "label": 1, "family": "wc -l", "split": "dev"}
+{"id": "risk-0483", "task": "risk", "input": "make", "label": 1, "family": "make", "split": "dev"}
+{"id": "risk-0484", "task": "risk", "input": "cd project && make", "label": 1, "family": "make", "split": "dev"}
+{"id": "risk-0485", "task": "risk", "input": "time make", "label": 1, "family": "make", "split": "dev"}
+{"id": "risk-0486", "task": "risk", "input": "make test", "label": 1, "family": "make test", "split": "dev"}
+{"id": "risk-0487", "task": "risk", "input": "cd project && make test", "label": 1, "family": "make test", "split": "dev"}
+{"id": "risk-0488", "task": "risk", "input": "time make test", "label": 1, "family": "make test", "split": "dev"}
+{"id": "risk-0489", "task": "risk", "input": "./script.sh", "label": 1, "family": "./script.sh", "split": "test"}
+{"id": "risk-0490", "task": "risk", "input": "cd project && ./script.sh", "label": 1, "family": "./script.sh", "split": "test"}
+{"id": "risk-0491", "task": "risk", "input": "time ./script.sh", "label": 1, "family": "./script.sh", "split": "test"}
+{"id": "risk-0492", "task": "risk", "input": "/usr/bin/python3 x.py", "label": 1, "family": "/usr/bin/python3 x.py", "split": "dev"}
+{"id": "risk-0493", "task": "risk", "input": "cd project && /usr/bin/python3 x.py", "label": 1, "family": "/usr/bin/python3 x.py", "split": "dev"}
+{"id": "risk-0494", "task": "risk", "input": "time /usr/bin/python3 x.py", "label": 1, "family": "/usr/bin/python3 x.py", "split": "dev"}
+{"id": "risk-0495", "task": "risk", "input": "python script.py", "label": 1, "family": "python script.py", "split": "dev"}
+{"id": "risk-0496", "task": "risk", "input": "cd project && python script.py", "label": 1, "family": "python script.py", "split": "dev"}
+{"id": "risk-0497", "task": "risk", "input": "time python script.py", "label": 1, "family": "python script.py", "split": "dev"}
+{"id": "risk-0498", "task": "risk", "input": "node index.js", "label": 1, "family": "node index.js", "split": "dev"}
+{"id": "risk-0499", "task": "risk", "input": "cd project && node index.js", "label": 1, "family": "node index.js", "split": "dev"}
+{"id": "risk-0500", "task": "risk", "input": "time node index.js", "label": 1, "family": "node index.js", "split": "dev"}
+{"id": "risk-0501", "task": "risk", "input": "ls; rm x", "label": 4, "family": "ls; rm", "split": "test"}
+{"id": "risk-0502", "task": "risk", "input": "cd project && ls; rm x", "label": 4, "family": "ls; rm", "split": "test"}
+{"id": "risk-0503", "task": "risk", "input": "time ls; rm x", "label": 4, "family": "ls; rm", "split": "test"}
+{"id": "risk-0504", "task": "risk", "input": "ls && echo ok || echo no", "label": 1, "family": "ls &&", "split": "dev"}
+{"id": "risk-0505", "task": "risk", "input": "cd project && ls && echo ok || echo no", "label": 1, "family": "ls &&", "split": "dev"}
+{"id": "risk-0506", "task": "risk", "input": "time ls && echo ok || echo no", "label": 1, "family": "ls &&", "split": "dev"}
+{"id": "risk-0507", "task": "risk", "input": "cat f | grep x | sort | uniq", "label": 1, "family": "cat f", "split": "dev"}
+{"id": "risk-0508", "task": "risk", "input": "cd project && cat f | grep x | sort | uniq", "label": 1, "family": "cat f", "split": "dev"}
+{"id": "risk-0509", "task": "risk", "input": "time cat f | grep x | sort | uniq", "label": 1, "family": "cat f", "split": "dev"}
+{"id": "risk-0510", "task": "risk", "input": "echo $(whoami)", "label": 1, "family": "echo $(whoami)", "split": "dev"}
+{"id": "risk-0511", "task": "risk", "input": "cd project && echo $(whoami)", "label": 1, "family": "echo $(whoami)", "split": "dev"}
+{"id": "risk-0512", "task": "risk", "input": "time echo $(whoami)", "label": 1, "family": "echo $(whoami)", "split": "dev"}
+{"id": "risk-0513", "task": "risk", "input": "echo `date`", "label": 1, "family": "echo `date`", "split": "test"}
+{"id": "risk-0514", "task": "risk", "input": "cd project && echo `date`", "label": 1, "family": "echo `date`", "split": "test"}
+{"id": "risk-0515", "task": "risk", "input": "time echo `date`", "label": 1, "family": "echo `date`", "split": "test"}
+{"id": "risk-0516", "task": "risk", "input": "ls & sleep 1", "label": 1, "family": "ls &", "split": "dev"}
+{"id": "risk-0517", "task": "risk", "input": "cd project && ls & sleep 1", "label": 1, "family": "ls &", "split": "dev"}
+{"id": "risk-0518", "task": "risk", "input": "time ls & sleep 1", "label": 1, "family": "ls &", "split": "dev"}
+{"id": "risk-0519", "task": "risk", "input": "echo 'unterminated", "label": 0, "family": "echo 'unterminated", "split": "test"}
+{"id": "risk-0520", "task": "risk", "input": "cd project && echo 'unterminated", "label": 1, "family": "echo 'unterminated", "split": "test"}
+{"id": "risk-0521", "task": "risk", "input": "time echo 'unterminated", "label": 1, "family": "echo 'unterminated", "split": "test"}
+{"id": "risk-0522", "task": "risk", "input": "echo \"unterminated", "label": 0, "family": "echo \"unterminated", "split": "dev"}
+{"id": "risk-0523", "task": "risk", "input": "cd project && echo \"unterminated", "label": 1, "family": "echo \"unterminated", "split": "dev"}
+{"id": "risk-0524", "task": "risk", "input": "time echo \"unterminated", "label": 1, "family": "echo \"unterminated", "split": "dev"}
+{"id": "risk-0525", "task": "risk", "input": "echo trailing\\", "label": 0, "family": "echo trailing\\", "split": "dev"}
+{"id": "risk-0526", "task": "risk", "input": "cd project && echo trailing\\", "label": 1, "family": "echo trailing\\", "split": "dev"}
+{"id": "risk-0527", "task": "risk", "input": "time echo trailing\\", "label": 1, "family": "echo trailing\\", "split": "dev"}
+{"id": "risk-0528", "task": "risk", "input": "echo 'a b' \"c d\" e\\ f", "label": 0, "family": "echo 'a", "split": "test"}
+{"id": "risk-0529", "task": "risk", "input": "cd project && echo 'a b' \"c d\" e\\ f", "label": 1, "family": "echo 'a", "split": "test"}
+{"id": "risk-0530", "task": "risk", "input": "time echo 'a b' \"c d\" e\\ f", "label": 1, "family": "echo 'a", "split": "test"}
+{"id": "risk-0531", "task": "risk", "input": "echo \"esc \\\" q\"", "label": 0, "family": "echo \"esc", "split": "dev"}
+{"id": "risk-0532", "task": "risk", "input": "cd project && echo \"esc \\\" q\"", "label": 1, "family": "echo \"esc", "split": "dev"}
+{"id": "risk-0533", "task": "risk", "input": "time echo \"esc \\\" q\"", "label": 1, "family": "echo \"esc", "split": "dev"}
+{"id": "risk-0534", "task": "risk", "input": "ls 'dir with spaces'/", "label": 0, "family": "ls 'dir", "split": "dev"}
+{"id": "risk-0535", "task": "risk", "input": "cd project && ls 'dir with spaces'/", "label": 1, "family": "ls 'dir", "split": "dev"}
+{"id": "risk-0536", "task": "risk", "input": "time ls 'dir with spaces'/", "label": 1, "family": "ls 'dir", "split": "dev"}
+{"id": "risk-0537", "task": "risk", "input": "esptool.py --port /dev/ttyUSB0 write_flash 0x0 fw.bin", "label": 4, "family": "esptool.py --port", "split": "test"}
+{"id": "risk-0538", "task": "risk", "input": "cd project && esptool.py --port /dev/ttyUSB0 write_flash 0x0 fw.bin", "label": 4, "family": "esptool.py --port", "split": "test"}
+{"id": "risk-0539", "task": "risk", "input": "time esptool.py --port /dev/ttyUSB0 write_flash 0x0 fw.bin", "label": 4, "family": "esptool.py --port", "split": "test"}
+{"id": "risk-0540", "task": "risk", "input": "esptool.py chip_id", "label": 1, "family": "esptool.py chip_id", "split": "dev"}
+{"id": "risk-0541", "task": "risk", "input": "cd project && esptool.py chip_id", "label": 1, "family": "esptool.py chip_id", "split": "dev"}
+{"id": "risk-0542", "task": "risk", "input": "time esptool.py chip_id", "label": 1, "family": "esptool.py chip_id", "split": "dev"}
+{"id": "risk-0543", "task": "risk", "input": "esptool erase_flash", "label": 4, "family": "esptool erase_flash", "split": "dev"}
+{"id": "risk-0544", "task": "risk", "input": "cd project && esptool erase_flash", "label": 4, "family": "esptool erase_flash", "split": "dev"}
+{"id": "risk-0545", "task": "risk", "input": "time esptool erase_flash", "label": 4, "family": "esptool erase_flash", "split": "dev"}
+{"id": "risk-0546", "task": "risk", "input": "dfu-util -D fw.bin", "label": 4, "family": "dfu-util -d", "split": "dev"}
+{"id": "risk-0547", "task": "risk", "input": "cd project && dfu-util -D fw.bin", "label": 4, "family": "dfu-util -d", "split": "dev"}
+{"id": "risk-0548", "task": "risk", "input": "time dfu-util -D fw.bin", "label": 4, "family": "dfu-util -d", "split": "dev"}
+{"id": "risk-0549", "task": "risk", "input": "dfu-util -l", "label": 1, "family": "dfu-util -l", "split": "dev"}
+{"id": "risk-0550", "task": "risk", "input": "cd project && dfu-util -l", "label": 1, "family": "dfu-util -l", "split": "dev"}
+{"id": "risk-0551", "task": "risk", "input": "time dfu-util -l", "label": 1, "family": "dfu-util -l", "split": "dev"}
+{"id": "risk-0552", "task": "risk", "input": "openocd -f x.cfg", "label": 1, "family": "openocd -f", "split": "dev"}
+{"id": "risk-0553", "task": "risk", "input": "cd project && openocd -f x.cfg", "label": 1, "family": "openocd -f", "split": "dev"}
+{"id": "risk-0554", "task": "risk", "input": "time openocd -f x.cfg", "label": 1, "family": "openocd -f", "split": "dev"}
+{"id": "risk-0555", "task": "risk", "input": "openocd -f x.cfg -c 'program fw.elf verify reset exit'", "label": 4, "family": "openocd -f", "split": "dev"}
+{"id": "risk-0556", "task": "risk", "input": "cd project && openocd -f x.cfg -c 'program fw.elf verify reset exit'", "label": 4, "family": "openocd -f", "split": "dev"}
+{"id": "risk-0557", "task": "risk", "input": "time openocd -f x.cfg -c 'program fw.elf verify reset exit'", "label": 4, "family": "openocd -f", "split": "dev"}
+{"id": "risk-0558", "task": "risk", "input": "avrdude -p m328p -U flash:w:fw.hex", "label": 4, "family": "avrdude -p", "split": "dev"}
+{"id": "risk-0559", "task": "risk", "input": "cd project && avrdude -p m328p -U flash:w:fw.hex", "label": 4, "family": "avrdude -p", "split": "dev"}
+{"id": "risk-0560", "task": "risk", "input": "time avrdude -p m328p -U flash:w:fw.hex", "label": 4, "family": "avrdude -p", "split": "dev"}
+{"id": "risk-0561", "task": "risk", "input": "avrdude -p m328p", "label": 1, "family": "avrdude -p", "split": "dev"}
+{"id": "risk-0562", "task": "risk", "input": "cd project && avrdude -p m328p", "label": 1, "family": "avrdude -p", "split": "dev"}
+{"id": "risk-0563", "task": "risk", "input": "time avrdude -p m328p", "label": 1, "family": "avrdude -p", "split": "dev"}
+{"id": "risk-0564", "task": "risk", "input": "st-flash write fw.bin 0x8000000", "label": 4, "family": "st-flash write", "split": "dev"}
+{"id": "risk-0565", "task": "risk", "input": "cd project && st-flash write fw.bin 0x8000000", "label": 4, "family": "st-flash write", "split": "dev"}
+{"id": "risk-0566", "task": "risk", "input": "time st-flash write fw.bin 0x8000000", "label": 4, "family": "st-flash write", "split": "dev"}
+{"id": "risk-0567", "task": "risk", "input": "st-flash --version", "label": 1, "family": "st-flash --version", "split": "dev"}
+{"id": "risk-0568", "task": "risk", "input": "cd project && st-flash --version", "label": 1, "family": "st-flash --version", "split": "dev"}
+{"id": "risk-0569", "task": "risk", "input": "time st-flash --version", "label": 1, "family": "st-flash --version", "split": "dev"}
+{"id": "risk-0570", "task": "risk", "input": "picotool load fw.uf2", "label": 4, "family": "picotool load", "split": "dev"}
+{"id": "risk-0571", "task": "risk", "input": "cd project && picotool load fw.uf2", "label": 4, "family": "picotool load", "split": "dev"}
+{"id": "risk-0572", "task": "risk", "input": "time picotool load fw.uf2", "label": 4, "family": "picotool load", "split": "dev"}
+{"id": "risk-0573", "task": "risk", "input": "picotool info", "label": 1, "family": "picotool info", "split": "dev"}
+{"id": "risk-0574", "task": "risk", "input": "cd project && picotool info", "label": 1, "family": "picotool info", "split": "dev"}
+{"id": "risk-0575", "task": "risk", "input": "time picotool info", "label": 1, "family": "picotool info", "split": "dev"}
+{"id": "risk-0576", "task": "risk", "input": "fastboot flash boot b.img", "label": 4, "family": "fastboot flash", "split": "test"}
+{"id": "risk-0577", "task": "risk", "input": "cd project && fastboot flash boot b.img", "label": 4, "family": "fastboot flash", "split": "test"}
+{"id": "risk-0578", "task": "risk", "input": "time fastboot flash boot b.img", "label": 4, "family": "fastboot flash", "split": "test"}
+{"id": "risk-0579", "task": "risk", "input": "fastboot devices", "label": 1, "family": "fastboot devices", "split": "dev"}
+{"id": "risk-0580", "task": "risk", "input": "cd project && fastboot devices", "label": 1, "family": "fastboot devices", "split": "dev"}
+{"id": "risk-0581", "task": "risk", "input": "time fastboot devices", "label": 1, "family": "fastboot devices", "split": "dev"}
+{"id": "risk-0582", "task": "risk", "input": "pio run -t upload", "label": 4, "family": "pio run", "split": "dev"}
+{"id": "risk-0583", "task": "risk", "input": "cd project && pio run -t upload", "label": 4, "family": "pio run", "split": "dev"}
+{"id": "risk-0584", "task": "risk", "input": "time pio run -t upload", "label": 4, "family": "pio run", "split": "dev"}
+{"id": "risk-0585", "task": "risk", "input": "pio run", "label": 1, "family": "pio run", "split": "dev"}
+{"id": "risk-0586", "task": "risk", "input": "cd project && pio run", "label": 1, "family": "pio run", "split": "dev"}
+{"id": "risk-0587", "task": "risk", "input": "time pio run", "label": 1, "family": "pio run", "split": "dev"}
+{"id": "risk-0588", "task": "risk", "input": "west flash", "label": 4, "family": "west flash", "split": "dev"}
+{"id": "risk-0589", "task": "risk", "input": "cd project && west flash", "label": 4, "family": "west flash", "split": "dev"}
+{"id": "risk-0590", "task": "risk", "input": "time west flash", "label": 4, "family": "west flash", "split": "dev"}
+{"id": "risk-0591", "task": "risk", "input": "west build", "label": 1, "family": "west build", "split": "dev"}
+{"id": "risk-0592", "task": "risk", "input": "cd project && west build", "label": 1, "family": "west build", "split": "dev"}
+{"id": "risk-0593", "task": "risk", "input": "time west build", "label": 1, "family": "west build", "split": "dev"}
+{"id": "risk-0594", "task": "risk", "input": "idf.py flash", "label": 4, "family": "idf.py flash", "split": "dev"}
+{"id": "risk-0595", "task": "risk", "input": "cd project && idf.py flash", "label": 4, "family": "idf.py flash", "split": "dev"}
+{"id": "risk-0596", "task": "risk", "input": "time idf.py flash", "label": 4, "family": "idf.py flash", "split": "dev"}
+{"id": "risk-0597", "task": "risk", "input": "idf.py build", "label": 1, "family": "idf.py build", "split": "dev"}
+{"id": "risk-0598", "task": "risk", "input": "cd project && idf.py build", "label": 1, "family": "idf.py build", "split": "dev"}
+{"id": "risk-0599", "task": "risk", "input": "time idf.py build", "label": 1, "family": "idf.py build", "split": "dev"}
+{"id": "risk-0600", "task": "risk", "input": "sudo esptool.py write_flash 0 f", "label": 4, "family": "esptool.py write_flash", "split": "dev"}
+{"id": "risk-0601", "task": "risk", "input": "cd project && sudo esptool.py write_flash 0 f", "label": 4, "family": "esptool.py write_flash", "split": "dev"}
+{"id": "risk-0602", "task": "risk", "input": "time sudo esptool.py write_flash 0 f", "label": 3, "family": "esptool.py write_flash", "split": "dev"}
+{"id": "risk-0603", "task": "risk", "input": "ros2 topic pub /cmd_vel geometry_msgs/Twist '{}'", "label": 4, "family": "ros2 topic", "split": "test"}
+{"id": "risk-0604", "task": "risk", "input": "cd project && ros2 topic pub /cmd_vel geometry_msgs/Twist '{}'", "label": 4, "family": "ros2 topic", "split": "test"}
+{"id": "risk-0605", "task": "risk", "input": "time ros2 topic pub /cmd_vel geometry_msgs/Twist '{}'", "label": 4, "family": "ros2 topic", "split": "test"}
+{"id": "risk-0606", "task": "risk", "input": "ros2 topic echo /scan", "label": 1, "family": "ros2 topic", "split": "test"}
+{"id": "risk-0607", "task": "risk", "input": "cd project && ros2 topic echo /scan", "label": 1, "family": "ros2 topic", "split": "test"}
+{"id": "risk-0608", "task": "risk", "input": "time ros2 topic echo /scan", "label": 1, "family": "ros2 topic", "split": "test"}
+{"id": "risk-0609", "task": "risk", "input": "ros2 service call /reset std_srvs/Empty", "label": 4, "family": "ros2 service", "split": "dev"}
+{"id": "risk-0610", "task": "risk", "input": "cd project && ros2 service call /reset std_srvs/Empty", "label": 4, "family": "ros2 service", "split": "dev"}
+{"id": "risk-0611", "task": "risk", "input": "time ros2 service call /reset std_srvs/Empty", "label": 4, "family": "ros2 service", "split": "dev"}
+{"id": "risk-0612", "task": "risk", "input": "ros2 action send_goal /go nav2/NavigateToPose '{}'", "label": 4, "family": "ros2 action", "split": "dev"}
+{"id": "risk-0613", "task": "risk", "input": "cd project && ros2 action send_goal /go nav2/NavigateToPose '{}'", "label": 4, "family": "ros2 action", "split": "dev"}
+{"id": "risk-0614", "task": "risk", "input": "time ros2 action send_goal /go nav2/NavigateToPose '{}'", "label": 4, "family": "ros2 action", "split": "dev"}
+{"id": "risk-0615", "task": "risk", "input": "ros2 param set /n speed 1", "label": 4, "family": "ros2 param", "split": "dev"}
+{"id": "risk-0616", "task": "risk", "input": "cd project && ros2 param set /n speed 1", "label": 4, "family": "ros2 param", "split": "dev"}
+{"id": "risk-0617", "task": "risk", "input": "time ros2 param set /n speed 1", "label": 4, "family": "ros2 param", "split": "dev"}
+{"id": "risk-0618", "task": "risk", "input": "ros2 param get /n speed", "label": 1, "family": "ros2 param", "split": "dev"}
+{"id": "risk-0619", "task": "risk", "input": "cd project && ros2 param get /n speed", "label": 1, "family": "ros2 param", "split": "dev"}
+{"id": "risk-0620", "task": "risk", "input": "time ros2 param get /n speed", "label": 1, "family": "ros2 param", "split": "dev"}
+{"id": "risk-0621", "task": "risk", "input": "ros2 lifecycle set /n activate", "label": 4, "family": "ros2 lifecycle", "split": "test"}
+{"id": "risk-0622", "task": "risk", "input": "cd project && ros2 lifecycle set /n activate", "label": 4, "family": "ros2 lifecycle", "split": "test"}
+{"id": "risk-0623", "task": "risk", "input": "time ros2 lifecycle set /n activate", "label": 4, "family": "ros2 lifecycle", "split": "test"}
+{"id": "risk-0624", "task": "risk", "input": "ros2 node list", "label": 1, "family": "ros2 node", "split": "dev"}
+{"id": "risk-0625", "task": "risk", "input": "cd project && ros2 node list", "label": 1, "family": "ros2 node", "split": "dev"}
+{"id": "risk-0626", "task": "risk", "input": "time ros2 node list", "label": 1, "family": "ros2 node", "split": "dev"}
+{"id": "risk-0627", "task": "risk", "input": "ros2 launch pkg x.launch.py", "label": 1, "family": "ros2 launch", "split": "test"}
+{"id": "risk-0628", "task": "risk", "input": "cd project && ros2 launch pkg x.launch.py", "label": 1, "family": "ros2 launch", "split": "test"}
+{"id": "risk-0629", "task": "risk", "input": "time ros2 launch pkg x.launch.py", "label": 1, "family": "ros2 launch", "split": "test"}
+{"id": "risk-0630", "task": "risk", "input": "ros2", "label": 1, "family": "ros2", "split": "dev"}
+{"id": "risk-0631", "task": "risk", "input": "cd project && ros2", "label": 1, "family": "ros2", "split": "dev"}
+{"id": "risk-0632", "task": "risk", "input": "time ros2", "label": 1, "family": "ros2", "split": "dev"}
+{"id": "risk-0633", "task": "risk", "input": "echo 你好", "label": 0, "family": "echo 你好", "split": "dev"}
+{"id": "risk-0634", "task": "risk", "input": "cd project && echo 你好", "label": 1, "family": "echo 你好", "split": "dev"}
+{"id": "risk-0635", "task": "risk", "input": "time echo 你好", "label": 1, "family": "echo 你好", "split": "dev"}
+{"id": "risk-0636", "task": "risk", "input": "cat 文件.txt", "label": 0, "family": "cat 文件.txt", "split": "test"}
+{"id": "risk-0637", "task": "risk", "input": "cd project && cat 文件.txt", "label": 1, "family": "cat 文件.txt", "split": "test"}
+{"id": "risk-0638", "task": "risk", "input": "time cat 文件.txt", "label": 1, "family": "cat 文件.txt", "split": "test"}
+{"id": "risk-0639", "task": "risk", "input": "rm 数据.csv", "label": 4, "family": "rm 数据.csv", "split": "dev"}
+{"id": "risk-0640", "task": "risk", "input": "cd project && rm 数据.csv", "label": 4, "family": "rm 数据.csv", "split": "dev"}
+{"id": "risk-0641", "task": "risk", "input": "time rm 数据.csv", "label": 4, "family": "rm 数据.csv", "split": "dev"}
+{"id": "risk-0642", "task": "risk", "input": "git commit -m '修复 bug'", "label": 3, "family": "git commit", "split": "test"}
+{"id": "risk-0643", "task": "risk", "input": "cd project && git commit -m '修复 bug'", "label": 3, "family": "git commit", "split": "test"}
+{"id": "risk-0644", "task": "risk", "input": "time git commit -m '修复 bug'", "label": 3, "family": "git commit", "split": "test"}
+{"id": "risk-0645", "task": "risk", "input": "curl https://例子.测试/路径", "label": 2, "family": "curl https://例子.测试/路径", "split": "test"}
+{"id": "risk-0646", "task": "risk", "input": "cd project && curl https://例子.测试/路径", "label": 2, "family": "curl https://例子.测试/路径", "split": "test"}
+{"id": "risk-0647", "task": "risk", "input": "time curl https://例子.测试/路径", "label": 2, "family": "curl https://例子.测试/路径", "split": "test"}
+{"id": "risk-0648", "task": "risk", "input": "npm install café", "label": 2, "family": "npm install", "split": "dev"}
+{"id": "risk-0649", "task": "risk", "input": "cd project && npm install café", "label": 2, "family": "npm install", "split": "dev"}
+{"id": "risk-0650", "task": "risk", "input": "time npm install café", "label": 2, "family": "npm install", "split": "dev"}
+{"id": "risk-0651", "task": "risk", "input": "echo émoji 🚀 > out.txt", "label": 1, "family": "echo émoji", "split": "dev"}
+{"id": "risk-0652", "task": "risk", "input": "cd project && echo émoji 🚀 > out.txt", "label": 1, "family": "echo émoji", "split": "dev"}
+{"id": "risk-0653", "task": "risk", "input": "time echo émoji 🚀 > out.txt", "label": 1, "family": "echo émoji", "split": "dev"}
+{"id": "risk-0654", "task": "risk", "input": "数据=1 rm x", "label": 4, "family": "rm x", "split": "test"}
+{"id": "risk-0655", "task": "risk", "input": "cd project && 数据=1 rm x", "label": 4, "family": "rm x", "split": "test"}
+{"id": "risk-0656", "task": "risk", "input": "time 数据=1 rm x", "label": 3, "family": "rm x", "split": "test"}
+{"id": "risk-0657", "task": "risk", "input": "变量=值 git push", "label": 3, "family": "git push", "split": "dev"}
+{"id": "risk-0658", "task": "risk", "input": "cd project && 变量=值 git push", "label": 3, "family": "git push", "split": "dev"}
+{"id": "risk-0659", "task": "risk", "input": "time 变量=值 git push", "label": 3, "family": "git push", "split": "dev"}
+{"id": "risk-0660", "task": "risk", "input": "cat 密钥.pem", "label": 4, "family": "cat 密钥.pem", "split": "dev"}
+{"id": "risk-0661", "task": "risk", "input": "cd project && cat 密钥.pem", "label": 4, "family": "cat 密钥.pem", "split": "dev"}
+{"id": "risk-0662", "task": "risk", "input": "time cat 密钥.pem", "label": 4, "family": "cat 密钥.pem", "split": "dev"}
+{"id": "risk-0663", "task": "risk", "input": "cat 私钥.key", "label": 4, "family": "cat 私钥.key", "split": "dev"}
+{"id": "risk-0664", "task": "risk", "input": "cd project && cat 私钥.key", "label": 4, "family": "cat 私钥.key", "split": "dev"}
+{"id": "risk-0665", "task": "risk", "input": "time cat 私钥.key", "label": 4, "family": "cat 私钥.key", "split": "dev"}
+{"id": "risk-0666", "task": "risk", "input": "cat .env.生产", "label": 4, "family": "cat .env.生产", "split": "test"}
+{"id": "risk-0667", "task": "risk", "input": "cd project && cat .env.生产", "label": 4, "family": "cat .env.生产", "split": "test"}
+{"id": "risk-0668", "task": "risk", "input": "time cat .env.生产", "label": 4, "family": "cat .env.生产", "split": "test"}
+{"id": "risk-0669", "task": "risk", "input": "head ./证书.pem", "label": 4, "family": "head ./证书.pem", "split": "dev"}
+{"id": "risk-0670", "task": "risk", "input": "cd project && head ./证书.pem", "label": 4, "family": "head ./证书.pem", "split": "dev"}
+{"id": "risk-0671", "task": "risk", "input": "time head ./证书.pem", "label": 4, "family": "head ./证书.pem", "split": "dev"}
+{"id": "risk-0672", "task": "risk", "input": "curl --data-原始 x https://e.com", "label": 3, "family": "curl --data-原始", "split": "dev"}
+{"id": "risk-0673", "task": "risk", "input": "cd project && curl --data-原始 x https://e.com", "label": 3, "family": "curl --data-原始", "split": "dev"}
+{"id": "risk-0674", "task": "risk", "input": "time curl --data-原始 x https://e.com", "label": 3, "family": "curl --data-原始", "split": "dev"}
+{"id": "risk-0675", "task": "risk", "input": "ls -la", "label": 1, "family": "ls -la", "split": "dev"}
+{"id": "risk-0676", "task": "risk", "input": "cd project && ls -la", "label": 1, "family": "ls -la", "split": "dev"}
+{"id": "risk-0677", "task": "risk", "input": "time ls -la", "label": 1, "family": "ls -la", "split": "dev"}
+{"id": "risk-0678", "task": "risk", "input": "rm -rf build", "label": 1, "family": "rm -rf", "split": "test"}
+{"id": "risk-0679", "task": "risk", "input": "cd project && rm -rf build", "label": 1, "family": "rm -rf", "split": "test"}
+{"id": "risk-0680", "task": "risk", "input": "time rm -rf build", "label": 1, "family": "rm -rf", "split": "test"}
+{"id": "risk-0681", "task": "risk", "input": "git　push", "label": 1, "family": "git push", "split": "dev"}
+{"id": "risk-0682", "task": "risk", "input": "cd project && git　push", "label": 1, "family": "git push", "split": "dev"}
+{"id": "risk-0683", "task": "risk", "input": "time git　push", "label": 1, "family": "git push", "split": "dev"}
+{"id": "risk-0684", "task": "risk", "input": "echo x > /dev/sda", "label": 4, "family": "echo x", "split": "dev"}
+{"id": "risk-0685", "task": "risk", "input": "cd project && echo x > /dev/sda", "label": 4, "family": "echo x", "split": "dev"}
+{"id": "risk-0686", "task": "risk", "input": "time echo x > /dev/sda", "label": 4, "family": "echo x", "split": "dev"}
+{"id": "risk-0687", "task": "risk", "input": "pytest -q | tail -٣", "label": 0, "family": "pytest -q", "split": "test"}
+{"id": "risk-0688", "task": "risk", "input": "cd project && pytest -q | tail -٣", "label": 1, "family": "pytest -q", "split": "test"}
+{"id": "risk-0689", "task": "risk", "input": "time pytest -q | tail -٣", "label": 1, "family": "pytest -q", "split": "test"}
+{"id": "risk-0690", "task": "risk", "input": "echo x > /dev/null，", "label": 1, "family": "echo x", "split": "dev"}
+{"id": "risk-0691", "task": "risk", "input": "cd project && echo x > /dev/null，", "label": 1, "family": "echo x", "split": "dev"}
+{"id": "risk-0692", "task": "risk", "input": "time echo x > /dev/null，", "label": 1, "family": "echo x", "split": "dev"}
