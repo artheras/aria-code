@@ -1,14 +1,15 @@
-# One merge to main = one release, and a release bumps minor.
+# A release is a decision, not a side effect of merging.
 #
-# Codex's scheme, measured from its 196 published stable versions: major is
-# always 0, minor carries the release count (0.157.0 → 0.158.0 → 0.159.0), and
-# patch is reserved for a fix on top of a release that already shipped
-# (0.159.1, 0.159.2). Reaching 0.121.0 takes 121 releases — that is how Codex
-# reached 0.159, and it is the point.
+# This used to run on every push to main (one merge, one release, skipped only
+# by writing "[skip release]" in the subject). Releasing now means starting this
+# workflow by hand, from main, typing RELEASE, and passing a checklist: main's
+# checks are green and there is something to release. The release then carries
+# every commit since the previous one, listed in the changelog.
 #
-# What makes the count climb is not the numbering, it is that each release
-# contains one merge. Before this, a release here carried 65–96 commits
-# (v4.4.1 → v4.4.2 was 96 commits over 8 days).
+# The numbering is unchanged. Codex's scheme, measured from its 196 published
+# stable versions: major is always 0, minor carries the release count
+# (0.157.0 → 0.158.0 → 0.159.0), and patch is reserved for a fix on top of a
+# release that already shipped (0.159.1, 0.159.2).
 #
 # Hotfixes are not automated: scripts/bump_version.py --next-hotfix exists for
 # when a shipped release needs a fix, and it is run by hand on purpose so this
@@ -19,8 +20,21 @@
 name: Release on merge
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type RELEASE to publish. Nothing is tagged or published otherwise."
+        required: true
+        type: string
+      note:
+        description: "Optional line for the top of this release's changelog entry"
+        required: false
+        type: string
+      skip_checks:
+        description: "Release even though main's checks are not all green (use only for a known flake)"
+        required: false
+        type: boolean
+        default: false
 
 # The union of what this workflow and everything it calls need. A called
 # workflow's jobs cannot request more than the caller's GITHUB_TOKEN was
@@ -44,22 +58,82 @@ permissions:
   id-token: write     # npm provenance, PyPI Trusted Publishing (OIDC)
 
 concurrency:
-  # Two merges landing together must not race to claim the same patch number.
+  # Two release runs must not race to claim the same version number.
   group: release-on-merge
   cancel-in-progress: false
 
 jobs:
+  # The checklist. It fails before anything is tagged, bumped or published.
+  preflight:
+    name: Release checklist
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+    outputs:
+      last_tag: ${{ steps.what.outputs.last_tag }}
+    steps:
+      - name: You must have typed RELEASE
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "RELEASE" ]; then
+            echo "::error::Type RELEASE in the confirm box to publish. Nothing was tagged or published."
+            exit 1
+          fi
+
+      - name: Releases come from main
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Run this workflow from main, not $GITHUB_REF."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Something must have changed since the last release
+        id: what
+        run: |
+          LAST="$(git tag --list 'v0.*' --sort=-v:refname | head -1)"
+          echo "last_tag=$LAST" >> "$GITHUB_OUTPUT"
+          COMMITS="$(git log "$LAST..HEAD" --format='- %s' | grep -v '^- release: v' || true)"
+          {
+            echo "### Releasing everything since $LAST"
+            echo
+            if [ -n "$COMMITS" ]; then echo "$COMMITS"; else echo "_nothing_"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$COMMITS" ]; then
+            echo "::error::Nothing has been merged since $LAST."
+            exit 1
+          fi
+
+      - name: Main's checks must be green
+        if: ${{ !inputs.skip_checks }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA="$(git rev-parse HEAD)"
+          RUNS="$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs?per_page=100")"
+          PENDING="$(printf '%s' "$RUNS" | jq -r '[.check_runs[] | select(.status != "completed") | .name] | unique | join(", ")')"
+          RED="$(printf '%s' "$RUNS" | jq -r '[.check_runs[] | select(.status == "completed" and (.conclusion | IN("success","skipped","neutral") | not)) | .name] | unique | join(", ")')"
+          if [ -n "$PENDING" ]; then
+            echo "::error::Still running on ${SHA:0:7}: $PENDING. Wait for them, then release."
+            exit 1
+          fi
+          if [ -n "$RED" ]; then
+            echo "::error::Not green on ${SHA:0:7}: $RED. Fix main, or rerun with skip_checks for a known flake."
+            exit 1
+          fi
+          echo "All checks on ${SHA:0:7} passed." >> "$GITHUB_STEP_SUMMARY"
+
   tag-next-patch:
     name: Tag the next patch
+    needs: preflight
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.next.outputs.tag }}
-    # The bump commit this job pushes lands on main and would trigger the
-    # workflow again. Skipping on its own marker is what stops the loop;
-    # [skip ci] alone would not, because that only suppresses some providers.
-    if: |
-      !startsWith(github.event.head_commit.message, 'release: v') &&
-      !contains(github.event.head_commit.message, '[skip release]')
     steps:
       - uses: actions/checkout@v4
         with:
@@ -95,41 +169,50 @@ jobs:
 
       # tests/test_version_consistency.py requires an entry for the current
       # version, and it was right to: 4.3.0 shipped with no description of what
-      # changed. The first two automated releases (4.4.3, 4.4.4) bumped the
-      # version and left the changelog alone, so that guard went red on main —
-      # the automation has to write the entry, not the person who is no longer
-      # in the loop.
+      # changed. The automation writes the entry, not the person who is no
+      # longer in the loop.
       #
-      # One merge is one release, so the merge subject is the entry. It is a
-      # rolling log, not a curated one; a release worth more than a line gets a
-      # hand-written section added afterwards.
+      # A release now carries several merges, so the entry lists every commit
+      # since the previous release (the checklist's last_tag), one line each.
+      # It is a rolling log, not a curated one; a release worth more than a
+      # line gets a hand-written section added afterwards.
       - name: Write the changelog entry
         shell: bash
         env:
-          SUBJECT: ${{ github.event.head_commit.message }}
+          LAST_TAG: ${{ needs.preflight.outputs.last_tag }}
+          NOTE: ${{ inputs.note }}
         run: |
           VERSION="${{ steps.next.outputs.version }}"
-          # First line only: merge commits carry the PR body after a blank line.
-          LINE="$(printf '%s' "$SUBJECT" | head -1)"
-          python - "$VERSION" "$LINE" <<'PY'
-          import datetime, pathlib, sys
+          git log "$LAST_TAG..HEAD" --format='%s' > /tmp/subjects.txt
+          python - "$VERSION" <<'PY'
+          import datetime, os, pathlib, re, sys
 
-          version, subject = sys.argv[1], sys.argv[2]
+          version = sys.argv[1]
+          subjects = [re.sub(r"\s*\[skip release\]\s*$", "", line.strip())
+                      for line in pathlib.Path("/tmp/subjects.txt").read_text(encoding="utf-8").splitlines()
+                      if line.strip() and not line.startswith("release: v")]
           path = pathlib.Path("CHANGELOG.md")
           text = path.read_text(encoding="utf-8")
           if f"[{version}]" in text:
               print(f"[{version}] already documented; leaving it alone")
               raise SystemExit(0)
 
+          lines = []
+          note = os.environ.get("NOTE", "").strip()
+          if note:
+              lines.append(note)
+          lines += subjects[:60]
+          if len(subjects) > 60:
+              lines.append(f"…and {len(subjects) - 60} more commits")
           entry = (f"## [{version}] — {datetime.date.today().isoformat()}\n\n"
-                   f"- {subject}\n\n")
+                   + "".join(f"- {line}\n" for line in lines) + "\n")
           marker = "---\n\n"
           if marker in text:
               head, rest = text.split(marker, 1)
               path.write_text(head + marker + entry + rest, encoding="utf-8")
           else:
               path.write_text(entry + text, encoding="utf-8")
-          print(f"Added [{version}]: {subject}")
+          print(f"Added [{version}] with {len(lines)} lines")
           PY
 
       - name: Commit and tag
