@@ -95,6 +95,28 @@ python -m aria_code.evals.scorecard report scorecard/ --cost aria=0.02 --cost gp
    - 平均耗时增加不超过 25%。
 8. **锁定测试集，只跑一次。** 用 `hard` 套件比较基线和候选模型，结论记录在发布说明里。不通过就回到第 2 步，并且这次查看也要记录下来。
 
+## 3b. 用真实工作记录训练路由（需要用户授权）
+
+Arthera 服务端只在部署开关和用户本人的"帮助改进 Aria"都打开时，才在一次 Work 任务结束后保存一份脱敏轨迹（`packages/quant_engine/services/trajectory_training_store.py`，格式 `aria.agent_trajectory.v1`）。用户撤回授权时，这些轨迹会被删除。
+
+轨迹故意不记录工具参数和回答原文，所以它能教的是**路由**：针对一个请求调用哪些工具、按什么顺序、失败后怎么补救、何时停止。
+
+```bash
+# 服务端：trajectory_training_store.export_jsonl("export.jsonl")
+python -m aria_code.training.trajectory_dataset export.jsonl --out routing/ \
+    --holdout-after 2026-11-01 --per-owner-cap 200
+```
+
+`training/trajectory_dataset.py` 的规矩：
+
+- **按人切分**：同一个用户的所有轨迹只会出现在训练、验证、测试中的一个；按所有者哈希切分，数据增加时不会变动。
+- **向前留出**：`--holdout-after` 之后记录的轨迹一律进测试集，模型在"未来"上被评估。
+- **不只留成功的**：成功和"失败后恢复"的任务是训练样例；失败、取消、被用户否定的进 `negatives.jsonl`，留给之后的偏好训练，不当作正确答案，也不丢弃。
+- **再查一遍隐私**：服务端已经脱敏；这里再扫一次，残留任何像密钥、邮箱、手机号的字符串就整条丢弃，不修补。
+- **限制单个用户的占比**：`--per-owner-cap` 限制每人每个切分的样例数，避免重度用户主导数据集。
+- **测试集不进训练文件**：只有训练和验证会生成 `vertex/` 下的调优文件。
+- **可追溯**：`manifest.json` 记录输入文件的哈希、规则、各切分的样例数、结果分布、丢弃原因和工具出现次数。
+
 ## 3a. 在 Aria 里使用微调后的模型
 
 微调完成后，模型部署在一个 Vertex 端点上，按端点的资源名调用
