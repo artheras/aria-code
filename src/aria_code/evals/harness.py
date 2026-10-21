@@ -211,6 +211,9 @@ class TaskResult:
     changed: tuple[str, ...] = ()
     # Behaviour checks on the agent's tool calls: ({check, passed, detail}, …).
     behavior: tuple = ()
+    # Tokens the agent reported for this task ({model, provider, input_tokens, …});
+    # empty when the solver reports none, which is not the same as zero.
+    usage: dict = field(default_factory=dict)
 
     @property
     def counted(self) -> bool:
@@ -230,6 +233,7 @@ class TaskResult:
             # agent did not complete (exit 1)"; the reason was in the job log.
             "log_tail": _log_tail(self.log) if self.outcome != PASS else [],
             **({"behavior": [dict(b) for b in self.behavior]} if self.behavior else {}),
+            **({"usage": dict(self.usage)} if self.usage else {}),
         }
 
 
@@ -268,6 +272,21 @@ class SuiteResult:
         """
         return (self.passed / self.scored) if self.scored else 0.0
 
+    def usage_totals(self) -> dict:
+        """Tokens and seconds summed over tasks whose agent reported usage.
+
+        ``reported`` says how many did: a total over 12 of 30 tasks is not the
+        cost of the suite, and must not be read as one.
+        """
+        with_usage = [r for r in self.results if r.usage]
+        keys = ("input_tokens", "output_tokens", "thinking_tokens")
+        return {
+            "reported": len(with_usage),
+            "tasks": len(self.results),
+            **{key: sum(int(r.usage.get(key, 0) or 0) for r in with_usage) for key in keys},
+            "seconds": round(sum(r.seconds for r in self.results), 2),
+        }
+
     def by_tag(self) -> dict:
         """Pass rate per tag — the per-industry scoreboard."""
         buckets: dict[str, list[TaskResult]] = {}
@@ -296,6 +315,7 @@ class SuiteResult:
             "errored": self.errored,
             "scored": self.scored,
             "by_tag": self.by_tag(),
+            "usage": self.usage_totals(),
             "per_task": self.per_task(),
             **({"behavior": self.behavior()} if any(r.behavior for r in self.results) else {}),
             "results": [r.to_dict() for r in self.results],
@@ -589,11 +609,13 @@ def run_task(
     scratch.mkdir(parents=True, exist_ok=True)
 
     behaviour: list = []   # filled once the agent has had its turn
+    reported: dict = {}    # the agent's own usage report, once it has had its turn
 
     def _result(outcome: str, **kwargs) -> TaskResult:
         return TaskResult(
             task_id=task.id, outcome=outcome,
-            seconds=time.time() - started, tags=task.tags, behavior=tuple(behaviour), **kwargs,
+            seconds=time.time() - started, tags=task.tags, behavior=tuple(behaviour),
+            usage=dict(reported), **kwargs,
         )
 
     # Everything below runs inside this try so the scratch directory is removed
@@ -647,6 +669,8 @@ def run_task(
             # A solver crash is not the agent failing the task; scoring it as
             # a fail would blame the model for a harness or provider outage.
             return _result(ERROR, detail=f"solver raised: {exc}")
+        if isinstance(getattr(outcome, "usage", None), dict):
+            reported.update(outcome.usage)
         # Only when the solver ran an agent: the pre-flight solver returns
         # nothing, and "write_file was never called" would read as a pass.
         if task.behavior and outcome is not None:
