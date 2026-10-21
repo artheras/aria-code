@@ -172,7 +172,30 @@ def build_risk() -> List[dict]:
                 "label": assess_command(text).level, "family": family(command),
                 "split": split_of(family(command)),
             })
-    return rows
+    return rows + extra_commands(rows)
+
+
+def extra_commands(rows: List[dict]) -> List[dict]:
+    """Hand-written families, filtered so no family sits on both sides of a split.
+
+    ``test2`` keeps only families that neither training source nor the first test set
+    contains; ``extra`` (trainable) drops families the first test set holds.
+    """
+    from aria_code.safety.risk import assess_command
+    from aria_code.training.prelude_commands import TEST, TRAIN
+
+    old_dev = {r["family"] for r in rows if r["split"] == "dev"}
+    old_test = {r["family"] for r in rows if r["split"] == "test"}
+    train_cmds = [c for group in TRAIN.values() for c in group]
+    train_fams = {family(c) for c in train_cmds} | old_dev
+    out = []
+    for split, commands in (("extra", [c for c in train_cmds if family(c) not in old_test]),
+                            ("test2", [c for group in TEST.values() for c in group
+                                       if family(c) not in train_fams | old_test])):
+        for command in commands:
+            out.append({"id": f"risk-{len(rows) + len(out):04d}", "task": "risk", "input": command,
+                        "label": assess_command(command).level, "family": family(command), "split": split})
+    return out
 
 
 def build_intent() -> List[dict]:
@@ -249,6 +272,8 @@ def score(task: str, rows: List[dict], predictions: Dict[str, Optional[object]])
         "all": summarise(rows),
         "dev": summarise([r for r in rows if r["split"] == "dev"]),
         "test": summarise([r for r in rows if r["split"] == "test"]),
+        **({"test2": summarise([r for r in rows if r["split"] == "test2"])}
+           if any(r["split"] == "test2" for r in rows) else {}),
         "majority_class": {"label": majority[0], "accuracy": round(majority[1] / len(rows), 4)},
         "confusion": {f"{a}->{b}": n for (a, b), n in sorted(confusion.items())},
     }

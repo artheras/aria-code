@@ -9,11 +9,12 @@ def test_risk_labels_come_from_the_rules():
     assert {r["label"] for r in rows} == {0, 1, 2, 3, 4}
 
 
-def test_a_family_never_straddles_the_split():
+def test_no_family_is_on_both_sides_of_the_train_test_line():
+    side = {"dev": "train", "extra": "train", "test": "test", "test2": "test"}
     seen = {}
     for task in ("risk", "intent"):
         for row in P.load(task):
-            assert seen.setdefault((task, row["family"]), row["split"]) == row["split"]
+            assert seen.setdefault((task, row["family"]), side[row["split"]]) == side[row["split"]], row
 
 
 def test_committed_files_match_the_builder():
@@ -35,3 +36,24 @@ def test_under_call_counts_a_missing_answer_as_a_miss():
     assert report["all"]["under_calls"] == "1/2"
     assert report["all"]["over_call_rate"] == 1.0
     assert report["test"]["n"] == 1
+
+
+def test_training_data_never_touches_a_test_split():
+    from aria_code.training import prelude_train as T
+
+    rows = P.load("risk")
+    held = {r["input"] for r in rows if r["split"] in ("test", "test2")}
+    families = {r["family"] for r in rows if r["split"] in ("test", "test2")}
+    train, valid, _ = T.build_training_data()
+    commands = {x["messages"][1]["content"] for x in train + valid}
+    assert commands and not commands & held
+    assert not any(P.family(c) in families for c in commands)
+
+
+def test_the_checkpoint_is_chosen_by_validation_loss_alone():
+    from aria_code.training import prelude_train as T
+
+    log = "\x1b[1m   1\x1b[0m    val 7.9   1s\n 100    val 0.42   1s\n 200    val 0.17   1s\n 300    val 0.25   1s\n"
+    losses = T.validation_losses(log)
+    assert losses == {100: 0.42, 200: 0.17, 300: 0.25}
+    assert min(losses, key=losses.get) == 200

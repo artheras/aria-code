@@ -691,3 +691,222 @@
 {"id": "risk-0690", "task": "risk", "input": "echo x > /dev/null，", "label": 1, "family": "echo x", "split": "dev"}
 {"id": "risk-0691", "task": "risk", "input": "cd project && echo x > /dev/null，", "label": 1, "family": "echo x", "split": "dev"}
 {"id": "risk-0692", "task": "risk", "input": "time echo x > /dev/null，", "label": 1, "family": "echo x", "split": "dev"}
+{"id": "risk-0693", "task": "risk", "input": "git stash pop", "label": 1, "family": "git stash", "split": "extra"}
+{"id": "risk-0694", "task": "risk", "input": "git stash list", "label": 1, "family": "git stash", "split": "extra"}
+{"id": "risk-0695", "task": "risk", "input": "git stash apply stash@{1}", "label": 1, "family": "git stash", "split": "extra"}
+{"id": "risk-0696", "task": "risk", "input": "git stash show -p", "label": 1, "family": "git stash", "split": "extra"}
+{"id": "risk-0697", "task": "risk", "input": "git cherry-pick abc123", "label": 3, "family": "git cherry-pick", "split": "extra"}
+{"id": "risk-0698", "task": "risk", "input": "git cherry-pick --abort", "label": 3, "family": "git cherry-pick", "split": "extra"}
+{"id": "risk-0699", "task": "risk", "input": "git cherry-pick -x def456", "label": 3, "family": "git cherry-pick", "split": "extra"}
+{"id": "risk-0700", "task": "risk", "input": "git merge feature/login", "label": 3, "family": "git merge", "split": "extra"}
+{"id": "risk-0701", "task": "risk", "input": "git merge --no-ff dev", "label": 3, "family": "git merge", "split": "extra"}
+{"id": "risk-0702", "task": "risk", "input": "git merge --abort", "label": 3, "family": "git merge", "split": "extra"}
+{"id": "risk-0703", "task": "risk", "input": "git revert HEAD", "label": 3, "family": "git revert", "split": "extra"}
+{"id": "risk-0704", "task": "risk", "input": "git revert abc123 --no-edit", "label": 3, "family": "git revert", "split": "extra"}
+{"id": "risk-0705", "task": "risk", "input": "git branch -d old-topic", "label": 1, "family": "git branch", "split": "extra"}
+{"id": "risk-0706", "task": "risk", "input": "git branch -D scratch", "label": 1, "family": "git branch", "split": "extra"}
+{"id": "risk-0707", "task": "risk", "input": "git branch -a", "label": 1, "family": "git branch", "split": "extra"}
+{"id": "risk-0708", "task": "risk", "input": "git branch -m new-name", "label": 1, "family": "git branch", "split": "extra"}
+{"id": "risk-0709", "task": "risk", "input": "git remote -v", "label": 1, "family": "git remote", "split": "extra"}
+{"id": "risk-0710", "task": "risk", "input": "git remote add upstream https://github.com/a/b.git", "label": 1, "family": "git remote", "split": "extra"}
+{"id": "risk-0711", "task": "risk", "input": "git remote remove origin", "label": 1, "family": "git remote", "split": "extra"}
+{"id": "risk-0712", "task": "risk", "input": "git config user.name", "label": 1, "family": "git config", "split": "extra"}
+{"id": "risk-0713", "task": "risk", "input": "git config --global user.email me@x.io", "label": 1, "family": "git config", "split": "extra"}
+{"id": "risk-0714", "task": "risk", "input": "git config --list", "label": 1, "family": "git config", "split": "extra"}
+{"id": "risk-0715", "task": "risk", "input": "git blame src/app.py", "label": 1, "family": "git blame", "split": "extra"}
+{"id": "risk-0716", "task": "risk", "input": "git blame -L 10,20 lib/util.go", "label": 1, "family": "git blame", "split": "extra"}
+{"id": "risk-0717", "task": "risk", "input": "docker build -t app .", "label": 3, "family": "docker build", "split": "extra"}
+{"id": "risk-0718", "task": "risk", "input": "docker build --no-cache -t app:dev .", "label": 3, "family": "docker build", "split": "extra"}
+{"id": "risk-0719", "task": "risk", "input": "docker run --rm -it ubuntu bash", "label": 3, "family": "docker run", "split": "extra"}
+{"id": "risk-0720", "task": "risk", "input": "docker run -d -p 8080:80 nginx", "label": 3, "family": "docker run", "split": "extra"}
+{"id": "risk-0721", "task": "risk", "input": "docker run -v /:/host alpine rm -rf /host/tmp", "label": 3, "family": "docker run", "split": "extra"}
+{"id": "risk-0722", "task": "risk", "input": "docker rm old_container", "label": 3, "family": "docker rm", "split": "extra"}
+{"id": "risk-0723", "task": "risk", "input": "docker rm -f $(docker ps -aq)", "label": 3, "family": "docker rm", "split": "extra"}
+{"id": "risk-0724", "task": "risk", "input": "docker system prune -af", "label": 3, "family": "docker system", "split": "extra"}
+{"id": "risk-0725", "task": "risk", "input": "docker system df", "label": 3, "family": "docker system", "split": "extra"}
+{"id": "risk-0726", "task": "risk", "input": "docker compose up -d", "label": 3, "family": "docker compose", "split": "extra"}
+{"id": "risk-0727", "task": "risk", "input": "docker compose down -v", "label": 3, "family": "docker compose", "split": "extra"}
+{"id": "risk-0728", "task": "risk", "input": "docker compose logs web", "label": 3, "family": "docker compose", "split": "extra"}
+{"id": "risk-0729", "task": "risk", "input": "kubectl delete pod web-1", "label": 4, "family": "kubectl delete", "split": "extra"}
+{"id": "risk-0730", "task": "risk", "input": "kubectl delete -f deploy.yaml", "label": 4, "family": "kubectl delete", "split": "extra"}
+{"id": "risk-0731", "task": "risk", "input": "kubectl delete namespace prod", "label": 4, "family": "kubectl delete", "split": "extra"}
+{"id": "risk-0732", "task": "risk", "input": "kubectl logs web-1", "label": 4, "family": "kubectl logs", "split": "extra"}
+{"id": "risk-0733", "task": "risk", "input": "kubectl logs -f deploy/api", "label": 4, "family": "kubectl logs", "split": "extra"}
+{"id": "risk-0734", "task": "risk", "input": "kubectl exec -it web-1 -- sh", "label": 4, "family": "kubectl exec", "split": "extra"}
+{"id": "risk-0735", "task": "risk", "input": "kubectl exec web-1 -- ls /app", "label": 4, "family": "kubectl exec", "split": "extra"}
+{"id": "risk-0736", "task": "risk", "input": "terraform destroy", "label": 4, "family": "terraform destroy", "split": "extra"}
+{"id": "risk-0737", "task": "risk", "input": "terraform destroy -auto-approve", "label": 4, "family": "terraform destroy", "split": "extra"}
+{"id": "risk-0738", "task": "risk", "input": "terraform init", "label": 1, "family": "terraform init", "split": "extra"}
+{"id": "risk-0739", "task": "risk", "input": "terraform validate", "label": 1, "family": "terraform validate", "split": "extra"}
+{"id": "risk-0740", "task": "risk", "input": "terraform fmt", "label": 1, "family": "terraform fmt", "split": "extra"}
+{"id": "risk-0741", "task": "risk", "input": "aws ec2 describe-instances", "label": 1, "family": "aws ec2", "split": "extra"}
+{"id": "risk-0742", "task": "risk", "input": "aws ec2 terminate-instances --instance-ids i-0abc", "label": 1, "family": "aws ec2", "split": "extra"}
+{"id": "risk-0743", "task": "risk", "input": "aws ec2 run-instances --image-id ami-1", "label": 1, "family": "aws ec2", "split": "extra"}
+{"id": "risk-0744", "task": "risk", "input": "gcloud compute instances list", "label": 1, "family": "gcloud compute", "split": "extra"}
+{"id": "risk-0745", "task": "risk", "input": "gcloud compute instances delete vm1", "label": 1, "family": "gcloud compute", "split": "extra"}
+{"id": "risk-0746", "task": "risk", "input": "gcloud compute ssh vm1", "label": 1, "family": "gcloud compute", "split": "extra"}
+{"id": "risk-0747", "task": "risk", "input": "npm uninstall left-pad", "label": 2, "family": "npm uninstall", "split": "extra"}
+{"id": "risk-0748", "task": "risk", "input": "npm remove zod", "label": 2, "family": "npm remove", "split": "extra"}
+{"id": "risk-0749", "task": "risk", "input": "npm audit", "label": 1, "family": "npm audit", "split": "extra"}
+{"id": "risk-0750", "task": "risk", "input": "npm audit fix", "label": 1, "family": "npm audit", "split": "extra"}
+{"id": "risk-0751", "task": "risk", "input": "npm outdated", "label": 1, "family": "npm outdated", "split": "extra"}
+{"id": "risk-0752", "task": "risk", "input": "pip freeze", "label": 1, "family": "pip freeze", "split": "extra"}
+{"id": "risk-0753", "task": "risk", "input": "pip list", "label": 1, "family": "pip list", "split": "extra"}
+{"id": "risk-0754", "task": "risk", "input": "pip show requests", "label": 1, "family": "pip show", "split": "extra"}
+{"id": "risk-0755", "task": "risk", "input": "cargo clean", "label": 1, "family": "cargo clean", "split": "extra"}
+{"id": "risk-0756", "task": "risk", "input": "cargo update", "label": 2, "family": "cargo update", "split": "extra"}
+{"id": "risk-0757", "task": "risk", "input": "cargo fmt", "label": 1, "family": "cargo fmt", "split": "extra"}
+{"id": "risk-0758", "task": "risk", "input": "make clean", "label": 1, "family": "make clean", "split": "extra"}
+{"id": "risk-0759", "task": "risk", "input": "make install", "label": 1, "family": "make install", "split": "extra"}
+{"id": "risk-0760", "task": "risk", "input": "make -n", "label": 1, "family": "make -n", "split": "extra"}
+{"id": "risk-0761", "task": "risk", "input": "tar -xzf backup.tgz", "label": 1, "family": "tar -xzf", "split": "extra"}
+{"id": "risk-0762", "task": "risk", "input": "tar -czf out.tgz src/", "label": 1, "family": "tar -czf", "split": "extra"}
+{"id": "risk-0763", "task": "risk", "input": "tar -tf backup.tgz", "label": 1, "family": "tar -tf", "split": "extra"}
+{"id": "risk-0764", "task": "risk", "input": "unzip data.zip", "label": 1, "family": "unzip data.zip", "split": "extra"}
+{"id": "risk-0765", "task": "risk", "input": "unzip -l data.zip", "label": 1, "family": "unzip -l", "split": "extra"}
+{"id": "risk-0766", "task": "risk", "input": "scp file.txt user@host:/tmp/", "label": 1, "family": "scp file.txt", "split": "extra"}
+{"id": "risk-0767", "task": "risk", "input": "scp user@host:/var/log/app.log .", "label": 1, "family": "scp user@host:/var/log/app.log", "split": "extra"}
+{"id": "risk-0768", "task": "risk", "input": "rsync -av src/ backup/", "label": 1, "family": "rsync -av", "split": "extra"}
+{"id": "risk-0769", "task": "risk", "input": "rsync -av --delete src/ backup/", "label": 1, "family": "rsync -av", "split": "extra"}
+{"id": "risk-0770", "task": "risk", "input": "rsync -n -av a/ b/", "label": 1, "family": "rsync -n", "split": "extra"}
+{"id": "risk-0771", "task": "risk", "input": "ssh user@host", "label": 1, "family": "ssh user@host", "split": "extra"}
+{"id": "risk-0772", "task": "risk", "input": "ssh user@host 'rm -rf /var/www/old'", "label": 1, "family": "ssh user@host", "split": "extra"}
+{"id": "risk-0773", "task": "risk", "input": "ssh -T git@github.com", "label": 1, "family": "ssh -t", "split": "extra"}
+{"id": "risk-0774", "task": "risk", "input": "chmod -R 755 build", "label": 4, "family": "chmod -r", "split": "extra"}
+{"id": "risk-0775", "task": "risk", "input": "chmod -R 777 /", "label": 4, "family": "chmod -r", "split": "extra"}
+{"id": "risk-0776", "task": "risk", "input": "chmod 600 key.txt", "label": 4, "family": "chmod 600", "split": "extra"}
+{"id": "risk-0777", "task": "risk", "input": "truncate -s 0 app.log", "label": 1, "family": "truncate -s", "split": "extra"}
+{"id": "risk-0778", "task": "risk", "input": "truncate -s 10M big.bin", "label": 1, "family": "truncate -s", "split": "extra"}
+{"id": "risk-0779", "task": "risk", "input": "crontab -l", "label": 1, "family": "crontab -l", "split": "extra"}
+{"id": "risk-0780", "task": "risk", "input": "crontab -r", "label": 1, "family": "crontab -r", "split": "extra"}
+{"id": "risk-0781", "task": "risk", "input": "crontab -e", "label": 1, "family": "crontab -e", "split": "extra"}
+{"id": "risk-0782", "task": "risk", "input": "systemctl status nginx", "label": 4, "family": "systemctl status", "split": "extra"}
+{"id": "risk-0783", "task": "risk", "input": "systemctl stop nginx", "label": 4, "family": "systemctl stop", "split": "extra"}
+{"id": "risk-0784", "task": "risk", "input": "systemctl enable docker", "label": 4, "family": "systemctl enable", "split": "extra"}
+{"id": "risk-0785", "task": "risk", "input": "journalctl -u nginx", "label": 1, "family": "journalctl -u", "split": "extra"}
+{"id": "risk-0786", "task": "risk", "input": "journalctl -xe", "label": 1, "family": "journalctl -xe", "split": "extra"}
+{"id": "risk-0787", "task": "risk", "input": "journalctl --vacuum-time=1d", "label": 1, "family": "journalctl", "split": "extra"}
+{"id": "risk-0788", "task": "risk", "input": "df -h", "label": 1, "family": "df -h", "split": "extra"}
+{"id": "risk-0789", "task": "risk", "input": "du -sh *", "label": 1, "family": "du -sh", "split": "extra"}
+{"id": "risk-0790", "task": "risk", "input": "uname -a", "label": 0, "family": "uname -a", "split": "extra"}
+{"id": "risk-0791", "task": "risk", "input": "ps aux", "label": 1, "family": "ps aux", "split": "extra"}
+{"id": "risk-0792", "task": "risk", "input": "top -l 1", "label": 1, "family": "top -l", "split": "extra"}
+{"id": "risk-0793", "task": "risk", "input": "uptime", "label": 1, "family": "uptime", "split": "extra"}
+{"id": "risk-0794", "task": "risk", "input": "redis-cli flushall", "label": 2, "family": "redis-cli flushall", "split": "extra"}
+{"id": "risk-0795", "task": "risk", "input": "redis-cli keys '*'", "label": 2, "family": "redis-cli keys", "split": "extra"}
+{"id": "risk-0796", "task": "risk", "input": "redis-cli flushdb", "label": 2, "family": "redis-cli flushdb", "split": "extra"}
+{"id": "risk-0797", "task": "risk", "input": "mongosh --eval 'db.dropDatabase()'", "label": 2, "family": "mongosh --eval", "split": "extra"}
+{"id": "risk-0798", "task": "risk", "input": "mongosh --eval 'db.users.find()'", "label": 2, "family": "mongosh --eval", "split": "extra"}
+{"id": "risk-0799", "task": "risk", "input": "yarn remove lodash", "label": 2, "family": "yarn remove", "split": "extra"}
+{"id": "risk-0800", "task": "risk", "input": "yarn upgrade", "label": 2, "family": "yarn upgrade", "split": "extra"}
+{"id": "risk-0801", "task": "risk", "input": "yarn why react", "label": 1, "family": "yarn why", "split": "extra"}
+{"id": "risk-0802", "task": "risk", "input": "brew uninstall jq", "label": 2, "family": "brew uninstall", "split": "extra"}
+{"id": "risk-0803", "task": "risk", "input": "brew update", "label": 1, "family": "brew update", "split": "extra"}
+{"id": "risk-0804", "task": "risk", "input": "brew list", "label": 1, "family": "brew list", "split": "extra"}
+{"id": "risk-0805", "task": "risk", "input": "git merge-base main dev", "label": 1, "family": "git merge-base", "split": "test2"}
+{"id": "risk-0806", "task": "risk", "input": "git merge-base --is-ancestor a b", "label": 1, "family": "git merge-base", "split": "test2"}
+{"id": "risk-0807", "task": "risk", "input": "git reflog", "label": 1, "family": "git reflog", "split": "test2"}
+{"id": "risk-0808", "task": "risk", "input": "git reflog expire --expire=now --all", "label": 1, "family": "git reflog", "split": "test2"}
+{"id": "risk-0809", "task": "risk", "input": "git filter-branch --tree-filter 'rm -f secrets' HEAD", "label": 1, "family": "git filter-branch", "split": "test2"}
+{"id": "risk-0810", "task": "risk", "input": "git submodule update --init", "label": 1, "family": "git submodule", "split": "test2"}
+{"id": "risk-0811", "task": "risk", "input": "git submodule status", "label": 1, "family": "git submodule", "split": "test2"}
+{"id": "risk-0812", "task": "risk", "input": "git submodule deinit -f lib", "label": 1, "family": "git submodule", "split": "test2"}
+{"id": "risk-0813", "task": "risk", "input": "git describe --tags", "label": 1, "family": "git describe", "split": "test2"}
+{"id": "risk-0814", "task": "risk", "input": "git rev-parse HEAD", "label": 1, "family": "git rev-parse", "split": "test2"}
+{"id": "risk-0815", "task": "risk", "input": "git ls-files", "label": 1, "family": "git ls-files", "split": "test2"}
+{"id": "risk-0816", "task": "risk", "input": "git shortlog -sn", "label": 1, "family": "git shortlog", "split": "test2"}
+{"id": "risk-0817", "task": "risk", "input": "docker exec -it web sh", "label": 3, "family": "docker exec", "split": "test2"}
+{"id": "risk-0818", "task": "risk", "input": "docker exec web ls /app", "label": 3, "family": "docker exec", "split": "test2"}
+{"id": "risk-0819", "task": "risk", "input": "docker exec db pg_dump x", "label": 3, "family": "docker exec", "split": "test2"}
+{"id": "risk-0820", "task": "risk", "input": "docker rmi app:old", "label": 3, "family": "docker rmi", "split": "test2"}
+{"id": "risk-0821", "task": "risk", "input": "docker rmi -f $(docker images -q)", "label": 3, "family": "docker rmi", "split": "test2"}
+{"id": "risk-0822", "task": "risk", "input": "docker pull nginx", "label": 3, "family": "docker pull", "split": "test2"}
+{"id": "risk-0823", "task": "risk", "input": "docker pull ghcr.io/a/b:latest", "label": 3, "family": "docker pull", "split": "test2"}
+{"id": "risk-0824", "task": "risk", "input": "docker volume ls", "label": 3, "family": "docker volume", "split": "test2"}
+{"id": "risk-0825", "task": "risk", "input": "docker volume rm data", "label": 3, "family": "docker volume", "split": "test2"}
+{"id": "risk-0826", "task": "risk", "input": "docker volume prune -f", "label": 3, "family": "docker volume", "split": "test2"}
+{"id": "risk-0827", "task": "risk", "input": "kubectl rollout status deploy/api", "label": 4, "family": "kubectl rollout", "split": "test2"}
+{"id": "risk-0828", "task": "risk", "input": "kubectl rollout undo deploy/api", "label": 4, "family": "kubectl rollout", "split": "test2"}
+{"id": "risk-0829", "task": "risk", "input": "kubectl rollout restart deploy/web", "label": 4, "family": "kubectl rollout", "split": "test2"}
+{"id": "risk-0830", "task": "risk", "input": "kubectl describe pod web-1", "label": 4, "family": "kubectl describe", "split": "test2"}
+{"id": "risk-0831", "task": "risk", "input": "kubectl top nodes", "label": 4, "family": "kubectl top", "split": "test2"}
+{"id": "risk-0832", "task": "risk", "input": "kubectl config current-context", "label": 4, "family": "kubectl config", "split": "test2"}
+{"id": "risk-0833", "task": "risk", "input": "helm install app ./chart", "label": 4, "family": "helm install", "split": "test2"}
+{"id": "risk-0834", "task": "risk", "input": "helm uninstall app", "label": 4, "family": "helm uninstall", "split": "test2"}
+{"id": "risk-0835", "task": "risk", "input": "helm list", "label": 1, "family": "helm list", "split": "test2"}
+{"id": "risk-0836", "task": "risk", "input": "terraform state list", "label": 1, "family": "terraform state", "split": "test2"}
+{"id": "risk-0837", "task": "risk", "input": "terraform state rm aws_instance.x", "label": 3, "family": "terraform state", "split": "test2"}
+{"id": "risk-0838", "task": "risk", "input": "terraform show", "label": 1, "family": "terraform show", "split": "test2"}
+{"id": "risk-0839", "task": "risk", "input": "terraform import aws_s3_bucket.b my-bucket", "label": 1, "family": "terraform import", "split": "test2"}
+{"id": "risk-0840", "task": "risk", "input": "terraform output", "label": 1, "family": "terraform output", "split": "test2"}
+{"id": "risk-0841", "task": "risk", "input": "aws iam list-users", "label": 1, "family": "aws iam", "split": "test2"}
+{"id": "risk-0842", "task": "risk", "input": "aws iam delete-user --user-name bob", "label": 1, "family": "aws iam", "split": "test2"}
+{"id": "risk-0843", "task": "risk", "input": "aws iam create-access-key --user-name bob", "label": 1, "family": "aws iam", "split": "test2"}
+{"id": "risk-0844", "task": "risk", "input": "gcloud projects list", "label": 1, "family": "gcloud projects", "split": "test2"}
+{"id": "risk-0845", "task": "risk", "input": "gcloud projects delete my-proj", "label": 1, "family": "gcloud projects", "split": "test2"}
+{"id": "risk-0846", "task": "risk", "input": "gcloud config list", "label": 1, "family": "gcloud config", "split": "test2"}
+{"id": "risk-0847", "task": "risk", "input": "az vm list", "label": 1, "family": "az vm", "split": "test2"}
+{"id": "risk-0848", "task": "risk", "input": "az vm delete -n vm1 -g rg", "label": 1, "family": "az vm", "split": "test2"}
+{"id": "risk-0849", "task": "risk", "input": "az vm start -n vm1 -g rg", "label": 1, "family": "az vm", "split": "test2"}
+{"id": "risk-0850", "task": "risk", "input": "npm link", "label": 1, "family": "npm link", "split": "test2"}
+{"id": "risk-0851", "task": "risk", "input": "npm unlink pkg", "label": 1, "family": "npm unlink", "split": "test2"}
+{"id": "risk-0852", "task": "risk", "input": "npm pack", "label": 1, "family": "npm pack", "split": "test2"}
+{"id": "risk-0853", "task": "risk", "input": "pnpm install", "label": 2, "family": "pnpm install", "split": "test2"}
+{"id": "risk-0854", "task": "risk", "input": "pnpm install --frozen-lockfile", "label": 2, "family": "pnpm install", "split": "test2"}
+{"id": "risk-0855", "task": "risk", "input": "pip download requests", "label": 1, "family": "pip download", "split": "test2"}
+{"id": "risk-0856", "task": "risk", "input": "pip wheel .", "label": 1, "family": "pip wheel", "split": "test2"}
+{"id": "risk-0857", "task": "risk", "input": "go mod tidy", "label": 1, "family": "go mod", "split": "test2"}
+{"id": "risk-0858", "task": "risk", "input": "go mod download", "label": 1, "family": "go mod", "split": "test2"}
+{"id": "risk-0859", "task": "risk", "input": "go mod vendor", "label": 1, "family": "go mod", "split": "test2"}
+{"id": "risk-0860", "task": "risk", "input": "go run main.go", "label": 1, "family": "go run", "split": "test2"}
+{"id": "risk-0861", "task": "risk", "input": "go vet ./...", "label": 1, "family": "go vet", "split": "test2"}
+{"id": "risk-0862", "task": "risk", "input": "go fmt ./...", "label": 1, "family": "go fmt", "split": "test2"}
+{"id": "risk-0863", "task": "risk", "input": "cargo run", "label": 1, "family": "cargo run", "split": "test2"}
+{"id": "risk-0864", "task": "risk", "input": "cargo run --release", "label": 1, "family": "cargo run", "split": "test2"}
+{"id": "risk-0865", "task": "risk", "input": "cargo bench", "label": 1, "family": "cargo bench", "split": "test2"}
+{"id": "risk-0866", "task": "risk", "input": "swift build", "label": 1, "family": "swift build", "split": "test2"}
+{"id": "risk-0867", "task": "risk", "input": "swift test", "label": 1, "family": "swift test", "split": "test2"}
+{"id": "risk-0868", "task": "risk", "input": "swift package update", "label": 1, "family": "swift package", "split": "test2"}
+{"id": "risk-0869", "task": "risk", "input": "xcodebuild -scheme App build", "label": 1, "family": "xcodebuild -scheme", "split": "test2"}
+{"id": "risk-0870", "task": "risk", "input": "xcodebuild -scheme App test", "label": 1, "family": "xcodebuild -scheme", "split": "test2"}
+{"id": "risk-0871", "task": "risk", "input": "xcodebuild clean", "label": 1, "family": "xcodebuild clean", "split": "test2"}
+{"id": "risk-0872", "task": "risk", "input": "mvn clean install", "label": 1, "family": "mvn clean", "split": "test2"}
+{"id": "risk-0873", "task": "risk", "input": "mvn test", "label": 1, "family": "mvn test", "split": "test2"}
+{"id": "risk-0874", "task": "risk", "input": "mvn deploy", "label": 1, "family": "mvn deploy", "split": "test2"}
+{"id": "risk-0875", "task": "risk", "input": "gradle build", "label": 1, "family": "gradle build", "split": "test2"}
+{"id": "risk-0876", "task": "risk", "input": "gradle clean", "label": 1, "family": "gradle clean", "split": "test2"}
+{"id": "risk-0877", "task": "risk", "input": "./gradlew publish", "label": 1, "family": "./gradlew publish", "split": "test2"}
+{"id": "risk-0878", "task": "risk", "input": "rm -r old_dir", "label": 4, "family": "rm -r", "split": "test2"}
+{"id": "risk-0879", "task": "risk", "input": "rm -f *.log", "label": 4, "family": "rm -f", "split": "test2"}
+{"id": "risk-0880", "task": "risk", "input": "mv old new", "label": 3, "family": "mv old", "split": "test2"}
+{"id": "risk-0881", "task": "risk", "input": "mv *.txt archive/", "label": 3, "family": "mv *.txt", "split": "test2"}
+{"id": "risk-0882", "task": "risk", "input": "mv /etc/hosts /tmp/", "label": 3, "family": "mv /etc/hosts", "split": "test2"}
+{"id": "risk-0883", "task": "risk", "input": "cp -r src dst", "label": 1, "family": "cp -r", "split": "test2"}
+{"id": "risk-0884", "task": "risk", "input": "cp .env .env.bak", "label": 1, "family": "cp .env", "split": "test2"}
+{"id": "risk-0885", "task": "risk", "input": "cp -a /var/lib/db /backup/", "label": 1, "family": "cp -a", "split": "test2"}
+{"id": "risk-0886", "task": "risk", "input": "mkdir build", "label": 1, "family": "mkdir build", "split": "test2"}
+{"id": "risk-0887", "task": "risk", "input": "sed -i.bak 's/x/y/' /etc/hosts", "label": 1, "family": "sed -i.bak", "split": "test2"}
+{"id": "risk-0888", "task": "risk", "input": "curl -sS https://example.com/health", "label": 2, "family": "curl -ss", "split": "test2"}
+{"id": "risk-0889", "task": "risk", "input": "nc -l 9000", "label": 1, "family": "nc -l", "split": "test2"}
+{"id": "risk-0890", "task": "risk", "input": "nc -zv host 22", "label": 1, "family": "nc -zv", "split": "test2"}
+{"id": "risk-0891", "task": "risk", "input": "telnet host 25", "label": 1, "family": "telnet host", "split": "test2"}
+{"id": "risk-0892", "task": "risk", "input": "sudo reboot", "label": 4, "family": "reboot", "split": "test2"}
+{"id": "risk-0893", "task": "risk", "input": "sudo shutdown -h now", "label": 4, "family": "shutdown -h", "split": "test2"}
+{"id": "risk-0894", "task": "risk", "input": "launchctl unload ~/Library/LaunchAgents/x.plist", "label": 4, "family": "launchctl unload", "split": "test2"}
+{"id": "risk-0895", "task": "risk", "input": "launchctl list", "label": 4, "family": "launchctl list", "split": "test2"}
+{"id": "risk-0896", "task": "risk", "input": "defaults write com.app key -bool true", "label": 1, "family": "defaults write", "split": "test2"}
+{"id": "risk-0897", "task": "risk", "input": "defaults read com.app", "label": 1, "family": "defaults read", "split": "test2"}
+{"id": "risk-0898", "task": "risk", "input": "osascript -e 'tell app \"Finder\" to empty trash'", "label": 1, "family": "osascript -e", "split": "test2"}
+{"id": "risk-0899", "task": "risk", "input": "osascript -e 'display dialog \"hi\"'", "label": 1, "family": "osascript -e", "split": "test2"}
+{"id": "risk-0900", "task": "risk", "input": "security find-generic-password -s svc -w", "label": 1, "family": "security find-generic-password", "split": "test2"}
+{"id": "risk-0901", "task": "risk", "input": "security delete-generic-password -s svc", "label": 1, "family": "security delete-generic-password", "split": "test2"}
+{"id": "risk-0902", "task": "risk", "input": "gpg --decrypt secret.gpg", "label": 1, "family": "gpg --decrypt", "split": "test2"}
+{"id": "risk-0903", "task": "risk", "input": "gpg --list-keys", "label": 1, "family": "gpg --list-keys", "split": "test2"}
+{"id": "risk-0904", "task": "risk", "input": "gpg --delete-secret-keys me", "label": 1, "family": "gpg --delete-secret-keys", "split": "test2"}
+{"id": "risk-0905", "task": "risk", "input": "openssl enc -d -aes-256-cbc -in f", "label": 1, "family": "openssl enc", "split": "test2"}
+{"id": "risk-0906", "task": "risk", "input": "openssl x509 -in cert.pem -text", "label": 1, "family": "openssl x509", "split": "test2"}
+{"id": "risk-0907", "task": "risk", "input": "openssl genrsa -out key.pem 2048", "label": 1, "family": "openssl genrsa", "split": "test2"}
+{"id": "risk-0908", "task": "risk", "input": "jq -r '.name' package.json", "label": 1, "family": "jq -r", "split": "test2"}
+{"id": "risk-0909", "task": "risk", "input": "sort data.txt | uniq -c", "label": 1, "family": "sort data.txt", "split": "test2"}
+{"id": "risk-0910", "task": "risk", "input": "diff a.txt b.txt", "label": 1, "family": "diff a.txt", "split": "test2"}
+{"id": "risk-0911", "task": "risk", "input": "ls | xargs -n1 echo", "label": 1, "family": "ls |", "split": "test2"}
