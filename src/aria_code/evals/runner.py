@@ -164,6 +164,11 @@ def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = Fal
             # python with no pytest, reports "No module named pytest", and the model
             # spends its budget trying to install it.
             env = {**os.environ, "PATH": os.pathsep.join([str(Path(sys.executable).parent), os.environ.get("PATH", "")])}
+            # The agent reports the tokens it used here, outside the workspace so the
+            # file is never mistaken for a change the agent made.
+            usage_file = workspace.parent / f".usage-{workspace.name}.json"
+            usage_file.unlink(missing_ok=True)
+            env["ARIA_USAGE_FILE"] = str(usage_file)
             if trajectories is not None or events or runtime == "native":
                 if trajectories is not None or events:
                     env["ARIA_EVENTS_FULL"] = "1"
@@ -184,6 +189,7 @@ def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = Fal
             )
             if trajectories is not None:
                 trajectories.record(workspace.name, prompt, done.stdout)
+            done.usage = _read_usage(usage_file)
             return done
         except subprocess.TimeoutExpired as exc:
             # A truncated run is not a measured failure.
@@ -202,9 +208,22 @@ def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = Fal
             stdout, stderr = _text(exc.stdout), _text(exc.stderr)
             if trajectories is not None:
                 trajectories.record(workspace.name, prompt, stdout)
-            return _TimedOut(timeout, stdout, stderr)
+            timed_out = _TimedOut(timeout, stdout, stderr)
+            timed_out.usage = _read_usage(workspace.parent / f".usage-{workspace.name}.json")
+            return timed_out
 
     return _solve
+
+
+def _read_usage(path: Path) -> dict:
+    """What the agent wrote to ARIA_USAGE_FILE, or {} when it wrote nothing."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    finally:
+        path.unlink(missing_ok=True)
+    return data if isinstance(data, dict) else {}
 
 
 def _print_result(result: TaskResult) -> None:
