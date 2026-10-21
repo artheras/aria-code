@@ -355,7 +355,7 @@ async def _classify_mlx(message: str, *, timeout: float = _MLX_TIMEOUT) -> Optio
         "messages": [{"role": "system", "content": _PRELUDE_SYSTEM}, {"role": "user", "content": message}],
     }
     try:
-        async with aiohttp.ClientSession(trust_env=False) as sess:
+        async with aiohttp.ClientSession(trust_env=True) as sess:
             async with sess.post(base + "/v1/chat/completions", json=payload,
                                  timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
                 if resp.status != 200:
