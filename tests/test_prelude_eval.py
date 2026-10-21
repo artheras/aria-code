@@ -57,3 +57,12 @@ def test_the_checkpoint_is_chosen_by_validation_loss_alone():
     losses = T.validation_losses(log)
     assert losses == {100: 0.42, 200: 0.17, 300: 0.25}
     assert min(losses, key=losses.get) == 200
+
+
+def test_intent_training_never_reads_the_test_split():
+    from aria_code.training import prelude_train as T
+
+    test = {r["input"] for r in P.load("intent") if r["split"] == "test"}
+    train, valid, _ = T.build_intent_data()
+    used = {x["messages"][1]["content"] for x in train + valid}
+    assert used and not used & test

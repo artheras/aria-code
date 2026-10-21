@@ -2,7 +2,7 @@
 
 Reproduces the experiment end to end from files in this repository:
 
-    python -m aria_code.training.prelude_train data  --out DIR
+    python -m aria_code.training.prelude_train data  --out DIR [--task intent]
     python -m aria_code.training.prelude_train train --data DIR --adapter DIR/adapter
     python -m aria_code.training.prelude_train pick  --log DIR/train.log --adapter DIR/adapter
     python -m aria_code.training.prelude_train eval  --adapter DIR/adapter
@@ -66,8 +66,8 @@ def vary(command: str, rng: random.Random) -> str:
     return " ".join(tokens)
 
 
-def record(command: str, level: int) -> dict:
-    return {"messages": [{"role": "system", "content": P.RISK_SYSTEM}, {"role": "user", "content": command},
+def record(command: str, level, system: str = P.RISK_SYSTEM) -> dict:
+    return {"messages": [{"role": "system", "content": system}, {"role": "user", "content": command},
                          {"role": "assistant", "content": str(level)}]}
 
 
@@ -116,8 +116,25 @@ def build_training_data() -> Tuple[List[dict], List[dict], dict]:
     return train, valid, {"distinct": len(distinct), "train_lines": len(train), "validation_lines": len(valid)}
 
 
-def write_data(out: Path) -> dict:
-    train, valid, facts = build_training_data()
+def build_intent_data() -> Tuple[List[dict], List[dict], dict]:
+    """Train and validation records for intent routing, from the ``dev`` split only.
+
+    Messages are hand-written and independent, so each is its own family. A fixed share of
+    ``dev`` is held back for choosing a checkpoint; ``test`` is never read here.
+    """
+    rng = random.Random(SEED)
+    rows = [r for r in P.load("intent") if r["split"] == "dev"]
+    train, valid = [], []
+    for r in rows:
+        (valid if is_validation(r["input"]) else train).append(record(r["input"], r["label"], P.INTENT_SYSTEM))
+    # A short run over ~150 messages underfits; repeat so the step count means something.
+    train = train * 4
+    rng.shuffle(train)
+    return train, valid, {"distinct": len(rows), "train_lines": len(train), "validation_lines": len(valid)}
+
+
+def write_data(out: Path, task: str = "risk") -> dict:
+    train, valid, facts = build_intent_data() if task == "intent" else build_training_data()
     out.mkdir(parents=True, exist_ok=True)
     for name, data in (("train", train), ("valid", valid)):
         (out / f"{name}.jsonl").write_text("".join(json.dumps(x, ensure_ascii=False) + "\n" for x in data),
@@ -168,18 +185,19 @@ def pick(log: Path, adapter: Path) -> int:
     return 0
 
 
-def evaluate(adapter: Optional[Path], model: Optional[str]) -> dict:
+def evaluate(adapter: Optional[Path], model: Optional[str], task: str = "risk") -> dict:
     from mlx_lm import generate, load
 
     network, tokenizer = load(base_model(model), adapter_path=str(adapter) if adapter else None)
-    rows = P.load("risk")
+    rows = P.load(task)
+    system = P.RISK_SYSTEM if task == "risk" else P.INTENT_SYSTEM
     predictions = {}
     for row in rows:
         prompt = tokenizer.apply_chat_template(
-            [{"role": "system", "content": P.RISK_SYSTEM}, {"role": "user", "content": row["input"]}],
+            [{"role": "system", "content": system}, {"role": "user", "content": row["input"]}],
             add_generation_prompt=True, tokenize=False)
-        predictions[row["id"]] = P.parse_prediction("risk", generate(network, tokenizer, prompt=prompt, max_tokens=4))
-    report = P.score("risk", rows, predictions)
+        predictions[row["id"]] = P.parse_prediction(task, generate(network, tokenizer, prompt=prompt, max_tokens=6))
+    report = P.score(task, rows, predictions)
     report.pop("confusion", None)
     return {"adapter": str(adapter) if adapter else None, **report}
 
@@ -189,6 +207,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     d = sub.add_parser("data")
     d.add_argument("--out", required=True)
+    d.add_argument("--task", choices=("risk", "intent"), default="risk")
     t = sub.add_parser("train")
     t.add_argument("--data", required=True)
     t.add_argument("--adapter", required=True)
@@ -200,17 +219,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     k.add_argument("--log", required=True)
     k.add_argument("--adapter", required=True)
     e = sub.add_parser("eval")
+    e.add_argument("--task", choices=("risk", "intent"), default="risk")
     e.add_argument("--adapter")
     e.add_argument("--model")
     args = parser.parse_args(argv)
     if args.command == "data":
-        print(json.dumps(write_data(Path(args.out))))
+        print(json.dumps(write_data(Path(args.out), args.task)))
         return 0
     if args.command == "train":
         return train(Path(args.data), Path(args.adapter), args.model, args.iters, args.rate, args.layers)
     if args.command == "pick":
         return pick(Path(args.log), Path(args.adapter))
-    print(json.dumps(evaluate(Path(args.adapter) if args.adapter else None, args.model), ensure_ascii=False, indent=2))
+    print(json.dumps(evaluate(Path(args.adapter) if args.adapter else None, args.model, args.task),
+                     ensure_ascii=False, indent=2))
     return 0
 
 

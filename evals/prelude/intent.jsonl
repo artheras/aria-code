@@ -18,83 +18,234 @@
 {"id": "intent-0017", "task": "intent", "input": "我的 Dockerfile 构建失败了，帮我看看", "label": "coding", "family": "我的 Dockerfile 构建失败了，帮我看看", "split": "dev"}
 {"id": "intent-0018", "task": "intent", "input": "write a Python function to compute max drawdown", "label": "coding", "family": "write a Python function to compute max drawdown", "split": "dev"}
 {"id": "intent-0019", "task": "intent", "input": "给我一个正则匹配中国手机号", "label": "coding", "family": "给我一个正则匹配中国手机号", "split": "test"}
-{"id": "intent-0020", "task": "intent", "input": "分析一下腾讯的基本面", "label": "analysis", "family": "分析一下腾讯的基本面", "split": "dev"}
-{"id": "intent-0021", "task": "intent", "input": "Do a technical analysis of NVDA: RSI, MACD and support levels", "label": "analysis", "family": "Do a technical analysis of NVDA: RSI, MACD and support levels", "split": "test"}
-{"id": "intent-0022", "task": "intent", "input": "苹果的估值贵不贵，用 PE 和 DCF 看看", "label": "analysis", "family": "苹果的估值贵不贵，用 PE 和 DCF 看看", "split": "dev"}
-{"id": "intent-0023", "task": "intent", "input": "compare AMD and Intel fundamentals", "label": "analysis", "family": "compare AMD and Intel fundamentals", "split": "test"}
-{"id": "intent-0024", "task": "intent", "input": "宁德时代最近走势怎么样，技术面如何", "label": "analysis", "family": "宁德时代最近走势怎么样，技术面如何", "split": "dev"}
-{"id": "intent-0025", "task": "intent", "input": "Is Tesla overvalued right now?", "label": "analysis", "family": "Is Tesla overvalued right now?", "split": "test"}
-{"id": "intent-0026", "task": "intent", "input": "帮我研判一下下周A股大盘", "label": "analysis", "family": "帮我研判一下下周A股大盘", "split": "dev"}
-{"id": "intent-0027", "task": "intent", "input": "analyze Microsoft's last earnings report", "label": "analysis", "family": "analyze Microsoft's last earnings report", "split": "dev"}
-{"id": "intent-0028", "task": "intent", "input": "比亚迪的护城河和风险有哪些", "label": "analysis", "family": "比亚迪的护城河和风险有哪些", "split": "test"}
-{"id": "intent-0029", "task": "intent", "input": "evaluate the outlook for semiconductor stocks", "label": "analysis", "family": "evaluate the outlook for semiconductor stocks", "split": "test"}
-{"id": "intent-0030", "task": "intent", "input": "茅台的财报怎么看", "label": "analysis", "family": "茅台的财报怎么看", "split": "test"}
-{"id": "intent-0031", "task": "intent", "input": "what do the moving averages say about SPY", "label": "analysis", "family": "what do the moving averages say about SPY", "split": "test"}
-{"id": "intent-0032", "task": "intent", "input": "对比一下招商银行和平安银行的基本面", "label": "analysis", "family": "对比一下招商银行和平安银行的基本面", "split": "dev"}
-{"id": "intent-0033", "task": "intent", "input": "Give me a fundamental analysis of Amazon", "label": "analysis", "family": "Give me a fundamental analysis of Amazon", "split": "test"}
-{"id": "intent-0034", "task": "intent", "input": "英伟达接下来一个季度的业绩预期怎么样", "label": "analysis", "family": "英伟达接下来一个季度的业绩预期怎么样", "split": "dev"}
-{"id": "intent-0035", "task": "intent", "input": "analyze the trend of the Hang Seng index", "label": "analysis", "family": "analyze the trend of the Hang Seng index", "split": "dev"}
-{"id": "intent-0036", "task": "intent", "input": "半导体板块还能买吗，帮我分析", "label": "analysis", "family": "半导体板块还能买吗，帮我分析", "split": "test"}
-{"id": "intent-0037", "task": "intent", "input": "break down Netflix's margins and growth", "label": "analysis", "family": "break down Netflix's margins and growth", "split": "dev"}
-{"id": "intent-0038", "task": "intent", "input": "中芯国际的技术面支撑位在哪", "label": "analysis", "family": "中芯国际的技术面支撑位在哪", "split": "dev"}
-{"id": "intent-0039", "task": "intent", "input": "assess the valuation of Alibaba vs JD", "label": "analysis", "family": "assess the valuation of Alibaba vs JD", "split": "dev"}
-{"id": "intent-0040", "task": "intent", "input": "AAPL 现在股价多少", "label": "realtime", "family": "AAPL 现在股价多少", "split": "test"}
-{"id": "intent-0041", "task": "intent", "input": "what is the price of Bitcoin right now", "label": "realtime", "family": "what is the price of Bitcoin right now", "split": "test"}
-{"id": "intent-0042", "task": "intent", "input": "今天上证指数多少点", "label": "realtime", "family": "今天上证指数多少点", "split": "dev"}
-{"id": "intent-0043", "task": "intent", "input": "current quote for TSLA", "label": "realtime", "family": "current quote for TSLA", "split": "dev"}
-{"id": "intent-0044", "task": "intent", "input": "茅台今天涨了多少", "label": "realtime", "family": "茅台今天涨了多少", "split": "dev"}
-{"id": "intent-0045", "task": "intent", "input": "latest EUR/USD rate", "label": "realtime", "family": "latest EUR/USD rate", "split": "dev"}
-{"id": "intent-0046", "task": "intent", "input": "现在黄金多少钱一盎司", "label": "realtime", "family": "现在黄金多少钱一盎司", "split": "dev"}
-{"id": "intent-0047", "task": "intent", "input": "what's NVDA trading at today", "label": "realtime", "family": "what's NVDA trading at today", "split": "test"}
-{"id": "intent-0048", "task": "intent", "input": "腾讯今日收盘价", "label": "realtime", "family": "腾讯今日收盘价", "split": "dev"}
-{"id": "intent-0049", "task": "intent", "input": "how much is the S&P 500 up today", "label": "realtime", "family": "how much is the S&P 500 up today", "split": "test"}
-{"id": "intent-0050", "task": "intent", "input": "宁德时代现在市值多少", "label": "realtime", "family": "宁德时代现在市值多少", "split": "dev"}
-{"id": "intent-0051", "task": "intent", "input": "quote for 0700.HK", "label": "realtime", "family": "quote for 0700.HK", "split": "dev"}
-{"id": "intent-0052", "task": "intent", "input": "今天纳斯达克涨跌幅", "label": "realtime", "family": "今天纳斯达克涨跌幅", "split": "dev"}
-{"id": "intent-0053", "task": "intent", "input": "current price of crude oil", "label": "realtime", "family": "current price of crude oil", "split": "dev"}
-{"id": "intent-0054", "task": "intent", "input": "比特币现在的价格", "label": "realtime", "family": "比特币现在的价格", "split": "dev"}
-{"id": "intent-0055", "task": "intent", "input": "what is the market cap of Apple now", "label": "realtime", "family": "what is the market cap of Apple now", "split": "dev"}
-{"id": "intent-0056", "task": "intent", "input": "美元兑人民币现在汇率是多少", "label": "realtime", "family": "美元兑人民币现在汇率是多少", "split": "dev"}
-{"id": "intent-0057", "task": "intent", "input": "AMZN latest quote", "label": "realtime", "family": "AMZN latest quote", "split": "dev"}
-{"id": "intent-0058", "task": "intent", "input": "今天恒生指数多少点", "label": "realtime", "family": "今天恒生指数多少点", "split": "dev"}
-{"id": "intent-0059", "task": "intent", "input": "price of gold today", "label": "realtime", "family": "price of gold today", "split": "dev"}
-{"id": "intent-0060", "task": "intent", "input": "你好", "label": "general", "family": "你好", "split": "dev"}
-{"id": "intent-0061", "task": "intent", "input": "什么是夏普比率", "label": "general", "family": "什么是夏普比率", "split": "dev"}
-{"id": "intent-0062", "task": "intent", "input": "explain the difference between REST and GraphQL", "label": "general", "family": "explain the difference between REST and GraphQL", "split": "test"}
-{"id": "intent-0063", "task": "intent", "input": "帮我写一份产品需求文档的大纲", "label": "general", "family": "帮我写一份产品需求文档的大纲", "split": "dev"}
-{"id": "intent-0064", "task": "intent", "input": "how should I structure the onboarding UX", "label": "general", "family": "how should I structure the onboarding UX", "split": "dev"}
-{"id": "intent-0065", "task": "intent", "input": "总结一下这段会议记录", "label": "general", "family": "总结一下这段会议记录", "split": "test"}
-{"id": "intent-0066", "task": "intent", "input": "what is a monad", "label": "general", "family": "what is a monad", "split": "test"}
-{"id": "intent-0067", "task": "intent", "input": "请给这个应用的信息架构提些建议", "label": "general", "family": "请给这个应用的信息架构提些建议", "split": "test"}
-{"id": "intent-0068", "task": "intent", "input": "translate this paragraph into English", "label": "general", "family": "translate this paragraph into English", "split": "dev"}
-{"id": "intent-0069", "task": "intent", "input": "如何理解边际效应递减", "label": "general", "family": "如何理解边际效应递减", "split": "test"}
-{"id": "intent-0070", "task": "intent", "input": "draft an email asking for a deadline extension", "label": "general", "family": "draft an email asking for a deadline extension", "split": "dev"}
-{"id": "intent-0071", "task": "intent", "input": "microservices vs monolith for a 3-person team?", "label": "general", "family": "microservices vs monolith for a 3-person team?", "split": "dev"}
-{"id": "intent-0072", "task": "intent", "input": "怎么提高团队的协作效率", "label": "general", "family": "怎么提高团队的协作效率", "split": "dev"}
-{"id": "intent-0073", "task": "intent", "input": "who wrote the Great Gatsby", "label": "general", "family": "who wrote the Great Gatsby", "split": "dev"}
-{"id": "intent-0074", "task": "intent", "input": "分析这个电商产品的用户流程和商业风险", "label": "general", "family": "分析这个电商产品的用户流程和商业风险", "split": "dev"}
-{"id": "intent-0075", "task": "intent", "input": "what's a good name for a note-taking app", "label": "general", "family": "what's a good name for a note-taking app", "split": "dev"}
-{"id": "intent-0076", "task": "intent", "input": "宏观角度怎么看加息周期", "label": "general", "family": "宏观角度怎么看加息周期", "split": "dev"}
-{"id": "intent-0077", "task": "intent", "input": "explain how compound interest works", "label": "general", "family": "explain how compound interest works", "split": "test"}
-{"id": "intent-0078", "task": "intent", "input": "给我讲讲 Rust 的所有权概念", "label": "general", "family": "给我讲讲 Rust 的所有权概念", "split": "dev"}
-{"id": "intent-0079", "task": "intent", "input": "write release-notes wording for a minor update", "label": "general", "family": "write release-notes wording for a minor update", "split": "dev"}
-{"id": "intent-0080", "task": "intent", "input": "我的投资组合风险偏高，怎么调整配置", "label": "finance", "family": "我的投资组合风险偏高，怎么调整配置", "split": "dev"}
-{"id": "intent-0081", "task": "intent", "input": "should I diversify my portfolio into bonds", "label": "finance", "family": "should I diversify my portfolio into bonds", "split": "dev"}
-{"id": "intent-0082", "task": "intent", "input": "怎么做资产配置，我有50万", "label": "finance", "family": "怎么做资产配置，我有50万", "split": "dev"}
-{"id": "intent-0083", "task": "intent", "input": "how do I hedge a concentrated stock position", "label": "finance", "family": "how do I hedge a concentrated stock position", "split": "dev"}
-{"id": "intent-0084", "task": "intent", "input": "定投和一次性买入哪个更好", "label": "finance", "family": "定投和一次性买入哪个更好", "split": "test"}
-{"id": "intent-0085", "task": "intent", "input": "what's a reasonable risk tolerance for a 30-year-old", "label": "finance", "family": "what's a reasonable risk tolerance for a 30-year-old", "split": "dev"}
-{"id": "intent-0086", "task": "intent", "input": "基金怎么选，指数基金还是主动基金", "label": "finance", "family": "基金怎么选，指数基金还是主动基金", "split": "test"}
-{"id": "intent-0087", "task": "intent", "input": "explain how to rebalance quarterly", "label": "finance", "family": "explain how to rebalance quarterly", "split": "test"}
-{"id": "intent-0088", "task": "intent", "input": "我想把一部分仓位换成防御型资产", "label": "finance", "family": "我想把一部分仓位换成防御型资产", "split": "dev"}
-{"id": "intent-0089", "task": "intent", "input": "is a 60/40 portfolio still sensible", "label": "finance", "family": "is a 60/40 portfolio still sensible", "split": "dev"}
-{"id": "intent-0090", "task": "intent", "input": "退休规划应该怎么做", "label": "finance", "family": "退休规划应该怎么做", "split": "test"}
-{"id": "intent-0091", "task": "intent", "input": "how much should I keep in cash as an emergency fund", "label": "finance", "family": "how much should I keep in cash as an emergency fund", "split": "dev"}
-{"id": "intent-0092", "task": "intent", "input": "我的持仓里科技股占比太高了怎么办", "label": "finance", "family": "我的持仓里科技股占比太高了怎么办", "split": "dev"}
-{"id": "intent-0093", "task": "intent", "input": "what's your view on dollar-cost averaging into crypto", "label": "finance", "family": "what's your view on dollar-cost averaging into crypto", "split": "dev"}
-{"id": "intent-0094", "task": "intent", "input": "如何控制组合的最大回撤", "label": "finance", "family": "如何控制组合的最大回撤", "split": "dev"}
-{"id": "intent-0095", "task": "intent", "input": "help me set a stop-loss policy for my portfolio", "label": "finance", "family": "help me set a stop-loss policy for my portfolio", "split": "dev"}
-{"id": "intent-0096", "task": "intent", "input": "债券和股票怎么配比比较稳健", "label": "finance", "family": "债券和股票怎么配比比较稳健", "split": "test"}
-{"id": "intent-0097", "task": "intent", "input": "tax-efficient ways to invest 100k", "label": "finance", "family": "tax-efficient ways to invest 100k", "split": "dev"}
-{"id": "intent-0098", "task": "intent", "input": "怎么评估自己的风险承受能力", "label": "finance", "family": "怎么评估自己的风险承受能力", "split": "dev"}
-{"id": "intent-0099", "task": "intent", "input": "should I hold more cash before a rate decision", "label": "finance", "family": "should I hold more cash before a rate decision", "split": "dev"}
+{"id": "intent-0020", "task": "intent", "input": "Write a unit test for the order matching function", "label": "coding", "family": "Write a unit test for the order matching function", "split": "dev"}
+{"id": "intent-0021", "task": "intent", "input": "把这个 SQL 查询优化一下", "label": "coding", "family": "把这个 SQL 查询优化一下", "split": "dev"}
+{"id": "intent-0022", "task": "intent", "input": "Explain what a closure is in JavaScript", "label": "coding", "family": "Explain what a closure is in JavaScript", "split": "test"}
+{"id": "intent-0023", "task": "intent", "input": "这段 Python 报 KeyError 怎么修", "label": "coding", "family": "这段 Python 报 KeyError 怎么修", "split": "dev"}
+{"id": "intent-0024", "task": "intent", "input": "set up a GitHub Actions workflow that runs pytest", "label": "coding", "family": "set up a GitHub Actions workflow that runs pytest", "split": "dev"}
+{"id": "intent-0025", "task": "intent", "input": "用 Rust 写一个命令行参数解析器", "label": "coding", "family": "用 Rust 写一个命令行参数解析器", "split": "test"}
+{"id": "intent-0026", "task": "intent", "input": "convert this pandas code to polars", "label": "coding", "family": "convert this pandas code to polars", "split": "test"}
+{"id": "intent-0027", "task": "intent", "input": "为什么这个 React 组件会无限重渲染", "label": "coding", "family": "为什么这个 React 组件会无限重渲染", "split": "dev"}
+{"id": "intent-0028", "task": "intent", "input": "write a Dockerfile for a FastAPI app", "label": "coding", "family": "write a Dockerfile for a FastAPI app", "split": "dev"}
+{"id": "intent-0029", "task": "intent", "input": "帮我写一个爬虫抓取网页标题", "label": "coding", "family": "帮我写一个爬虫抓取网页标题", "split": "dev"}
+{"id": "intent-0030", "task": "intent", "input": "how do lifetimes work in Rust", "label": "coding", "family": "how do lifetimes work in Rust", "split": "test"}
+{"id": "intent-0031", "task": "intent", "input": "实现二分查找并写测试", "label": "coding", "family": "实现二分查找并写测试", "split": "test"}
+{"id": "intent-0032", "task": "intent", "input": "review my Go code for goroutine leaks", "label": "coding", "family": "review my Go code for goroutine leaks", "split": "dev"}
+{"id": "intent-0033", "task": "intent", "input": "给这个函数加上类型注解", "label": "coding", "family": "给这个函数加上类型注解", "split": "dev"}
+{"id": "intent-0034", "task": "intent", "input": "write a script to back up my Postgres database", "label": "coding", "family": "write a script to back up my Postgres database", "split": "test"}
+{"id": "intent-0035", "task": "intent", "input": "怎么用 git rebase 合并最近三个提交", "label": "coding", "family": "怎么用 git rebase 合并最近三个提交", "split": "test"}
+{"id": "intent-0036", "task": "intent", "input": "implement JWT refresh token rotation in Express", "label": "coding", "family": "implement JWT refresh token rotation in Express", "split": "test"}
+{"id": "intent-0037", "task": "intent", "input": "我的 CI 一直报 flake8 错误，帮我改", "label": "coding", "family": "我的 CI 一直报 flake8 错误，帮我改", "split": "test"}
+{"id": "intent-0038", "task": "intent", "input": "create a CLI tool that converts CSV to JSON", "label": "coding", "family": "create a CLI tool that converts CSV to JSON", "split": "dev"}
+{"id": "intent-0039", "task": "intent", "input": "写一个 Swift 的网络请求封装", "label": "coding", "family": "写一个 Swift 的网络请求封装", "split": "test"}
+{"id": "intent-0040", "task": "intent", "input": "explain the difference between threads and processes in Python", "label": "coding", "family": "explain the difference between threads and processes in Python", "split": "dev"}
+{"id": "intent-0041", "task": "intent", "input": "帮我写一个计算夏普比率的 Python 函数", "label": "coding", "family": "帮我写一个计算夏普比率的 Python 函数", "split": "dev"}
+{"id": "intent-0042", "task": "intent", "input": "write a SQL query to find duplicate emails", "label": "coding", "family": "write a SQL query to find duplicate emails", "split": "dev"}
+{"id": "intent-0043", "task": "intent", "input": "把这个 shell 脚本改成跨平台的", "label": "coding", "family": "把这个 shell 脚本改成跨平台的", "split": "test"}
+{"id": "intent-0044", "task": "intent", "input": "build a React hook for debounced search", "label": "coding", "family": "build a React hook for debounced search", "split": "dev"}
+{"id": "intent-0045", "task": "intent", "input": "Kubernetes 的 yaml 怎么写才能挂载配置", "label": "coding", "family": "Kubernetes 的 yaml 怎么写才能挂载配置", "split": "test"}
+{"id": "intent-0046", "task": "intent", "input": "add retry logic with exponential backoff", "label": "coding", "family": "add retry logic with exponential backoff", "split": "dev"}
+{"id": "intent-0047", "task": "intent", "input": "optimize this loop, it's too slow", "label": "coding", "family": "optimize this loop, it's too slow", "split": "test"}
+{"id": "intent-0048", "task": "intent", "input": "给我的 Flask 项目加登录功能", "label": "coding", "family": "给我的 Flask 项目加登录功能", "split": "dev"}
+{"id": "intent-0049", "task": "intent", "input": "refactor the legacy module into smaller functions", "label": "coding", "family": "refactor the legacy module into smaller functions", "split": "dev"}
+{"id": "intent-0050", "task": "intent", "input": "给我讲讲 Rust 的所有权概念", "label": "coding", "family": "给我讲讲 Rust 的所有权概念", "split": "dev"}
+{"id": "intent-0051", "task": "intent", "input": "分析一下腾讯的基本面", "label": "analysis", "family": "分析一下腾讯的基本面", "split": "dev"}
+{"id": "intent-0052", "task": "intent", "input": "Do a technical analysis of NVDA: RSI, MACD and support levels", "label": "analysis", "family": "Do a technical analysis of NVDA: RSI, MACD and support levels", "split": "test"}
+{"id": "intent-0053", "task": "intent", "input": "苹果的估值贵不贵，用 PE 和 DCF 看看", "label": "analysis", "family": "苹果的估值贵不贵，用 PE 和 DCF 看看", "split": "dev"}
+{"id": "intent-0054", "task": "intent", "input": "compare AMD and Intel fundamentals", "label": "analysis", "family": "compare AMD and Intel fundamentals", "split": "test"}
+{"id": "intent-0055", "task": "intent", "input": "宁德时代最近走势怎么样，技术面如何", "label": "analysis", "family": "宁德时代最近走势怎么样，技术面如何", "split": "dev"}
+{"id": "intent-0056", "task": "intent", "input": "Is Tesla overvalued right now?", "label": "analysis", "family": "Is Tesla overvalued right now?", "split": "test"}
+{"id": "intent-0057", "task": "intent", "input": "帮我研判一下下周A股大盘", "label": "analysis", "family": "帮我研判一下下周A股大盘", "split": "dev"}
+{"id": "intent-0058", "task": "intent", "input": "analyze Microsoft's last earnings report", "label": "analysis", "family": "analyze Microsoft's last earnings report", "split": "dev"}
+{"id": "intent-0059", "task": "intent", "input": "比亚迪的护城河和风险有哪些", "label": "analysis", "family": "比亚迪的护城河和风险有哪些", "split": "test"}
+{"id": "intent-0060", "task": "intent", "input": "evaluate the outlook for semiconductor stocks", "label": "analysis", "family": "evaluate the outlook for semiconductor stocks", "split": "test"}
+{"id": "intent-0061", "task": "intent", "input": "茅台的财报怎么看", "label": "analysis", "family": "茅台的财报怎么看", "split": "test"}
+{"id": "intent-0062", "task": "intent", "input": "what do the moving averages say about SPY", "label": "analysis", "family": "what do the moving averages say about SPY", "split": "test"}
+{"id": "intent-0063", "task": "intent", "input": "对比一下招商银行和平安银行的基本面", "label": "analysis", "family": "对比一下招商银行和平安银行的基本面", "split": "dev"}
+{"id": "intent-0064", "task": "intent", "input": "Give me a fundamental analysis of Amazon", "label": "analysis", "family": "Give me a fundamental analysis of Amazon", "split": "test"}
+{"id": "intent-0065", "task": "intent", "input": "英伟达接下来一个季度的业绩预期怎么样", "label": "analysis", "family": "英伟达接下来一个季度的业绩预期怎么样", "split": "dev"}
+{"id": "intent-0066", "task": "intent", "input": "analyze the trend of the Hang Seng index", "label": "analysis", "family": "analyze the trend of the Hang Seng index", "split": "dev"}
+{"id": "intent-0067", "task": "intent", "input": "半导体板块还能买吗，帮我分析", "label": "analysis", "family": "半导体板块还能买吗，帮我分析", "split": "test"}
+{"id": "intent-0068", "task": "intent", "input": "break down Netflix's margins and growth", "label": "analysis", "family": "break down Netflix's margins and growth", "split": "dev"}
+{"id": "intent-0069", "task": "intent", "input": "中芯国际的技术面支撑位在哪", "label": "analysis", "family": "中芯国际的技术面支撑位在哪", "split": "dev"}
+{"id": "intent-0070", "task": "intent", "input": "assess the valuation of Alibaba vs JD", "label": "analysis", "family": "assess the valuation of Alibaba vs JD", "split": "dev"}
+{"id": "intent-0071", "task": "intent", "input": "Compare Apple and Microsoft's balance sheets", "label": "analysis", "family": "Compare Apple and Microsoft's balance sheets", "split": "dev"}
+{"id": "intent-0072", "task": "intent", "input": "招商银行最近的净息差变化说明什么", "label": "analysis", "family": "招商银行最近的净息差变化说明什么", "split": "dev"}
+{"id": "intent-0073", "task": "intent", "input": "Is the semiconductor sector in an uptrend?", "label": "analysis", "family": "Is the semiconductor sector in an uptrend?", "split": "dev"}
+{"id": "intent-0074", "task": "intent", "input": "分析一下特斯拉最新一季度财报", "label": "analysis", "family": "分析一下特斯拉最新一季度财报", "split": "test"}
+{"id": "intent-0075", "task": "intent", "input": "What are the risks in Nvidia's valuation?", "label": "analysis", "family": "What are the risks in Nvidia's valuation?", "split": "dev"}
+{"id": "intent-0076", "task": "intent", "input": "美团和拼多多的商业模式对比", "label": "analysis", "family": "美团和拼多多的商业模式对比", "split": "dev"}
+{"id": "intent-0077", "task": "intent", "input": "Break down Disney's streaming profitability", "label": "analysis", "family": "Break down Disney's streaming profitability", "split": "dev"}
+{"id": "intent-0078", "task": "intent", "input": "港股科技股现在估值处在什么水平", "label": "analysis", "family": "港股科技股现在估值处在什么水平", "split": "test"}
+{"id": "intent-0079", "task": "intent", "input": "Look at AMD's chart: where are support and resistance?", "label": "analysis", "family": "Look at AMD's chart: where are support and resistance?", "split": "test"}
+{"id": "intent-0080", "task": "intent", "input": "中国平安的 ROE 近五年趋势怎么样", "label": "analysis", "family": "中国平安的 ROE 近五年趋势怎么样", "split": "dev"}
+{"id": "intent-0081", "task": "intent", "input": "analyze the yield curve and what it means for bank stocks", "label": "analysis", "family": "analyze the yield curve and what it means for bank stocks", "split": "dev"}
+{"id": "intent-0082", "task": "intent", "input": "宁德时代的毛利率为什么下降", "label": "analysis", "family": "宁德时代的毛利率为什么下降", "split": "dev"}
+{"id": "intent-0083", "task": "intent", "input": "Is Costco's premium valuation justified?", "label": "analysis", "family": "Is Costco's premium valuation justified?", "split": "dev"}
+{"id": "intent-0084", "task": "intent", "input": "创业板指走势怎么看", "label": "analysis", "family": "创业板指走势怎么看", "split": "test"}
+{"id": "intent-0085", "task": "intent", "input": "Give me the bull and bear case for Palantir", "label": "analysis", "family": "Give me the bull and bear case for Palantir", "split": "test"}
+{"id": "intent-0086", "task": "intent", "input": "恒生科技指数的技术形态分析", "label": "analysis", "family": "恒生科技指数的技术形态分析", "split": "test"}
+{"id": "intent-0087", "task": "intent", "input": "evaluate Shopify's growth versus its P/S ratio", "label": "analysis", "family": "evaluate Shopify's growth versus its P/S ratio", "split": "test"}
+{"id": "intent-0088", "task": "intent", "input": "对比一下三大航空公司的负债率", "label": "analysis", "family": "对比一下三大航空公司的负债率", "split": "dev"}
+{"id": "intent-0089", "task": "intent", "input": "What does Intel's capex mean for its free cash flow", "label": "analysis", "family": "What does Intel's capex mean for its free cash flow", "split": "test"}
+{"id": "intent-0090", "task": "intent", "input": "分析一下黄金ETF的走势", "label": "analysis", "family": "分析一下黄金ETF的走势", "split": "dev"}
+{"id": "intent-0091", "task": "intent", "input": "Why did Meta's stock jump after earnings", "label": "analysis", "family": "Why did Meta's stock jump after earnings", "split": "dev"}
+{"id": "intent-0092", "task": "intent", "input": "万科的债务风险有多大", "label": "analysis", "family": "万科的债务风险有多大", "split": "test"}
+{"id": "intent-0093", "task": "intent", "input": "Assess whether Walmart is a defensive stock", "label": "analysis", "family": "Assess whether Walmart is a defensive stock", "split": "dev"}
+{"id": "intent-0094", "task": "intent", "input": "新能源车板块的龙头估值对比", "label": "analysis", "family": "新能源车板块的龙头估值对比", "split": "dev"}
+{"id": "intent-0095", "task": "intent", "input": "Analyze the correlation between oil prices and airline stocks", "label": "analysis", "family": "Analyze the correlation between oil prices and airline stocks", "split": "dev"}
+{"id": "intent-0096", "task": "intent", "input": "中芯国际和台积电的技术差距体现在财务上吗", "label": "analysis", "family": "中芯国际和台积电的技术差距体现在财务上吗", "split": "dev"}
+{"id": "intent-0097", "task": "intent", "input": "technical outlook for the Nasdaq 100 this month", "label": "analysis", "family": "technical outlook for the Nasdaq 100 this month", "split": "dev"}
+{"id": "intent-0098", "task": "intent", "input": "分析腾讯音乐的订阅用户增长", "label": "analysis", "family": "分析腾讯音乐的订阅用户增长", "split": "dev"}
+{"id": "intent-0099", "task": "intent", "input": "How exposed is Tesla to China demand", "label": "analysis", "family": "How exposed is Tesla to China demand", "split": "test"}
+{"id": "intent-0100", "task": "intent", "input": "茅台的批发价对业绩有什么影响", "label": "analysis", "family": "茅台的批发价对业绩有什么影响", "split": "dev"}
+{"id": "intent-0101", "task": "intent", "input": "AAPL 现在股价多少", "label": "realtime", "family": "AAPL 现在股价多少", "split": "test"}
+{"id": "intent-0102", "task": "intent", "input": "what is the price of Bitcoin right now", "label": "realtime", "family": "what is the price of Bitcoin right now", "split": "test"}
+{"id": "intent-0103", "task": "intent", "input": "今天上证指数多少点", "label": "realtime", "family": "今天上证指数多少点", "split": "dev"}
+{"id": "intent-0104", "task": "intent", "input": "current quote for TSLA", "label": "realtime", "family": "current quote for TSLA", "split": "dev"}
+{"id": "intent-0105", "task": "intent", "input": "茅台今天涨了多少", "label": "realtime", "family": "茅台今天涨了多少", "split": "dev"}
+{"id": "intent-0106", "task": "intent", "input": "latest EUR/USD rate", "label": "realtime", "family": "latest EUR/USD rate", "split": "dev"}
+{"id": "intent-0107", "task": "intent", "input": "现在黄金多少钱一盎司", "label": "realtime", "family": "现在黄金多少钱一盎司", "split": "dev"}
+{"id": "intent-0108", "task": "intent", "input": "what's NVDA trading at today", "label": "realtime", "family": "what's NVDA trading at today", "split": "test"}
+{"id": "intent-0109", "task": "intent", "input": "腾讯今日收盘价", "label": "realtime", "family": "腾讯今日收盘价", "split": "dev"}
+{"id": "intent-0110", "task": "intent", "input": "how much is the S&P 500 up today", "label": "realtime", "family": "how much is the S&P 500 up today", "split": "test"}
+{"id": "intent-0111", "task": "intent", "input": "宁德时代现在市值多少", "label": "realtime", "family": "宁德时代现在市值多少", "split": "dev"}
+{"id": "intent-0112", "task": "intent", "input": "quote for 0700.HK", "label": "realtime", "family": "quote for 0700.HK", "split": "dev"}
+{"id": "intent-0113", "task": "intent", "input": "今天纳斯达克涨跌幅", "label": "realtime", "family": "今天纳斯达克涨跌幅", "split": "dev"}
+{"id": "intent-0114", "task": "intent", "input": "current price of crude oil", "label": "realtime", "family": "current price of crude oil", "split": "dev"}
+{"id": "intent-0115", "task": "intent", "input": "比特币现在的价格", "label": "realtime", "family": "比特币现在的价格", "split": "dev"}
+{"id": "intent-0116", "task": "intent", "input": "what is the market cap of Apple now", "label": "realtime", "family": "what is the market cap of Apple now", "split": "dev"}
+{"id": "intent-0117", "task": "intent", "input": "美元兑人民币现在汇率是多少", "label": "realtime", "family": "美元兑人民币现在汇率是多少", "split": "dev"}
+{"id": "intent-0118", "task": "intent", "input": "AMZN latest quote", "label": "realtime", "family": "AMZN latest quote", "split": "dev"}
+{"id": "intent-0119", "task": "intent", "input": "今天恒生指数多少点", "label": "realtime", "family": "今天恒生指数多少点", "split": "dev"}
+{"id": "intent-0120", "task": "intent", "input": "price of gold today", "label": "realtime", "family": "price of gold today", "split": "dev"}
+{"id": "intent-0121", "task": "intent", "input": "ETH 现在多少钱", "label": "realtime", "family": "ETH 现在多少钱", "split": "test"}
+{"id": "intent-0122", "task": "intent", "input": "what is Tesla's stock price right now", "label": "realtime", "family": "what is Tesla's stock price right now", "split": "dev"}
+{"id": "intent-0123", "task": "intent", "input": "今天沪深300涨了多少", "label": "realtime", "family": "今天沪深300涨了多少", "split": "dev"}
+{"id": "intent-0124", "task": "intent", "input": "current USD/JPY rate", "label": "realtime", "family": "current USD/JPY rate", "split": "test"}
+{"id": "intent-0125", "task": "intent", "input": "苹果现在的市值", "label": "realtime", "family": "苹果现在的市值", "split": "dev"}
+{"id": "intent-0126", "task": "intent", "input": "How is the Dow doing today", "label": "realtime", "family": "How is the Dow doing today", "split": "test"}
+{"id": "intent-0127", "task": "intent", "input": "黄金现价", "label": "realtime", "family": "黄金现价", "split": "dev"}
+{"id": "intent-0128", "task": "intent", "input": "quote for BABA", "label": "realtime", "family": "quote for BABA", "split": "test"}
+{"id": "intent-0129", "task": "intent", "input": "今天创业板指收盘多少", "label": "realtime", "family": "今天创业板指收盘多少", "split": "dev"}
+{"id": "intent-0130", "task": "intent", "input": "bitcoin price in USD now", "label": "realtime", "family": "bitcoin price in USD now", "split": "dev"}
+{"id": "intent-0131", "task": "intent", "input": "英伟达盘前价格", "label": "realtime", "family": "英伟达盘前价格", "split": "test"}
+{"id": "intent-0132", "task": "intent", "input": "latest price of Brent crude", "label": "realtime", "family": "latest price of Brent crude", "split": "dev"}
+{"id": "intent-0133", "task": "intent", "input": "恒指现在多少点", "label": "realtime", "family": "恒指现在多少点", "split": "dev"}
+{"id": "intent-0134", "task": "intent", "input": "show me today's top gainers on the NASDAQ", "label": "realtime", "family": "show me today's top gainers on the NASDAQ", "split": "dev"}
+{"id": "intent-0135", "task": "intent", "input": "美元兑日元汇率现在多少", "label": "realtime", "family": "美元兑日元汇率现在多少", "split": "dev"}
+{"id": "intent-0136", "task": "intent", "input": "what's AAPL's volume today", "label": "realtime", "family": "what's AAPL's volume today", "split": "test"}
+{"id": "intent-0137", "task": "intent", "input": "腾讯现在的买一卖一", "label": "realtime", "family": "腾讯现在的买一卖一", "split": "dev"}
+{"id": "intent-0138", "task": "intent", "input": "S&P 500 futures right now", "label": "realtime", "family": "S&P 500 futures right now", "split": "dev"}
+{"id": "intent-0139", "task": "intent", "input": "今日A股成交额", "label": "realtime", "family": "今日A股成交额", "split": "dev"}
+{"id": "intent-0140", "task": "intent", "input": "current 10-year Treasury yield", "label": "realtime", "family": "current 10-year Treasury yield", "split": "dev"}
+{"id": "intent-0141", "task": "intent", "input": "比亚迪今天股价", "label": "realtime", "family": "比亚迪今天股价", "split": "dev"}
+{"id": "intent-0142", "task": "intent", "input": "how much is 1 BTC worth right now", "label": "realtime", "family": "how much is 1 BTC worth right now", "split": "dev"}
+{"id": "intent-0143", "task": "intent", "input": "宁德时代今天涨停了吗", "label": "realtime", "family": "宁德时代今天涨停了吗", "split": "dev"}
+{"id": "intent-0144", "task": "intent", "input": "price of silver per ounce today", "label": "realtime", "family": "price of silver per ounce today", "split": "dev"}
+{"id": "intent-0145", "task": "intent", "input": "上证指数现在是红还是绿", "label": "realtime", "family": "上证指数现在是红还是绿", "split": "dev"}
+{"id": "intent-0146", "task": "intent", "input": "what is GOOGL trading at after hours", "label": "realtime", "family": "what is GOOGL trading at after hours", "split": "dev"}
+{"id": "intent-0147", "task": "intent", "input": "港股今日成交最活跃的股票", "label": "realtime", "family": "港股今日成交最活跃的股票", "split": "test"}
+{"id": "intent-0148", "task": "intent", "input": "current VIX level", "label": "realtime", "family": "current VIX level", "split": "dev"}
+{"id": "intent-0149", "task": "intent", "input": "现在人民币兑欧元汇率", "label": "realtime", "family": "现在人民币兑欧元汇率", "split": "dev"}
+{"id": "intent-0150", "task": "intent", "input": "NVDA live quote", "label": "realtime", "family": "NVDA live quote", "split": "test"}
+{"id": "intent-0151", "task": "intent", "input": "你好", "label": "general", "family": "你好", "split": "dev"}
+{"id": "intent-0152", "task": "intent", "input": "explain the difference between REST and GraphQL", "label": "general", "family": "explain the difference between REST and GraphQL", "split": "test"}
+{"id": "intent-0153", "task": "intent", "input": "帮我写一份产品需求文档的大纲", "label": "general", "family": "帮我写一份产品需求文档的大纲", "split": "dev"}
+{"id": "intent-0154", "task": "intent", "input": "how should I structure the onboarding UX", "label": "general", "family": "how should I structure the onboarding UX", "split": "dev"}
+{"id": "intent-0155", "task": "intent", "input": "总结一下这段会议记录", "label": "general", "family": "总结一下这段会议记录", "split": "test"}
+{"id": "intent-0156", "task": "intent", "input": "what is a monad", "label": "general", "family": "what is a monad", "split": "test"}
+{"id": "intent-0157", "task": "intent", "input": "请给这个应用的信息架构提些建议", "label": "general", "family": "请给这个应用的信息架构提些建议", "split": "test"}
+{"id": "intent-0158", "task": "intent", "input": "translate this paragraph into English", "label": "general", "family": "translate this paragraph into English", "split": "dev"}
+{"id": "intent-0159", "task": "intent", "input": "如何理解边际效应递减", "label": "general", "family": "如何理解边际效应递减", "split": "test"}
+{"id": "intent-0160", "task": "intent", "input": "draft an email asking for a deadline extension", "label": "general", "family": "draft an email asking for a deadline extension", "split": "dev"}
+{"id": "intent-0161", "task": "intent", "input": "microservices vs monolith for a 3-person team?", "label": "general", "family": "microservices vs monolith for a 3-person team?", "split": "dev"}
+{"id": "intent-0162", "task": "intent", "input": "怎么提高团队的协作效率", "label": "general", "family": "怎么提高团队的协作效率", "split": "dev"}
+{"id": "intent-0163", "task": "intent", "input": "who wrote the Great Gatsby", "label": "general", "family": "who wrote the Great Gatsby", "split": "dev"}
+{"id": "intent-0164", "task": "intent", "input": "分析这个电商产品的用户流程和商业风险", "label": "general", "family": "分析这个电商产品的用户流程和商业风险", "split": "dev"}
+{"id": "intent-0165", "task": "intent", "input": "what's a good name for a note-taking app", "label": "general", "family": "what's a good name for a note-taking app", "split": "dev"}
+{"id": "intent-0166", "task": "intent", "input": "write release-notes wording for a minor update", "label": "general", "family": "write release-notes wording for a minor update", "split": "dev"}
+{"id": "intent-0167", "task": "intent", "input": "Summarize the key points of this article for me", "label": "general", "family": "Summarize the key points of this article for me", "split": "dev"}
+{"id": "intent-0168", "task": "intent", "input": "帮我想一个产品的 slogan", "label": "general", "family": "帮我想一个产品的 slogan", "split": "dev"}
+{"id": "intent-0169", "task": "intent", "input": "What's the best way to learn a new language", "label": "general", "family": "What's the best way to learn a new language", "split": "dev"}
+{"id": "intent-0170", "task": "intent", "input": "把这段话翻译成法语", "label": "general", "family": "把这段话翻译成法语", "split": "dev"}
+{"id": "intent-0171", "task": "intent", "input": "Explain the difference between TCP and UDP", "label": "general", "family": "Explain the difference between TCP and UDP", "split": "test"}
+{"id": "intent-0172", "task": "intent", "input": "怎么写一封得体的辞职信", "label": "general", "family": "怎么写一封得体的辞职信", "split": "dev"}
+{"id": "intent-0173", "task": "intent", "input": "Draft a project kickoff agenda", "label": "general", "family": "Draft a project kickoff agenda", "split": "dev"}
+{"id": "intent-0174", "task": "intent", "input": "帮我规划一下三天的京都行程", "label": "general", "family": "帮我规划一下三天的京都行程", "split": "dev"}
+{"id": "intent-0175", "task": "intent", "input": "Suggest a workflow for reviewing user feedback", "label": "general", "family": "Suggest a workflow for reviewing user feedback", "split": "test"}
+{"id": "intent-0176", "task": "intent", "input": "如何给团队做一次好的复盘", "label": "general", "family": "如何给团队做一次好的复盘", "split": "test"}
+{"id": "intent-0177", "task": "intent", "input": "Is it normal to feel tired after a vaccine", "label": "general", "family": "Is it normal to feel tired after a vaccine", "split": "test"}
+{"id": "intent-0178", "task": "intent", "input": "写一首关于秋天的短诗", "label": "general", "family": "写一首关于秋天的短诗", "split": "dev"}
+{"id": "intent-0179", "task": "intent", "input": "what's the capital of Australia", "label": "general", "family": "what's the capital of Australia", "split": "dev"}
+{"id": "intent-0180", "task": "intent", "input": "对比一下 Notion 和 Obsidian 的使用场景", "label": "general", "family": "对比一下 Notion 和 Obsidian 的使用场景", "split": "test"}
+{"id": "intent-0181", "task": "intent", "input": "How should I structure a design system for a small team", "label": "general", "family": "How should I structure a design system for a small team", "split": "dev"}
+{"id": "intent-0182", "task": "intent", "input": "帮我润色这段自我介绍", "label": "general", "family": "帮我润色这段自我介绍", "split": "dev"}
+{"id": "intent-0183", "task": "intent", "input": "Recommend three books on negotiation", "label": "general", "family": "Recommend three books on negotiation", "split": "dev"}
+{"id": "intent-0184", "task": "intent", "input": "这个 app 的引导流程哪里让人困惑", "label": "general", "family": "这个 app 的引导流程哪里让人困惑", "split": "test"}
+{"id": "intent-0185", "task": "intent", "input": "explain how vaccines work", "label": "general", "family": "explain how vaccines work", "split": "dev"}
+{"id": "intent-0186", "task": "intent", "input": "给我一份面试前的检查清单", "label": "general", "family": "给我一份面试前的检查清单", "split": "test"}
+{"id": "intent-0187", "task": "intent", "input": "Brainstorm names for a robotics startup", "label": "general", "family": "Brainstorm names for a robotics startup", "split": "dev"}
+{"id": "intent-0188", "task": "intent", "input": "怎么向非技术人员解释 API", "label": "general", "family": "怎么向非技术人员解释 API", "split": "dev"}
+{"id": "intent-0189", "task": "intent", "input": "What are good habits for deep work", "label": "general", "family": "What are good habits for deep work", "split": "test"}
+{"id": "intent-0190", "task": "intent", "input": "把会议纪要整理成行动项", "label": "general", "family": "把会议纪要整理成行动项", "split": "dev"}
+{"id": "intent-0191", "task": "intent", "input": "Describe the pros and cons of remote work", "label": "general", "family": "Describe the pros and cons of remote work", "split": "dev"}
+{"id": "intent-0192", "task": "intent", "input": "我该如何准备雅思口语", "label": "general", "family": "我该如何准备雅思口语", "split": "test"}
+{"id": "intent-0193", "task": "intent", "input": "write a polite reminder email to a client about an invoice", "label": "general", "family": "write a polite reminder email to a client about an invoice", "split": "dev"}
+{"id": "intent-0194", "task": "intent", "input": "how do I make sourdough starter", "label": "general", "family": "how do I make sourdough starter", "split": "dev"}
+{"id": "intent-0195", "task": "intent", "input": "帮我设计一个用户反馈收集表单", "label": "general", "family": "帮我设计一个用户反馈收集表单", "split": "dev"}
+{"id": "intent-0196", "task": "intent", "input": "What's the difference between UX and UI", "label": "general", "family": "What's the difference between UX and UI", "split": "dev"}
+{"id": "intent-0197", "task": "intent", "input": "how long does it take to fly from Shanghai to London", "label": "general", "family": "how long does it take to fly from Shanghai to London", "split": "dev"}
+{"id": "intent-0198", "task": "intent", "input": "我的投资组合风险偏高，怎么调整配置", "label": "finance", "family": "我的投资组合风险偏高，怎么调整配置", "split": "dev"}
+{"id": "intent-0199", "task": "intent", "input": "should I diversify my portfolio into bonds", "label": "finance", "family": "should I diversify my portfolio into bonds", "split": "dev"}
+{"id": "intent-0200", "task": "intent", "input": "怎么做资产配置，我有50万", "label": "finance", "family": "怎么做资产配置，我有50万", "split": "dev"}
+{"id": "intent-0201", "task": "intent", "input": "how do I hedge a concentrated stock position", "label": "finance", "family": "how do I hedge a concentrated stock position", "split": "dev"}
+{"id": "intent-0202", "task": "intent", "input": "定投和一次性买入哪个更好", "label": "finance", "family": "定投和一次性买入哪个更好", "split": "test"}
+{"id": "intent-0203", "task": "intent", "input": "what's a reasonable risk tolerance for a 30-year-old", "label": "finance", "family": "what's a reasonable risk tolerance for a 30-year-old", "split": "dev"}
+{"id": "intent-0204", "task": "intent", "input": "基金怎么选，指数基金还是主动基金", "label": "finance", "family": "基金怎么选，指数基金还是主动基金", "split": "test"}
+{"id": "intent-0205", "task": "intent", "input": "explain how to rebalance quarterly", "label": "finance", "family": "explain how to rebalance quarterly", "split": "test"}
+{"id": "intent-0206", "task": "intent", "input": "我想把一部分仓位换成防御型资产", "label": "finance", "family": "我想把一部分仓位换成防御型资产", "split": "dev"}
+{"id": "intent-0207", "task": "intent", "input": "is a 60/40 portfolio still sensible", "label": "finance", "family": "is a 60/40 portfolio still sensible", "split": "dev"}
+{"id": "intent-0208", "task": "intent", "input": "退休规划应该怎么做", "label": "finance", "family": "退休规划应该怎么做", "split": "test"}
+{"id": "intent-0209", "task": "intent", "input": "how much should I keep in cash as an emergency fund", "label": "finance", "family": "how much should I keep in cash as an emergency fund", "split": "dev"}
+{"id": "intent-0210", "task": "intent", "input": "我的持仓里科技股占比太高了怎么办", "label": "finance", "family": "我的持仓里科技股占比太高了怎么办", "split": "dev"}
+{"id": "intent-0211", "task": "intent", "input": "what's your view on dollar-cost averaging into crypto", "label": "finance", "family": "what's your view on dollar-cost averaging into crypto", "split": "dev"}
+{"id": "intent-0212", "task": "intent", "input": "如何控制组合的最大回撤", "label": "finance", "family": "如何控制组合的最大回撤", "split": "dev"}
+{"id": "intent-0213", "task": "intent", "input": "help me set a stop-loss policy for my portfolio", "label": "finance", "family": "help me set a stop-loss policy for my portfolio", "split": "dev"}
+{"id": "intent-0214", "task": "intent", "input": "债券和股票怎么配比比较稳健", "label": "finance", "family": "债券和股票怎么配比比较稳健", "split": "test"}
+{"id": "intent-0215", "task": "intent", "input": "tax-efficient ways to invest 100k", "label": "finance", "family": "tax-efficient ways to invest 100k", "split": "dev"}
+{"id": "intent-0216", "task": "intent", "input": "怎么评估自己的风险承受能力", "label": "finance", "family": "怎么评估自己的风险承受能力", "split": "dev"}
+{"id": "intent-0217", "task": "intent", "input": "should I hold more cash before a rate decision", "label": "finance", "family": "should I hold more cash before a rate decision", "split": "dev"}
+{"id": "intent-0218", "task": "intent", "input": "什么是夏普比率", "label": "finance", "family": "什么是夏普比率", "split": "dev"}
+{"id": "intent-0219", "task": "intent", "input": "explain how compound interest works", "label": "finance", "family": "explain how compound interest works", "split": "test"}
+{"id": "intent-0220", "task": "intent", "input": "宏观角度怎么看加息周期", "label": "finance", "family": "宏观角度怎么看加息周期", "split": "dev"}
+{"id": "intent-0221", "task": "intent", "input": "What is the Sharpe ratio and how do I read mine", "label": "finance", "family": "What is the Sharpe ratio and how do I read mine", "split": "dev"}
+{"id": "intent-0222", "task": "intent", "input": "解释一下复利和单利的区别", "label": "finance", "family": "解释一下复利和单利的区别", "split": "dev"}
+{"id": "intent-0223", "task": "intent", "input": "How should I split savings between stocks, bonds and cash", "label": "finance", "family": "How should I split savings between stocks, bonds and cash", "split": "dev"}
+{"id": "intent-0224", "task": "intent", "input": "我的持仓集中在三只股票，风险大吗", "label": "finance", "family": "我的持仓集中在三只股票，风险大吗", "split": "test"}
+{"id": "intent-0225", "task": "intent", "input": "Is it a good time to increase my equity allocation", "label": "finance", "family": "Is it a good time to increase my equity allocation", "split": "dev"}
+{"id": "intent-0226", "task": "intent", "input": "年化收益率和夏普比率哪个更能衡量我的组合", "label": "finance", "family": "年化收益率和夏普比率哪个更能衡量我的组合", "split": "dev"}
+{"id": "intent-0227", "task": "intent", "input": "how do interest rate hikes affect my bond holdings", "label": "finance", "family": "how do interest rate hikes affect my bond holdings", "split": "dev"}
+{"id": "intent-0228", "task": "intent", "input": "加息周期里应该怎么调整仓位", "label": "finance", "family": "加息周期里应该怎么调整仓位", "split": "dev"}
+{"id": "intent-0229", "task": "intent", "input": "Should I pay off my mortgage early or invest", "label": "finance", "family": "Should I pay off my mortgage early or invest", "split": "dev"}
+{"id": "intent-0230", "task": "intent", "input": "我想给孩子做教育金规划", "label": "finance", "family": "我想给孩子做教育金规划", "split": "dev"}
+{"id": "intent-0231", "task": "intent", "input": "what's the difference between a Roth and a traditional IRA", "label": "finance", "family": "what's the difference between a Roth and a traditional IRA", "split": "test"}
+{"id": "intent-0232", "task": "intent", "input": "分红再投资有什么好处", "label": "finance", "family": "分红再投资有什么好处", "split": "test"}
+{"id": "intent-0233", "task": "intent", "input": "How do I size a position using volatility", "label": "finance", "family": "How do I size a position using volatility", "split": "test"}
+{"id": "intent-0234", "task": "intent", "input": "我的组合最近回撤8%，要不要减仓", "label": "finance", "family": "我的组合最近回撤8%，要不要减仓", "split": "dev"}
+{"id": "intent-0235", "task": "intent", "input": "explain value at risk in plain terms", "label": "finance", "family": "explain value at risk in plain terms", "split": "dev"}
+{"id": "intent-0236", "task": "intent", "input": "怎么看待把部分资金放进货币基金", "label": "finance", "family": "怎么看待把部分资金放进货币基金", "split": "dev"}
+{"id": "intent-0237", "task": "intent", "input": "What's an appropriate asset mix for retirement in 20 years", "label": "finance", "family": "What's an appropriate asset mix for retirement in 20 years", "split": "dev"}
+{"id": "intent-0238", "task": "intent", "input": "港股通和QDII哪个更适合我配置海外资产", "label": "finance", "family": "港股通和QDII哪个更适合我配置海外资产", "split": "dev"}
+{"id": "intent-0239", "task": "intent", "input": "Help me understand why my portfolio lagged the index", "label": "finance", "family": "Help me understand why my portfolio lagged the index", "split": "dev"}
+{"id": "intent-0240", "task": "intent", "input": "我的月收入2万，每月应该投多少", "label": "finance", "family": "我的月收入2万，每月应该投多少", "split": "dev"}
+{"id": "intent-0241", "task": "intent", "input": "how does currency risk affect my overseas holdings", "label": "finance", "family": "how does currency risk affect my overseas holdings", "split": "dev"}
+{"id": "intent-0242", "task": "intent", "input": "如何判断我的组合是否过度集中于单一行业", "label": "finance", "family": "如何判断我的组合是否过度集中于单一行业", "split": "dev"}
+{"id": "intent-0243", "task": "intent", "input": "Is gold a good hedge in my portfolio", "label": "finance", "family": "Is gold a good hedge in my portfolio", "split": "test"}
+{"id": "intent-0244", "task": "intent", "input": "怎么用止盈止损管理我的仓位", "label": "finance", "family": "怎么用止盈止损管理我的仓位", "split": "dev"}
+{"id": "intent-0245", "task": "intent", "input": "What does beta mean for my stock portfolio", "label": "finance", "family": "What does beta mean for my stock portfolio", "split": "dev"}
+{"id": "intent-0246", "task": "intent", "input": "通胀上升时我的资产配置要不要改", "label": "finance", "family": "通胀上升时我的资产配置要不要改", "split": "dev"}
+{"id": "intent-0247", "task": "intent", "input": "should I keep investing monthly during a market crash", "label": "finance", "family": "should I keep investing monthly during a market crash", "split": "dev"}
+{"id": "intent-0248", "task": "intent", "input": "了解一下目标日期基金适不适合我", "label": "finance", "family": "了解一下目标日期基金适不适合我", "split": "dev"}
+{"id": "intent-0249", "task": "intent", "input": "How much risk is too much for someone retiring in five years", "label": "finance", "family": "How much risk is too much for someone retiring in five years", "split": "dev"}
+{"id": "intent-0250", "task": "intent", "input": "做空和对冲对普通投资者有意义吗", "label": "finance", "family": "做空和对冲对普通投资者有意义吗", "split": "test"}
