@@ -10,7 +10,7 @@ def test_risk_labels_come_from_the_rules():
 
 
 def test_no_family_is_on_both_sides_of_the_train_test_line():
-    side = {"dev": "train", "extra": "train", "test": "test", "test2": "test"}
+    side = {"dev": "train", "extra": "train", "extra2": "train", "test": "test", "test2": "test", "test3": "test"}
     seen = {}
     for task in ("risk", "intent"):
         for row in P.load(task):
@@ -42,8 +42,8 @@ def test_training_data_never_touches_a_test_split():
     from aria_code.training import prelude_train as T
 
     rows = P.load("risk")
-    held = {r["input"] for r in rows if r["split"] in ("test", "test2")}
-    families = {r["family"] for r in rows if r["split"] in ("test", "test2")}
+    held = {r["input"] for r in rows if r["split"] in ("test", "test2", "test3")}
+    families = {r["family"] for r in rows if r["split"] in ("test", "test2", "test3")}
     train, valid, _ = T.build_training_data()
     commands = {x["messages"][1]["content"] for x in train + valid}
     assert commands and not commands & held

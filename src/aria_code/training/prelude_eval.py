@@ -176,26 +176,36 @@ def build_risk() -> List[dict]:
 
 
 def extra_commands(rows: List[dict]) -> List[dict]:
-    """Hand-written families, filtered so no family sits on both sides of a split.
+    """Hand-written families, filtered so no family sits on both sides of the train/test line.
 
-    ``test2`` keeps only families that neither training source nor the first test set
-    contains; ``extra`` (trainable) drops families the first test set holds.
+    Trainable sets (``extra``, ``extra2``) drop families the first test set holds. Locked
+    test sets (``test2``, ``test3``) keep only families that no train-side set and no
+    earlier test set contains, so each one is fresh when it is written.
     """
     from aria_code.safety.risk import assess_command
-    from aria_code.training.prelude_commands import TEST, TRAIN
+    from aria_code.training.prelude_commands import TEST, TEST_3, TRAIN, TRAIN_2
 
-    old_dev = {r["family"] for r in rows if r["split"] == "dev"}
-    old_test = {r["family"] for r in rows if r["split"] == "test"}
-    train_cmds = [c for group in TRAIN.values() for c in group]
-    train_fams = {family(c) for c in train_cmds} | old_dev
+    def flat(source):
+        return [c for group in source.values() for c in group]
+
+    first_test = {r["family"] for r in rows if r["split"] == "test"}
     out = []
-    for split, commands in (("extra", [c for c in train_cmds if family(c) not in old_test]),
-                            ("test2", [c for group in TEST.values() for c in group
-                                       if family(c) not in train_fams | old_test])):
+    train_fams = {r["family"] for r in rows if r["split"] == "dev"}
+    for name, source in (("extra", TRAIN), ("extra2", TRAIN_2)):
+        for command in flat(source):
+            if family(command) not in first_test:
+                train_fams.add(family(command))
+                out.append((name, command))
+    seen_test = set(first_test)
+    for name, source in (("test2", TEST), ("test3", TEST_3)):
+        commands = flat(source)
         for command in commands:
-            out.append({"id": f"risk-{len(rows) + len(out):04d}", "task": "risk", "input": command,
-                        "label": assess_command(command).level, "family": family(command), "split": split})
-    return out
+            if family(command) not in train_fams and family(command) not in seen_test:
+                out.append((name, command))
+        seen_test |= {family(c) for c in commands}
+    return [{"id": f"risk-{len(rows) + i:04d}", "task": "risk", "input": command,
+             "label": assess_command(command).level, "family": family(command), "split": name}
+            for i, (name, command) in enumerate(out)]
 
 
 def build_intent() -> List[dict]:
@@ -272,8 +282,8 @@ def score(task: str, rows: List[dict], predictions: Dict[str, Optional[object]])
         "all": summarise(rows),
         "dev": summarise([r for r in rows if r["split"] == "dev"]),
         "test": summarise([r for r in rows if r["split"] == "test"]),
-        **({"test2": summarise([r for r in rows if r["split"] == "test2"])}
-           if any(r["split"] == "test2" for r in rows) else {}),
+        **{name: summarise([r for r in rows if r["split"] == name])
+           for name in ("test2", "test3") if any(r["split"] == name for r in rows)},
         "majority_class": {"label": majority[0], "accuracy": round(majority[1] / len(rows), 4)},
         "confusion": {f"{a}->{b}": n for (a, b), n in sorted(confusion.items())},
     }

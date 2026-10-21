@@ -81,9 +81,9 @@ def build_training_data() -> Tuple[List[dict], List[dict], dict]:
 
     rng = random.Random(SEED)
     rows = P.load("risk")
-    train_rows = [r for r in rows if r["split"] in ("dev", "extra")]
-    held_out = {r["input"] for r in rows if r["split"] in ("test", "test2")}
-    held_families = {r["family"] for r in rows if r["split"] in ("test", "test2")}
+    train_rows = [r for r in rows if r["split"] in ("dev", "extra", "extra2")]
+    held_out = {r["input"] for r in rows if r["split"] in ("test", "test2", "test3")}
+    held_families = {r["family"] for r in rows if r["split"] in ("test", "test2", "test3")}
     bases: Dict[str, str] = {}
     for r in train_rows:
         bases.setdefault(re.sub(r"^(cd project && |time )", "", r["input"]), r["family"])
