@@ -112,6 +112,12 @@ _CAPABILITY_TABLE: Dict[str, ModelCapability] = {
     "deepseek-v3":          ModelCapability(tool_calls=True,  format="ollama_native", context_window=131072, temperature=0.3),
     "deepseek-v2.5":        ModelCapability(tool_calls=True,  format="ollama_native", context_window=65536,  temperature=0.3),
     "deepseek-coder-v2":    ModelCapability(tool_calls=True,  format="ollama_native", context_window=65536,  temperature=0.2),
+    # DeepSeek's own API (api.deepseek.com). Current names are deepseek-flash and
+    # deepseek-v4-pro; deepseek-v4-flash is a legacy alias still accepted. Third-party
+    # listings give these 1M tokens; the official pages do not state it, so the window
+    # here is a conservative 128K (an underestimate only means earlier compaction).
+    "deepseek-v4":          ModelCapability(tool_calls=True,  format="openai_native", context_window=131072, temperature=0.3, size_class="large"),
+    "deepseek-flash":       ModelCapability(tool_calls=True,  format="openai_native", context_window=131072, temperature=0.3, size_class="medium"),
     # ── LLaMA family ───────────────────────────────────────────────────────
     "llama3.3:70b":         ModelCapability(tool_calls=True,  format="ollama_native", context_window=131072, temperature=0.3, notes="Meta flagship 2024"),
     "llama3.2:90b":         ModelCapability(tool_calls=True,  format="ollama_native", context_window=131072, temperature=0.3, vision=True,  notes="Multimodal, image+text"),
