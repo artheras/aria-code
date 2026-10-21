@@ -118,6 +118,27 @@ L4 is asked every time, even under `approval_mode: risk` and after "always allow
 and building are not affected (`esptool chip_id`, `ros2 topic echo`, `colcon build`). The Go
 runtime applies the same rules; `tests/test_native_go_risk.py` compares the two field by field.
 
+## The screen, the mouse and the keyboard
+
+The Python agent's desktop tools read or drive the person's own screen. Two capabilities
+cover them, and a contract can forbid either (`forbid: [screen.capture, desktop.control]`):
+
+| Tool | Level | Why |
+|---|---|---|
+| `computer_screenshot` | L3 (`screen.capture`) | the whole screen may show private content, and the image goes to the model |
+| `computer_action` move, scroll | L2 (`desktop.control`) | the pointer moves, nothing is pressed |
+| `computer_action` click, right_click, double_click, drag, key, type | L3, not reversible | input lands in whatever has focus |
+| `computer_action` type with a line break; key combinations that quit, close or delete (`cmd+q`, `alt+f4`, `cmd+delete`, …) | L4, not reversible | submits or runs what is focused, or ends it |
+
+L3 and L4 are never automatic, even under `approval_mode: risk`. Beyond that, these tools
+are held to a stricter rule than files and commands: "allow all tools" and a standing
+`allow` policy do not cover them, the prompt does not offer the blanket option, a chat bot
+session may not use them at all, and typed text is shown to the person as a character count,
+never echoed. Choosing "always allow" for `computer_action` is still an explicit, per-tool
+choice, and L4 asks regardless. `browser_navigate` and `browser_screenshot` are L2 network
+reads like `web_fetch`. The Go runtime has no desktop tools, so its risk table has no rows for
+them; add both together if that changes.
+
 `/test` and `/build` understand ROS 2: a colcon workspace (or a single package with
 `package.xml`) builds with `colcon build` and tests with `colcon test`, followed by
 `colcon test-result --verbose`, because `colcon test` exits 0 even when tests fail. A project
