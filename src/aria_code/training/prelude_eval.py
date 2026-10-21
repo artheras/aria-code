@@ -297,6 +297,8 @@ def split_of(key: str) -> str:
 def _corpus() -> List[str]:
     """The command corpus the Go/Python risk parity test already maintains."""
     path = ROOT / "tests" / "test_native_go_risk.py"
+    if not path.is_file():
+        raise SystemExit("Building the risk set needs a source checkout: tests/test_native_go_risk.py is missing.")
     spec = importlib.util.spec_from_file_location("risk_corpus", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -381,6 +383,8 @@ def write_jsonl(path: Path, rows: Iterable[dict]) -> int:
 
 def load(task: str) -> List[dict]:
     path = RISK_FILE if task == "risk" else INTENT_FILE
+    if not path.is_file():
+        raise SystemExit(f"{path} is missing; run `python -m aria_code.training.prelude_eval build` from a source checkout.")
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
