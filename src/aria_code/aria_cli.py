@@ -1285,7 +1285,7 @@ _dedup_tool_schemas()
 
 
 # Tools that require user confirmation before execution
-_CONFIRM_TOOLS = {"write_file", "edit_file", "multi_edit", "run_command"}
+_CONFIRM_TOOLS = {"write_file", "edit_file", "multi_edit", "run_command", "computer_action", "computer_screenshot"}
 # Bot mode (ARIA_BOT_MODE=1) is about output only: plain text for a chat card.
 # It used to start the session with every tool approved, and the Feishu and
 # Telegram bots set it — so whoever could message a bot could run shell
