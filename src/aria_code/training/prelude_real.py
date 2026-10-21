@@ -6,6 +6,7 @@ into a repository and the person who owns them does the reading and the labellin
 
     python -m aria_code.training.prelude_real extract --source DIR_OR_FILE
     python -m aria_code.training.prelude_real label
+    python -m aria_code.training.prelude_real import --source FILE   # label<TAB>message
     python -m aria_code.training.prelude_real score --adapter ADAPTER
 
 ``extract`` collects candidate messages from a directory of ``*.json`` interaction logs
@@ -116,6 +117,22 @@ def label(ask=input, show=print) -> dict:
     return {"labelled": len(rows)}
 
 
+def import_labelled(source: Path) -> dict:
+    """Load ``label<TAB>message`` lines written by the owner, replacing any earlier labels."""
+    valid = set(P.INTENT_LABELS)
+    rows, skipped = [], 0
+    for line in source.read_text(encoding="utf-8").splitlines():
+        label_name, _, text = line.partition("\t")
+        label_name, text = label_name.strip().lower(), " ".join(text.split())
+        if label_name in valid and len(text) >= 2:
+            rows.append({"text": text, "label": label_name})
+        elif line.strip():
+            skipped += 1
+    _write_private(LABELLED, rows)
+    per_label = {name: sum(1 for r in rows if r["label"] == name) for name in P.INTENT_LABELS}
+    return {"labelled": len(rows), "skipped_lines": skipped, "per_label": per_label}
+
+
 def score(adapter: Optional[Path], model: Optional[str]) -> dict:
     """Counts only. A message never leaves this function."""
     from aria_code.training import prelude_train as T
@@ -145,6 +162,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     e = sub.add_parser("extract")
     e.add_argument("--source", required=True, help="a directory of *.json interaction logs, or a text file")
     sub.add_parser("label")
+    i = sub.add_parser("import", help="load label<TAB>message lines you wrote yourself")
+    i.add_argument("--source", required=True)
     s = sub.add_parser("score")
     s.add_argument("--adapter")
     s.add_argument("--model")
@@ -153,6 +172,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(json.dumps(extract(Path(args.source).expanduser())))
     elif args.command == "label":
         print(json.dumps(label()))
+    elif args.command == "import":
+        print(json.dumps(import_labelled(Path(args.source).expanduser())))
     else:
         print(json.dumps(score(Path(args.adapter) if args.adapter else None, args.model), indent=2))
     return 0

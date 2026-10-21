@@ -44,3 +44,13 @@ def test_labelling_is_resumable_and_skips_stay_out(home):
     assert R.label(ask=lambda _p: next(again), show=lambda *_: None) == {"labelled": 2}
     labels = [json.loads(line) for line in R.LABELLED.read_text().splitlines()]
     assert [r["label"] for r in labels] == ["coding", "finance"]
+
+
+def test_import_takes_tab_separated_lines_and_reports_counts_only(home, tmp_path):
+    source = tmp_path / "mine.txt"
+    source.write_text("coding\twrite a parser\nFinance\thow much cash should I hold\nweird\tnot a label\nno tab here\n\n",
+                      encoding="utf-8")
+    result = R.import_labelled(source)
+    assert result["labelled"] == 2 and result["skipped_lines"] == 2
+    assert result["per_label"]["finance"] == 1 and "write a parser" not in json.dumps(result)
+    assert stat.S_IMODE(os.stat(R.LABELLED).st_mode) == 0o600
