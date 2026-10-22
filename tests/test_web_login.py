@@ -53,7 +53,7 @@ def _hit(port, **params):
 
 def test_a_matching_callback_is_redeemed_with_the_verifier_and_returns_a_session(monkeypatch):
     session, seen, posts = _drive(monkeypatch, lambda s: _hit(s["port"], handoff_code="c" * 40, state=s["state"]))
-    assert seen["url"].startswith("https://arthera.finance/cli-login?")
+    assert seen["url"].startswith("https://arthera.xyz/cli-login?")
     url, payload = posts[0]
     assert url == "https://api.example.com/api/v2/auth/cli/exchange"
     assert payload["code"] == "c" * 40 and payload["state"] == seen["state"]

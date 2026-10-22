@@ -1,44 +1,16 @@
-"""AuthCommandsMixin — Arthera backend auth: /login, /logout, /whoami.
-
-Rendering and config go through ``self.context``; errors through the local
-``print_error`` adapter. The old note here described binding by
-aria_cli._rebind_mixin_globals, which 40f23c8 stopped calling.
-"""
+"""Account commands use the same Firebase UID as Web and desktop."""
 
 from __future__ import annotations
-
+import asyncio
+import sys
+from datetime import datetime, timezone
 from ._ui import print_error
 
 
-import json
-import asyncio
-import datetime
-import time
-import shlex
-from typing import Dict, Any, Optional
+def _esc_watcher():
+    from aria_code.aria_cli import _esc_watcher as watcher
 
-def _esc_watcher(*args, **kwargs):
-    from aria_code.aria_cli import _esc_watcher as fn
-    return fn(*args, **kwargs)
-
-import json
-import asyncio
-import datetime
-import time
-import shlex
-import sys
-import os
-from typing import Dict, Any, Optional
-
-
-import json
-import asyncio
-import datetime
-import time
-import shlex
-import sys
-import os
-from typing import Dict, Any, Optional
+    return watcher
 
 
 class AuthCommandsMixin:
@@ -57,7 +29,6 @@ class AuthCommandsMixin:
         with no browser.
         """
         import getpass as _getpass
-        import aiohttp
 
         parts = args.split()
 
@@ -78,66 +49,44 @@ class AuthCommandsMixin:
                 self.context.console.print("[dim]Cancelled[/dim]" if self.context.has_rich else "Cancelled")
                 return
         if not email:
-            self.context.console.print("[dim]Usage: /login <email>[/dim]" if self.context.has_rich else "Usage: /login <email>")
+            self.context.console.print(
+                "[dim]Usage: /login <email>[/dim]" if self.context.has_rich else "Usage: /login <email>"
+            )
             return
 
         # Always prompt for password — never accept it as a CLI argument (security)
         try:
-            _esc_watcher.pause()
+            _esc_watcher().pause()
             password = _getpass.getpass("  Password: ")
         except (EOFError, KeyboardInterrupt):
             self.context.console.print("[dim]Cancelled[/dim]" if self.context.has_rich else "Cancelled")
             return
         finally:
-            _esc_watcher.resume()
+            _esc_watcher().resume()
 
         if not password:
-            self.context.console.print("[red]Password cannot be empty[/red]" if self.context.has_rich else "Password cannot be empty")
+            self.context.console.print(
+                "[red]Password cannot be empty[/red]" if self.context.has_rich else "Password cannot be empty"
+            )
             return
 
         if self.context.has_rich:
             self.context.console.print("[dim]Authenticating...[/dim]")
 
         try:
-            async with aiohttp.ClientSession(trust_env=True) as session:
-                async with session.post(
-                    f"{self.terminal.api_url}/auth/login",
-                    json={"email": email, "password": password},
-                    timeout=aiohttp.ClientTimeout(total=15)
-                ) as resp:
-                    try:
-                        data = await resp.json()
-                    except Exception:
-                        data = {}
-                    if resp.status == 200 and data.get("token"):
-                        self.terminal.config["auth_token"] = data["token"]
-                        user_id = data.get("user_id", data.get("uid", email))
-                        self.terminal.config["user_id"] = user_id
-                        # Store token expiry if provided
-                        if data.get("expires_at"):
-                            self.terminal.config["token_expires_at"] = data["expires_at"]
-                        self.context.save_config(self.terminal.config)
-                        self.context.console.print(f"[green]✓ Logged in as {user_id}[/green]" if self.context.has_rich
-                                      else f"Logged in as {user_id}")
-                    elif resp.status == 401:
-                        print_error(self.context, "Invalid email or password", "login")
-                    elif resp.status == 429:
-                        print_error(self.context, "Too many login attempts — please wait before retrying", "login")
-                    else:
-                        err = data.get("error", data.get("message", f"Login failed (HTTP {resp.status})"))
-                        print_error(self.context, err, "login")
-        except aiohttp.ClientConnectorError:
-            print_error(self.context, 
-                f"Cannot reach {self.terminal.api_url} — check your network connection or use /local on",
-                "login"
+            from aria_code.account_session import password_session
+
+            session = await asyncio.to_thread(password_session, email.strip(), password)
+            self._accept_session(session)
+            who = self.terminal.config.get("email") or session["user_id"]
+            self.context.console.print(f"Signed in as {who}")
+        except Exception:
+            print_error(
+                self.context, "Sign-in failed. Check your email/password or run /login in the browser.", "login"
             )
-        except asyncio.TimeoutError:
-            print_error(self.context, "Login request timed out (15s) — server may be unavailable", "login")
-        except Exception as e:
-            print_error(self.context, f"Login error: {e}", "login")
 
     async def _login_with_google(self):
-        """Browser-based Google sign-in (see apps/cli/google_login.py).
+        """Browser-based account sign-in (see apps/cli/web_login.py).
 
         Run off the event loop: the flow blocks on a loopback socket for as long
         as the user takes in the browser, which would otherwise stall every other
@@ -145,8 +94,7 @@ class AuthCommandsMixin:
         """
         import asyncio as _asyncio
 
-        from ..google_login import login_api_url, run_google_login
-        import os as _os
+        from ..google_login import login_api_url
 
         from ..web_login import run_web_login
 
@@ -154,48 +102,64 @@ class AuthCommandsMixin:
         api_url = login_api_url(self.terminal.api_url)
         self.context.console.print(
             "[dim]Opening your browser to sign in or create an account…[/dim]"
-            if rich else "Opening your browser to sign in or create an account…"
+            if rich
+            else "Opening your browser to sign in or create an account…"
         )
 
         try:
-            # The account page (a choice of Google, Apple or email, with sign-up)
-            # is opt-in until it is deployed; until then this goes straight to Google.
-            if _os.getenv("ARIA_LOGIN_PAGE") == "1":
-                session = await _asyncio.to_thread(run_web_login, api_url)
-            else:
-                session = await _asyncio.to_thread(run_google_login, api_url)
+            session = await _asyncio.to_thread(run_web_login, api_url)
         except RuntimeError as exc:
             print_error(self.context, str(exc), "login")
             return
         except Exception as exc:
-            print_error(self.context, f"Google sign-in failed: {exc}", "login")
+            print_error(self.context, f"Account sign-in failed: {exc}", "login")
             return
 
+        try:
+            self._accept_session(session)
+        except ValueError:
+            print_error(self.context, "The session identity could not be verified. Run /login again.", "login")
+            return
+        who = self.terminal.config.get("email") or session["user_id"]
+        self.context.console.print(f"[green]✓ Signed in as {who}[/green]" if rich else f"Signed in as {who}")
+
+    def _reset_account_context(self):
+        from aria_code.memory_manager import MemoryManager
+
+        self.terminal.conversation = []
+        self.terminal._last_response = ""
+        self.terminal.memory_mgr = MemoryManager(config=self.terminal.config)
+        # Personal profile context is resolved per turn, never retained from A.
+        from aria_code.apps.cli.helpers import _load_project_context
+
+        for module_name in ("aria_cli", "aria_code.aria_cli"):
+            module = sys.modules.get(module_name)
+            if module is not None:
+                module._PROJECT_CONTEXT = _load_project_context()
+
+    def _accept_session(self, session):
+        from aria_code.account_session import claims_for
+
+        token, uid = session.get("auth_token"), session.get("user_id")
+        claims = claims_for(token or "")
+        if not token or not uid or claims.get("sub") != uid:
+            raise ValueError("Missing account identity")
         cfg = self.terminal.config
-        cfg["auth_token"] = session["auth_token"]
-        cfg["user_id"] = session.get("user_id")
-        cfg["auth_provider"] = "google.com"
+        cfg.update(
+            auth_token=token,
+            user_id=uid,
+            email=str(claims.get("email") or session.get("email") or "").strip().lower(),
+            display_name=session.get("display_name") or claims.get("name") or "",
+            auth_provider=session.get("provider") or "firebase",
+        )
+        cfg.pop("refresh_token", None)
+        cfg.pop("token_expires_at", None)
         if session.get("refresh_token"):
             cfg["refresh_token"] = session["refresh_token"]
-        # Firebase ID tokens last an hour. Recording the expiry lets /whoami say
-        # "expired" instead of letting the next API call fail with an opaque 401.
-        if session.get("expires_in"):
-            # Imported locally: this module's `datetime` global is injected by
-            # aria_cli._rebind_mixin_globals, and timedelta/timezone are not.
-            from datetime import datetime as _dt, timedelta as _td, timezone as _tz
-
-            try:
-                expires_at = _dt.now(_tz.utc) + _td(seconds=int(session["expires_in"]))
-                cfg["token_expires_at"] = expires_at.isoformat().replace("+00:00", "Z")
-            except Exception:
-                pass
+        if claims.get("exp"):
+            cfg["token_expires_at"] = datetime.fromtimestamp(float(claims["exp"]), timezone.utc).isoformat()
         self.context.save_config(cfg)
-
-        who = session.get("email") or session.get("user_id") or "your account"
-        self.context.console.print(
-            f"[green]✓ Signed in with Google as {who}[/green]" if rich
-            else f"Signed in with Google as {who}"
-        )
+        self._reset_account_context()
 
     def cmd_logout(self, args: str):
         self.terminal.config["auth_token"] = None
@@ -205,7 +169,10 @@ class AuthCommandsMixin:
         # a provider for a session that no longer exists.
         self.terminal.config.pop("refresh_token", None)
         self.terminal.config.pop("auth_provider", None)
+        self.terminal.config.pop("email", None)
+        self.terminal.config.pop("display_name", None)
         self.context.save_config(self.terminal.config)
+        self._reset_account_context()
         self.context.console.print("[dim]Logged out[/dim]" if self.context.has_rich else "Logged out")
 
     def cmd_whoami(self, args: str):
@@ -213,17 +180,19 @@ class AuthCommandsMixin:
         cfg = self.terminal.config
         user_id = cfg.get("user_id")
         token = cfg.get("auth_token")
+        email = cfg.get("email") or ""
         expires = cfg.get("token_expires_at")
 
         if not token:
-            self.context.console.print("[dim]Not logged in — use /login <email>[/dim]" if self.context.has_rich
-                          else "Not logged in")
+            self.context.console.print(
+                "[dim]Not logged in — use /login <email>[/dim]" if self.context.has_rich else "Not logged in"
+            )
             return
 
         if self.context.has_rich:
             self.context.console.print()
             self.context.console.print(f"  [dim]User:[/dim]    {user_id or 'unknown'}")
-            self.context.console.print(f"  [dim]Token:[/dim]   {token[:12]}...")
+            self.context.console.print(f"  [dim]Email:[/dim]   {email or 'unknown'}")
             if expires:
                 # Check expiry
                 try:
@@ -241,6 +210,6 @@ class AuthCommandsMixin:
             self.context.console.print()
         else:
             print(f"User: {user_id or 'unknown'}")
-            print(f"Token: {token[:12]}...")
+            print(f"Email: {email or 'unknown'}")
             if expires:
                 print(f"Expires: {expires}")

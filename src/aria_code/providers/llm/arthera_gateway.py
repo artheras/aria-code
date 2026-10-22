@@ -27,7 +27,7 @@ from .openai_compat import OpenAICompatProvider
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_API_URL = "https://api.arthera.finance"
+DEFAULT_API_URL = "https://api.arthera.xyz"
 DEFAULT_MODEL = "google/gemini-3.5-flash"
 
 
@@ -53,6 +53,9 @@ def session_token() -> Optional[str]:
         config = json.loads(_config_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+    from aria_code.account_session import account_id, get_account_token
+    if account_id(config):
+        return get_account_token(config)
     token = config.get("auth_token")
     return str(token) if token else None
 
@@ -60,7 +63,8 @@ def session_token() -> Optional[str]:
 def gateway_base_url() -> str:
     """Where the gateway lives. Overridable for staging and self-hosting."""
     api = os.getenv("ARIA_API_URL", "").strip() or DEFAULT_API_URL
-    return f"{api.rstrip('/')}/api/v2/llm/v1"
+    from aria_code.service_endpoints import current_url
+    return f"{current_url(api)}/api/v2/llm/v1"
 
 
 class ArtheraGatewayProvider(OpenAICompatProvider):

@@ -59,3 +59,16 @@ def test_loading_a_real_config_file_migrates_and_writes_back(tmp_path, monkeypat
     assert cfg["api_url"] == PRODUCTION_API_URL
     saved = json.loads((tmp_path / "config.json").read_text())
     assert saved["api_url"] == PRODUCTION_API_URL
+
+
+@pytest.mark.parametrize("old", ["https://api.arthera.finance", "https://api.arthera.finance/", "https://cn.arthera.finance"])
+def test_expired_domain_moves_to_current_gateway(old):
+    cfg = {"api_url":old}
+    assert migrate_config(cfg) == [("api_url",old,PRODUCTION_API_URL)]
+    assert cfg["api_url"] == "https://api.arthera.xyz"
+
+
+def test_pinned_expired_domain_is_still_retired():
+    cfg={'api_url':'https://api.arthera.finance','api_url_pinned':True}
+    migrate_config(cfg)
+    assert cfg['api_url']=='https://api.arthera.xyz'

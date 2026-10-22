@@ -133,7 +133,9 @@ def login_api_url(configured: str) -> str:
 
     from ...providers.llm.arthera_gateway import DEFAULT_API_URL
 
-    override = os.getenv("ARIA_API_URL", "").strip()
+    from aria_code.service_endpoints import current_url
+    configured = current_url(configured)
+    override = current_url(os.getenv("ARIA_API_URL", "").strip())
     if override:
         return override.rstrip("/")
     host = (urllib.parse.urlparse(configured or "").hostname or "").lower()
