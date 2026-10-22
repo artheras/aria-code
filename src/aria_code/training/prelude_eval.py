@@ -9,9 +9,12 @@ does them:
 * ``intent`` a user message -> one of five routing labels, from a hand-written set
   that does not share its labels with the keyword classifier being compared against.
 
-Each case carries a ``split``. Cases whose *family* (the leading words of a command)
-hashes into ``test`` are never to be trained on; the baseline reports both splits so a
-later fine-tune is compared on the part it could not have seen.
+Each case carries a ``split``. Train-side splits (``dev``, ``extra``, ``extra2``) may be
+trained on; no test split shares a family with them. The risk ``test`` split is hashed
+out of the public parity corpus, so it is public. The locked sets (risk ``test2`` and
+``test3``, intent ``test``) live in the private aria-evals-holdout repository under
+``prelude/``; ``load`` adds them when that checkout is present, so a fine-tune is compared
+on cases no public copy of this repository holds.
 
 The numbers that decide whether to train are in the report: accuracy with a Wilson
 interval, and for risk the *under-call rate* (a level 3-4 command judged below 3), which
@@ -27,6 +30,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import os
 import re
 import sys
 import urllib.request
@@ -40,6 +44,9 @@ ROOT = Path(__file__).resolve().parents[3]
 DATA = ROOT / "evals" / "prelude"
 RISK_FILE = DATA / "risk.jsonl"
 INTENT_FILE = DATA / "intent.jsonl"
+# The locked test sets: a checkout of the private aria-evals-holdout repository.
+HOLDOUT = Path(os.environ.get("ARIA_PRELUDE_HOLDOUT") or ROOT.parent / "aria-evals-holdout" / "prelude")
+LOCKED_SPLITS = {"risk": ("test2", "test3"), "intent": ("test",)}
 TEST_SHARE = 3  # of 10 families go to the test split
 
 INTENT_LABELS = ("coding", "analysis", "realtime", "general", "finance")
@@ -68,215 +75,104 @@ INTENT_SYSTEM = (
 # Hand-written, one clear label each. Written without looking at the keyword classifier.
 INTENT_CASES: Dict[str, List[str]] = {
     "coding": [
-        "写一个 Python 脚本批量重命名文件", "Fix the null pointer bug in my login handler",
-        "帮我实现一个 React 登录页面并添加测试", "refactor this function to use async/await",
+        "Fix the null pointer bug in my login handler", "refactor this function to use async/await",
         "请审核项目代码，并给出修复建议", "write a FastAPI endpoint that returns the user's portfolio",
         "为这个模块补充单元测试", "为什么我的 TypeScript 报 cannot find module",
         "generate a SQL migration adding a currency column", "帮我写一个回测脚本，用双均线策略",
-        "debug why this pytest fixture is not found", "用 Go 写一个并发限流器",
-        "review this pull request for race conditions", "把这段 JavaScript 改成 TypeScript",
-        "write a bash one-liner to find large files", "实现一个 LRU 缓存",
-        "add dark mode to the SwiftUI settings screen", "我的 Dockerfile 构建失败了，帮我看看",
-        "write a Python function to compute max drawdown", "给我一个正则匹配中国手机号",
-        "Write a unit test for the order matching function",
-        "把这个 SQL 查询优化一下",
-        "Explain what a closure is in JavaScript",
-        "这段 Python 报 KeyError 怎么修",
-        "set up a GitHub Actions workflow that runs pytest",
-        "用 Rust 写一个命令行参数解析器",
-        "convert this pandas code to polars",
-        "为什么这个 React 组件会无限重渲染",
-        "write a Dockerfile for a FastAPI app",
-        "帮我写一个爬虫抓取网页标题",
-        "how do lifetimes work in Rust",
-        "实现二分查找并写测试",
-        "review my Go code for goroutine leaks",
-        "给这个函数加上类型注解",
-        "write a script to back up my Postgres database",
-        "怎么用 git rebase 合并最近三个提交",
-        "implement JWT refresh token rotation in Express",
-        "我的 CI 一直报 flake8 错误，帮我改",
-        "create a CLI tool that converts CSV to JSON",
-        "写一个 Swift 的网络请求封装",
-        "explain the difference between threads and processes in Python",
-        "帮我写一个计算夏普比率的 Python 函数",
-        "write a SQL query to find duplicate emails",
-        "把这个 shell 脚本改成跨平台的",
-        "build a React hook for debounced search",
-        "Kubernetes 的 yaml 怎么写才能挂载配置",
-        "add retry logic with exponential backoff",
-        "optimize this loop, it's too slow",
-        "给我的 Flask 项目加登录功能",
-        "refactor the legacy module into smaller functions",
-        "给我讲讲 Rust 的所有权概念",
+        "用 Go 写一个并发限流器", "review this pull request for race conditions",
+        "把这段 JavaScript 改成 TypeScript", "write a bash one-liner to find large files",
+        "实现一个 LRU 缓存", "add dark mode to the SwiftUI settings screen",
+        "我的 Dockerfile 构建失败了，帮我看看", "write a Python function to compute max drawdown",
+        "Write a unit test for the order matching function", "把这个 SQL 查询优化一下",
+        "这段 Python 报 KeyError 怎么修", "set up a GitHub Actions workflow that runs pytest",
+        "为什么这个 React 组件会无限重渲染", "write a Dockerfile for a FastAPI app",
+        "帮我写一个爬虫抓取网页标题", "review my Go code for goroutine leaks",
+        "给这个函数加上类型注解", "create a CLI tool that converts CSV to JSON",
+        "explain the difference between threads and processes in Python", "帮我写一个计算夏普比率的 Python 函数",
+        "write a SQL query to find duplicate emails", "build a React hook for debounced search",
+        "add retry logic with exponential backoff", "给我的 Flask 项目加登录功能",
+        "refactor the legacy module into smaller functions", "给我讲讲 Rust 的所有权概念",
     ],
     "analysis": [
-        "分析一下腾讯的基本面", "Do a technical analysis of NVDA: RSI, MACD and support levels",
-        "苹果的估值贵不贵，用 PE 和 DCF 看看", "compare AMD and Intel fundamentals",
-        "宁德时代最近走势怎么样，技术面如何", "Is Tesla overvalued right now?",
-        "帮我研判一下下周A股大盘", "analyze Microsoft's last earnings report",
-        "比亚迪的护城河和风险有哪些", "evaluate the outlook for semiconductor stocks",
-        "茅台的财报怎么看", "what do the moving averages say about SPY",
-        "对比一下招商银行和平安银行的基本面", "Give me a fundamental analysis of Amazon",
+        "分析一下腾讯的基本面", "苹果的估值贵不贵，用 PE 和 DCF 看看",
+        "宁德时代最近走势怎么样，技术面如何", "帮我研判一下下周A股大盘",
+        "analyze Microsoft's last earnings report", "对比一下招商银行和平安银行的基本面",
         "英伟达接下来一个季度的业绩预期怎么样", "analyze the trend of the Hang Seng index",
-        "半导体板块还能买吗，帮我分析", "break down Netflix's margins and growth",
-        "中芯国际的技术面支撑位在哪", "assess the valuation of Alibaba vs JD",
-        "Compare Apple and Microsoft's balance sheets",
-        "招商银行最近的净息差变化说明什么",
-        "Is the semiconductor sector in an uptrend?",
-        "分析一下特斯拉最新一季度财报",
-        "What are the risks in Nvidia's valuation?",
-        "美团和拼多多的商业模式对比",
-        "Break down Disney's streaming profitability",
-        "港股科技股现在估值处在什么水平",
-        "Look at AMD's chart: where are support and resistance?",
-        "中国平安的 ROE 近五年趋势怎么样",
-        "analyze the yield curve and what it means for bank stocks",
-        "宁德时代的毛利率为什么下降",
-        "Is Costco's premium valuation justified?",
-        "创业板指走势怎么看",
-        "Give me the bull and bear case for Palantir",
-        "恒生科技指数的技术形态分析",
-        "evaluate Shopify's growth versus its P/S ratio",
-        "对比一下三大航空公司的负债率",
-        "What does Intel's capex mean for its free cash flow",
-        "分析一下黄金ETF的走势",
-        "Why did Meta's stock jump after earnings",
-        "万科的债务风险有多大",
-        "Assess whether Walmart is a defensive stock",
-        "新能源车板块的龙头估值对比",
-        "Analyze the correlation between oil prices and airline stocks",
-        "中芯国际和台积电的技术差距体现在财务上吗",
-        "technical outlook for the Nasdaq 100 this month",
-        "分析腾讯音乐的订阅用户增长",
-        "How exposed is Tesla to China demand",
+        "break down Netflix's margins and growth", "中芯国际的技术面支撑位在哪",
+        "assess the valuation of Alibaba vs JD", "Compare Apple and Microsoft's balance sheets",
+        "招商银行最近的净息差变化说明什么", "Is the semiconductor sector in an uptrend?",
+        "What are the risks in Nvidia's valuation?", "美团和拼多多的商业模式对比",
+        "Break down Disney's streaming profitability", "中国平安的 ROE 近五年趋势怎么样",
+        "analyze the yield curve and what it means for bank stocks", "宁德时代的毛利率为什么下降",
+        "Is Costco's premium valuation justified?", "对比一下三大航空公司的负债率",
+        "分析一下黄金ETF的走势", "Why did Meta's stock jump after earnings",
+        "Assess whether Walmart is a defensive stock", "新能源车板块的龙头估值对比",
+        "Analyze the correlation between oil prices and airline stocks", "中芯国际和台积电的技术差距体现在财务上吗",
+        "technical outlook for the Nasdaq 100 this month", "分析腾讯音乐的订阅用户增长",
         "茅台的批发价对业绩有什么影响",
     ],
     "realtime": [
-        "AAPL 现在股价多少", "what is the price of Bitcoin right now", "今天上证指数多少点",
-        "current quote for TSLA", "茅台今天涨了多少", "latest EUR/USD rate",
-        "现在黄金多少钱一盎司", "what's NVDA trading at today", "腾讯今日收盘价",
-        "how much is the S&P 500 up today", "宁德时代现在市值多少", "quote for 0700.HK",
-        "今天纳斯达克涨跌幅", "current price of crude oil", "比特币现在的价格",
-        "what is the market cap of Apple now", "美元兑人民币现在汇率是多少", "AMZN latest quote",
+        "今天上证指数多少点", "current quote for TSLA",
+        "茅台今天涨了多少", "latest EUR/USD rate",
+        "现在黄金多少钱一盎司", "腾讯今日收盘价",
+        "宁德时代现在市值多少", "quote for 0700.HK",
+        "今天纳斯达克涨跌幅", "current price of crude oil",
+        "比特币现在的价格", "what is the market cap of Apple now",
+        "美元兑人民币现在汇率是多少", "AMZN latest quote",
         "今天恒生指数多少点", "price of gold today",
-        "ETH 现在多少钱",
-        "what is Tesla's stock price right now",
-        "今天沪深300涨了多少",
-        "current USD/JPY rate",
-        "苹果现在的市值",
-        "How is the Dow doing today",
-        "黄金现价",
-        "quote for BABA",
-        "今天创业板指收盘多少",
-        "bitcoin price in USD now",
-        "英伟达盘前价格",
-        "latest price of Brent crude",
-        "恒指现在多少点",
-        "show me today's top gainers on the NASDAQ",
-        "美元兑日元汇率现在多少",
-        "what's AAPL's volume today",
-        "腾讯现在的买一卖一",
-        "S&P 500 futures right now",
-        "今日A股成交额",
-        "current 10-year Treasury yield",
-        "比亚迪今天股价",
-        "how much is 1 BTC worth right now",
-        "宁德时代今天涨停了吗",
-        "price of silver per ounce today",
-        "上证指数现在是红还是绿",
-        "what is GOOGL trading at after hours",
-        "港股今日成交最活跃的股票",
-        "current VIX level",
-        "现在人民币兑欧元汇率",
-        "NVDA live quote",
+        "what is Tesla's stock price right now", "今天沪深300涨了多少",
+        "苹果现在的市值", "黄金现价",
+        "今天创业板指收盘多少", "bitcoin price in USD now",
+        "latest price of Brent crude", "恒指现在多少点",
+        "show me today's top gainers on the NASDAQ", "美元兑日元汇率现在多少",
+        "腾讯现在的买一卖一", "S&P 500 futures right now",
+        "今日A股成交额", "current 10-year Treasury yield",
+        "比亚迪今天股价", "how much is 1 BTC worth right now",
+        "宁德时代今天涨停了吗", "price of silver per ounce today",
+        "上证指数现在是红还是绿", "what is GOOGL trading at after hours",
+        "current VIX level", "现在人民币兑欧元汇率",
     ],
     "general": [
-        "你好", "explain the difference between REST and GraphQL",
-        "帮我写一份产品需求文档的大纲", "how should I structure the onboarding UX", "总结一下这段会议记录",
-        "what is a monad", "请给这个应用的信息架构提些建议", "translate this paragraph into English",
-        "如何理解边际效应递减", "draft an email asking for a deadline extension",
-        "microservices vs monolith for a 3-person team?", "怎么提高团队的协作效率",
-        "who wrote the Great Gatsby", "分析这个电商产品的用户流程和商业风险",
-        "what's a good name for a note-taking app", 
-        
-        "write release-notes wording for a minor update",
-        "Summarize the key points of this article for me",
-        "帮我想一个产品的 slogan",
-        "What's the best way to learn a new language",
-        "把这段话翻译成法语",
-        "Explain the difference between TCP and UDP",
-        "怎么写一封得体的辞职信",
-        "Draft a project kickoff agenda",
-        "帮我规划一下三天的京都行程",
-        "Suggest a workflow for reviewing user feedback",
-        "如何给团队做一次好的复盘",
-        "Is it normal to feel tired after a vaccine",
-        "写一首关于秋天的短诗",
-        "what's the capital of Australia",
-        "对比一下 Notion 和 Obsidian 的使用场景",
-        "How should I structure a design system for a small team",
-        "帮我润色这段自我介绍",
-        "Recommend three books on negotiation",
-        "这个 app 的引导流程哪里让人困惑",
-        "explain how vaccines work",
-        "给我一份面试前的检查清单",
-        "Brainstorm names for a robotics startup",
-        "怎么向非技术人员解释 API",
-        "What are good habits for deep work",
-        "把会议纪要整理成行动项",
-        "Describe the pros and cons of remote work",
-        "我该如何准备雅思口语",
-        "write a polite reminder email to a client about an invoice",
-        "how do I make sourdough starter",
-        "帮我设计一个用户反馈收集表单",
-        "What's the difference between UX and UI",
+        "你好", "帮我写一份产品需求文档的大纲",
+        "how should I structure the onboarding UX", "translate this paragraph into English",
+        "draft an email asking for a deadline extension", "microservices vs monolith for a 3-person team?",
+        "怎么提高团队的协作效率", "who wrote the Great Gatsby",
+        "分析这个电商产品的用户流程和商业风险", "what's a good name for a note-taking app",
+        "write release-notes wording for a minor update", "Summarize the key points of this article for me",
+        "帮我想一个产品的 slogan", "What's the best way to learn a new language",
+        "把这段话翻译成法语", "怎么写一封得体的辞职信",
+        "Draft a project kickoff agenda", "帮我规划一下三天的京都行程",
+        "写一首关于秋天的短诗", "what's the capital of Australia",
+        "How should I structure a design system for a small team", "帮我润色这段自我介绍",
+        "Recommend three books on negotiation", "explain how vaccines work",
+        "Brainstorm names for a robotics startup", "怎么向非技术人员解释 API",
+        "把会议纪要整理成行动项", "Describe the pros and cons of remote work",
+        "write a polite reminder email to a client about an invoice", "how do I make sourdough starter",
+        "帮我设计一个用户反馈收集表单", "What's the difference between UX and UI",
         "how long does it take to fly from Shanghai to London",
     ],
     "finance": [
         "我的投资组合风险偏高，怎么调整配置", "should I diversify my portfolio into bonds",
         "怎么做资产配置，我有50万", "how do I hedge a concentrated stock position",
-        "定投和一次性买入哪个更好", "what's a reasonable risk tolerance for a 30-year-old",
-        "基金怎么选，指数基金还是主动基金", "explain how to rebalance quarterly",
-        "我想把一部分仓位换成防御型资产", "is a 60/40 portfolio still sensible",
-        "退休规划应该怎么做", "how much should I keep in cash as an emergency fund",
+        "what's a reasonable risk tolerance for a 30-year-old", "我想把一部分仓位换成防御型资产",
+        "is a 60/40 portfolio still sensible", "how much should I keep in cash as an emergency fund",
         "我的持仓里科技股占比太高了怎么办", "what's your view on dollar-cost averaging into crypto",
         "如何控制组合的最大回撤", "help me set a stop-loss policy for my portfolio",
-        "债券和股票怎么配比比较稳健", "tax-efficient ways to invest 100k",
-        "怎么评估自己的风险承受能力", "should I hold more cash before a rate decision",
-        "什么是夏普比率",
-        "explain how compound interest works",
-        "宏观角度怎么看加息周期",
-        "What is the Sharpe ratio and how do I read mine",
-        "解释一下复利和单利的区别",
-        "How should I split savings between stocks, bonds and cash",
-        "我的持仓集中在三只股票，风险大吗",
-        "Is it a good time to increase my equity allocation",
-        "年化收益率和夏普比率哪个更能衡量我的组合",
-        "how do interest rate hikes affect my bond holdings",
-        "加息周期里应该怎么调整仓位",
-        "Should I pay off my mortgage early or invest",
-        "我想给孩子做教育金规划",
-        "what's the difference between a Roth and a traditional IRA",
-        "分红再投资有什么好处",
-        "How do I size a position using volatility",
-        "我的组合最近回撤8%，要不要减仓",
-        "explain value at risk in plain terms",
-        "怎么看待把部分资金放进货币基金",
-        "What's an appropriate asset mix for retirement in 20 years",
-        "港股通和QDII哪个更适合我配置海外资产",
-        "Help me understand why my portfolio lagged the index",
-        "我的月收入2万，每月应该投多少",
-        "how does currency risk affect my overseas holdings",
-        "如何判断我的组合是否过度集中于单一行业",
-        "Is gold a good hedge in my portfolio",
-        "怎么用止盈止损管理我的仓位",
-        "What does beta mean for my stock portfolio",
-        "通胀上升时我的资产配置要不要改",
-        "should I keep investing monthly during a market crash",
-        "了解一下目标日期基金适不适合我",
+        "tax-efficient ways to invest 100k", "怎么评估自己的风险承受能力",
+        "should I hold more cash before a rate decision", "什么是夏普比率",
+        "宏观角度怎么看加息周期", "What is the Sharpe ratio and how do I read mine",
+        "解释一下复利和单利的区别", "How should I split savings between stocks, bonds and cash",
+        "Is it a good time to increase my equity allocation", "年化收益率和夏普比率哪个更能衡量我的组合",
+        "how do interest rate hikes affect my bond holdings", "加息周期里应该怎么调整仓位",
+        "Should I pay off my mortgage early or invest", "我想给孩子做教育金规划",
+        "我的组合最近回撤8%，要不要减仓", "explain value at risk in plain terms",
+        "怎么看待把部分资金放进货币基金", "What's an appropriate asset mix for retirement in 20 years",
+        "港股通和QDII哪个更适合我配置海外资产", "Help me understand why my portfolio lagged the index",
+        "我的月收入2万，每月应该投多少", "how does currency risk affect my overseas holdings",
+        "如何判断我的组合是否过度集中于单一行业", "怎么用止盈止损管理我的仓位",
+        "What does beta mean for my stock portfolio", "通胀上升时我的资产配置要不要改",
+        "should I keep investing monthly during a market crash", "了解一下目标日期基金适不适合我",
         "How much risk is too much for someone retiring in five years",
-        "做空和对冲对普通投资者有意义吗",
     ],
 }
 
@@ -333,33 +229,23 @@ def build_risk() -> List[dict]:
 
 
 def extra_commands(rows: List[dict]) -> List[dict]:
-    """Hand-written families, filtered so no family sits on both sides of the train/test line.
+    """Hand-written trainable families, minus any family the ``test`` split holds.
 
-    Trainable sets (``extra``, ``extra2``) drop families the first test set holds. Locked
-    test sets (``test2``, ``test3``) keep only families that no train-side set and no
-    earlier test set contains, so each one is fresh when it is written.
+    The locked sets that follow them live in aria-evals-holdout; whoever adds one there
+    keeps only families that no train-side set and no earlier test set contains.
     """
     from aria_code.safety.risk import assess_command
-    from aria_code.training.prelude_commands import TEST, TEST_3, TRAIN, TRAIN_2
+    from aria_code.training.prelude_commands import TRAIN, TRAIN_2
 
     def flat(source):
         return [c for group in source.values() for c in group]
 
     first_test = {r["family"] for r in rows if r["split"] == "test"}
     out = []
-    train_fams = {r["family"] for r in rows if r["split"] == "dev"}
     for name, source in (("extra", TRAIN), ("extra2", TRAIN_2)):
         for command in flat(source):
             if family(command) not in first_test:
-                train_fams.add(family(command))
                 out.append((name, command))
-    seen_test = set(first_test)
-    for name, source in (("test2", TEST), ("test3", TEST_3)):
-        commands = flat(source)
-        for command in commands:
-            if family(command) not in train_fams and family(command) not in seen_test:
-                out.append((name, command))
-        seen_test |= {family(c) for c in commands}
     return [{"id": f"risk-{len(rows) + i:04d}", "task": "risk", "input": command,
              "label": assess_command(command).level, "family": family(command), "split": name}
             for i, (name, command) in enumerate(out)]
@@ -370,7 +256,7 @@ def build_intent() -> List[dict]:
     for label, messages in INTENT_CASES.items():
         for message in messages:
             rows.append({"id": f"intent-{len(rows):04d}", "task": "intent", "input": message,
-                         "label": label, "family": message, "split": split_of(message)})
+                         "label": label, "family": message, "split": "dev"})
     return rows
 
 
@@ -381,11 +267,23 @@ def write_jsonl(path: Path, rows: Iterable[dict]) -> int:
     return len(rows)
 
 
-def load(task: str) -> List[dict]:
+def _read_jsonl(path: Path) -> List[dict]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def holdout_available(task: str) -> bool:
+    return (HOLDOUT / f"{task}.jsonl").is_file()
+
+
+def load(task: str, holdout: bool = True) -> List[dict]:
+    """The public cases, plus the locked ones when the holdout checkout is present."""
     path = RISK_FILE if task == "risk" else INTENT_FILE
     if not path.is_file():
         raise SystemExit(f"{path} is missing; run `python -m aria_code.training.prelude_eval build` from a source checkout.")
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    rows = _read_jsonl(path)
+    if holdout and holdout_available(task):
+        rows += _read_jsonl(HOLDOUT / f"{task}.jsonl")
+    return rows
 
 
 def parse_prediction(task: str, text: str):

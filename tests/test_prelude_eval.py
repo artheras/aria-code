@@ -1,3 +1,7 @@
+import json
+
+import pytest
+
 from aria_code.training import prelude_eval as P
 
 
@@ -18,8 +22,23 @@ def test_no_family_is_on_both_sides_of_the_train_test_line():
 
 
 def test_committed_files_match_the_builder():
-    assert [r["id"] for r in P.build_risk()] == [r["id"] for r in P.load("risk")]
-    assert P.build_intent() == P.load("intent")
+    assert [r["id"] for r in P.build_risk()] == [r["id"] for r in P.load("risk", holdout=False)]
+    assert P.build_intent() == P.load("intent", holdout=False)
+
+
+def test_the_public_files_hold_no_locked_split():
+    for task, locked in P.LOCKED_SPLITS.items():
+        public = {r["split"] for r in P.load(task, holdout=False)}
+        assert not public & set(locked), (task, public)
+
+
+def test_load_adds_the_locked_sets_from_the_holdout(monkeypatch, tmp_path):
+    row = {"id": "intent-locked-9999", "task": "intent", "input": "x", "label": "general",
+           "family": "x", "split": "test"}
+    (tmp_path / "intent.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+    monkeypatch.setattr(P, "HOLDOUT", tmp_path)
+    assert P.load("intent")[-1] == row
+    assert row not in P.load("intent", holdout=False)
 
 
 def test_predictions_parse_strictly():
@@ -44,10 +63,18 @@ def test_training_data_never_touches_a_test_split():
     rows = P.load("risk")
     held = {r["input"] for r in rows if r["split"] in ("test", "test2", "test3")}
     families = {r["family"] for r in rows if r["split"] in ("test", "test2", "test3")}
-    train, valid, _ = T.build_training_data()
+    train, valid, _ = T.build_training_data(require_holdout=P.holdout_available("risk"))
     commands = {x["messages"][1]["content"] for x in train + valid}
     assert commands and not commands & held
     assert not any(P.family(c) in families for c in commands)
+
+
+def test_risk_training_data_refuses_without_the_locked_sets(monkeypatch, tmp_path):
+    from aria_code.training import prelude_train as T
+
+    monkeypatch.setattr(P, "HOLDOUT", tmp_path / "missing")
+    with pytest.raises(SystemExit, match="aria-evals-holdout"):
+        T.build_training_data()
 
 
 def test_the_checkpoint_is_chosen_by_validation_loss_alone():
