@@ -62,3 +62,37 @@ async def test_registered_mcp_handler_runs_on_registry_owner_loop(tmp_path, monk
 
     assert result == {"success": True, "status": "ok"}
     assert calls == [("quant/health", {})]
+
+
+@pytest.mark.asyncio
+async def test_mcp_server_never_sees_the_executor_private_arguments(tmp_path):
+    # ToolExecutor adds _run_id and _session_id to every call. A strict MCP
+    # server rejected the whole call over them: "unexpected keyword argument
+    # '_run_id'".
+    registry = MCPToolRegistry(config_path=tmp_path / "mcp.json")
+    registry._event_loop = __import__("asyncio").get_running_loop()
+    sent = []
+
+    async def server_call_tool(name, arguments):
+        sent.append((name, arguments))
+        return {"success": True, "insights": []}
+
+    registry._servers = {
+        "quant": SimpleNamespace(
+            tools=[{
+                "name": "get_market_insights",
+                "description": "Insights",
+                "inputSchema": {"type": "object", "properties": {"symbol": {"type": "string"}}},
+            }],
+            is_alive=True,
+            call_tool=server_call_tool,
+        )
+    }
+    tools = {}
+    registry.register_into(tools, [])
+    executor = ToolExecutor(tools, execution_context=lambda: {"_run_id": "run-1", "_session_id": "s-1"})
+
+    result = await executor.execute("mcp__quant__get_market_insights", {"symbol": "AAPL"})
+
+    assert result["success"] is True
+    assert sent == [("get_market_insights", {"symbol": "AAPL"})]
