@@ -48,20 +48,23 @@ def _config_path() -> Path:
 
 
 def session_token() -> Optional[str]:
-    """The Firebase token `/login` stored, or None when signed out.
-
-    Renewed first when it is about to expire (see session_refresh), so a session
-    survives past the hour a Firebase ID token lasts.
-    """
+    """The Firebase token `/login` stored, or None when signed out."""
+    try:
+        config = json.loads(_config_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    from aria_code.account_session import account_id, get_account_token
+    if account_id(config):
+        return get_account_token(config)
     from aria_code.apps.cli.session_refresh import refresh_config_file
-
     return refresh_config_file(_config_path())
 
 
 def gateway_base_url() -> str:
     """Where the gateway lives. Overridable for staging and self-hosting."""
     api = os.getenv("ARIA_API_URL", "").strip() or DEFAULT_API_URL
-    return f"{api.rstrip('/')}/api/v2/llm/v1"
+    from aria_code.service_endpoints import current_url
+    return f"{current_url(api)}/api/v2/llm/v1"
 
 
 class ArtheraGatewayProvider(OpenAICompatProvider):

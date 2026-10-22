@@ -70,8 +70,9 @@ def test_the_walk_stops_at_the_repository_root(repo):
 
 
 def test_the_project_gets_the_budget_before_the_global_profile(repo):
-    profile = pathlib.Path.home() / ".arthera" / "ARIA.md"
-    profile.parent.mkdir(parents=True)
+    from aria_code.account_session import profile_path
+    profile = profile_path()
+    profile.parent.mkdir(parents=True, exist_ok=True)
     profile.write_text("g" * 20000)
     (repo / "AGENTS.md").write_text("project rule")
     text = _load_project_context()

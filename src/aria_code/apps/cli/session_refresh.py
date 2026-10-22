@@ -91,6 +91,14 @@ def refresh_config_file(path: Path, *, now: Optional[datetime] = None,
         new_token = result.get("id_token") or result.get("idToken")
         if not new_token:
             return token
+        # Do not let a slow refresh for account A replace a later login to B.
+        target = Path(path)
+        current = json.loads(target.read_text(encoding="utf-8"))
+        keys = ("user_id", "auth_token", "refresh_token")
+        if any(current.get(key) != config.get(key) for key in keys):
+            return None
+        if config.get("user_id") and result.get("user_id") and result["user_id"] != config["user_id"]:
+            return None
         config["auth_token"] = new_token
         if result.get("refresh_token") or result.get("refreshToken"):
             config["refresh_token"] = result.get("refresh_token") or result.get("refreshToken")
