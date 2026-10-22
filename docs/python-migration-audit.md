@@ -1,5 +1,61 @@
 # Remaining Python migration work
 
+## Audit of 2026-10-19 (main `dd4af04`+)
+
+Measured, not estimated. Tracked code: Python `src` 549 modules / 151k lines
+(tests 53k), Go 23k, Rust 8k. About 87% of runtime code is still Python, but
+numeric libraries (numpy, pandas, scipy, sklearn, torch) appear in only 13
+files; the rest is command handling, orchestration and HTTP.
+
+**Reachability caveats.** A static import walk from the shipped entry points
+finds 85 modules (18.7k lines) unreachable, but almost all are loaded another
+way: 54 compatibility shims at the `aria_code/` root (`import
+local_finance_tools` resolves to `tools.local_finance_tools`), command names,
+`python -m` entries and Dockerfiles. Unreachable is a lead, not a verdict;
+check `git grep -w NAME` (and the Dockerfiles) before deleting.
+
+**External consumers.** The Arthera platform installs aria-code at a pinned
+commit and imports `runtime`, `task_ledger`, `verify_loop`, `self_healing`,
+`packages.aria_mcp.server` and `agents.video.director`. Those are public API
+for now: changing them needs a pin bump on the Arthera side.
+
+**Removed in this pass** (zero references): `demo_player.py`, `demo.tape` and
+the 7.6 MB `demo-2026-06-22.gif`, `scripts/do_move.sh`, `top_level_modules.txt`,
+`PROJECT_CONTEXT.md`.
+
+**Unwired but tested; decide wire-or-delete** (no production caller, dedicated
+tests): `cloud_memory.py`, `workspace_context.py`, `tools/video_tools.py`,
+`runtime/crash_report.py`, `video_workflow/music/foley_service.py`,
+`utils/vscode_uri.py`.
+
+### Where each area should end up
+
+| Area (lines) | Target | Why / state |
+| --- | --- | --- |
+| Feishu relay, daemon (`aria_relay_server`, `aria_feishu_bot`, `aria_daemon`, ~3.9k) | Go (`go/relay`, 1.8k exists) | Server side, no terminal coupling; best first migration |
+| `packages/aria_mcp` (server 1.5k + installer) | Go | Protocol server; Arthera imports it, so keep a Python shim during cutover |
+| `runtime/` (11k: agent loop, transactions, sandbox) | Go (`agent.go` exists) | Blockers: whole-turn restore, process sandbox, change impact |
+| `providers/` + `apps/cli/providers` (7k, Ollama stream 1.6k) | Go | Google, OpenAI-compatible and tuned providers already native |
+| File/code/notebook/web tools (~3k) | Go | Behind the same read/write policy as Go file tools |
+| Slash commands (`apps/cli/commands`, 22.7k) | Go for session/config/model/workspace; finance stays Python until its data layer moves | Largest single block |
+| Self-update install (`updater.py`) | Rust | `updates.rs` only checks; install needs Python and does not support Windows |
+| `semantic_diff`, `repo_map`, `project_graph` | Rust (`rust/graph`) | Already partly there |
+| Legacy REPL: `aria_cli.py` (5.2k), `ui/` (6.4k), `picker.py`, `terminal_chrome.py` | Retire, do not port | The native TUI replaces them once the command inventory is complete |
+| `packages/quant_engine`, market/broker data, `data_cleaner`, training, evals, ADK apps | Stay Python | pandas/numpy, vendor SDKs (akshare, tushare), Python-only SDKs; keep as the numeric oracle for Go backtests |
+
+### Service gaps found
+
+* Go `/model` menu has no search, grouping or cloud model lists (Python's does).
+* Self-update installs only native macOS/Linux builds.
+* Go runtime: Linux/Windows sandboxes, embedded Office charts, whole-turn restore.
+* CI: Windows Go `bridge` subprocess has a 5 s timeout that flakes under load;
+  `test_doctor` depends on running inside a virtualenv; the `timeout` pytest
+  mark is unregistered.
+
+---
+
+# Earlier baseline (2026-10-14)
+
 Audit baseline: main `541ab4f` (v0.152.0), 2026-10-14. This checkout contains
 520 Python files under `src/aria_code` and, before this increment, 12 Python
 scripts. A matching Go file is not sufficient evidence that a Python module

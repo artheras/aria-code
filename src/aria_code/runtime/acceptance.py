@@ -175,6 +175,27 @@ def _anchors(text: str, limit: int = 5) -> tuple[str, ...]:
     return tuple(out[-limit:])
 
 
+# What a runner prints when the tool itself is missing, as opposed to a test failing:
+# `python3 -m pytest` -> "/opt/homebrew/bin/python3.14: No module named pytest", and
+# a missing program -> "command not found" (shell exit 127). A project's own
+# ModuleNotFoundError inside its tests looks different and stays a failure.
+_RUNNER_MISSING = re.compile(r"(?m)^\S*python[\d.]*: No module named ['\"]?([\w.]+)['\"]?\s*$")
+_PROGRAM_MISSING = re.compile(r"(?m)^(?:\S+: )*(?:([\w.+-]+): (?:command )?not found|command not found: ([\w.+-]+))\s*$")
+
+
+def unavailable_reason(exit_code: int, output: str, error: str = "") -> str:
+    """Why a check could not run at all ("" when it ran, whatever its verdict)."""
+    text = f"{output or ''}\n{error or ''}"
+    match = _RUNNER_MISSING.search(text)
+    if match:
+        return f"{match.group(1)} is not installed for this python"
+    match = _PROGRAM_MISSING.search(text)
+    if match or exit_code == 127:
+        name = (match.group(1) or match.group(2)) if match else ""
+        return f"{name or 'the command'} is not installed"
+    return ""
+
+
 @dataclass(frozen=True)
 class CheckResult:
     """One verification command, run."""
@@ -191,6 +212,9 @@ class CheckResult:
     new_failures: tuple[str, ...] = ()
     old_failures: tuple[str, ...] = ()
     baseline_note: str = ""
+    # Non-empty when the tool needed to run this check is missing. Not a red check:
+    # nothing was verified, and asking the model to "fix" it only makes it install things.
+    unavailable: str = ""
 
     @property
     def anchors(self) -> tuple[str, ...]:
@@ -204,6 +228,8 @@ class CheckResult:
             "duration": round(self.duration, 3),
             "error": self.error,
         }
+        if self.unavailable:
+            data["not_run"] = self.unavailable
         if not self.passed and (self.baseline_note or self.new_failures or self.old_failures):
             data.update({"preexisting": self.preexisting, "new_failures": list(self.new_failures),
                          "old_failures": list(self.old_failures), "baseline": self.baseline_note})
@@ -222,20 +248,25 @@ class AcceptanceReport:
 
     @property
     def ran(self) -> bool:
-        return bool(self.checks)
+        return any(not check.unavailable for check in self.checks)
+
+    @property
+    def not_run(self) -> tuple[CheckResult, ...]:
+        """Checks whose tool is missing: nothing was verified by them."""
+        return tuple(check for check in self.checks if check.unavailable)
 
     @property
     def passed(self) -> bool:
-        """True only when at least one check ran and every check passed.
+        """True only when at least one check ran and every check that could run passed.
 
         A gate that reports "verified" without running anything is worse than
         no gate: it launders an unchecked claim into a checked-looking one.
         """
-        return self.ran and all(check.passed for check in self.checks)
+        return self.ran and all(check.passed for check in self.checks if not check.unavailable)
 
     @property
     def failures(self) -> tuple[CheckResult, ...]:
-        return tuple(check for check in self.checks if not check.passed)
+        return tuple(check for check in self.checks if not check.passed and not check.unavailable)
 
     @property
     def regressed(self) -> bool:
@@ -244,9 +275,15 @@ class AcceptanceReport:
 
     def headline(self) -> str:
         if not self.ran:
+            if self.not_run:
+                first = self.not_run[0]
+                return f"验收未执行：`{first.command}` 无法运行（{first.unavailable}）"
             return "验收未执行：未推断出检查命令"
         if self.passed:
-            names = ", ".join(check.command for check in self.checks)
+            names = ", ".join(check.command for check in self.checks if not check.unavailable)
+            if self.not_run:
+                skipped = "; ".join(f"`{c.command}` ({c.unavailable})" for c in self.not_run)
+                return f"验收部分通过 ({names})；未能运行：{skipped}"
             return f"验收通过 ({names})"
         first = self.failures[0]
         if not self.regressed:
@@ -444,17 +481,19 @@ class AcceptanceGate:
                 duration=time.time() - started,
             )
         exit_code, output, error = _read_run_result(raw)
+        passed = exit_code == 0 and not error
         return CheckResult(
             command=command,
             exit_code=exit_code,
-            passed=exit_code == 0 and not error,
+            passed=passed,
             output=output,
             error=error,
             duration=time.time() - started,
+            unavailable="" if passed else unavailable_reason(exit_code, output, error),
         )
 
     async def _against_baseline(self, check: CheckResult) -> CheckResult:
-        if check.passed:
+        if check.passed or check.unavailable:
             return check
         from .baseline import compare
 
@@ -487,7 +526,8 @@ class AcceptanceGate:
             checks.append(check)
             # Stop at the first red.  Later checks usually fail for the same
             # cause, and each extra failing log costs context the repair needs.
-            if not check.passed:
+            # A check that could not run says nothing about the code, so the rest still run.
+            if not check.passed and not check.unavailable:
                 break
 
         if self.baseline is not None:
@@ -519,6 +559,8 @@ class AcceptanceGate:
         verified: Optional[bool] = None
         if last is not None and last.ran:
             verified = last.passed and not self.armed
+            if verified and last.not_run:
+                verified = None  # what could run passed, but part of the plan did not run
         return {
             "verified": verified,
             # False when the checks are red only where they were red before

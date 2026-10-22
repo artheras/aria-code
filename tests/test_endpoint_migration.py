@@ -41,7 +41,7 @@ def test_pinning_keeps_localhost():
 
 def test_the_environment_overrides_a_saved_value_without_reporting_a_migration(monkeypatch):
     monkeypatch.setenv("ARTHERA_API_URL", "http://localhost:8000/")
-    cfg = {"api_url": "https://api.arthera.finance"}
+    cfg = {"api_url": "https://api.arthera.xyz"}
     assert migrate_config(cfg) == []
     assert cfg["api_url"] == "http://localhost:8000"
     # So a developer with a local backend keeps it by setting one variable.

@@ -4,6 +4,10 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.163.0] — 2026-10-18
+
+- fix: defaults point at arthera.xyz (arthera.finance no longer answers) (#222)
+
 ## [0.162.0] — 2026-10-16
 
 - feat(native): document validation, session import/export, diagnostics, Go build tooling (#214)

@@ -22,6 +22,28 @@
 - **能微调的模型**：Vertex AI 的监督微调支持 `gemini-3.5-flash`（也是 Aria 的默认模型）和 `gemini-3.1-flash-lite`；2.5 系列随模型一起退役。Gemma 走开源模型微调路径。见 [Tune Gemini models with supervised fine-tuning](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini-use-supervised-tuning)。
 - **数据还不够**：50 道题、每题几次，只有几十条轨迹；监督微调一般需要几百到几千条高质量样本。在数据够之前训练，得到的只会是过拟合。
 
+## 2a. 步骤 0：先测各模型的成绩单
+
+训练一个"路由器"之前，先回答一个更便宜的问题：在 Aria 真正会遇到的任务上，便宜的模型是否常常做得出来？
+用同一批可验证的题目、同一套检查，跑几个模型，比较通过率、耗时，并算出"理想路由"能省多少：
+
+```bash
+# 默认只打印计划和调用次数，什么都不跑、不花钱
+python -m aria_code.evals.scorecard run \
+  --model aria=google/gemini-3.8-flash --model gpt=openai/gpt-5.4-mini --model local=qwen2.5:7b --local local \
+  --suite evals/suites/core.yaml --suite evals/suites/operations.yaml --repeat 3 --out scorecard/
+# 先用一道题冒烟，确认流程和花费：--only csv-quoted-fields --repeat 1 --yes
+python -m aria_code.evals.scorecard report scorecard/ --cost aria=0.02 --cost gpt=0.05
+```
+
+- 每个模型的轨迹同时保存在 `scorecard/<名字>/trajectories/`：这是第一批可用于训练的素材，只有通过验证的才会被数据集构建器采用。
+- 报告里的"理想路由"是**上界**：它假设事先知道哪个模型会做对。真实的路由器要猜，失败的便宜尝试也要付费。
+  上界都很小，学出来的路由器就不值得做。
+- 评测报告不含 token 数，所以成本用 `--cost 名字=美元/每次尝试` 自己估。
+- 本地小模型（例如 7B）在笔记本上每轮要几十秒，300 秒做不完一题；超时记为"错误"而不是"答错"，不计分。
+- 智能体命令行的退出码非零不等于崩溃：它的验收检查没过时也会以 1 退出。只要事件流里有 `turn.completed` 且 `stop_reason` 是智能体层面的结果（`completed`、`checks_failed`、`max_rounds` 等），就按任务检查计分（失败算失败）；服务商报错（如 HTTP 400）或没有任何事件的崩溃才记为"错误"。
+- 评测里的智能体进程使用与任务检查相同的 Python（排在 PATH 最前），并关闭标准输入。
+
 ## 3. 步骤
 
 1. **测基线（不训练）。** 用 `gemini-3.5-flash` 跑 Evals，`--repeat 3`，保存报告和轨迹。这是之后所有比较的基准。
@@ -72,6 +94,28 @@
    - 没有任何一个领域（编程、金融、物流）的平均通过率下降超过 5 个百分点；
    - 平均耗时增加不超过 25%。
 8. **锁定测试集，只跑一次。** 用 `hard` 套件比较基线和候选模型，结论记录在发布说明里。不通过就回到第 2 步，并且这次查看也要记录下来。
+
+## 3b. 用真实工作记录训练路由（需要用户授权）
+
+Arthera 服务端只在部署开关和用户本人的"帮助改进 Aria"都打开时，才在一次 Work 任务结束后保存一份脱敏轨迹（`packages/quant_engine/services/trajectory_training_store.py`，格式 `aria.agent_trajectory.v1`）。用户撤回授权时，这些轨迹会被删除。
+
+轨迹故意不记录工具参数和回答原文，所以它能教的是**路由**：针对一个请求调用哪些工具、按什么顺序、失败后怎么补救、何时停止。
+
+```bash
+# 服务端：trajectory_training_store.export_jsonl("export.jsonl")
+python -m aria_code.training.trajectory_dataset export.jsonl --out routing/ \
+    --holdout-after 2026-11-01 --per-owner-cap 200
+```
+
+`training/trajectory_dataset.py` 的规矩：
+
+- **按人切分**：同一个用户的所有轨迹只会出现在训练、验证、测试中的一个；按所有者哈希切分，数据增加时不会变动。
+- **向前留出**：`--holdout-after` 之后记录的轨迹一律进测试集，模型在"未来"上被评估。
+- **不只留成功的**：成功和"失败后恢复"的任务是训练样例；失败、取消、被用户否定的进 `negatives.jsonl`，留给之后的偏好训练，不当作正确答案，也不丢弃。
+- **再查一遍隐私**：服务端已经脱敏；这里再扫一次，残留任何像密钥、邮箱、手机号的字符串就整条丢弃，不修补。
+- **限制单个用户的占比**：`--per-owner-cap` 限制每人每个切分的样例数，避免重度用户主导数据集。
+- **测试集不进训练文件**：只有训练和验证会生成 `vertex/` 下的调优文件。
+- **可追溯**：`manifest.json` 记录输入文件的哈希、规则、各切分的样例数、结果分布、丢弃原因和工具出现次数。
 
 ## 3a. 在 Aria 里使用微调后的模型
 

@@ -315,6 +315,7 @@ from aria_code.apps.cli.commands.ashare_prediction_cmds import (
 )
 from aria_code.apps.cli.commands.data_cmds import DataCommandsMixin
 from aria_code.apps.cli.commands.ops_cmds import OpsCommandsMixin
+from aria_code.apps.cli.commands.engineering_cmds import EngineeringCommandsMixin
 from aria_code.apps.cli.commands.diagnostic_cmds import DiagnosticCommandsMixin
 from aria_code.apps.cli.commands.diagnostic_ops_cmds import (
     DiagnosticOpsCommandsMixin,
@@ -658,17 +659,17 @@ _PROVIDER_GUIDE: Dict[str, str] = {
         "1. 打开 aistudio.google.com/app/apikey\n"
         "2. 用 Google 账号登录 → 「Create API key」\n"
         "3. 复制 AIzaSy... 格式的密钥\n\n"
-        "解锁: Gemini 3.8 Flash · Gemini 3.5 Flash · 多模态视觉\n"
-        "用法: /model google/gemini-3.5-flash\n"
+        "解锁: Gemini 4 Argon · Gemini 3.8 Flash · 多模态视觉\n"
+        "用法: /model google/gemini-3.8-flash\n"
         "免费额度以 Google AI Studio 当前公布为准"
     ),
     "gemini": (
         "同 google provider，填入 Google AI Studio 的 API Key\n\n"
         "推荐模型:\n"
-        "  gemini-3.5-flash       — 稳定版，适合生产（默认）\n"
-        "  gemini-3.8-flash       — 最新最强，迭代较快\n"
+        "  gemini-3.8-flash       — Flash 旗舰（默认）\n"
+        "  gemini-4-argon         — 最新旗舰，复杂任务\n"
         "  gemini-3.5-flash-lite  — 更快更省\n\n"
-        "用法: /model gemini/gemini-3.5-flash"
+        "用法: /model gemini/gemini-3.8-flash"
     ),
     "xai": (
         "1. 打开 console.x.ai → 注册/登录\n"
@@ -1284,7 +1285,7 @@ _dedup_tool_schemas()
 
 
 # Tools that require user confirmation before execution
-_CONFIRM_TOOLS = {"write_file", "edit_file", "multi_edit", "run_command"}
+_CONFIRM_TOOLS = {"write_file", "edit_file", "multi_edit", "run_command", "computer_action", "computer_screenshot"}
 # Bot mode (ARIA_BOT_MODE=1) is about output only: plain text for a chat card.
 # It used to start the session with every tool approved, and the Feishu and
 # Telegram bots set it — so whoever could message a bot could run shell
@@ -3477,7 +3478,7 @@ import apps.cli.broker_render as _broker_render_module
 _rebind_module_function_globals(_broker_render_module, _broker_render_module.__all__)
 
 class SlashCommands(
-    CoreCommandsMixin,BrokerCommandsMixin, CanvasCommandsMixin, BacktestCommandsMixin, AnalysisCommandsMixin, ASharePredictionCommandsMixin, DataCommandsMixin, OpsCommandsMixin, DiagnosticCommandsMixin, DiagnosticOpsCommandsMixin, UiCommandsMixin, SessionUxCommandsMixin, AuthCommandsMixin, FileCommandsMixin, FxCommodityCommandsMixin, FinanceServiceCommandsMixin, OrchestratorCommandsMixin, WorkflowCommandsMixin, BusinessWorkflowCommandsMixin, WarehouseCommandsMixin, LogisticsCommandsMixin, SessionCommandsMixin, WorkspaceCommandsMixin, ModelCommandsMixin, MarketCommandsMixin, PortfolioCommandsMixin, PdfExportCommandsMixin):
+    CoreCommandsMixin,EngineeringCommandsMixin,BrokerCommandsMixin, CanvasCommandsMixin, BacktestCommandsMixin, AnalysisCommandsMixin, ASharePredictionCommandsMixin, DataCommandsMixin, OpsCommandsMixin, DiagnosticCommandsMixin, DiagnosticOpsCommandsMixin, UiCommandsMixin, SessionUxCommandsMixin, AuthCommandsMixin, FileCommandsMixin, FxCommodityCommandsMixin, FinanceServiceCommandsMixin, OrchestratorCommandsMixin, WorkflowCommandsMixin, BusinessWorkflowCommandsMixin, WarehouseCommandsMixin, LogisticsCommandsMixin, SessionCommandsMixin, WorkspaceCommandsMixin, ModelCommandsMixin, MarketCommandsMixin, PortfolioCommandsMixin, PdfExportCommandsMixin):
     """Claude Code-style slash command system."""
 
 
@@ -3628,6 +3629,19 @@ class SlashCommands(
             "/tasks":        (self.cmd_tasks,         "Background tasks: /tasks [list|cancel <id>]"),
             "/task":         (self.cmd_task,          "Current coding task's worktree: /task [diff|apply|discard]"),
             "/impact":       (self.cmd_impact,        "What a change reaches: /impact <path|symbol> [...]"),
+            # ── Everyday engineering commands (engineering_cmds.py) ───────────
+            "/diff":         (self.cmd_diff,          "What changed: /diff [path ...] | --patch"),
+            "/commit":       (self.cmd_commit,        "Commit everything that changed: /commit [message]"),
+            "/pr":           (self.cmd_pr,            "The branch's pull request: /pr [status|view|create [title]]"),
+            "/checkpoint":   (self.cmd_checkpoint,    "Checkpoints and turn points: /checkpoint [list|restore [N|id]]"),
+            "/worktree":     (self.cmd_worktree,      "The coding task's worktree: /worktree [diff|apply|discard]"),
+            "/graph":        (self.cmd_graph,         "The project graph: /graph [path|symbol ...]"),
+            "/agents":       (self.cmd_agents,        "Project agents and background tasks: /agents"),
+            "/test":         (self.cmd_test,          "Run the project's tests: /test [paths]"),
+            "/build":        (self.cmd_build,         "Run the project's build: /build"),
+            "/sim":          (self.cmd_sim,           "Run the simulation the project declares: /sim [scenario]"),
+            "/consult":      (self.cmd_consult,       "A second opinion from another model: /consult <claude|provider/model> <question>"),
+            "/fix":          (self.cmd_fix,           "Find the cause, make the smallest change, check: /fix <what is wrong>"),
             "/workflow":     (self.cmd_workflow,      "Project workflows in .aria/workflows: /workflow list|show|run|new <name>"),
             "/delegate":     (self.cmd_delegate,      'Delegate to another agent CLI: /delegate claude|codex "<prompt>"'),
             "/canva":        (self.cmd_canva,         "Canva Connect: /canva connect <client_id> <client_secret> | status"),

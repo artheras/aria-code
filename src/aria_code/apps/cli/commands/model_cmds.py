@@ -595,17 +595,28 @@ class ModelCommandsMixin:
         """
         zh = str(lang).lower().startswith("zh")
         rows: list = []  # (model_id, label, help)
+        groups: list = []
+        catalogue = "Aria 精选" if zh else "Aria catalogue"
         for m in _get_MODELS().values():
             mid = m["id"]
             tags = short_desc(m)
             current = ("  ✓ 当前" if zh else "  ✓ current") if mid == current_id else ""
-            rows.append((mid, f"{status_tag(mid, m.get('badge', ''))} {m['name']}{current}", tags))
+            # The id leads the detail: several catalogue entries share a display name
+            # ("Qwen 2.5"), and the id is what tells them apart.
+            rows.append((mid, f"{status_tag(mid, m.get('badge', ''))} {m['name']}{current}", f"{mid} · {tags}"))
+            groups.append(catalogue)
         if current_provider == "ollama":
+            community = "社区模型 (Ollama)" if zh else "Community models (Ollama)"
             for cm in rich_models:
                 if cm["name"] in aria_ids:
                     continue
                 current = ("  ✓ 当前" if zh else "  ✓ current") if cm["name"] == current_id else ""
-                rows.append((cm["name"], f"● {cm['name']}{current}", "社区模型 (Ollama)" if zh else "Community model (Ollama)"))
+                size = " · ".join(x for x in (cm.get("size_label"), cm.get("family"), cm.get("quant")) if x)
+                rows.append((cm["name"], f"● {cm['name']}{current}", size or community))
+                groups.append(community)
+        # Every provider that has a key lists what it serves today. A hand-kept
+        # catalogue goes stale; the provider's own list does not.
+        await self._add_cloud_models(rows, groups, current_id, zh)
         if not rows:
             return
         start = next((i for i, row in enumerate(rows) if row[0] == current_id), 0)
@@ -614,7 +625,7 @@ class ModelCommandsMixin:
         import asyncio as _asyncio
 
         try:
-            choice = await _asyncio.to_thread(native_select, options, start, picker_title)
+            choice = await _asyncio.to_thread(native_select, options, start, picker_title, picker=True, groups=groups)
         except (KeyboardInterrupt, ValueError):
             choice = -1
         if not isinstance(choice, int) or not 0 <= choice < len(rows):
@@ -627,6 +638,36 @@ class ModelCommandsMixin:
             await self.cmd_model(chosen)
         else:
             self._set_model_by_id(chosen)
+
+    async def _add_cloud_models(self, rows: list, groups: list, current_id: str, zh: bool) -> None:
+        """Append a section per provider with a key: what its model list endpoint returns now."""
+        import asyncio as _asyncio
+        from aria_code.apps.cli import cloud_models
+
+        def key_for(provider: str) -> str:
+            key = _get_provider_key(provider)
+            if not key and provider == "google":
+                key = os.environ.get("GEMINI_API_KEY", "")
+            return key
+
+        try:
+            found = await _asyncio.to_thread(cloud_models.collect, key_for)
+        except Exception:
+            return
+        listed = {row[0] for row in rows}
+        for provider, models in found.items():
+            heading = cloud_models.PROVIDERS[provider][0]
+            fresh = [x for x in models if f"{provider}/{x['id']}" not in listed]
+            if not fresh:
+                continue
+            group = f"{heading} · {len(fresh)}" + (" 个可用" if zh else " available")
+            for item in fresh:
+                full = f"{provider}/{item['id']}"
+                is_current = current_id in (full, item["id"])
+                tag = ("  ✓ 当前" if zh else "  ✓ current") if is_current else ""
+                detail = " · ".join(x for x in (full, item["detail"]) if x)
+                rows.append((full, f"☁ {item['name']}{tag}", detail))
+                groups.append(group)
 
     def _set_model(self, key: str):
         """Set model by _get_MODELS() key."""
@@ -1521,7 +1562,7 @@ class ModelCommandsMixin:
             ("deepseek",    "DeepSeek",      "deepseek/deepseek-chat"),
             ("anthropic",   "Anthropic",     "anthropic/claude-sonnet-4-6"),
             ("openai",      "OpenAI",        "openai/gpt-4.5"),
-            ("google",      "Google Gemini", "google/gemini-3.5-flash"),
+            ("google",      "Google Gemini", "google/gemini-3.8-flash"),
             ("xai",         "xAI Grok",      "xai/grok-3-fast"),
             ("groq",        "Groq",          "groq/llama-3.3-70b-versatile"),
             ("mistral",     "Mistral",       "mistral/mistral-large-latest"),
@@ -1908,7 +1949,7 @@ class ModelCommandsMixin:
                 for key in ("api_url", "ollama_url", "local_provider", "model",
                             "provider_fallback", "llm_base_url", "thinking_mode",
                             "command_policy", "permission_mode", "network_enabled",
-                            "approval_mode", "auto_approve_level", "review_gate", "delivery_report",
+                            "approval_mode", "auto_approve_level", "review_gate", "review_model", "delivery_report",
                             "write_policy", "lsp_autocheck", "input_style", "input_theme",
                             "response_footer", "auto_compact_context",
                             "auto_compact_threshold", "auto_save_sessions"):
@@ -1956,7 +1997,7 @@ class ModelCommandsMixin:
                 for key in ("api_url", "ollama_url", "local_provider", "model",
                             "provider_fallback", "llm_base_url", "thinking_mode",
                             "command_policy", "permission_mode", "network_enabled",
-                            "approval_mode", "auto_approve_level", "review_gate", "delivery_report",
+                            "approval_mode", "auto_approve_level", "review_gate", "review_model", "delivery_report",
                             "write_policy", "lsp_autocheck", "input_style", "input_theme",
                             "response_footer", "auto_compact_context",
                             "auto_compact_threshold"):
@@ -1998,6 +2039,20 @@ class ModelCommandsMixin:
                         msg = f"{key} must be: true | false"
                         self.context.console.print(f"[red]{msg}[/red]" if self.context.has_rich else msg)
                         return
+                elif key == "review_model":
+                    # Another provider's model reads the diff; "off" (or empty) goes back to the builder.
+                    from aria_code.apps.cli.providers.chat_routing import KNOWN_MODEL_PROVIDERS, normalize_provider_name
+
+                    if val.lower() in {"", "off", "none"}:
+                        val = ""
+                    else:
+                        provider = normalize_provider_name(val.split("/", 1)[0]) if "/" in val else ""
+                        if provider not in KNOWN_MODEL_PROVIDERS:
+                            msg = ("review_model must name a provider and model, e.g. anthropic/claude-sonnet-5-5, "
+                                   "openai/<model> or google/gemini-3.8-flash (or 'off'). "
+                                   "The diff and goal are sent to that provider.")
+                            self.context.console.print(f"[red]{msg}[/red]" if self.context.has_rich else msg)
+                            return
                 elif key == "thinking_mode":
                     if val not in {"auto", "instant", "thinking"}:
                         msg = "thinking_mode must be one of: auto | instant | thinking"

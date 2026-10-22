@@ -1,4 +1,4 @@
-# Production relay deployment in arthera-prod/europe-west2.
+# Production relay deployment (Cloud Run, europe-west2).
 # The aria-code push trigger uses this file. Keep its existing Artifact Registry
 # path, service name, region, labels, and Cloud Run environment configuration.
 # A commit SHA tag makes each deployment traceable and avoids mutable "latest".

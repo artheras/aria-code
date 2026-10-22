@@ -259,6 +259,27 @@ class HeadlessMixin:
             print(f"⚠ {'验收未通过' if _zh else 'Checks failed'}: {_acceptance.get('headline', '')}",
                   file=sys.stderr)
 
+        # What this run cost, as the provider reported it. An evaluation harness
+        # asks for it in ARIA_USAGE_FILE; imports are local because aria_cli
+        # rebinds these methods to its own globals.
+        import json as _json
+        import os as _os
+        _config = getattr(self, "config", {}) or {}
+        result["usage"] = {
+            "model": str(_config.get("model", "") or ""),
+            "provider": str(_config.get("local_provider", "") or ""),
+            "input_tokens": int(getattr(self, "_session_input_tokens", 0) or 0),
+            "output_tokens": int(getattr(self, "_session_output_tokens", 0) or 0),
+            "thinking_tokens": int(getattr(self, "_session_thinking_tokens", 0) or 0),
+            "turns": int(getattr(self, "_session_turns", 0) or 0),
+        }
+        _usage_file = _os.environ.get("ARIA_USAGE_FILE")
+        if _usage_file:
+            try:
+                with open(_usage_file, "w", encoding="utf-8") as _handle:
+                    _json.dump(result["usage"], _handle)
+            except OSError:
+                pass
         events.emit("turn.completed", **json_safe(result))
         out = machine_out or sys.stdout
         if fmt == "jsonl":

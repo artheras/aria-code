@@ -15,7 +15,7 @@ Numbers you can check, client data kept apart, actions a person approves.</p>
 <p align="center">
   <a href="https://www.npmjs.com/package/@artheras/aria-code"><img src="https://img.shields.io/npm/v/@artheras/aria-code/latest?style=flat-square&logo=npm&label=npm" alt="npm version"></a>
   <!-- Release automation pins PyPI: the default endpoint still selects legacy 4.x. -->
-  <a href="https://pypi.org/project/aria-code/0.162.0/"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fpypi.org%2Fpypi%2Faria-code%2F0.162.0%2Fjson&amp;query=%24.info.version&amp;prefix=v&amp;style=flat-square&amp;logo=pypi&amp;label=PyPI&amp;color=blue&amp;cacheSeconds=300" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/aria-code/0.163.0/"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fpypi.org%2Fpypi%2Faria-code%2F0.163.0%2Fjson&amp;query=%24.info.version&amp;prefix=v&amp;style=flat-square&amp;logo=pypi&amp;label=PyPI&amp;color=blue&amp;cacheSeconds=300" alt="PyPI version"></a>
   <a href="https://github.com/artheras/aria-code/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/artheras/aria-code/ci.yml?branch=main&style=flat-square&logo=githubactions&label=CI" alt="CI status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-64748b?style=flat-square" alt="Apache License 2.0"></a>
 </p>
@@ -114,7 +114,7 @@ aria-code -p "Fix the failing tests and run them" --format jsonl --allow-tools e
 | --- | --- |
 | Local Ollama | An installed and running Ollama model; no cloud account for local inference. |
 | Direct cloud provider | That provider's API credentials and network access. |
-| Direct Google Cloud Vertex AI | `GOOGLE_CLOUD_PROJECT` and either a `gcloud auth login` (Aria uses Vertex AI's OpenAI-compatible endpoint with that login's token) or Application Default Credentials with `aria-code[google]`. `GOOGLE_CLOUD_LOCATION` defaults to `global`. Any model your project can use works without an API key: `/model google/gemini-3.5-flash`, the Gemini 3 previews (served only from `global`), or Gemma and other Model Garden managed models by their id (`/model google/<id>`), which go through Vertex's OpenAI-compatible endpoint. |
+| Direct Google Cloud Vertex AI | `GOOGLE_CLOUD_PROJECT` and either a `gcloud auth login` (Aria uses Vertex AI's OpenAI-compatible endpoint with that login's token) or Application Default Credentials with `aria-code[google]`. `GOOGLE_CLOUD_LOCATION` defaults to `global`. Any model your project can use works without an API key: `/model google/gemini-3.8-flash`, the Gemini 3 previews (served only from `global`), or Gemma and other Model Garden managed models by their id (`/model google/<id>`), which go through Vertex's OpenAI-compatible endpoint. |
 | Arthera hosted service | Install `aria-code[google]` and sign in through `/login` in the CLI. Arthera account sign-in does not grant Vertex AI credentials to your own machine. |
 
 Install extras only for features you use; see [pyproject.toml](pyproject.toml) for the current package options. Local inference can work offline, but live market data, remote integrations, sign-in, and cloud models cannot.

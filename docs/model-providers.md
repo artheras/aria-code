@@ -41,12 +41,12 @@ llm:
   # 后备链：默认不可用时按顺序尝试
   fallback:
     - ollama/qwen2.5:7b
-    - arthera-cloud/gemini-3.5-flash
+    - arthera-cloud/gemini-3.8-flash
     - deepseek/deepseek-chat
 
   # 按任务类型选模型
   code_tasks:     ollama/qwen2.5-coder:7b
-  heavy_analysis: arthera-cloud/gemini-3.5-flash
+  heavy_analysis: arthera-cloud/gemini-3.8-flash
   fast_response:  groq/llama-3.3-70b-versatile
 
 # 声明内置列表之外的 provider
@@ -183,3 +183,41 @@ model_providers:
 `env_http_headers`。差别是 codex 还提供明文 `experimental_bearer_token`，
 但其源码注释写着 *"Use of this config is discouraged in favor of `env_key` for
 security reasons"*——所以这里不提供该入口。
+
+## Working with other models
+
+Aria's model does the work; models from other providers can check it, answer a question for it, or call
+Aria for what only it knows.
+
+**A different model reviews the change.** `/config set review_gate=true` has a fresh-context reviewer read
+each coding turn's diff. By default that is the model that wrote it. Set another provider's model to make
+the author and the approver different:
+
+```text
+/config set review_model=anthropic/claude-sonnet-5-5     # or openai/<model>, google/gemini-3.8-flash
+/config set review_model=off                             # back to the builder
+```
+
+The delivery report names the reviewer (`✓ no blocking findings (reviewed by anthropic/…)`). The diff, the
+goal and the check results go to that provider, so it is a setting, never a default; the builder's Aria
+backend and token are not used for it.
+
+**Ask another model.** `/consult claude <question>` (or `/consult provider/model <question>`) sends the
+question, and any `@file` references in it, to that model and files its answer in the conversation, so
+what you tell Aria next can build on it. The other model sees only the question: no history, no project,
+no tools. `claude` is built in; add `chatgpt` or any other short name with
+`/config set consult_aliases={"chatgpt": "openai/<model>"}`.
+
+**Other models call Aria.** `aria-code-mcp` is an MCP server (stdio) that any MCP client can register.
+Besides market, research, report and broker tools it now offers what a coding agent lacks:
+
+| Tool | Answers |
+|---|---|
+| `aria.risk.assess` | how risky is this command or tool call (L0–L4, capabilities, what it reaches, whether it needs approval) |
+| `aria.contract.check` | would the project's `.aria/policy.yaml` allow this call, and which rule decided |
+| `aria.project.impact` | what depends on these files or symbols: importers, tests, services |
+| `aria.project.commands` | the project's test, build, lint and simulation commands |
+
+All four are read-only: nothing runs, and a `root` outside the server's working directory or your home is
+refused. Register it, for example, with `claude mcp add aria-code -- aria-code-mcp`.
+

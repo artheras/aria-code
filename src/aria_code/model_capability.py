@@ -112,6 +112,12 @@ _CAPABILITY_TABLE: Dict[str, ModelCapability] = {
     "deepseek-v3":          ModelCapability(tool_calls=True,  format="ollama_native", context_window=131072, temperature=0.3),
     "deepseek-v2.5":        ModelCapability(tool_calls=True,  format="ollama_native", context_window=65536,  temperature=0.3),
     "deepseek-coder-v2":    ModelCapability(tool_calls=True,  format="ollama_native", context_window=65536,  temperature=0.2),
+    # DeepSeek's own API (api.deepseek.com). Current names are deepseek-flash and
+    # deepseek-v4-pro; deepseek-v4-flash is a legacy alias still accepted. Third-party
+    # listings give these 1M tokens; the official pages do not state it, so the window
+    # here is a conservative 128K (an underestimate only means earlier compaction).
+    "deepseek-v4":          ModelCapability(tool_calls=True,  format="openai_native", context_window=131072, temperature=0.3, size_class="large"),
+    "deepseek-flash":       ModelCapability(tool_calls=True,  format="openai_native", context_window=131072, temperature=0.3, size_class="medium"),
     # ── LLaMA family ───────────────────────────────────────────────────────
     "llama3.3:70b":         ModelCapability(tool_calls=True,  format="ollama_native", context_window=131072, temperature=0.3, notes="Meta flagship 2024"),
     "llama3.2:90b":         ModelCapability(tool_calls=True,  format="ollama_native", context_window=131072, temperature=0.3, vision=True,  notes="Multimodal, image+text"),
@@ -196,9 +202,12 @@ _CAPABILITY_TABLE: Dict[str, ModelCapability] = {
     # Registered here as well as in the MODELS catalogue: callers such as the
     # tool-routing check in aria_cli use get_model_capability() directly, and a
     # missing entry silently degrades the model to text_only / 4K context.
-    "gemini-3.8-flash":         ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="large",  vision=True, thinking=True, notes="Gemini 3.8 Flash — 1M context, short-term line"),
+    "gemini-4-argon":           ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="large",  vision=True, thinking=True, notes="Gemini 4 Argon — flagship, 2026-10 GA (context per third-party reports)"),
+    "gemini-3.6-flash":         ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="large",  vision=True, thinking=True, notes="Gemini 3.6 Flash — token-efficient"),
+    "gemini-3.1-pro-preview":   ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="large",  vision=True, thinking=True, notes="Gemini 3.1 Pro (preview) — 1M context"),
+    "gemini-3.8-flash":         ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="large",  vision=True, thinking=True, notes="Gemini 3.8 Flash — 1M context (default)"),
     "gemini-3.5-flash-lite":    ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="medium", vision=True,                notes="Gemini 3.5 Flash-Lite — 1M context"),
-    "gemini-3.5-flash":         ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="large",  vision=True, thinking=True, notes="Gemini 3.5 Flash — 1M context, stable (default)"),
+    "gemini-3.5-flash":         ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="large",  vision=True, thinking=True, notes="Gemini 3.5 Flash — 1M context; deprecated by Google 2026-10-08"),
     "gemini-3.1-flash-lite":    ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="medium", vision=True,                notes="Gemini 3.1 Flash-Lite — 1M context"),
     # Retired by Google (model_retirement.py migrates configs that name them).
     "gemini-2.5-pro":           ModelCapability(tool_calls=True, format="openai_native", context_window=1048576, temperature=0.2, size_class="large",  vision=True, thinking=True, notes="Gemini 2.5 Pro — 1M context"),

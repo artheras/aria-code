@@ -12,6 +12,40 @@ import (
 func nativeCommands() []string {
 	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change"}
 }
+
+// commandInfo describes each command for the "/" list: [English, Chinese].
+var commandInfo = map[string][2]string{
+	"/help":          {"Show commands and shortcuts", "查看命令和快捷键"},
+	"/model":         {"Choose a provider and model", "选择服务商和模型"},
+	"/models":        {"List models without generating", "列出可用模型（不产生调用）"},
+	"/config":        {"Show or change settings", "查看或修改设置"},
+	"/health":        {"Check the model connection", "检查模型连接"},
+	"/sessions":      {"List saved sessions", "列出已保存的会话"},
+	"/export":        {"Export this conversation or diagnostics", "导出当前会话或诊断包"},
+	"/import":        {"Start a session from exported JSON", "从导出的 JSON 新建会话"},
+	"/new":           {"Start a new session", "开始新会话"},
+	"/resume":        {"Resume a saved session", "恢复已保存的会话"},
+	"/permissions":   {"Show what Aria may read and write", "查看可读写的范围"},
+	"/undo":          {"Undo the last exchange", "撤销上一轮对话"},
+	"/rewind":        {"Rewind to an earlier point", "回退到更早的位置"},
+	"/changes":       {"Review pending file edits", "查看待确认的文件修改"},
+	"/apply-change":  {"Apply a pending edit by ID", "按 ID 应用待确认修改"},
+	"/reject-change": {"Discard a pending edit by ID", "按 ID 丢弃待确认修改"},
+}
+
+// commandInfoList is nativeCommands in order, each with its description in lang.
+func commandInfoList(lang string) []map[string]string {
+	index := 0
+	if strings.HasPrefix(strings.ToLower(lang), "zh") {
+		index = 1
+	}
+	out := make([]map[string]string, 0, len(commandInfo))
+	for _, name := range nativeCommands() {
+		out = append(out, map[string]string{"name": name, "description": commandInfo[name][index]})
+	}
+	return out
+}
+
 func (s *server) command(ctx context.Context, turn, text string) (string, error) {
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
@@ -82,7 +116,7 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		name := providerName(s.cfg)
 		if len(fields) == 1 {
 			if name == "google" {
-				text := fmt.Sprintf("google / %s\n/models google: list cloud models\n/models ollama: list local models\n/model <provider> <model>: switch provider and model\n/model <model>: switch within current provider", s.cfg.text("model", "gemini-3.5-flash"))
+				text := fmt.Sprintf("google / %s\n/models google: list cloud models\n/models ollama: list local models\n/model <provider> <model>: switch provider and model\n/model <model>: switch within current provider", s.cfg.text("model", "gemini-3.8-flash"))
 				if tuned := tunedModelNames(s.cfg); len(tuned) > 0 {
 					text += "\nTuned models: " + strings.Join(tuned, ", ")
 				}
@@ -123,7 +157,7 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 				autoLevel = 1
 			}
 			return fmt.Sprintf("ui_lang=%s\nmodel=%s\nui_theme=%s\napproval_mode=%s\nauto_approve_level=%d\nreview_gate=%t\ndelivery_report=%t",
-				s.cfg.text("ui_lang", "en"), s.cfg.text("model", "gemini-3.5-flash"), s.cfg.text("ui_theme", "dark"),
+				s.cfg.text("ui_lang", "en"), s.cfg.text("model", "gemini-3.8-flash"), s.cfg.text("ui_theme", "dark"),
 				s.cfg.text("approval_mode", "manual"), autoLevel, s.cfg.boolean("review_gate", false), s.cfg.boolean("delivery_report", true)), nil
 		}
 		if len(fields) != 3 || fields[1] != "set" {

@@ -112,8 +112,8 @@ class ModelKeyResolutionTests(unittest.TestCase):
     def test_registered_id_resolves_to_its_catalogue_entry(self):
         from aria_code.aria_cli import get_model_cfg, resolve_model_key
 
-        self.assertEqual(resolve_model_key("google/gemini-3.5-flash"), "gemini-flash")
-        cfg = get_model_cfg("google/gemini-3.5-flash")
+        self.assertEqual(resolve_model_key("google/gemini-3.8-flash"), "gemini-flash")
+        cfg = get_model_cfg("google/gemini-3.8-flash")
         self.assertTrue(cfg.get("tools"))
         self.assertGreaterEqual(int(cfg.get("num_ctx", 0)), 1_000_000)
 

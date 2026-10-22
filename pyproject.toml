@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aria-code"
-version = "0.162.0"
+version = "0.163.0"
 description = "Open-source AI agent for coding, financial analysis and logistics operations: numbers you can check, client data kept apart, actions a person approves"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -45,7 +45,7 @@ classifiers = [
 # parsers, the SQL engine and chart renderer are optional extras below — the
 # code already lazy-imports them and degrades gracefully when absent.
 dependencies = [
-    # The default model's client. DEFAULT_MODEL is google/gemini-3.5-flash, and
+    # The default model's client. DEFAULT_MODEL is google/gemini-3.8-flash, and
     # this used to be the optional `google` extra — so a plain
     # `pip install aria-code` failed on the very first prompt with "Gemini/Vertex
     # AI 需要 google-genai，当前未安装". The comment above that extra said as

@@ -160,7 +160,7 @@ func (s *server) state(kind string) error {
 	if s.scope.readOnly {
 		permission = "read-only"
 	}
-	fields := map[string]any{"session_id": s.snap.ID, "model": s.cfg.text("model", "gemini-3.5-flash"), "provider": providerName(s.cfg), "version": version, "workspace": s.scope.workspace, "permission": permission, "network": s.cfg.boolean("network_enabled", true), "ui_lang": s.cfg.text("ui_lang", "en"), "ui_theme": "dark", "messages": displayMessages(s.snap.Messages), "commands": nativeCommands()}
+	fields := map[string]any{"session_id": s.snap.ID, "model": s.cfg.text("model", "gemini-3.8-flash"), "provider": providerName(s.cfg), "version": version, "workspace": s.scope.workspace, "permission": permission, "network": s.cfg.boolean("network_enabled", true), "ui_lang": s.cfg.text("ui_lang", "en"), "ui_theme": "dark", "messages": displayMessages(s.snap.Messages), "commands": nativeCommands(), "commands_info": commandInfoList(s.cfg.text("ui_lang", "en"))}
 	theme := strings.ToLower(os.Getenv("ARIA_THEME"))
 	if theme != "light" && theme != "dark" {
 		theme = s.cfg.text("ui_theme", "auto")
@@ -277,7 +277,9 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 		}
 		return false, "approval required; use chat or grant this tool explicitly before starting", nil
 	}
-	contextText := strings.Join(riskCard(assessment), "\n") + "\n\nTool: " + name
+	// The assessment travels as data (the frontend draws the card); the text
+	// card used to be the first lines of the context and would now show twice.
+	contextText := "Tool: " + name
 	if name == "run_command" {
 		contextText += "\nCommand: " + str(params, "command", "") + "\nWorking directory: " + str(params, "cwd", s.scope.workspace)
 	}
@@ -307,7 +309,7 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 	s.mu.Lock()
 	turn := s.turn
 	s.mu.Unlock()
-	r, err := s.dialogRequest(ctx, "approval.requested", turn, map[string]any{"title": title, "context": contextText, "choices": choices, "selected": 0, "shortcuts": map[string]any{}})
+	r, err := s.dialogRequest(ctx, "approval.requested", turn, map[string]any{"title": title, "context": contextText, "choices": choices, "selected": 0, "shortcuts": map[string]any{}, "risk": assessment})
 	if err != nil {
 		return false, "", err
 	}

@@ -52,8 +52,8 @@ class NativePickerTest(unittest.IsolatedAsyncioTestCase):
     async def test_every_model_is_one_row_with_the_current_one_marked_and_preselected(self):
         seen = {}
 
-        def select(options, start, title):
-            seen.update(options=options, start=start, title=title)
+        def select(options, start, title, **kwargs):
+            seen.update(options=options, start=start, title=title, kwargs=kwargs)
             return -1
 
         await _call(_Mixin(), select, community=["llama3.2:3b"])
@@ -62,24 +62,28 @@ class NativePickerTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("current", labels[1])  # Qwen 2.5 is current
         self.assertNotIn("current", labels[0])
         self.assertEqual(seen["start"], 1, "the menu should open on the current model")
-        self.assertEqual(seen["options"][0][1], "stable default", "the description sits under the name")
+        # The id leads the detail, so entries that share a display name can be told apart.
+        self.assertEqual(seen["options"][0][1], "google/gemini-3.5-flash · stable default")
         self.assertEqual(seen["title"], "Select model")
+        # The frontend is asked for a searchable picker with the models grouped.
+        self.assertTrue(seen["kwargs"]["picker"])
+        self.assertEqual(seen["kwargs"]["groups"], ["Aria catalogue", "Aria catalogue", "Community models (Ollama)"])
 
     async def test_choosing_a_local_model_sets_it(self):
         mixin = _Mixin()
-        await _call(mixin, lambda o, s, t: 2, community=["llama3.2:3b"])
+        await _call(mixin, lambda o, s, t, **kw: 2, community=["llama3.2:3b"])
         self.assertEqual(mixin.set_ids, ["llama3.2:3b"])
         self.assertEqual(mixin.routed, [])
 
     async def test_choosing_a_provider_model_goes_through_the_credential_checking_route(self):
         mixin = _Mixin()
-        await _call(mixin, lambda o, s, t: 0)
+        await _call(mixin, lambda o, s, t, **kw: 0)
         self.assertEqual(mixin.routed, ["google/gemini-3.5-flash"])
         self.assertEqual(mixin.set_ids, [], "setting it directly would skip the API key / Vertex check")
 
     async def test_cancelling_changes_nothing_and_says_so(self):
         mixin = _Mixin()
-        await _call(mixin, lambda o, s, t: -1)
+        await _call(mixin, lambda o, s, t, **kw: -1)
         self.assertEqual((mixin.set_ids, mixin.routed), ([], []))
         self.assertTrue(any("unchanged" in line for line in mixin.context.console.lines))
 
@@ -87,7 +91,7 @@ class NativePickerTest(unittest.IsolatedAsyncioTestCase):
         for failure in (KeyboardInterrupt(), ValueError("bad menu response")):
             mixin = _Mixin()
 
-            def select(o, s, t, failure=failure):
+            def select(o, s, t, failure=failure, **kw):
                 raise failure
 
             await _call(mixin, select)
@@ -95,8 +99,35 @@ class NativePickerTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_an_out_of_range_answer_is_ignored(self):
         mixin = _Mixin()
-        await _call(mixin, lambda o, s, t: 99)
+        await _call(mixin, lambda o, s, t, **kw: 99)
         self.assertEqual((mixin.set_ids, mixin.routed), ([], []))
+
+    async def test_providers_with_a_key_get_their_own_section_and_route_through_cmd_model(self):
+        from aria_code.apps.cli import cloud_models
+
+        seen = {}
+
+        def select(options, start, title, **kwargs):
+            seen.update(options=options, groups=kwargs.get("groups"))
+            return len(options) - 1  # the last row: an OpenAI model
+
+        found = {
+            "google": [{"id": "gemini-4-argon", "name": "Gemini 4 Argon", "detail": "ctx 1M"},
+                       {"id": "gemini-3.5-flash", "name": "dup", "detail": ""}],
+            "openai": [{"id": "gpt-5", "name": "gpt-5", "detail": ""}],
+        }
+        mixin = _Mixin()
+        # google/gemini-3.5-flash is already in the Aria catalogue, so it is not listed twice.
+        with mock.patch.object(cloud_models, "collect", lambda key_for, **kw: found):
+            await _call(mixin, select)
+        labels = [label for label, _ in seen["options"]]
+        self.assertFalse(any("dup" in label for label in labels))
+        ids = [h.split(" · ")[0] for _l, h in seen["options"]]
+        self.assertIn("google/gemini-4-argon", ids)
+        self.assertEqual(ids.count("google/gemini-3.5-flash"), 1, "already in the catalogue, not repeated")
+        self.assertTrue(any(g.startswith("Google Gemini") for g in seen["groups"]))
+        self.assertTrue(seen["groups"][-1].startswith("OpenAI"))
+        self.assertEqual(mixin.routed, ["openai/gpt-5"], "goes through the credential-checking route")
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/@artheras/aria-code"><img src="https://img.shields.io/npm/v/@artheras/aria-code/latest?style=flat-square&logo=npm&label=npm" alt="npm 版本"></a>
   <!-- Release automation pins PyPI: the default endpoint still selects legacy 4.x. -->
-  <a href="https://pypi.org/project/aria-code/0.162.0/"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fpypi.org%2Fpypi%2Faria-code%2F0.162.0%2Fjson&amp;query=%24.info.version&amp;prefix=v&amp;style=flat-square&amp;logo=pypi&amp;label=PyPI&amp;color=blue&amp;cacheSeconds=300" alt="PyPI 版本"></a>
+  <a href="https://pypi.org/project/aria-code/0.163.0/"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fpypi.org%2Fpypi%2Faria-code%2F0.163.0%2Fjson&amp;query=%24.info.version&amp;prefix=v&amp;style=flat-square&amp;logo=pypi&amp;label=PyPI&amp;color=blue&amp;cacheSeconds=300" alt="PyPI 版本"></a>
   <a href="https://github.com/artheras/aria-code/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/artheras/aria-code/ci.yml?branch=main&style=flat-square&logo=githubactions&label=CI" alt="CI 状态"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-64748b?style=flat-square" alt="Apache License 2.0"></a>
 </p>
@@ -112,7 +112,7 @@ aria-code -p "修复失败的测试并运行" --format jsonl --allow-tools edit_
 | --- | --- |
 | 本地 Ollama | 已安装并运行的 Ollama 模型；本地推理无需云端账户。 |
 | 直接连接云端供应商 | 对应供应商的 API 凭证和网络连接。 |
-| 直接连接 Google Cloud Vertex AI | `GOOGLE_CLOUD_PROJECT`，外加 `gcloud auth login` 登录（Aria 用该登录的令牌访问 Vertex AI 的 OpenAI 兼容端点），或安装 `aria-code[google]` 并配置应用默认凭证。`GOOGLE_CLOUD_LOCATION` 默认为 `global`。项目可用的模型都无需 API key：`/model google/gemini-3.5-flash`、Gemini 3 预览版（仅在 `global` 提供），以及 Gemma 等 Model Garden 托管模型（`/model google/<模型 ID>`，经 Vertex 的 OpenAI 兼容端点调用）。 |
+| 直接连接 Google Cloud Vertex AI | `GOOGLE_CLOUD_PROJECT`，外加 `gcloud auth login` 登录（Aria 用该登录的令牌访问 Vertex AI 的 OpenAI 兼容端点），或安装 `aria-code[google]` 并配置应用默认凭证。`GOOGLE_CLOUD_LOCATION` 默认为 `global`。项目可用的模型都无需 API key：`/model google/gemini-3.8-flash`、Gemini 3 预览版（仅在 `global` 提供），以及 Gemma 等 Model Garden 托管模型（`/model google/<模型 ID>`，经 Vertex 的 OpenAI 兼容端点调用）。 |
 | Arthera 托管服务 | 安装 `aria-code[google]`，然后在 CLI 中使用 `/login` 登录。Arthera 账户登录不会自动给本机授予 Vertex AI 凭证。 |
 
 只安装所需功能的可选依赖；当前安装选项以 [pyproject.toml](pyproject.toml) 为准。本地推理可以离线运行，但实时行情、远程集成、登录和云端模型不能离线使用。

@@ -28,6 +28,11 @@ from aria_code.service_endpoints import API_URL, current_url
 
 PRODUCTION_API_URL = API_URL
 LEGACY_DEFAULT_API_URL = "http://localhost:8000"
+# The product moved from arthera.finance to arthera.xyz and the old domain no
+# longer answers, so a config that was migrated to (or installed with) the old
+# production address points at nothing. It is replaced the same way the
+# localhost default is.
+RETIRED_API_URLS = ("http://localhost:8000", "https://api.arthera.finance")
 
 
 def _norm(url: object) -> str:
@@ -56,4 +61,4 @@ def migrate_config(config: dict) -> list[tuple[str, str, str]]:
     return [("api_url", str(old), PRODUCTION_API_URL)]
 
 
-__all__ = ["LEGACY_DEFAULT_API_URL", "PRODUCTION_API_URL", "migrate_config"]
+__all__ = ["LEGACY_DEFAULT_API_URL", "PRODUCTION_API_URL", "RETIRED_API_URLS", "migrate_config"]

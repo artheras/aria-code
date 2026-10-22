@@ -41,13 +41,13 @@ def test_env_var_still_wins(monkeypatch):
 
 
 def test_falls_back_to_the_project_adc_was_logged_in_with(monkeypatch, tmp_path):
-    _gcloud_home(monkeypatch, tmp_path, adc={"type": "authorized_user", "quota_project_id": "arthera-prod"})
-    assert google_models._adc_config_project() == "arthera-prod"
+    _gcloud_home(monkeypatch, tmp_path, adc={"type": "authorized_user", "quota_project_id": "example-project"})
+    assert google_models._adc_config_project() == "example-project"
 
 
 def test_falls_back_to_the_gcloud_default_project(monkeypatch, tmp_path):
-    _gcloud_home(monkeypatch, tmp_path, config="[core]\naccount = a@b.c\nproject = arthera-prod\n")
-    assert google_models._adc_config_project() == "arthera-prod"
+    _gcloud_home(monkeypatch, tmp_path, config="[core]\naccount = a@b.c\nproject = example-project\n")
+    assert google_models._adc_config_project() == "example-project"
 
 
 def test_a_machine_that_never_logged_in_reports_nothing(monkeypatch, tmp_path):
@@ -70,11 +70,11 @@ def test_the_error_names_the_thing_that_actually_fixes_it(monkeypatch):
 
 def test_no_gcloud_on_path_still_finds_the_project(monkeypatch, tmp_path):
     """The failing case in full: google.auth answers None, the disk answers."""
-    monkeypatch.setattr(google_models, "_adc_config_project", lambda: "arthera-prod")
+    monkeypatch.setattr(google_models, "_adc_config_project", lambda: "example-project")
     monkeypatch.setitem(
         __import__("sys").modules, "google.auth", None
     )  # importing it raises, as in a venv without google-auth
-    assert google_models.vertex_project() == "arthera-prod"
+    assert google_models.vertex_project() == "example-project"
 
 
 class _Response:
@@ -92,7 +92,7 @@ def _capture_posts(monkeypatch, responses):
     import requests
 
     calls = []
-    monkeypatch.setattr(google_models, "vertex_project", lambda: "arthera-prod")
+    monkeypatch.setattr(google_models, "vertex_project", lambda: "example-project")
     monkeypatch.setattr(google_models, "_access_token", lambda: "token")
     monkeypatch.setattr(google_models.time, "sleep", lambda _s: None)
     monkeypatch.setattr(requests, "post", lambda *a, **k: (calls.append(k), responses.pop(0))[1])
@@ -126,7 +126,7 @@ def test_a_suspended_billing_account_is_named_as_such(monkeypatch):
     # dunning decision is deny for project: projects/<number>" — wording that
     # reads like a fault in the request, and sends you through the code and
     # the credentials looking for something that is not there.
-    _capture_posts(monkeypatch, [_Response(403, text='{"error":{"message":"Lightning dunning decision is deny for project: projects/741336310848"}}')])
+    _capture_posts(monkeypatch, [_Response(403, text='{"error":{"message":"Lightning dunning decision is deny for project: projects/123456789012"}}')])
     with pytest.raises(google_models.GoogleModelError, match="billing account"):
         google_models._post("https://x/models/gemini:generateContent", {}, 1.0)
 

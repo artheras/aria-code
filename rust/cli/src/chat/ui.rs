@@ -1,8 +1,8 @@
-use super::app::App;
+use super::app::{App, Dialog, Risk};
 use super::{hang, mark, markdown, theme::Palette};
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    layout::{Constraint, Direction, Layout, Margin, Rect},
+    style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, BorderType, Clear, Padding, Paragraph, Wrap},
     Frame,
@@ -23,6 +23,29 @@ fn operation_target<'a>(target: &'a str, workspace: &str) -> std::borrow::Cow<'a
     target.into()
 }
 
+/// `/Users/me/project` as `~/project`, the way a shell prompt shows it.
+fn home_short(path: &str) -> String {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
+    home_short_in(path, &home)
+}
+
+fn home_short_in(path: &str, home: &str) -> String {
+    let home = home.trim_end_matches(['/', '\\']);
+    if home.len() > 1 {
+        if path == home {
+            return "~".into();
+        }
+        if let Some(rest) = path.strip_prefix(home) {
+            if rest.starts_with(['/', '\\']) {
+                return format!("~{rest}");
+            }
+        }
+    }
+    path.to_owned()
+}
+
 fn workspace_tail(text: &str, width: usize) -> String {
     if text.width() <= width {
         return text.to_owned();
@@ -41,9 +64,9 @@ fn workspace_tail(text: &str, width: usize) -> String {
     }
     format!("…{}", kept.into_iter().rev().collect::<String>())
 }
-const HELP: &str = "Aria interactive interface\n\nEnter  send · Alt+Enter / Ctrl+J  newline\nArrow keys  edit / browse history · Tab  complete /commands\nCtrl+U / K / W  delete line / end / previous word\nPgUp / PgDn or mouse wheel  scroll transcript\nCtrl+O  toggle tool details · F1  this help\nEsc or Ctrl+C  cancel current task / dismiss dialog\nCtrl+D  exit (or delete character when input is non-empty)\n\n/new  start a new session · /resume ID  restore a session\n/sessions  list saved sessions · /help  all Aria commands\n/model  choose your model · /health  check configured services\n@file:path  reference a file · !command  run a shell command\n\nFile permissions, task isolation, checks and model routing are managed by Aria.\nApproval menus require your choice. Hidden reasoning and secret inputs\nare never written to the native transcript.";
+const HELP: &str = "Aria interactive interface\n\nEnter  send · Alt+Enter / Ctrl+J  newline\nArrow keys  edit / browse history · /  list commands · @  pick a file · Tab  fill in\nCtrl+U / K / W  delete line / end / previous word\nPgUp / PgDn or mouse wheel  scroll transcript\nCtrl+O  toggle tool details · F1  this help\nEsc or Ctrl+C  cancel current task / dismiss dialog\nCtrl+D  exit (or delete character when input is non-empty)\n\n/new  start a new session · /resume ID  restore a session\n/sessions  list saved sessions · /help  all Aria commands\n/model  choose your model · /health  check configured services\n@file:path  reference a file · !command  run a shell command\n\nFile permissions, task isolation, checks and model routing are managed by Aria.\nApproval menus require your choice. Hidden reasoning and secret inputs\nare never written to the native transcript.";
 
-const HELP_ZH: &str = "Aria 交互界面\n\nEnter 发送 · Alt+Enter / Ctrl+J 换行\n方向键编辑 / 浏览输入历史 · Tab 补全命令\nCtrl+U / K / W 删除行首 / 行尾 / 前一个词\nPgUp / PgDn 或鼠标滚轮查看对话历史\nCtrl+O 展开工具详情 · F1 打开帮助\nEsc / Ctrl+C 取消当前任务或关闭对话框\nCtrl+D 退出（输入非空时删除字符）\n\n/new 新会话 · /resume ID 恢复会话\n/sessions 会话列表 · /help 所有命令\n/model 选择模型 · /health 服务检查\n@file:path 引用文件 · !command 执行命令\naria -C <项目目录> 在指定项目中启动\n/config set ui_lang=zh 设置中文界面\n\n运行时管理文件权限、任务隔离与验证。\n审批需要你明确选择；秘密输入与隐藏推理不会写入界面记录。";
+const HELP_ZH: &str = "Aria 交互界面\n\nEnter 发送 · Alt+Enter / Ctrl+J 换行\n方向键编辑 / 浏览输入历史 · 输入 / 列出命令 · @ 选择文件 · Tab 补全\nCtrl+U / K / W 删除行首 / 行尾 / 前一个词\nPgUp / PgDn 或鼠标滚轮查看对话历史\nCtrl+O 展开工具详情 · F1 打开帮助\nEsc / Ctrl+C 取消当前任务或关闭对话框\nCtrl+D 退出（输入非空时删除字符）\n\n/new 新会话 · /resume ID 恢复会话\n/sessions 会话列表 · /help 所有命令\n/model 选择模型 · /health 服务检查\n@file:path 引用文件 · !command 执行命令\naria -C <项目目录> 在指定项目中启动\n/config set ui_lang=zh 设置中文界面\n\n运行时管理文件权限、任务隔离与验证。\n审批需要你明确选择；秘密输入与隐藏推理不会写入界面记录。";
 
 fn tool_label<'a>(tool: &'a str, app: &App) -> &'a str {
     match tool {
@@ -66,6 +89,25 @@ fn popup(area: Rect, width: u16, height: u16) -> Rect {
         w,
         h,
     )
+}
+
+/// `text` cut to at most `max` display columns, with an ellipsis when it was cut.
+fn fit(text: &str, max: usize) -> String {
+    if text.width() <= max {
+        return text.to_owned();
+    }
+    let mut out = String::new();
+    let mut used = 0;
+    for g in text.graphemes(true) {
+        let w = g.width();
+        if used + w + 1 > max {
+            break;
+        }
+        out.push_str(g);
+        used += w;
+    }
+    out.push('…');
+    out
 }
 
 pub fn draw(frame: &mut Frame, app: &App) {
@@ -92,8 +134,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(if area.height >= 14 {
-                (4 + u16::from(!app.update_notice.is_empty()) + u16::from(app.details))
-                    .max(if show_robot { robot.0.len() as u16 } else { 0 })
+                (4 + u16::from(!app.update_notice.is_empty())
+                    + u16::from(app.details)
+                    + u16::from(app.turn.is_some() && !app.phase.is_empty()))
+                .max(if show_robot { robot.0.len() as u16 } else { 0 })
             } else {
                 1
             }),
@@ -123,7 +167,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 "{} {}",
                 app.tr("Workspace", "工作区"),
                 workspace_tail(
-                    &app.workspace,
+                    &home_short(&app.workspace),
                     usize::from(area.width).saturating_sub(
                         usize::from(left_padding) + app.tr("Workspace", "工作区").width() + 1
                     ),
@@ -136,6 +180,17 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 app.update_notice.clone(),
                 Style::new().fg(p.accent),
             ));
+        }
+        // Where the turn is: Inspect ✓ · Edit ● · Verify ○ — what the work is,
+        // not which tools the model happens to call.
+        if app.turn.is_some() && !app.phase.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled(app.phase.strip(app.zh()), Style::new().fg(p.accent)),
+                Span::styled(
+                    format!("  {}", fit(&app.phase.doing(app.zh()), 60)),
+                    Style::new().fg(p.muted),
+                ),
+            ]));
         }
         if app.details {
             lines.push(Line::styled(
@@ -319,7 +374,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
                     if app.home_workspace {
                         app.tr("Home directory · use aria -C <project> to select a project. Files are read only when needed for your task.", "当前是主目录。用 aria -C <项目目录> 选择项目；仅按任务需要读取文件。")
                     } else {
-                        app.tr("Enter a prompt to start.", "输入消息开始。")
+                        app.tr(
+                            "Type / for commands · @ to attach a file",
+                            "输入 / 查看命令 · @ 引用文件",
+                        )
                     }
                 } else {
                     app.tr("The runtime is starting…", "正在启动…")
@@ -415,6 +473,83 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 .saturating_sub(first as u16)
                 .min(inside.height.saturating_sub(1)),
     ));
+    // The command list: opens above the input on `/`, narrows as you type.
+    let (rows_found, for_files) = app.popup_rows();
+    let items: Vec<(String, String)> = if for_files {
+        rows_found
+            .into_iter()
+            .map(|(label, _)| {
+                let tag = if label.ends_with('/') {
+                    app.tr("folder", "文件夹").to_owned()
+                } else {
+                    String::new()
+                };
+                (label, tag)
+            })
+            .collect()
+    } else {
+        rows_found
+    };
+    if !items.is_empty() && parts[2].y > area.y {
+        let rows = items.len() as u16;
+        let height = (rows + 2).min(parts[2].y - area.y);
+        let width = parts[2].width; // as wide as the input it belongs to
+        let rect = Rect::new(parts[2].x, parts[2].y - height, width, height);
+        let name_width = items
+            .iter()
+            .map(|(name, _)| name.width())
+            .max()
+            .unwrap_or(0)
+            .min(if for_files { 60 } else { 24 });
+        let inner_width = usize::from(rect.width.saturating_sub(4));
+        let selected = app.popup_index.min(items.len() - 1);
+        let lines: Vec<Line> = items
+            .iter()
+            .enumerate()
+            .take(usize::from(height.saturating_sub(2)))
+            .map(|(i, (name, detail))| {
+                let name = fit(name, name_width);
+                let used = name_width + 2;
+                let detail = fit(detail, inner_width.saturating_sub(used));
+                let text = format!("{name:<name_width$}  {detail}");
+                if i == selected {
+                    Line::styled(
+                        format!(" {text}"),
+                        Style::new().fg(p.selection_fg).bg(p.accent),
+                    )
+                } else {
+                    Line::from(vec![
+                        Span::styled(format!(" {name:<name_width$}"), Style::new().fg(p.accent)),
+                        Span::styled(format!("  {detail}"), Style::new().fg(p.muted)),
+                    ])
+                }
+            })
+            .collect();
+        frame.render_widget(Clear, rect);
+        frame.render_widget(
+            Paragraph::new(lines).block(
+                Block::bordered()
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::new().fg(p.muted))
+                    .title(Line::styled(
+                        if for_files {
+                            app.tr(" Files ", " 文件 ")
+                        } else {
+                            app.tr(" Commands ", " 命令 ")
+                        },
+                        Style::new().fg(p.accent),
+                    ))
+                    .title_bottom(Line::styled(
+                        app.tr(
+                            " ↑↓ choose · Tab fill in · Esc close ",
+                            " ↑↓ 选择 · Tab 补全 · Esc 关闭 ",
+                        ),
+                        Style::new().fg(p.muted),
+                    )),
+            ),
+            rect,
+        );
+    }
     let elapsed = app
         .started
         .map(|start| start.elapsed())
@@ -465,7 +600,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
             rect,
         );
     }
-    if let Some(dialog) = &app.dialog {
+    if let Some(dialog) = app.dialog.as_ref().filter(|d| d.picker) {
+        draw_picker(frame, app, dialog, area, p);
+    } else if let Some(dialog) = &app.dialog {
         let mut heading = vec![
             Line::styled(dialog.title.clone(), Style::new().bold()),
             Line::raw(""),
@@ -477,6 +614,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
                     .lines()
                     .map(|line| Line::styled(line.to_owned(), Style::new().fg(p.assistant))),
             );
+            heading.push(Line::raw(""));
+        }
+        if let Some(risk) = &dialog.risk {
+            heading.extend(risk_card(app, risk, p));
             heading.push(Line::raw(""));
         }
         let heading = Paragraph::new(heading).wrap(Wrap { trim: false });
@@ -500,7 +641,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
         frame.render_widget(block, rect);
         // Keep the operation visible while scrolling through approval choices.
         let sections = Layout::vertical([
-            Constraint::Length((heading_lines.min(8) as u16).min(inside.height.saturating_sub(3))),
+            Constraint::Length(
+                (heading_lines.min(if dialog.risk.is_some() { 12 } else { 8 }) as u16)
+                    .min(inside.height.saturating_sub(3)),
+            ),
             Constraint::Min(1),
         ])
         .split(inside);
@@ -571,6 +715,203 @@ pub fn draw(frame: &mut Frame, app: &App) {
     }
 }
 
+/// What an action reaches, drawn above its approval: a coloured level, then
+/// the hosts, files and systems it touches and why it is rated that way.
+fn risk_card(app: &App, risk: &Risk, p: Palette) -> Vec<Line<'static>> {
+    let level_color = match risk.level {
+        0 | 1 => p.assistant,
+        2 => Color::Yellow,
+        _ => Color::Red,
+    };
+    let undo = if risk.reversible {
+        app.tr("reversible", "可撤销")
+    } else {
+        app.tr("not reversible", "不可撤销")
+    };
+    let mut lines = vec![Line::from(vec![
+        Span::styled(
+            format!("{:<9}", app.tr("Risk", "风险")),
+            Style::new().fg(p.muted),
+        ),
+        Span::styled(
+            format!("L{} {}", risk.level, risk.name),
+            Style::new().fg(level_color).bold(),
+        ),
+        Span::styled(
+            format!(" · {}/100 · {undo}", risk.score),
+            Style::new().fg(p.muted),
+        ),
+    ])];
+    let mut row = |label: &str, values: &[String]| {
+        if values.is_empty() {
+            return;
+        }
+        let shown: Vec<&str> = values.iter().take(4).map(String::as_str).collect();
+        let more = values.len().saturating_sub(4);
+        let tail = if more > 0 {
+            format!(" +{more}")
+        } else {
+            String::new()
+        };
+        lines.push(Line::from(vec![
+            Span::styled(format!("{label:<9}"), Style::new().fg(p.muted)),
+            Span::raw(format!("{}{tail}", shown.join(", "))),
+        ]));
+    };
+    row(app.tr("Network", "网络"), &risk.hosts);
+    row(app.tr("Files", "文件"), &risk.files);
+    if !risk.impact.is_empty() {
+        row(app.tr("Impact", "影响"), std::slice::from_ref(&risk.impact));
+    }
+    row(app.tr("Affects", "涉及"), &risk.systems);
+    let why: Vec<String> = risk.reasons.iter().take(2).cloned().collect();
+    row(app.tr("Why", "原因"), &why);
+    lines
+}
+
+/// The model picker: a searchable list, one row per model under group
+/// headings, with the highlighted model's details beneath it.
+fn draw_picker(frame: &mut Frame, app: &App, dialog: &Dialog, area: Rect, p: Palette) {
+    let visible = dialog.visible();
+    // Rows to draw: (group heading, or the choice index).
+    let mut lines_spec: Vec<(Option<&str>, usize)> = Vec::new();
+    let mut last_group: Option<&str> = None;
+    for &i in &visible {
+        if let Some(group) = dialog.groups.get(i).map(String::as_str) {
+            if last_group != Some(group) && !group.is_empty() {
+                lines_spec.push((Some(group), i));
+                last_group = Some(group);
+            }
+        }
+        lines_spec.push((None, i));
+    }
+    let list_rows = lines_spec.len().clamp(1, 20);
+    let height = (list_rows + 6 + 2).min(usize::from(area.height)) as u16;
+    let rect = popup(area, 100, height);
+    frame.render_widget(Clear, rect);
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(Style::new().fg(p.accent))
+        .title(Line::styled(
+            app.tr(" Choose ", " 选择 "),
+            Style::new().fg(p.accent),
+        ))
+        .title_bottom(Line::styled(
+            app.tr(
+                " ↑↓ choose · Enter select · type to search · Esc close ",
+                " ↑↓ 选择 · Enter 确认 · 输入即搜索 · Esc 关闭 ",
+            ),
+            Style::new().fg(p.muted),
+        ));
+    let inside = block.inner(rect).inner(Margin::new(1, 0));
+    frame.render_widget(block, rect);
+    let width = usize::from(inside.width);
+    let rows = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(1),
+        Constraint::Length(3),
+    ])
+    .split(inside);
+    frame.render_widget(
+        Paragraph::new(Line::styled(
+            fit(dialog.title.lines().next().unwrap_or(""), width),
+            Style::new().bold(),
+        )),
+        rows[0],
+    );
+    // Search box, with how many models match.
+    let count = format!("{}/{}", visible.len(), dialog.choices.len());
+    let label = app.tr("Search: ", "搜索：");
+    let typed = if dialog.filter.is_empty() {
+        Span::styled(
+            app.tr("type a name, size or provider", "输入名称、规格或服务商"),
+            Style::new().fg(p.muted),
+        )
+    } else {
+        Span::raw(dialog.filter.clone())
+    };
+    let pad = width.saturating_sub(label.width() + typed.width() + count.width());
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(label, Style::new().fg(p.accent)),
+            typed,
+            Span::raw(" ".repeat(pad)),
+            Span::styled(count, Style::new().fg(p.muted)),
+        ])),
+        rows[1],
+    );
+    frame.set_cursor_position((
+        rows[1].x + (label.width() + dialog.filter.width()).min(width.saturating_sub(1)) as u16,
+        rows[1].y,
+    ));
+    // The list, scrolled so the highlighted row stays in view.
+    let list = rows[2];
+    let room = usize::from(list.height);
+    let at = lines_spec
+        .iter()
+        .position(|(group, i)| group.is_none() && *i == dialog.selected)
+        .unwrap_or(0);
+    let start = at
+        .saturating_sub(room / 2)
+        .min(lines_spec.len().saturating_sub(room));
+    let name_width = visible
+        .iter()
+        .map(|&i| dialog.choices[i].0.width())
+        .max()
+        .unwrap_or(0)
+        .min(36);
+    let mut drawn: Vec<Line> = Vec::new();
+    for (group, i) in lines_spec.iter().skip(start).take(room) {
+        if let Some(group) = group {
+            drawn.push(Line::styled(
+                format!(" {}", fit(group, width.saturating_sub(1))),
+                Style::new().fg(p.muted).bold(),
+            ));
+            continue;
+        }
+        let (name, help) = &dialog.choices[*i];
+        let name = fit(name, name_width);
+        let detail = fit(help, width.saturating_sub(name_width + 6));
+        if *i == dialog.selected {
+            drawn.push(Line::styled(
+                format!(" › {name:<name_width$}  {detail}"),
+                Style::new().fg(p.selection_fg).bg(p.accent),
+            ));
+        } else {
+            drawn.push(Line::from(vec![
+                Span::raw(format!("   {name:<name_width$}")),
+                Span::styled(format!("  {detail}"), Style::new().fg(p.muted)),
+            ]));
+        }
+    }
+    if visible.is_empty() {
+        drawn.push(Line::styled(
+            format!(
+                " {}",
+                app.tr("No model matches that search.", "没有匹配的模型。")
+            ),
+            Style::new().fg(p.muted),
+        ));
+    }
+    frame.render_widget(Paragraph::new(drawn), list);
+    // The full line for the highlighted model, which the row may have cut.
+    if let Some((name, help)) = dialog
+        .choices
+        .get(dialog.selected)
+        .filter(|_| !visible.is_empty())
+    {
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::styled(fit(name, width), Style::new().fg(p.accent)),
+                Line::styled(help.clone(), Style::new().fg(p.muted)),
+            ])
+            .wrap(Wrap { trim: true }),
+            rows[3],
+        );
+    }
+}
+
 /// The delivery report, coloured as the Python REPL prints it: the status by
 /// outcome, headings dim, ✓ green, ✗ red, × and ⚠ highlighted.
 fn delivery_lines(text: &str, p: Palette) -> Vec<Line<'static>> {
@@ -632,6 +973,66 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n")
     }
+    #[test]
+    fn the_header_shows_where_a_running_turn_is() {
+        let mut terminal = Terminal::new(TestBackend::new(90, 24)).unwrap();
+        let mut app = App {
+            permission: "workspace-write".into(),
+            ready: true,
+            ..App::default()
+        };
+        app.editor.insert("fix the refresh bug");
+        app.submit();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":"read_file","params":{"path":"src/auth.py"}})).unwrap();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"read_file","success":true})).unwrap();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":"edit_file","params":{"path":"src/auth.py"}})).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let shown = display(&terminal);
+        assert!(shown.contains("Inspect ✓ · Edit ● · Verify ○"), "{shown}");
+        assert!(shown.contains("Editing src/auth.py"), "{shown}");
+        // Once the turn ends the strip goes away; the header returns to its usual rows.
+        app.event(serde_json::json!({"protocol":1,"type":"turn.completed","turn_id":"turn-1","status":"completed"})).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        assert!(!display(&terminal).contains("Verify ○"));
+    }
+
+    #[test]
+    fn an_approval_shows_what_the_action_reaches() {
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        let mut app = App {
+            turn: Some("turn-1".into()),
+            ..App::default()
+        };
+        app.event(serde_json::json!({"protocol":1,"type":"approval.requested","turn_id":"turn-1","request_id":"a",
+            "title":"Approve","context":"Command: npm install jose","choices":[["Allow once",""],["Deny",""]],
+            "risk":{"level":2,"name":"medium","score":43,"reversible":true,"hosts":["registry.npmjs.org"],
+                    "files":["package.json","package-lock.json"],"systems":[],"reasons":["Changes installed dependencies"],
+                    "impact":"3 files depend on this"}})).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let shown = display(&terminal);
+        for want in [
+            "Command: npm install jose",
+            "L2 medium",
+            "43/100",
+            "reversible",
+            "registry.npmjs.org",
+            "package.json, package-lock.json",
+            "Changes installed dependencies",
+            "3 files depend on this",
+        ] {
+            assert!(shown.contains(want), "missing {want:?}\n{shown}");
+        }
+        // No assessment: the dialog is as it was.
+        let mut plain = App {
+            turn: Some("turn-1".into()),
+            ..App::default()
+        };
+        plain.event(serde_json::json!({"protocol":1,"type":"approval.requested","turn_id":"turn-1","request_id":"b",
+            "title":"Approve","choices":[["Yes",""]]})).unwrap();
+        terminal.draw(|f| draw(f, &plain)).unwrap();
+        assert!(!display(&terminal).contains("Risk"));
+    }
+
     #[test]
     fn long_workspaces_leave_policy_and_project_name_visible() {
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
@@ -998,6 +1399,17 @@ mod tests {
     }
 
     #[test]
+    fn home_is_shown_as_a_tilde() {
+        assert_eq!(home_short_in("/Users/me/project", "/Users/me"), "~/project");
+        assert_eq!(home_short_in("/Users/me", "/Users/me"), "~");
+        assert_eq!(
+            home_short_in("/Users/medal/x", "/Users/me"),
+            "/Users/medal/x"
+        );
+        assert_eq!(home_short_in("/tmp/x", "/Users/me"), "/tmp/x");
+    }
+
+    #[test]
     fn the_status_line_shows_the_mascots_eye_only_while_a_turn_runs() {
         // The chat had no activity indicator at all: nothing on screen said
         // the model was working. The mark is that, and it is the brand once
@@ -1084,10 +1496,66 @@ mod tests {
                 secret: true,
                 editor: super::super::editor::Editor::default(),
                 shortcuts: serde_json::Value::Null,
+                picker: false,
+                groups: vec![],
+                filter: String::new(),
+                risk: None,
             });
             app.dialog.as_mut().unwrap().editor.insert("DO_NOT_DISPLAY");
             terminal.draw(|f| draw(f, &app)).unwrap();
             assert!(!format!("{:?}", terminal.backend().buffer()).contains("DO_NOT_DISPLAY"));
         }
+    }
+
+    #[test]
+    fn the_command_list_is_drawn_above_the_input_with_the_highlight_on_the_first_row() {
+        let mut app = App {
+            ready: true,
+            ..App::default()
+        };
+        app.commands = vec!["/help".into(), "/model".into()];
+        app.command_order = app.commands.clone();
+        app.command_info.insert("/help".into(), "Show help".into());
+        app.command_info
+            .insert("/model".into(), "Choose a model".into());
+        app.editor.insert("/");
+        let mut terminal = Terminal::new(TestBackend::new(70, 24)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rows: Vec<String> = (0..24)
+            .map(|y| {
+                (0..70)
+                    .map(|x| buffer[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect();
+        let help = rows
+            .iter()
+            .position(|r| r.contains("/help") && r.contains("Show help"))
+            .expect("first row");
+        let model = rows
+            .iter()
+            .position(|r| r.contains("/model") && r.contains("Choose a model"))
+            .expect("second row");
+        let input = rows
+            .iter()
+            .position(|r| r.contains("╭ Aria"))
+            .expect("input box title");
+        assert!(
+            help < model && model < input,
+            "the list sits above the input, in order: {rows:#?}"
+        );
+        let highlighted =
+            (0..70).any(|x| buffer[(x, help as u16)].bg != ratatui::style::Color::Reset);
+        assert!(highlighted, "the first row is highlighted");
+        // Closing it removes it.
+        app.editor.insert("zzz");
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let text: String = (0..24)
+            .flat_map(|y| (0..70).map(move |x| (x, y)))
+            .map(|(x, y)| buffer[(x, y)].symbol().to_string())
+            .collect();
+        assert!(!text.contains("Show help"));
     }
 }

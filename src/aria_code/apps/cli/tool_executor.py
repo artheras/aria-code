@@ -452,13 +452,20 @@ def _confirm_tool_execution_decision(tool_name: str, params: dict,
     # auto-approve level run without a prompt (see safety.risk).
     _assessment, _requirement = _assess_for_approval(tool_name, params)
     _standing_ok = _requirement != "always"
+    # Reading or driving the person's own screen is never covered by a standing
+    # policy or by "allow all tools"; only an explicit per-tool choice, and never
+    # from a chat bot, where whoever is typing is not at this computer.
+    from aria_code.safety.risk import DESKTOP_TOOLS as _DESKTOP_TOOLS
+    _desktop = tool_name in _DESKTOP_TOOLS
+    if _desktop and _g("_ARIA_BOT_MODE"):
+        return ApprovalDecision.deny("desktop control is not available from a chat bot")
 
-    if _standing_ok and _policy_verdict == "allow":
+    if _standing_ok and not _desktop and _policy_verdict == "allow":
         if tool_name == "run_command":
             return ApprovalDecision.allow(policy=config_policy, user_approved=True)
         return ApprovalDecision.allow()
 
-    if _standing_ok and _auto_approve_session:
+    if _standing_ok and _auto_approve_session and not _desktop:
         # Still inject policy so run_command doesn't re-block
         if tool_name == "run_command":
             return ApprovalDecision.allow(policy=config_policy, user_approved=True)
@@ -604,11 +611,14 @@ def _confirm_tool_execution_decision(tool_name: str, params: dict,
         ("Yes, allow all tools",             "本会话内所有工具自动允许" if zh else "every tool, this session"),
         (_DENY_LABEL,                        _deny_help(zh)),
     ]
+    if _desktop:
+        del options[2]  # no blanket approval for the screen, mouse or keyboard
+    _deny_index = len(options) - 1
     # Imported here: aria_cli rebinds this function to its own globals.
     from aria_code.apps.cli.runtime_consumer import approval_subject as _subject
     choice = _arrow_select(options, selected=0, title="",
                            collapse_to=_subject(tool_name, params),
-                           shortcuts={"y": 0, "a": 1, "n": 3}, numbered=True)
+                           shortcuts={"y": 0, "a": 1, "n": _deny_index}, numbered=True)
 
     if choice == 0:
         if tool_name == "run_command":
@@ -621,7 +631,7 @@ def _confirm_tool_execution_decision(tool_name: str, params: dict,
             command_prefix=_command_prefix,
             tool_scope="" if _command_prefix else tool_name,
         )
-    if choice == 2:
+    if choice == 2 and not _desktop:
         if tool_name == "run_command":
             return ApprovalDecision.allow(
                 policy=config_policy,
@@ -629,7 +639,7 @@ def _confirm_tool_execution_decision(tool_name: str, params: dict,
                 auto_approve_session=True,
             )
         return ApprovalDecision.allow(auto_approve_session=True)
-    return _deny_with_feedback(choice == 3)
+    return _deny_with_feedback(choice == _deny_index)
 async def execute_aria_tool(base_url: str, tool_name: str, params: dict,
                            timeout: int = 30, auth_token: str = None,
                            max_retries: int = 2) -> dict:

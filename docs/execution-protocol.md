@@ -43,6 +43,45 @@ INSPECT → PLAN → (approval if needed) → EXECUTE → VERIFY → REVIEW → 
 | **User workflows** (`.aria/workflows/*.yaml`) | `runtime/workflows.py`, `apps/cli/workflow_runner.py` | **phase 4** |
 | **Test baseline** — pre-existing failures are not repaired | `runtime/baseline.py` | **phase 4** |
 
+## In the native terminal
+
+The Rust frontend draws the protocol instead of printing text from it:
+
+* **Phase.** While a turn runs, the header shows where it is, `Inspect ✓ · Edit ●
+  · Verify ○`, and the status line says what is happening (`Editing src/auth.py`).
+  The phase is read off the tool events the frontend already receives
+  (`read_file`/`grep`/`git diff` inspect, `edit_file`/`write_file` edit, `pytest`,
+  `tsc`, `cargo clippy`… verify), so every runtime gets it without a protocol
+  change. After an edit with no check yet, `Verify ○` shows what is still
+  expected. A runtime that knows better may send `{"type":"turn.phase",
+  "phase":"verify","label":"pytest -q"}`; `turn.status` mentioning *review* enters
+  the Review phase.
+* **Approval card.** `approval.requested` may carry `risk`, the assessment as
+  data: `level`, `name`, `score`, `reversible`, `hosts`, `files`, `systems`,
+  `reasons` and an optional `impact` line. The frontend draws it above the
+  choices (level coloured green / yellow / red). Both the Python worker and the Go
+  runtime send it; without it the dialog shows only the tool and its target.
+## Everyday commands
+
+Short names for the things a coding session does all day. Most are another command
+under a name people already know; `/test`, `/build` and `/fix` are new.
+
+| Command | What it does |
+|---|---|
+| `/diff [path…] \| --patch` | `git status` and `git diff --stat`, or the patch |
+| `/commit [message]` | commit everything that changed (`/git commit`) |
+| `/pr [status\|view\|create [title]]` | the branch's pull request, through `gh` |
+| `/checkpoint [list\|restore [N\|id]]` | file checkpoints and turn points (`/rewind`) |
+| `/worktree [diff\|apply\|discard]` | the task's worktree (`/task`) |
+| `/graph [path\|symbol…]` | project graph summary; with targets, what a change reaches (`/impact`) |
+| `/agents` | `.aria/agents/*.md` and the background tasks running |
+| `/test [paths]`, `/build` | the project's own command, read from `package.json` scripts, `Cargo.toml`, `go.mod`, `pyproject.toml` or Makefile targets; nothing is guessed |
+| `/sim [scenario]` | the simulation the project declares in `.aria/project.yaml`; never guessed |
+| `/fix <what is wrong>` | asks for the cause first, the smallest change, then the project's checks |
+
+`/history` already shows the conversation. These are Python-worker commands; the
+Go runtime's command set is still the sixteen listed in `/help`.
+
 ## Risk levels
 
 `assess_command()` / `assess_tool()` describe what an action touches.
@@ -63,6 +102,53 @@ Each assessment also names its **capabilities** — `filesystem.write`,
 
 It is descriptive: the existing command policy still decides what runs, and an
 assessment never reports a command milder than that policy does.
+
+## Physical actions
+
+Acting on a device cannot be undone with a checkpoint, so it is critical by default.
+Two capabilities cover it, and a contract can forbid either (`forbid: [hardware.flash,
+actuator.command]`):
+
+| Capability | Level | What triggers it |
+|---|---|---|
+| `hardware.flash` | L4, not reversible | a programmer writing or erasing a device: `esptool … write_flash`, `dfu-util -D`, `openocd … program`, `avrdude -U flash:w`, `st-flash write`, `picotool load`, `fastboot flash`, `pio run -t upload`, `west flash`, `idf.py flash` |
+| `actuator.command` | L4, not reversible | commanding a running robot: `ros2 topic pub`, `ros2 service call`, `ros2 action send_goal`, `ros2 param set`, `ros2 lifecycle set` |
+
+L4 is asked every time, even under `approval_mode: risk` and after "always allow". Reading
+and building are not affected (`esptool chip_id`, `ros2 topic echo`, `colcon build`). The Go
+runtime applies the same rules; `tests/test_native_go_risk.py` compares the two field by field.
+
+## The screen, the mouse and the keyboard
+
+The Python agent's desktop tools read or drive the person's own screen. Two capabilities
+cover them, and a contract can forbid either (`forbid: [screen.capture, desktop.control]`):
+
+| Tool | Level | Why |
+|---|---|---|
+| `computer_screenshot` | L3 (`screen.capture`) | the whole screen may show private content, and the image goes to the model |
+| `computer_action` move, scroll | L2 (`desktop.control`) | the pointer moves, nothing is pressed |
+| `computer_action` click, right_click, double_click, drag, key, type | L3, not reversible | input lands in whatever has focus |
+| `computer_action` type with a line break; key combinations that quit, close or delete (`cmd+q`, `alt+f4`, `cmd+delete`, …) | L4, not reversible | submits or runs what is focused, or ends it |
+
+L3 and L4 are never automatic, even under `approval_mode: risk`. Beyond that, these tools
+are held to a stricter rule than files and commands: "allow all tools" and a standing
+`allow` policy do not cover them, the prompt does not offer the blanket option, a chat bot
+session may not use them at all, and typed text is shown to the person as a character count,
+never echoed. Choosing "always allow" for `computer_action` is still an explicit, per-tool
+choice, and L4 asks regardless. `browser_navigate` and `browser_screenshot` are L2 network
+reads like `web_fetch`. The Go runtime has no desktop tools, so its risk table has no rows for
+them; add both together if that changes.
+
+`/test` and `/build` understand ROS 2: a colcon workspace (or a single package with
+`package.xml`) builds with `colcon build` and tests with `colcon test`, followed by
+`colcon test-result --verbose`, because `colcon test` exits 0 even when tests fail. A project
+states its own commands, which win over detection, in `.aria/project.yaml`:
+
+```yaml
+commands:
+  test: ./scripts/test.sh
+  sim: ros2 launch my_robot sim_scenarios.launch.py
+```
 
 ## Change contracts
 

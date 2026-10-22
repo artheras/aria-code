@@ -183,7 +183,7 @@ the tool's name.
 - Private keys (`.pem`, `.key`)
 - Hardcoded server IPs
 
-Report security vulnerabilities to: `security@arthera.finance`
+Report security vulnerabilities privately: use **Security → Report a vulnerability** on GitHub, or email `security@arthera.xyz`. Please do not open a public issue.
 
 ---
 

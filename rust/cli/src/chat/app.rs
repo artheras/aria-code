@@ -1,5 +1,6 @@
 //! UI state/reducer. Protocol events cannot create host approval grants.
 use super::editor::Editor;
+use super::phase::{self, Phase, PhaseTrack};
 use serde_json::{json, Value};
 use std::cell::Cell;
 use std::collections::VecDeque;
@@ -53,6 +54,49 @@ pub struct Action {
     /// "auto-approved · L1 low · Edit files" under approval_mode=risk.
     pub approval: String,
 }
+/// What an action reaches, as the runtime assessed it before asking.
+#[derive(Debug, Clone, Default)]
+pub struct Risk {
+    pub level: u8,
+    pub name: String,
+    pub score: u32,
+    pub reversible: bool,
+    pub hosts: Vec<String>,
+    pub files: Vec<String>,
+    pub systems: Vec<String>,
+    pub reasons: Vec<String>,
+    pub impact: String,
+}
+
+impl Risk {
+    fn from_value(v: &Value) -> Option<Risk> {
+        let level = v["level"].as_u64()?.min(4) as u8;
+        let list = |key: &str| -> Vec<String> {
+            v[key]
+                .as_array()
+                .map(|rows| {
+                    rows.iter()
+                        .filter_map(|x| x.as_str())
+                        .take(8)
+                        .map(safe)
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        Some(Risk {
+            level,
+            name: safe(v["name"].as_str().unwrap_or("")),
+            score: v["score"].as_u64().unwrap_or(0).min(100) as u32,
+            reversible: v["reversible"].as_bool().unwrap_or(true),
+            hosts: list("hosts"),
+            files: list("files"),
+            systems: list("systems"),
+            reasons: list("reasons"),
+            impact: safe(v["impact"].as_str().unwrap_or("")),
+        })
+    }
+}
+
 #[derive(Debug)]
 pub struct Dialog {
     pub id: String,
@@ -65,7 +109,63 @@ pub struct Dialog {
     pub secret: bool,
     pub editor: Editor,
     pub shortcuts: Value,
+    /// A long list to choose from (models), not an approval: one row per
+    /// choice, a search box, group headings, no number shortcuts.
+    pub picker: bool,
+    /// The heading each choice sits under, when the host grouped them.
+    pub groups: Vec<String>,
+    pub filter: String,
+    /// The runtime's assessment of the action being approved, when it sent one.
+    pub risk: Option<Risk>,
 }
+impl Dialog {
+    /// Indices of the choices the search leaves showing, in their original order.
+    pub fn visible(&self) -> Vec<usize> {
+        let words: Vec<String> = self
+            .filter
+            .to_lowercase()
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect();
+        (0..self.choices.len())
+            .filter(|&i| {
+                let (label, help) = &self.choices[i];
+                let label = label.to_lowercase();
+                let hay = format!("{label} {}", help.to_lowercase());
+                words
+                    .iter()
+                    .all(|w| hay.contains(w.as_str()) || is_subsequence(w, &label))
+            })
+            .collect()
+    }
+
+    /// After the search changed: land on the first match.
+    pub fn refilter(&mut self) {
+        if let Some(&first) = self.visible().first() {
+            self.selected = first;
+        }
+    }
+
+    /// Move the highlight `by` rows among the matches, stopping at the ends.
+    pub fn step(&mut self, by: isize) {
+        let visible = self.visible();
+        if visible.is_empty() {
+            return;
+        }
+        let at = visible
+            .iter()
+            .position(|&i| i == self.selected)
+            .unwrap_or(0) as isize;
+        let to = (at + by).clamp(0, visible.len() as isize - 1) as usize;
+        self.selected = visible[to];
+    }
+}
+/// True when every character of `needle` appears in `haystack`, in order.
+fn is_subsequence(needle: &str, haystack: &str) -> bool {
+    let mut chars = haystack.chars();
+    needle.chars().all(|n| chars.any(|h| h == n))
+}
+
 #[derive(Debug, Default)]
 pub struct App {
     pub editor: Editor,
@@ -82,13 +182,33 @@ pub struct App {
     pub model: String,
     pub version: String,
     pub update_notice: String,
+    /// Where the running turn is: inspecting, editing, verifying…
+    pub phase: PhaseTrack,
     pub provider: String,
     pub workspace: String,
     pub permission: String,
     pub network: bool,
     pub robot: super::robot::Robot,
     pub commands: Vec<String>,
+    /// What each command does, for the list that opens when `/` is typed. Sent
+    /// by the runtime as `commands_info`; absent from older runtimes, in which
+    /// case the list shows names only.
+    pub command_info: std::collections::HashMap<String, String>,
+    /// The order the runtime wants commands listed in: the ones people reach
+    /// for first, then the rest. `commands` stays alphabetical for Tab.
+    pub command_order: Vec<String>,
+    pub popup_index: usize,
+    /// The text the popup was last laid out for; a change resets the selection.
+    pub popup_text: String,
+    /// Esc closes the popup for this exact text. Typing more brings it back.
+    pub popup_dismissed: Option<String>,
     pub reference_completion: bool,
+    /// Whole-prompt replacements the runtime offered for the `@file` being
+    /// typed, and the text they were offered for.
+    pub file_candidates: Vec<String>,
+    pub file_for: String,
+    /// The last text a lookup was sent for, so each keystroke asks at most once.
+    pub file_asked: String,
     pub status: String,
     pub details: bool,
     pub help: bool,
@@ -105,6 +225,9 @@ pub struct App {
 }
 
 impl App {
+    pub fn zh(&self) -> bool {
+        self.lang.starts_with("zh")
+    }
     pub fn tr<'a>(&self, en: &'a str, zh: &'a str) -> &'a str {
         if self.lang.starts_with("zh") {
             zh
@@ -185,11 +308,10 @@ impl App {
                                 .collect()
                         })
                         .unwrap_or_default();
-                    if candidates.len() == 1 {
-                        self.editor.set(&candidates[0]);
-                    } else if !candidates.is_empty() {
-                        self.add("status", &candidates.join("\n"), false);
-                    }
+                    // The list under the input shows them; nothing is typed for you.
+                    self.file_candidates = candidates;
+                    self.file_for = self.editor.text().to_owned();
+                    self.popup_index = 0;
                 }
             }
             "update.available" => {
@@ -236,6 +358,22 @@ impl App {
                         self.commands.push(command.into());
                     }
                 }
+                self.command_info.clear();
+                self.command_order.clear();
+                if let Some(items) = v["commands_info"].as_array() {
+                    for item in items.iter().take(1000) {
+                        let Some(name) = item["name"].as_str().map(safe) else {
+                            continue;
+                        };
+                        let detail: String = safe(item["description"].as_str().unwrap_or(""))
+                            .chars()
+                            .filter(|c| !c.is_control())
+                            .take(160)
+                            .collect();
+                        self.command_order.push(name.clone());
+                        self.command_info.insert(name, detail);
+                    }
+                }
                 let history_reset = v["history_reset"].as_bool().unwrap_or(false);
                 if kind == "session.ready" || changed_session || history_reset {
                     self.approval_context.clear();
@@ -259,7 +397,17 @@ impl App {
                 }
                 self.ready = true;
             }
-            "turn.started" => self.status = self.tr("Working", "正在处理").into(),
+            "turn.started" => {
+                self.phase.clear();
+                self.status = self.tr("Working", "正在处理").into();
+            }
+            // A runtime that knows the phase says so; otherwise it is read off the tools.
+            "turn.phase" => {
+                if let Some(p) = Phase::from_name(text("phase")) {
+                    self.phase.enter(p, &safe(text("label")));
+                    self.status = self.phase.doing(self.zh());
+                }
+            }
             "answer.delta" => {
                 self.status = self.tr("Responding", "正在回复").into();
                 self.delta("assistant", text("text"));
@@ -307,7 +455,6 @@ impl App {
             }
             "output.delta" => self.delta("output", text("text")),
             "tool.started" => {
-                self.status = format!("{} {}", self.tr("Running", "正在执行"), safe(text("tool")));
                 let params = &v["params"];
                 self.approval_context =
                     format!("{}: {}", self.tr("Tool", "工具"), safe(text("tool")));
@@ -326,6 +473,10 @@ impl App {
                     .iter()
                     .find_map(|key| params[*key].as_str())
                     .unwrap_or("");
+                let one_line: String = safe(target).replace('\n', " ");
+                self.phase
+                    .enter(phase::classify(text("tool"), params), &one_line);
+                self.status = self.phase.doing(self.zh());
                 self.add(
                     "action",
                     &serde_json::to_string_pretty(params).unwrap_or_default(),
@@ -411,6 +562,10 @@ impl App {
                 self.status = self.tr("Working", "正在处理").into();
             }
             "turn.status" => {
+                let reviewing = format!("{} {}", text("state"), text("message")).to_lowercase();
+                if reviewing.contains("review") {
+                    self.phase.enter(Phase::Review, "");
+                }
                 self.status = safe(&format!("{}: {}", text("state"), text("message")));
                 self.add("status", &self.status.clone(), false);
             }
@@ -439,6 +594,12 @@ impl App {
                     vec![]
                 };
                 let selected = v["selected"].as_u64().unwrap_or(0) as usize;
+                let picker = v["picker"].as_bool().unwrap_or(false) && !choices.is_empty();
+                let groups: Vec<String> = v["groups"]
+                    .as_array()
+                    .map(|rows| rows.iter().filter_map(|x| x.as_str()).map(safe).collect())
+                    .filter(|g: &Vec<String>| g.len() == choices.len())
+                    .unwrap_or_default();
                 self.dialog = Some(Dialog {
                     id: text("request_id").into(),
                     title: safe(if kind == "approval.requested" || v["choices"].is_array() {
@@ -461,6 +622,10 @@ impl App {
                     editor: Editor::default(),
                     secret: v["secret"].as_bool().unwrap_or(false),
                     shortcuts: v["shortcuts"].clone(),
+                    picker,
+                    groups,
+                    filter: String::new(),
+                    risk: Risk::from_value(&v["risk"]),
                 });
                 self.status = self.tr("Waiting for your response", "等待你的选择").into();
             }
@@ -474,6 +639,7 @@ impl App {
                 }
             }
             "turn.completed" => {
+                self.phase.finish();
                 self.approval_context.clear();
                 self.elapsed = self.started.take().map(|start| start.elapsed());
                 for entry in self
@@ -626,6 +792,176 @@ impl App {
         self.status = self.tr("Continuing…", "正在继续…").into();
         Some(request)
     }
+    /// How many commands the list shows at once.
+    pub const POPUP_ROWS: usize = 8;
+
+    /// The commands the list offers for what is typed, best first: the ones
+    /// that start with it, then the ones that contain it, then loose matches
+    /// (every letter in order, as `/mdl` finds `/model`). Empty when the list
+    /// should not be showing: a turn is running, a dialog is open, the cursor is
+    /// not at the end, the text is past the command word, it was dismissed with
+    /// Esc, or what is typed already is a command and the only match.
+    pub fn slash_items(&self) -> Vec<(String, String)> {
+        let text = self.editor.text();
+        if !self.ready
+            || self.turn.is_some()
+            || self.dialog.is_some()
+            || self.help
+            || !text.starts_with('/')
+            || text.contains(char::is_whitespace)
+            || !self.editor.at_end()
+            || self.popup_dismissed.as_deref() == Some(text)
+        {
+            return Vec::new();
+        }
+        let ordered: Vec<&String> = if self.command_order.is_empty() {
+            self.commands.iter().collect()
+        } else {
+            let mut all: Vec<&String> = self.command_order.iter().collect();
+            for c in &self.commands {
+                if !self.command_order.contains(c) {
+                    all.push(c);
+                }
+            }
+            all
+        };
+        let query = text.trim_start_matches('/').to_lowercase();
+        let mut scored: Vec<(u8, usize, &String)> = ordered
+            .iter()
+            .enumerate()
+            .filter_map(|(i, name)| {
+                let bare = name.trim_start_matches('/').to_lowercase();
+                let tier = if query.is_empty() || bare.starts_with(&query) {
+                    0
+                } else if bare.contains(&query) {
+                    1
+                } else if is_subsequence(&query, &bare) {
+                    2
+                } else {
+                    return None;
+                };
+                Some((tier, i, *name))
+            })
+            .collect();
+        scored.sort_by_key(|(tier, i, _)| (*tier, *i));
+        let items: Vec<(String, String)> = scored
+            .into_iter()
+            .take(Self::POPUP_ROWS)
+            .map(|(_, _, name)| {
+                let detail = self.command_info.get(name).cloned().unwrap_or_default();
+                (name.clone(), detail)
+            })
+            .collect();
+        if items.len() == 1 && items[0].0 == text {
+            return Vec::new();
+        }
+        items
+    }
+
+    /// Keep the selection in step with the text: typing starts again from the top.
+    pub fn sync_popup(&mut self) {
+        if self.editor.text() != self.popup_text {
+            self.popup_text = self.editor.text().to_owned();
+            self.popup_index = 0;
+            self.popup_dismissed = None;
+        }
+    }
+
+    /// Where the `@token` being typed starts, when the cursor is in one.
+    fn reference_start(&self) -> Option<usize> {
+        let text = self.editor.text();
+        let at = text.rfind('@')?;
+        let before_ok = at == 0 || text[..at].ends_with(char::is_whitespace);
+        let rest = &text[at + 1..];
+        let quoted = rest.starts_with('"') || rest.starts_with("file:\"");
+        if !before_ok || (!quoted && rest.contains(char::is_whitespace)) || rest.contains('\n') {
+            return None;
+        }
+        Some(at)
+    }
+
+    /// True when a lookup for the `@file` at the end of the draft should go out.
+    pub fn wants_reference_lookup(&self) -> bool {
+        self.ready
+            && self.reference_completion
+            && self.turn.is_none()
+            && self.dialog.is_none()
+            && !self.help
+            && self.editor.at_end()
+            && self.reference_start().is_some()
+            && self.file_asked != self.editor.text()
+    }
+
+    /// The files the list offers for the `@token` being typed: (what to show,
+    /// the whole prompt that choosing it would leave). Empty unless the
+    /// runtime's answer is for exactly this text.
+    pub fn file_items(&self) -> Vec<(String, String)> {
+        let text = self.editor.text();
+        if !self.ready
+            || self.turn.is_some()
+            || self.dialog.is_some()
+            || self.help
+            || !self.editor.at_end()
+            || self.file_for != text
+            || self.popup_dismissed.as_deref() == Some(text)
+        {
+            return Vec::new();
+        }
+        let Some(at) = self.reference_start() else {
+            return Vec::new();
+        };
+        self.file_candidates
+            .iter()
+            .take(Self::POPUP_ROWS)
+            .filter(|c| c.len() > at)
+            .map(|c| (c[at..].to_owned(), c.clone()))
+            .collect()
+    }
+
+    /// Whatever list is showing: commands after `/`, files after `@`.
+    /// Each row is (label, detail); for files the detail is the replacement.
+    pub fn popup_rows(&self) -> (Vec<(String, String)>, bool) {
+        let commands = self.slash_items();
+        if !commands.is_empty() {
+            return (commands, false);
+        }
+        (self.file_items(), true)
+    }
+
+    pub fn popup_move(&mut self, down: bool) {
+        let n = self.popup_rows().0.len();
+        if n == 0 {
+            return;
+        }
+        self.popup_index = if down {
+            (self.popup_index + 1) % n
+        } else {
+            (self.popup_index + n - 1) % n
+        };
+    }
+
+    /// Put the highlighted command in the input, ready for arguments.
+    pub fn popup_accept(&mut self) -> bool {
+        let (items, files) = self.popup_rows();
+        let Some((name, whole)) = items.get(self.popup_index.min(items.len().saturating_sub(1)))
+        else {
+            return false;
+        };
+        // A folder stays open so the next level lists at once; anything else
+        // is finished and gets a space for the rest of the prompt.
+        let completed = if files {
+            if whole.ends_with('/') {
+                whole.clone()
+            } else {
+                format!("{whole} ")
+            }
+        } else {
+            format!("{name} ")
+        };
+        self.editor.set(&completed);
+        true
+    }
+
     pub fn complete(&mut self) {
         let text = self.editor.text();
         let candidates: Vec<_> = self
@@ -671,14 +1007,18 @@ mod tests {
         a.editor.set("read @fi");
         let response = json!({"protocol":1,"type":"completion.result","session_id":"one","text":"read @fi","candidates":["read @file:file.txt"]});
         a.event(response.clone()).unwrap();
-        assert_eq!(a.editor.text(), "read @file:file.txt");
+        // Offered, not typed: the draft is untouched until the user picks one.
+        assert_eq!(a.editor.text(), "read @fi");
+        assert_eq!(a.file_candidates, vec!["read @file:file.txt".to_string()]);
         a.editor.set("new draft");
+        a.file_candidates.clear();
         a.event(response.clone()).unwrap();
-        assert_eq!(a.editor.text(), "new draft");
+        assert!(a.file_candidates.is_empty());
         a.editor.set("read @fi");
         a.session = "two".into();
         a.event(response).unwrap();
         assert_eq!(a.editor.text(), "read @fi");
+        assert!(a.file_candidates.is_empty());
     }
     fn app() -> App {
         App {

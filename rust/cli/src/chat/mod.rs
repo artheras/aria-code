@@ -3,6 +3,7 @@ mod editor;
 mod hang;
 mod mark;
 mod markdown;
+mod phase;
 mod robot;
 mod theme;
 mod transport;
@@ -226,6 +227,19 @@ pub fn run(
 }
 
 fn key_request(app: &mut App, key: KeyEvent) -> Option<Value> {
+    let request = key_request_inner(app, key);
+    app.sync_popup();
+    // Typing an `@file` asks the runtime for matches as you go.
+    if request.is_none() && app.wants_reference_lookup() {
+        app.file_asked = app.editor.text().to_owned();
+        return Some(
+            json!({"type":"completion.request","protocol":1,"session_id":app.session,"text":app.editor.text()}),
+        );
+    }
+    request
+}
+
+fn key_request_inner(app: &mut App, key: KeyEvent) -> Option<Value> {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
     if key.code == KeyCode::F(1) {
@@ -240,6 +254,40 @@ fn key_request(app: &mut App, key: KeyEvent) -> Option<Value> {
     }
     if ctrl && key.code == KeyCode::Char('o') {
         app.details = !app.details;
+        return None;
+    }
+    if let Some(d) = app.dialog.as_mut().filter(|d| d.picker) {
+        match key.code {
+            KeyCode::Up => d.step(-1),
+            KeyCode::Down => d.step(1),
+            KeyCode::PageUp => d.step(-8),
+            KeyCode::PageDown => d.step(8),
+            KeyCode::Enter => {
+                if d.visible().contains(&d.selected) {
+                    return app.respond(None);
+                }
+            }
+            // Esc clears the search first; with nothing typed it closes the picker.
+            KeyCode::Esc if !d.filter.is_empty() => {
+                d.filter.clear();
+                d.refilter();
+            }
+            KeyCode::Esc => return app.respond(Some(-1)),
+            KeyCode::Char('c') if ctrl => return app.respond(Some(-1)),
+            KeyCode::Char('u') if ctrl => {
+                d.filter.clear();
+                d.refilter();
+            }
+            KeyCode::Backspace => {
+                d.filter.pop();
+                d.refilter();
+            }
+            KeyCode::Char(c) if !ctrl && !alt => {
+                d.filter.push(c);
+                d.refilter();
+            }
+            _ => (),
+        }
         return None;
     }
     if let Some(d) = app.dialog.as_mut() {
@@ -285,6 +333,41 @@ fn key_request(app: &mut App, key: KeyEvent) -> Option<Value> {
         }
         edit(&mut d.editor, key);
         return None;
+    }
+    // The command list that opens on `/` takes the arrow keys, Tab, Enter and
+    // Esc while it is showing; everything else types as usual.
+    if !app.popup_rows().0.is_empty() && !ctrl && !alt {
+        match key.code {
+            KeyCode::Up => {
+                app.popup_move(false);
+                return None;
+            }
+            KeyCode::Down => {
+                app.popup_move(true);
+                return None;
+            }
+            KeyCode::Tab => {
+                app.popup_accept();
+                return None;
+            }
+            // Enter fills in the highlighted command rather than running it, so a
+            // partly typed `/mo` cannot run the wrong thing; a second Enter runs it.
+            KeyCode::Enter if !key.modifiers.contains(KeyModifiers::SHIFT) => {
+                // Already the highlighted command, in full: Enter runs it.
+                let (items, files) = app.popup_rows();
+                let typed = app.editor.text().to_owned();
+                let highlighted = items.get(app.popup_index).map(|(name, _)| name.as_str());
+                // A file is always filled in, never sent: Enter on `@src/` must not submit.
+                if (files || highlighted != Some(typed.as_str())) && app.popup_accept() {
+                    return None;
+                }
+            }
+            KeyCode::Esc => {
+                app.popup_dismissed = Some(app.editor.text().to_owned());
+                return None;
+            }
+            _ => (),
+        }
     }
     match key.code {
         KeyCode::Esc => {
@@ -549,5 +632,309 @@ mod tests {
             key_request(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
         assert_eq!(cancel["type"], "turn.cancel");
         assert_eq!(app.editor.text(), "next draft");
+    }
+
+    // ── The command list that opens on `/` ──────────────────────────────
+    fn with_commands() -> App {
+        let mut app = App {
+            ready: true,
+            ..App::default()
+        };
+        let info = [
+            ("/help", "Show help"),
+            ("/model", "Choose a model"),
+            ("/models", "List models"),
+            ("/review", "Review changes"),
+            ("/memory", "Manage memory"),
+        ];
+        app.commands = info.iter().map(|(n, _)| n.to_string()).collect();
+        app.command_order = app.commands.clone();
+        app.command_info = info
+            .iter()
+            .map(|(n, d)| (n.to_string(), d.to_string()))
+            .collect();
+        app
+    }
+    fn press(app: &mut App, code: KeyCode) -> Option<Value> {
+        key_request(app, KeyEvent::new(code, KeyModifiers::NONE))
+    }
+    fn typed(app: &mut App, text: &str) {
+        for c in text.chars() {
+            press(app, KeyCode::Char(c));
+        }
+    }
+    fn names(app: &App) -> Vec<String> {
+        app.slash_items().into_iter().map(|(n, _)| n).collect()
+    }
+
+    #[test]
+    fn typing_a_slash_opens_the_list_and_narrows_as_you_type() {
+        let mut app = with_commands();
+        typed(&mut app, "/");
+        assert_eq!(names(&app).len(), 5, "a bare slash lists the commands");
+        typed(&mut app, "mo");
+        // Starts-with first, then contains ("memory" has m..o inside), in the runtime's order.
+        assert_eq!(names(&app), ["/model", "/models", "/memory"]);
+        assert_eq!(
+            app.slash_items()[0].1,
+            "Choose a model",
+            "each row carries its description"
+        );
+        typed(&mut app, "x");
+        assert!(
+            names(&app).is_empty(),
+            "nothing matches, so the list closes"
+        );
+    }
+
+    #[test]
+    fn letters_in_order_find_a_command_the_way_mdl_finds_model() {
+        let mut app = with_commands();
+        typed(&mut app, "/mdl");
+        assert_eq!(names(&app), ["/model", "/models"]);
+    }
+
+    #[test]
+    fn arrows_move_the_highlight_and_wrap() {
+        let mut app = with_commands();
+        typed(&mut app, "/m");
+        assert_eq!(app.popup_index, 0);
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.popup_index, 1);
+        press(&mut app, KeyCode::Up);
+        press(&mut app, KeyCode::Up);
+        assert_eq!(
+            app.popup_index,
+            names(&app).len() - 1,
+            "Up from the first row wraps to the last"
+        );
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.popup_index, 0);
+        assert!(
+            app.editor.text() == "/m",
+            "arrows must not touch the text or the history"
+        );
+    }
+
+    #[test]
+    fn tab_fills_in_the_highlighted_command_ready_for_arguments() {
+        let mut app = with_commands();
+        typed(&mut app, "/mo");
+        press(&mut app, KeyCode::Down);
+        assert!(press(&mut app, KeyCode::Tab).is_none());
+        assert_eq!(app.editor.text(), "/models ");
+        assert!(
+            names(&app).is_empty(),
+            "the list closes once the command word is complete"
+        );
+    }
+
+    #[test]
+    fn enter_fills_in_a_partial_command_and_only_a_second_enter_runs_it() {
+        let mut app = with_commands();
+        typed(&mut app, "/rev");
+        assert!(
+            press(&mut app, KeyCode::Enter).is_none(),
+            "the first Enter must not send anything"
+        );
+        assert_eq!(app.editor.text(), "/review ");
+        let request = press(&mut app, KeyCode::Enter).expect("the second Enter sends");
+        assert_eq!(request["type"], "turn.submit");
+    }
+
+    #[test]
+    fn enter_on_a_complete_command_runs_it_at_once() {
+        let mut app = with_commands();
+        typed(&mut app, "/model");
+        assert_eq!(names(&app), ["/model", "/models"]);
+        let request = press(&mut app, KeyCode::Enter).expect("a typed-out command runs on Enter");
+        assert_eq!(request["type"], "turn.submit");
+        assert!(request["text"].as_str().unwrap().starts_with("/model"));
+    }
+
+    #[test]
+    fn escape_closes_the_list_for_this_text_and_typing_reopens_it() {
+        let mut app = with_commands();
+        typed(&mut app, "/m");
+        assert!(press(&mut app, KeyCode::Esc).is_none());
+        assert!(names(&app).is_empty());
+        assert_eq!(app.editor.text(), "/m", "Esc must not clear what was typed");
+        typed(&mut app, "o");
+        assert!(!names(&app).is_empty(), "more typing brings the list back");
+    }
+
+    #[test]
+    fn the_list_stays_out_of_the_way_when_it_does_not_apply() {
+        let mut app = with_commands();
+        typed(&mut app, "hello /mo");
+        assert!(
+            names(&app).is_empty(),
+            "a slash mid-sentence is not a command"
+        );
+        let mut app = with_commands();
+        typed(&mut app, "/model gpt");
+        assert!(
+            names(&app).is_empty(),
+            "after the command word it is arguments"
+        );
+        let mut app = with_commands();
+        app.turn = Some("turn-1".into());
+        typed(&mut app, "/mo");
+        assert!(names(&app).is_empty(), "no list while a turn is running");
+        let mut app = with_commands();
+        app.ready = false;
+        app.editor.insert("/mo");
+        assert!(names(&app).is_empty());
+    }
+
+    // ── The file list that opens on `@` ──────────────────────────────────
+    fn answer(app: &mut App, candidates: &[&str]) {
+        let text = app.editor.text().to_owned();
+        app.event(
+            json!({"protocol":1,"type":"completion.result","session_id":app.session,
+            "text":text,"candidates":candidates}),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn typing_at_asks_for_files_once_per_change_and_lists_the_answer() {
+        let mut app = with_commands();
+        app.reference_completion = true;
+        typed(&mut app, "read @");
+        // The last keystroke asked; nothing is listed until the answer arrives.
+        assert_eq!(app.file_asked, "read @");
+        assert!(app.file_items().is_empty());
+        answer(&mut app, &["read @src/", "read @README.md"]);
+        let rows: Vec<String> = app.file_items().into_iter().map(|(l, _)| l).collect();
+        assert_eq!(rows, vec!["@src/", "@README.md"]);
+        // An answer for older text is ignored.
+        press(&mut app, KeyCode::Char('x'));
+        assert!(app.file_items().is_empty());
+    }
+
+    #[test]
+    fn no_lookup_without_runtime_support_or_outside_a_token() {
+        let mut app = with_commands();
+        let sent = typed_last(&mut app, "read @a");
+        assert!(
+            sent.is_none(),
+            "runtime did not advertise reference_completion"
+        );
+        let mut app = with_commands();
+        app.reference_completion = true;
+        let sent = typed_last(&mut app, "mail me@a");
+        assert!(sent.is_none(), "an @ inside a word is not a file reference");
+    }
+
+    fn typed_last(app: &mut App, text: &str) -> Option<Value> {
+        let mut last = None;
+        for c in text.chars() {
+            last = press(app, KeyCode::Char(c));
+        }
+        last
+    }
+
+    #[test]
+    fn tab_and_enter_fill_in_a_file_and_a_folder_keeps_listing() {
+        let mut app = with_commands();
+        app.reference_completion = true;
+        typed(&mut app, "see @s");
+        answer(&mut app, &["see @src/", "see @setup.py"]);
+        assert!(press(&mut app, KeyCode::Down).is_none());
+        // Enter fills the file in; it must not submit the prompt.
+        assert!(press(&mut app, KeyCode::Enter).is_none());
+        assert_eq!(app.editor.text(), "see @setup.py ");
+        assert!(app.turn.is_none());
+        // A folder is filled without a space, and the next level is asked for.
+        let mut app = with_commands();
+        app.reference_completion = true;
+        typed(&mut app, "see @s");
+        answer(&mut app, &["see @src/"]);
+        let request = press(&mut app, KeyCode::Tab).expect("asks for the folder's contents");
+        assert_eq!(request["type"], "completion.request");
+        assert_eq!(request["text"], "see @src/");
+    }
+
+    #[test]
+    fn esc_closes_the_file_list_until_the_text_changes() {
+        let mut app = with_commands();
+        app.reference_completion = true;
+        typed(&mut app, "see @s");
+        answer(&mut app, &["see @src/"]);
+        press(&mut app, KeyCode::Esc);
+        assert!(app.file_items().is_empty());
+    }
+
+    // ── The searchable model picker ──────────────────────────────────────
+    fn picker_app() -> App {
+        let mut app = with_commands();
+        app.turn = Some("t".into());
+        app.event(
+            json!({"protocol":1,"type":"approval.requested","turn_id":"t","request_id":"pick",
+            "title":"Select Model","picker":true,
+            "choices":[["Gemini Flash","google/gemini-3.5-flash"],["Qwen 2.5","qwen2.5:7b"],
+                       ["Qwen 2.5","qwen2.5:14b"],["Llama 3.1","llama3.1:8b"]],
+            "groups":["Aria","Aria","Aria","Community"],"selected":1}),
+        )
+        .unwrap();
+        app
+    }
+
+    #[test]
+    fn typing_in_the_picker_searches_instead_of_choosing_by_number() {
+        let mut app = picker_app();
+        let d = app.dialog.as_ref().unwrap();
+        assert!(d.picker && d.groups.len() == 4);
+        assert_eq!(d.selected, 1, "opens on the current model");
+        typed(&mut app, "14");
+        let d = app.dialog.as_ref().unwrap();
+        assert_eq!(d.visible(), vec![2], "the id in the detail is searchable");
+        assert_eq!(d.selected, 2);
+        assert!(app.dialog.is_some(), "digits did not answer the dialog");
+    }
+
+    #[test]
+    fn picker_arrows_skip_hidden_rows_and_enter_answers_with_the_original_index() {
+        let mut app = picker_app();
+        typed(&mut app, "qwen");
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.dialog.as_ref().unwrap().selected, 2);
+        press(&mut app, KeyCode::Down);
+        assert_eq!(
+            app.dialog.as_ref().unwrap().selected,
+            2,
+            "stops at the last match"
+        );
+        let request = press(&mut app, KeyCode::Enter).expect("answers");
+        assert_eq!(request["type"], "dialog.respond");
+        assert_eq!(request["choice"], 2);
+    }
+
+    #[test]
+    fn picker_esc_clears_the_search_first_then_closes_and_enter_needs_a_match() {
+        let mut app = picker_app();
+        typed(&mut app, "zzz");
+        assert!(
+            press(&mut app, KeyCode::Enter).is_none(),
+            "nothing matches, nothing to choose"
+        );
+        assert!(app.dialog.is_some());
+        assert!(press(&mut app, KeyCode::Esc).is_none());
+        let d = app.dialog.as_ref().unwrap();
+        assert!(d.filter.is_empty() && d.visible().len() == 4);
+        let request = press(&mut app, KeyCode::Esc).expect("closes");
+        assert_eq!(request["choice"], -1);
+    }
+
+    #[test]
+    fn picker_backspace_widens_the_search_again() {
+        let mut app = picker_app();
+        typed(&mut app, "llama");
+        assert_eq!(app.dialog.as_ref().unwrap().visible(), vec![3]);
+        for _ in 0..5 {
+            press(&mut app, KeyCode::Backspace);
+        }
+        assert_eq!(app.dialog.as_ref().unwrap().visible().len(), 4);
     }
 }

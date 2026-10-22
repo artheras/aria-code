@@ -65,10 +65,24 @@ def approval_subject(tool_name: str, params: dict[str, Any]) -> str:
     """What an answered approval leaves behind: the file, or the command with secrets masked."""
     if tool_name == "run_command":
         return _redact_activity_text(params.get("command", ""), limit=80)
+    if tool_name == "computer_action":
+        return _desktop_subject(params)
     for key in ("path", "file_path"):
         if params.get(key):
             return Path(str(params[key])).name
     return tool_name.replace("_", " ")
+
+
+def _desktop_subject(params: dict[str, Any]) -> str:
+    """What the mouse or keyboard is about to do; typed text is counted, never echoed."""
+    action = str(params.get("action") or "input").lower()
+    if action == "type":
+        return f"type {len(str(params.get('text') or ''))} characters"
+    if action == "key":
+        return f"press {str(params.get('key') or '?')[:40]}"
+    if action == "drag":
+        return f"drag ({params.get('x', 0)}, {params.get('y', 0)}) to ({params.get('ex', 0)}, {params.get('ey', 0)})"
+    return f"{action.replace('_', ' ')} at ({params.get('x', 0)}, {params.get('y', 0)})"
 
 
 def _tool_activity_hint(tool: str, params: dict[str, Any]) -> str:

@@ -28,7 +28,7 @@ from .openai_compat import OpenAICompatProvider
 logger = logging.getLogger(__name__)
 
 DEFAULT_API_URL = "https://api.arthera.xyz"
-DEFAULT_MODEL = "google/gemini-3.5-flash"
+DEFAULT_MODEL = "google/gemini-3.8-flash"
 
 
 def _config_path() -> Path:
@@ -56,8 +56,8 @@ def session_token() -> Optional[str]:
     from aria_code.account_session import account_id, get_account_token
     if account_id(config):
         return get_account_token(config)
-    token = config.get("auth_token")
-    return str(token) if token else None
+    from aria_code.apps.cli.session_refresh import refresh_config_file
+    return refresh_config_file(_config_path())
 
 
 def gateway_base_url() -> str:
