@@ -4,6 +4,34 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.164.0] — 2026-10-22
+
+- Changes what Aria may do on your computer: screen, mouse and keyboard actions now need approval, and firmware and robot commands are rated L4. Also fixes MCP calls failing on '_run_id' and Gemini's 'Requests ending with a model turn' error.
+- ci(release): the checklist no longer waits on its own job [skip release] (#247)
+- fix: keep private arguments out of MCP calls; never end a Gemini request on a model turn (#245)
+- chore(prelude): move the locked test sets to aria-evals-holdout (#244)
+- chore: move public contacts to arthera.xyz and drop the GCP project name (#243)
+- feat(training): turn consented Work-run trajectories into a routing dataset
+- feat(evals): record real token usage per task and in the suite report
+- fix(models): recognise DeepSeek's current API models so agent turns get tools
+- ci(release): a release is started by hand and passes a checklist
+- feat(router): opt-in Prelude MLX routing experiment, off by default
+- feat(training): Prelude routing and risk — measure, train on MLX, test on locked sets
+- fix(safety): the screen, mouse and keyboard now need approval
+- fix(write_file): a short file is not a placeholder
+- feat(evals): model scorecard; tests actually run; OpenAI new-model fix
+- feat(collab): cross-model review, /consult, governance tools over MCP
+- feat(physical-ai): L4 for firmware and robot commands, ROS 2 in /test /build, /sim
+- feat(commands): /diff /commit /pr /checkpoint /worktree /graph /agents /test /build /fix
+- feat(tui): phase strip and structured approval card
+- feat(go): searchable /model picker in the Go runtime
+- chore: remove dead files, refresh the Python migration audit
+- feat(model): default to gemini-3.8-flash
+- feat(model): cloud models in the picker, Gemini 4 Argon
+- feat(tui): /model opens a searchable picker
+- feat(tui,go): Go command descriptions, header and empty-state polish
+- feat(tui): / and @ pop-up lists, background self-update
+
 ## [0.163.0] — 2026-10-18
 
 - fix: defaults point at arthera.xyz (arthera.finance no longer answers) (#222)
