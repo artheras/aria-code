@@ -32,7 +32,7 @@ DEFAULT_TTS_MODEL = "gemini-2.5-flash-tts"
 DEFAULT_TTS_VOICE = "Aoede"
 # Listed in the Vertex publisher catalog (checked 2026-09-14). Generation itself
 # has not been exercised from this workflow yet: it costs money per second.
-# veo-3.0-* is not reachable from arthera-prod (404, checked 2026-09-15); Veo 3.1 is.
+# veo-3.0-* is not reachable from our production project (404, checked 2026-09-15); Veo 3.1 is.
 DEFAULT_VEO_MODEL = "veo-3.1-fast-generate-001"
 
 MAX_INLINE_IMAGE_BYTES = 4 * 1024 * 1024

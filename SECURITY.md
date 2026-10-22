@@ -22,8 +22,8 @@ the Arthera maintainers with:
 - expected impact;
 - logs with secrets redacted.
 
-If GitHub private vulnerability reporting is enabled for the repository, use it.
-Otherwise contact the repository owner through the Arthera GitHub organization.
+Report privately through **Security → Report a vulnerability** on GitHub, or email
+`security@arthera.xyz`. Please do not open a public issue.
 
 ## Credential Handling
 

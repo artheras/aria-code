@@ -51,9 +51,9 @@ class TestVertexEndpoint:
 
     def test_project_from_the_environment_first(self, no_google_env, monkeypatch):
         fake_gcloud(monkeypatch, project="from-gcloud")
-        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "arthera-prod")
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "example-project")
         got = base.vertex_openai_endpoint({})
-        assert got["base_url"] == ("https://aiplatform.googleapis.com/v1/projects/arthera-prod/"
+        assert got["base_url"] == ("https://aiplatform.googleapis.com/v1/projects/example-project/"
                                    "locations/global/endpoints/openapi")
 
     def test_a_regional_endpoint(self, no_google_env, monkeypatch):
