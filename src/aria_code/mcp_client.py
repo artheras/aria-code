@@ -463,6 +463,12 @@ class MCPToolRegistry:
         if srv is None:
             return {"success": False, "error": f"MCP server {srv_name!r} not found"}
 
+        # ToolExecutor adds its own context to every call (_run_id,
+        # _session_id, _skip_confirm, ...) for local tools to read. An MCP
+        # server only knows the parameters in its schema, and a strict one
+        # rejects the whole call over an extra keyword, so they stop here.
+        arguments = {k: v for k, v in (arguments or {}).items() if not str(k).startswith("_")}
+
         # Per-server failure isolation: a wedged/dead server fails fast instead
         # of costing every call its full request timeout for the whole session.
         circuit = self._circuit_for(srv_name)

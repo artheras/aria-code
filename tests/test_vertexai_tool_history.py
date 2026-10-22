@@ -47,6 +47,23 @@ class VertexToolHistoryTests(unittest.TestCase):
 
         return VertexAIProvider(model=model, config={})
 
+    def test_request_never_ends_on_a_model_turn(self):
+        # Gemini answers 400 "Requests ending with a model turn are not
+        # supported" when the last turn is the model's.
+        call = {"function": {"name": "read_file", "arguments": {"path": "a.py"}},
+                "id": "call-1", "thought_signature": SIGNATURE}
+        unanswered = [{"role": "user", "content": "fix a.py"},
+                      {"role": "assistant", "content": "", "tool_calls": [call]},
+                      {"role": "user", "content": ""}]
+        trailing_text = [{"role": "user", "content": "hi"},
+                         {"role": "assistant", "content": "Hello"},
+                         {"role": "user", "content": "   "}]
+        for messages in (unanswered, trailing_text):
+            contents, _ = self._provider()._messages_to_contents(messages)
+            self.assertEqual(contents[-1].role, "user", messages)
+        contents, _ = self._provider()._messages_to_contents(unanswered)
+        self.assertEqual(contents[-1].parts[0].function_response.response, {"error": "not executed"})
+
     def test_tool_round_is_sent_as_function_call_and_response(self):
         contents, _ = self._provider()._messages_to_contents(_tool_round())
 
