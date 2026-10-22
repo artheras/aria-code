@@ -115,9 +115,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           SHA="$(git rev-parse HEAD)"
-          RUNS="$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs?per_page=100")"
+          # This workflow's own runs on the same commit are not main's checks:
+          # the running one is always pending, and an earlier failed attempt
+          # would be red forever. Leave out every check suite it started.
+          OWN="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-on-merge.yml/runs?head_sha=$SHA&per_page=100" --jq '[.workflow_runs[].check_suite_id]')"
+          RUNS="$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs?per_page=100" | jq --argjson own "$OWN" '.check_runs |= map(select(.check_suite.id as $id | $own | index($id) | not))')"
           PENDING="$(printf '%s' "$RUNS" | jq -r '[.check_runs[] | select(.status != "completed") | .name] | unique | join(", ")')"
           RED="$(printf '%s' "$RUNS" | jq -r '[.check_runs[] | select(.status == "completed" and (.conclusion | IN("success","skipped","neutral") | not)) | .name] | unique | join(", ")')"
+          if [ "$(printf '%s' "$RUNS" | jq '.check_runs | length')" = 0 ]; then
+            echo "::error::No checks have run on ${SHA:0:7} yet. Wait for them, then release."
+            exit 1
+          fi
           if [ -n "$PENDING" ]; then
             echo "::error::Still running on ${SHA:0:7}: $PENDING. Wait for them, then release."
             exit 1
