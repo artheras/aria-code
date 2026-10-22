@@ -44,6 +44,15 @@ def test_the_checklist_checks_main_and_that_something_changed():
     assert "check-runs" in text and "skip_checks" in text
 
 
+def test_the_checklist_does_not_wait_on_itself():
+    # Its own job is a check run on the same commit: always pending while it
+    # runs, and red forever after a failed attempt. Counting it made every
+    # release from main fail with "Still running on <sha>: Release checklist".
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "actions/workflows/release-on-merge.yml/runs?head_sha=$SHA" in text
+    assert "check_suite.id" in text
+
+
 def test_the_changelog_lists_every_commit_since_the_last_release_not_one_merge():
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "head_commit" not in text
