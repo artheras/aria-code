@@ -4194,7 +4194,7 @@ class ArtheraTerminal(_ChatTurn, _Chrome, _HeadlessMixin):
         # ── Global user memory ────────────────────────────────────────────
         try:
             from memory_manager import MemoryManager
-            self.memory_mgr: Optional[Any] = MemoryManager()
+            self.memory_mgr: Optional[Any] = MemoryManager(config=self.config)
         except Exception:
             self.memory_mgr = None
 
@@ -4925,10 +4925,11 @@ class ArtheraTerminal(_ChatTurn, _Chrome, _HeadlessMixin):
                 if _routed:
                     continue
 
-                # Auto memory trigger: "记住 X" / "remember that X" → silent /note
+                # Personal remember requests belong to the account, not the
+                # repository ARIA.md shared by everyone using this checkout.
                 _mem_fact = _check_memory_trigger(user_input)
-                if _mem_fact:
-                    self.commands.cmd_note(_mem_fact)
+                if _mem_fact and self.memory_mgr:
+                    self.memory_mgr.append("user_profile", _mem_fact, title="User Profile")
 
                 await self.send_message(user_input, route_text=True)
 
