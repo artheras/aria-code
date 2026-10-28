@@ -1,29 +1,50 @@
 # Security Policy
 
-Aria Code is a local-first agent with filesystem, shell, market-data, and
-optional broker integrations. Security reports should focus on issues that can
-expose credentials, bypass approval boundaries, execute unintended commands, or
-mis-handle broker actions.
+Thank you for helping keep Aria Code and its users secure.
 
 ## Supported Versions
 
 Security fixes target the latest `main` branch and the latest tagged release.
 Older development branches are not maintained after their changes are merged or
-closed.
+closed. If reporting an older version, please note whether the issue also affects
+a supported version.
 
 ## Reporting a Vulnerability
 
-Do not open a public issue for suspected vulnerabilities. Report privately to
-the Arthera maintainers with:
+Please do not disclose suspected vulnerabilities, exploit details, credentials,
+or sensitive reproduction data in public issues or pull requests.
 
-- affected version or commit;
-- operating system and install method;
-- reproduction steps;
-- expected impact;
-- logs with secrets redacted.
+Report privately through **Security → Report a vulnerability** on GitHub, if
+available for this repository, or email **security@arthera.xyz**. Use public
+GitHub issues for ordinary bugs, documentation, and feature requests that do
+not disclose a suspected vulnerability.
 
-Report privately through **Security → Report a vulnerability** on GitHub, or email
-`security@arthera.xyz`. Please do not open a public issue.
+To help us investigate, include:
+
+- the affected component, version or commit, operating system, and installation method;
+- relevant configuration, permission settings, and integrations;
+- the attacker's starting access and the security boundary or control affected;
+- minimal reproduction steps, expected and actual behavior, and potential impact;
+- sanitized logs or screenshots when helpful.
+
+Remove API keys, access tokens, customer data, and unrelated private information
+from reports. Do not include live credentials in a proof of concept. If you find
+a vulnerability in a third-party service or repository, follow its security
+policy and report it to its maintainers.
+
+## Operating Aria Code Safely
+
+Aria Code may access files, run commands, call external tools, and process data
+under the permissions available in its environment. Review permission settings,
+proposed commands, file changes, and external actions before approving them.
+The protection available depends on the chosen configuration and integrations;
+do not assume a prompt, a model response, or a third-party tool is a security
+boundary.
+
+Treat repository content, documents, tool results, and MCP servers as potentially
+untrusted. Connect only services you trust and are authorized to use, grant the
+minimum access needed, and avoid placing secrets in prompts or logs. Follow your
+organization's rules when working with customer or financial data.
 
 ## Credential Handling
 
