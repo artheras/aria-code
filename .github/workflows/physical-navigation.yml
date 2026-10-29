@@ -1,0 +1,44 @@
+name: Native navigation simulation
+on:
+  pull_request:
+    paths:
+      - 'rust/**'
+      - 'tests/test_native_physical.py'
+      - '.github/workflows/physical-navigation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'rust/**'
+      - 'tests/test_native_physical.py'
+      - '.github/workflows/physical-navigation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Rust format and service tests
+        working-directory: rust
+        run: |
+          rustup component add rustfmt
+          cargo fmt --all --check
+          cargo test --workspace --locked
+          cargo build --locked -p aria-native -p aria-physical
+      - name: Independent executable and HTTP checks
+        env:
+          ARIA_PHYSICAL_BINARY: ${{ github.workspace }}/rust/target/debug/aria-physical${{ runner.os == 'Windows' && '.exe' || '' }}
+          ARIA_NATIVE_BINARY: ${{ github.workspace }}/rust/target/debug/aria-native${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: python tests/test_native_physical.py

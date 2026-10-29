@@ -29,6 +29,7 @@ Usage:
   aria-native sessions show ID
   aria-native [--python EXE] [-C DIR] resume ID [--] [ARIA ARGUMENTS...]
   aria-native update check --current VERSION [--channel native|npm|pip|source] [--offline|--refresh]
+  aria-native physical [jsonl|serve --listen 127.0.0.1:8765]
   aria-native index imports|symbols < REQUEST.json
   aria-native --version
 
@@ -72,6 +73,7 @@ enum IndexKind {
 #[derive(Debug)]
 enum Mode {
     Help,
+    Physical(Vec<String>),
     Version,
     Index(IndexKind),
     Run(Vec<OsString>),
@@ -131,6 +133,15 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                     return Err("Timeout must be 1..300000 ms".into());
                 }
                 timeout = Duration::from_millis(ms);
+            }
+            Some("physical") => {
+                let rest = args
+                    .map(|s| {
+                        s.into_string()
+                            .map_err(|_| "Physical arguments must be UTF-8".to_string())
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                break Mode::Physical(rest);
             }
             Some("index") => {
                 let kind = match args.next().as_ref().and_then(|a| a.to_str()) {
@@ -412,6 +423,7 @@ fn run(options: Options) -> Result<i32, String> {
             println!("aria-native {} (experimental)", env!("CARGO_PKG_VERSION"));
             Ok(0)
         }
+        Mode::Physical(args) => aria_physical::entry(&args),
         Mode::Index(kind) => {
             let mut raw = String::new();
             std::io::stdin()

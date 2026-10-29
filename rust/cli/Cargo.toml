@@ -9,6 +9,7 @@ description = "Rust frontend for Aria Code with its provider and tool applicatio
 
 [dependencies]
 aria-graph = { path = "../graph" }
+aria-physical = { path = "../physical" }
 serde_json = "1.0"
 ratatui = { version = "=0.30.2", default-features = false, features = ["crossterm", "unstable-rendered-line-info"] }
 crossterm = "0.29"
