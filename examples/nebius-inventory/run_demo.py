@@ -94,7 +94,7 @@ def main() -> int:
     threading.Thread(target=server.serve_forever, daemon=True).start()
     started = time.monotonic()
     try:
-        with tempfile.TemporaryDirectory(prefix="aria-judge-home-") as home:
+        with tempfile.TemporaryDirectory(prefix="aria-inventory-home-") as home:
             config = {"local_provider": "custom", "backend_chat": False, "model": MODEL,
                       "custom_model": MODEL, "custom_endpoint": f"http://127.0.0.1:{server.server_port}/v1",
                       "acceptance_gate": True, "acceptance_commands": ["python3 -m unittest -v", "python3 inventory.py inventory.csv"],
