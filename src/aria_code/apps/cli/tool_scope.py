@@ -85,9 +85,9 @@ def select_tool_schemas(
     always = tuple(always)
     if not all_schemas:
         return all_schemas
-    from aria_code.apps.cli.conversation_policy import is_social_message
+    from aria_code.apps.cli.conversation_policy import is_conversation_only_message
 
-    if is_social_message(message) and not always and not allow_social_tools:
+    if is_conversation_only_message(message) and not always and not allow_social_tools:
         return []
 
     # One try around the whole decision. domain_tool_names() sat outside it,

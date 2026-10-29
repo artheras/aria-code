@@ -1155,8 +1155,8 @@ def _is_broker_setup_intent(message: str) -> bool:
         if any(k in low for k in kws):
             return True
     # Generic broker-setup phrases without a specific broker named
-    generic_kws = ("券商", "证券", "broker", "交易所", "量化交易", "quant", "开户")
-    return any(k in low for k in generic_kws)
+    generic_kws = ("券商", "证券", "broker", "交易所", "量化交易", "开户")
+    return any(k in low for k in generic_kws) or bool(_re_sym.search(r"\bquant\b", low))
 
 
 def _detect_broker_type(message: str) -> str:

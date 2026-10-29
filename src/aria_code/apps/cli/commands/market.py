@@ -325,6 +325,9 @@ def route_top_level_text(user_input: str, available_commands: set[str]) -> Route
     """
 
     stripped = user_input.strip()
+    from aria_code.apps.cli.conversation_policy import is_capability_question
+    if is_capability_question(stripped):
+        return None
     if not stripped or stripped.startswith("/"):
         return None
     logistics = _logistics_route(stripped, stripped.lower(), available_commands)

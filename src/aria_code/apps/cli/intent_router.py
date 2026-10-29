@@ -94,6 +94,9 @@ COMMAND_INTENTS = {
 
 
 def detect_intents(message: str) -> tuple[str, ...]:
+    from aria_code.apps.cli.conversation_policy import is_capability_question
+    if is_capability_question(message):
+        return ()
     low = message.lower().strip()
     cmd = _first_token(low)
     intents: list[str] = []

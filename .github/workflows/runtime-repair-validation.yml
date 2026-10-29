@@ -1,0 +1,31 @@
+name: Runtime repair validation
+on:
+  push:
+    branches: [fix/analysis-recovery-164]
+permissions:
+  contents: read
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e . pytest pytest-asyncio
+      - run: >-
+          python -m pytest -q tests/test_financial_statement_recovery.py
+          tests/test_nebius_workspace_regression.py tests/test_model_capability_registry.py
+          tests/test_logistics_and_finance_agents.py tests/test_prompt_selection.py
+          tests/test_runtime_bridge.py tests/test_runtime_bridge_fallback.py
+          tests/test_runtime_agent_loop.py tests/test_cli_runtime_consumer.py
+          tests/test_capability_questions.py tests/test_conversation_policy.py
+          tests/test_research_protocol.py tests/test_intent_signals.py
+          tests/test_sec_statement_fallback.py
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.99.0
+      - run: cargo test --locked -p aria-native
+        working-directory: rust

@@ -233,6 +233,12 @@ _CAPABILITY_TABLE: Dict[str, ModelCapability] = {
     "o3-mini":                  ModelCapability(tool_calls=True, format="openai_native", context_window=200000, temperature=1.0, size_class="medium", thinking=True),
     "o3":                       ModelCapability(tool_calls=True, format="openai_native", context_window=200000, temperature=1.0, size_class="large",  thinking=True),
     "o1":                       ModelCapability(tool_calls=True, format="openai_native", context_window=200000, temperature=1.0, size_class="large",  thinking=True),
+    # NVIDIA Nemotron 3 Super: https://research.nvidia.com/labs/nemotron/Nemotron-3-Super/
+    "nemotron-3-super-120b-a12b": ModelCapability(
+        tool_calls=True, format="openai_native", context_window=1048576,
+        temperature=0.2, size_class="large", thinking=True,
+        notes="NVIDIA Nemotron 3 Super; OpenAI-compatible tools verified on Nebius",
+    ),
     # ── xAI Grok (cloud, OpenAI-compatible endpoint) ──────────────────────
     "grok-4":                   ModelCapability(tool_calls=True, format="openai_native", context_window=256000, temperature=0.3, size_class="large",  vision=True),
     "grok":                     ModelCapability(tool_calls=True, format="openai_native", context_window=131072, temperature=0.3, size_class="large"),
@@ -244,7 +250,7 @@ _CAPABILITY_TABLE: Dict[str, ModelCapability] = {
 _VENDOR_PREFIXES = (
     "google/", "openai/", "anthropic/", "x-ai/", "xai/", "meta-llama/",
     "mistralai/", "deepseek/", "qwen/", "alibaba/", "vertex_ai/", "vertexai/",
-    "azure/", "bedrock/", "openrouter/", "together/", "groq/",
+    "azure/", "bedrock/", "openrouter/", "together/", "groq/", "nvidia/",
 )
 
 # Default fallback when model is unknown.  Deliberately conservative: guessing

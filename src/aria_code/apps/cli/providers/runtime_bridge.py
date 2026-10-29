@@ -316,12 +316,14 @@ def make_provider_fn(
     if system_override:
         _cloud_uctx["system_role_override"] = system_override
 
+    task_prompt: Optional[str] = None
+
     def _scoped_tools(prompt: str) -> List[dict]:
         """Tools this message may use: core always, domain only when claimed."""
         try:
             from aria_code.apps.cli.tool_scope import select_tool_schemas
 
-            return select_tool_schemas(tool_schemas, prompt, allow_social_tools=bool((system_override or "").strip()))
+            return select_tool_schemas(tool_schemas, task_prompt if task_prompt is not None else prompt, allow_social_tools=bool((system_override or "").strip()))
         except Exception:
             return list(tool_schemas)
 
@@ -337,7 +339,7 @@ def make_provider_fn(
             from aria_code.apps.cli.prompts.select import build_turn_system_prompt
 
             return build_turn_system_prompt(
-                prompt,
+                task_prompt if task_prompt is not None else prompt,
                 override=system_override,
                 project_context="\n\n".join(filter(None, [str(project_context or ""), account_context])),
             )
@@ -347,6 +349,9 @@ def make_provider_fn(
     async def _provider_fn(prompt, history, *, on_token=None, on_thinking=None,
                            on_tool_call=None, on_tool_result=None, on_status=None,
                            cancel_event=None):
+        nonlocal task_prompt
+        if task_prompt is None:
+            task_prompt = prompt
         route = first_round_route(model, config, api_url)
 
         # ollama_stream does its own intent-based selection; the other
@@ -452,14 +457,16 @@ async def run_chat_via_runtime(
     """
     from aria_code.runtime.gateway import run_turn
     from aria_code.apps.cli.workspace_route import workspace_config
-    from aria_code.apps.cli.conversation_policy import is_social_message
+    from aria_code.apps.cli.conversation_policy import is_conversation_only_message
 
     config = workspace_config(prompt, model, config, api_url)
-    social_only = not (system_override or "").strip() and is_social_message(prompt)
+    social_only = not (system_override or "").strip() and is_conversation_only_message(prompt)
     if social_only:
         # Host-owned policy, also enforced at execution if a provider returns
         # an unsolicited call despite receiving no schemas. Never save it.
         config = {**config, "_conversation_only": True}
+        requires_evidence = False
+        grounding_tools = ()
         tool_schemas = []
         project_context = None
 

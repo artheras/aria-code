@@ -122,7 +122,8 @@ def application(tmp_path):
     (hooks / "sitecustomize.py").write_text(PROVIDER, encoding="utf-8")
     env = dict(os.environ, ARIA_HOME=str(home), ARIA_OFFLINE="1", HOME=str(tmp_path / "home"),
                ARIA_USER_OUTPUT_ROOT=str(tmp_path / "outputs"),
-               PYTHONPATH=str(hooks) + os.pathsep + str(Path(__file__).resolve().parents[1] / "src"))
+               PYTHONPATH=os.pathsep.join((str(hooks), str(Path(__file__).resolve().parents[1] / "src"),
+                                          str(Path(__file__).resolve().parents[1] / "src/aria_code"))))
     clients = []
     def start(*args, native=False):
         if native:
@@ -914,3 +915,17 @@ def test_real_terminal_shows_the_phase_and_a_risk_card_on_approval(application):
         p.wait(timeout=5)
         os.close(master)
         os.close(slave)
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_capability_question_after_finance_has_no_evidence_gate_or_file_scan(application, native):
+    start, _, _, _ = application
+    client = start(native=native)
+    client.send("turn.submit", turn_id="finance-first", text="分析苹果股票走势和成交量")
+    client.until("turn.completed")
+    client.send("turn.submit", turn_id="capabilities", text="你除了分析股票外还能帮我做什么")
+    done = client.until("turn.completed")
+    assert done["status"] == "ok", done
+    assert not done.get("error")
+    assert not any(e["type"].startswith("tool.") for e in client.seen if e.get("turn_id") == "capabilities")
+    client.close()

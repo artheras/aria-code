@@ -51,8 +51,8 @@ def select_base_prompt(message: str, *, intent: Optional[str] = None) -> str:
     (a live-data lookup, where the finance prompt is assembled with fetched
     data by the caller that has it).
     """
-    from aria_code.apps.cli.conversation_policy import is_social_message
-    if intent is None and is_social_message(message):
+    from aria_code.apps.cli.conversation_policy import is_conversation_only_message
+    if intent is None and is_conversation_only_message(message):
         return _general_prompt()
     resolved = intent or _intent_of(message)
     if resolved == "general" and intent is None and _needs_workspace(message):
@@ -140,6 +140,8 @@ def _general_prompt() -> str:
         "- Answer in the user's language. Be concise and specific."
         "\n- A standalone greeting or thanks needs only a short direct reply, with no tools, "
         "directory inventory, personal-file references or internal role titles."
+        "\n- A standalone question about your capabilities needs a direct explanation in the user\'s language. "
+        "Do not resume an earlier task, scan files, or claim an external connection is active without evidence."
     )
 
 
@@ -160,8 +162,8 @@ def build_turn_system_prompt(
     if override and override.strip():
         return override
 
-    from aria_code.apps.cli.conversation_policy import is_social_message
-    if intent is None and is_social_message(message):
+    from aria_code.apps.cli.conversation_policy import is_conversation_only_message
+    if intent is None and is_conversation_only_message(message):
         return _general_prompt()
 
     parts = [select_base_prompt(message, intent=intent), OUTPUT_DISCIPLINE]
