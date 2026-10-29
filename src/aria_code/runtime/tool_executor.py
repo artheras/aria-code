@@ -147,7 +147,7 @@ class ToolExecutor:
                 prepared.pop(key, None)
         workspace_tools = {"read_file", "write_file", "edit_file", "multi_edit", "list_files",
                            "search_code", "glob", "analyze_file", "notebook_read", "notebook_edit",
-                           "apply_patch", "run_command", "github", "spawn_task"}
+                           "apply_patch", "run_command", "github", "spawn_task", "list_task_context"}
         context = {
             "_workspace": self.config.get("_session_workspace_root") or self.config.get("workspace_root") or str(Path.cwd()),
             "_allowed_read_roots": [*(self.config.get("read_roots") or ()), *(self.config.get("_session_read_roots") or ())],
@@ -175,6 +175,9 @@ class ToolExecutor:
             if tool_name in {"write_file", "edit_file", "multi_edit", "notebook_edit"}:
                 if approval is not None and approval.approved:
                     prepared["_skip_confirm"] = True
+        if tool_name in {"spawn_task", "list_task_context"}:
+            prepared["_task_context_enabled"] = bool(self.config.get("task_context_enabled", True))
+            prepared["_session_id"] = str(context.get("_session_id") or self.config.get("last_session_id") or "")
         if tool_name == "spawn_task":
             prepared["_parent_permission_mode"] = self.config.get("permission_mode", "workspace-write")
         if tool_name == "warehouse_task":

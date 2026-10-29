@@ -321,7 +321,8 @@ async def stream_ollama(ollama_url: str, message: str, history: list,
                         tool_schemas: list = None,
                         defer_tool_execution: bool = False,
                         system_override: str = None,
-                        show_market_prefetch_status: bool = True) -> dict:
+                        show_market_prefetch_status: bool = True,
+                        include_ambient_context: bool = True) -> dict:
     """Stream chat via local Ollama with tool calling support (native + text-based)."""
     import aiohttp
 
@@ -332,7 +333,7 @@ async def stream_ollama(ollama_url: str, message: str, history: list,
     # is short (likely a simple quote/concept), and no tools are being called.
     # A cached prose answer cannot stand in for a tool-capable turn: returning
     # it here bypasses schema injection and the runtime tool loop entirely.
-    _should_cache = _response_cache_eligible(message, history, enable_tools)
+    _should_cache = include_ambient_context and _response_cache_eligible(message, history, enable_tools)
     if _should_cache:
         _ck = _cache_key(model, message)
         _cached = _cache_get(_ck)
@@ -440,15 +441,16 @@ async def stream_ollama(ollama_url: str, message: str, history: list,
     # treating its declared policy as prompt-only guidance.
     _is_tool_followup = message.lstrip().startswith("## Tool Results")
     _skill_activation = None
-    try:
-        from packages.aria_skills import activate_external_skills as _activate_external_skills
+    if include_ambient_context:
+        try:
+            from packages.aria_skills import activate_external_skills as _activate_external_skills
 
-        _skill_activation = _activate_external_skills(
-            _intent_message,
-            record=not _is_tool_followup,
-        )
-    except Exception as _skill_exc:
-        logger.debug("skill activation failed: %s", _skill_exc)
+            _skill_activation = _activate_external_skills(
+                _intent_message,
+                record=not _is_tool_followup,
+            )
+        except Exception as _skill_exc:
+            logger.debug("skill activation failed: %s", _skill_exc)
 
     # ── Context-aware tool schema filtering ───────────────────────────────────
     # Intent drives tool exposure, but cross-intent requests (e.g. "分析AAPL然后
@@ -599,7 +601,7 @@ async def stream_ollama(ollama_url: str, message: str, history: list,
     # A 1.5B model with a 4000-token README injected into its context will
     # either copy the README into its response or hallucinate beyond recovery.
     _small_model = _model_size in ("nano", "small")
-    if not _is_general:
+    if include_ambient_context and not _is_general:
         if not _small_model and _PROJECT_CONTEXT:
             system_prompt = _base_prompt + _PROJECT_CONTEXT
         else:
@@ -623,16 +625,17 @@ async def stream_ollama(ollama_url: str, message: str, history: list,
         system_prompt = system_prompt + _cross_hint
 
     # Prepend global user memory (user profile, project history, preferences)
-    try:
-        from memory_manager import MemoryManager as _MM
-        _mem_block = _MM().load_context(max_chars=500)
-        if _mem_block:
-            system_prompt = _mem_block + "\n" + system_prompt
-    except Exception:
-        pass
+    if include_ambient_context:
+        try:
+            from memory_manager import MemoryManager as _MM
+            _mem_block = _MM().load_context(max_chars=500)
+            if _mem_block:
+                system_prompt = _mem_block + "\n" + system_prompt
+        except Exception:
+            pass
 
     # Append ariarc project context if available — small models skip this
-    if _HAS_ARIARC and not _is_general and not _small_model:
+    if include_ambient_context and _HAS_ARIARC and not _is_general and not _small_model:
         try:
             _arc = get_ariarc()
             _arc_block = _arc.build_system_prompt_block()
@@ -645,7 +648,7 @@ async def stream_ollama(ollama_url: str, message: str, history: list,
 
     # Inject live broker context when user is asking about their own portfolio,
     # or when a broker is connected and the message is finance-related.
-    if _is_broker_intent(_intent_message):
+    if include_ambient_context and _is_broker_intent(_intent_message):
         _broker_ctx = _build_broker_context_block()
         if _broker_ctx:
             system_prompt = system_prompt + "\n\n" + _broker_ctx
@@ -737,7 +740,7 @@ async def stream_ollama(ollama_url: str, message: str, history: list,
         or _is_visual_artifact_request
         or _model_can_use_tools
     )
-    if _HAS_MDC and not _skip_market_prefetch:
+    if include_ambient_context and _HAS_MDC and not _skip_market_prefetch:
         import time as _t_inj
         _t_inj_start = _t_inj.time()
         _market_inject = _try_prefetch_market_data(_intent_message, history)
@@ -805,7 +808,7 @@ async def stream_ollama(ollama_url: str, message: str, history: list,
 
     # ── 体育赛事数据预取：sports query → inject live scores / WC data + Poisson ─
     if _is_general and _is_sports_query(_intent_message):
-        _sports_ctx = _try_prefetch_sports_data(_intent_message)
+        _sports_ctx = _try_prefetch_sports_data(_intent_message) if include_ambient_context else ""
         if not _sports_ctx:
             _sports_ctx = _recent_sports_quant_context(history)
         if _sports_ctx:
@@ -858,7 +861,7 @@ async def stream_ollama(ollama_url: str, message: str, history: list,
 
     # ── 文件路径自动注入：若用户消息引用了本地文件，预读并注入内容 ────────────
     # 无论意图是什么，只要消息里有可读的文件路径就注入（coding / analysis 均有效）
-    _file_inject = _try_inject_file_paths(_intent_message)
+    _file_inject = _try_inject_file_paths(_intent_message) if include_ambient_context else ""
     if _file_inject:
         for _mi in reversed(messages):
             if _mi.get("role") == "user":

@@ -45,6 +45,8 @@ configuration as usual. Describe the objective in normal language, for example:
 > reproducible calculations and report limitations before drafting the findings.
 
 The model discovers roles through `list_agents` and delegates with `spawn_task`.
+It can select project skills/memories with `list_task_context` and `context_refs`;
+see [project task context](task-context.md).
 Simple or dependent work can remain in the main conversation; seven roles are not
 seven mandatory pipeline stages. The model selects roles semantically rather
 than a keyword classifier deciding which industry owns the request.
@@ -120,7 +122,8 @@ next increments are integration and evidence rather than more industry labels:
 | Delivered | General roles and working delegation | Shared catalog, role tool restrictions, async scheduling fix, budgets and persisted contracts |
 | Delivered | Declared machine predicates | Bounded artifact read-back and host-observed tool/command receipts; see task-verification.md |
 | Next | Broader acceptance | Current-revision command binding, semantic review and document rendering checks |
-| Next | Skills and scoped memory in delegates | Load relevant authorized workflow knowledge with provenance and tenant/project boundaries |
+| Delivered | Project skill/memory selection | Bounded project manifests, lazy discovery, host-scoped source snapshots and provenance; see task-context.md |
+| Next | Broader knowledge services | Authorized global-memory selection, supporting skill assets, semantic retrieval and remote tenant-aware hosts |
 | Next | Custom task-role definitions | Validated declarative project roles; reject permission upgrades and untrusted executable configuration |
 | Next | Documents and datasets | Connect actual renderers/computation tools and verify exported files with representative tasks |
 | Later | Browser and business operations | Authorized connectors, account selection, preview/approval and read-back verification |
