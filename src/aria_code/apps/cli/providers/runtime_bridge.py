@@ -312,12 +312,14 @@ def make_provider_fn(
     if system_override:
         _cloud_uctx["system_role_override"] = system_override
 
+    task_prompt: Optional[str] = None
+
     def _scoped_tools(prompt: str) -> List[dict]:
         """Tools this message may use: core always, domain only when claimed."""
         try:
             from aria_code.apps.cli.tool_scope import select_tool_schemas
 
-            return select_tool_schemas(tool_schemas, prompt, allow_social_tools=bool((system_override or "").strip()))
+            return select_tool_schemas(tool_schemas, task_prompt if task_prompt is not None else prompt, allow_social_tools=bool((system_override or "").strip()))
         except Exception:
             return list(tool_schemas)
 
@@ -333,7 +335,7 @@ def make_provider_fn(
             from aria_code.apps.cli.prompts.select import build_turn_system_prompt
 
             return build_turn_system_prompt(
-                prompt,
+                task_prompt if task_prompt is not None else prompt,
                 override=system_override,
                 project_context=str(project_context or ""),
             )
@@ -343,6 +345,9 @@ def make_provider_fn(
     async def _provider_fn(prompt, history, *, on_token=None, on_thinking=None,
                            on_tool_call=None, on_tool_result=None, on_status=None,
                            cancel_event=None):
+        nonlocal task_prompt
+        if task_prompt is None:
+            task_prompt = prompt
         route = first_round_route(model, config, api_url)
 
         # ollama_stream does its own intent-based selection; the other

@@ -559,7 +559,15 @@ impl App {
                     );
                     self.entries[index].text.push_str(&output);
                 }
-                self.status = self.tr("Working", "正在处理").into();
+                // A completed inspection must not keep the progress strip active
+                // while the model is preparing the next response.
+                let start = self.current_start();
+                let pending = self.entries.iter().skip(start)
+                    .any(|e| e.action.as_ref().is_some_and(|a| !a.done));
+                if !pending {
+                    self.phase.finish();
+                    self.status = self.tr("Preparing response", "正在准备回复").into();
+                }
             }
             "turn.status" => {
                 let reviewing = format!("{} {}", text("state"), text("message")).to_lowercase();
@@ -642,9 +650,11 @@ impl App {
                 self.phase.finish();
                 self.approval_context.clear();
                 self.elapsed = self.started.take().map(|start| start.elapsed());
+                let start = self.current_start();
                 for entry in self
                     .entries
                     .iter_mut()
+                    .skip(start)
                     .filter(|e| e.action.as_ref().is_some_and(|a| !a.done))
                 {
                     let action = entry.action.as_mut().unwrap();
@@ -1274,6 +1284,24 @@ mod tests {
         assert!(!format!("{:?}", a.entries).contains("SECRET"));
         assert_eq!(a.editor.text(), "");
     }
+    #[test]
+    fn completed_tool_batch_clears_inspect_phase_without_cancelling_peers() {
+        let mut a = app();
+        a.editor.insert("Analyze AAPL");
+        a.submit();
+        for tool in ["analyze_financial_statements", "get_market_data"] {
+            a.event(json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":tool,"params":{}})).unwrap();
+        }
+        a.event(json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"analyze_financial_statements","success":false,"error":"source_timeout"})).unwrap();
+        assert!(a.phase.strip(false).contains("●"));
+        assert!(a.entries.iter().any(|e| e.action.as_ref().is_some_and(|x| !x.done && !x.cancelled)));
+        a.event(json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"get_market_data","success":true})).unwrap();
+        assert!(!a.phase.strip(false).contains("●"));
+        assert_eq!(a.status, "Preparing response");
+        assert!(a.turn.is_some());
+        assert!(a.entries.iter().filter_map(|e| e.action.as_ref()).all(|x| !x.cancelled));
+    }
+
     #[test]
     fn streamed_narration_tools_and_final_answer_keep_event_order() {
         let mut a = app();

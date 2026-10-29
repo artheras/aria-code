@@ -187,7 +187,8 @@ class Server:
                 pass
 
     def initialize(self):
-        import aria_cli as cli
+        # Resolve the selected package, not a legacy top-level installation.
+        from aria_code import aria_cli as cli
         from rich.console import Console
         from aria_code.apps.cli.runtime_consumer import TerminalRuntimeEventConsumer
         from aria_code.apps.cli.exec_events import ExecEvents

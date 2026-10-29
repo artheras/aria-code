@@ -127,6 +127,8 @@ class ToolExecutor:
         for key in tuple(prepared):
             if key.startswith("_"):
                 prepared.pop(key)
+        if tool_name == "analyze_financial_statements":
+            prepared["network_enabled"] = bool(self.config.get("network_enabled", True))
         if tool_name == "run_command":
             # Tool arguments come from the model. Only the host configuration and
             # a typed approval decision may set execution controls.

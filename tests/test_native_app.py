@@ -122,7 +122,8 @@ def application(tmp_path):
     (hooks / "sitecustomize.py").write_text(PROVIDER, encoding="utf-8")
     env = dict(os.environ, ARIA_HOME=str(home), ARIA_OFFLINE="1", HOME=str(tmp_path / "home"),
                ARIA_USER_OUTPUT_ROOT=str(tmp_path / "outputs"),
-               PYTHONPATH=str(hooks) + os.pathsep + str(Path(__file__).resolve().parents[1] / "src"))
+               PYTHONPATH=os.pathsep.join((str(hooks), str(Path(__file__).resolve().parents[1] / "src"),
+                                          str(Path(__file__).resolve().parents[1] / "src/aria_code"))))
     clients = []
     def start(*args, native=False):
         if native:

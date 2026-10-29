@@ -83,6 +83,8 @@ class LoopGuard:
         self._warned: set = set()
         self._tool_warned: set = set()
         self.should_break: bool = False
+        self._last_successful_write: str | None = None
+        self._successful_write_repeats = 0
 
     @staticmethod
     def _signature(tool_name: str, params: dict) -> str:
@@ -116,6 +118,17 @@ class LoopGuard:
     def record(self, tool_name: str, params: dict, result) -> "str | None":
         """Record one tool result. Return a directive string if a loop is detected."""
         sig = self._signature(tool_name, params)
+        if tool_name in {"write_file", "edit_file", "multi_edit"} and not self.is_failure(result):
+            self._successful_write_repeats = self._successful_write_repeats + 1 if sig == self._last_successful_write else 1
+            self._last_successful_write = sig
+            if self._successful_write_repeats >= self.hard_threshold:
+                self.should_break = True
+                return "Repeated identical successful writes made no progress. Stop writing completion reports; report the actual verified result and the remaining limitation."
+            if self._successful_write_repeats == self.soft_threshold:
+                return "This exact write already succeeded. Do not repeat it. Read back if needed, then stop calling tools when the task is complete."
+        else:
+            self._last_successful_write = None
+            self._successful_write_repeats = 0
         if not self.is_failure(result):
             self._fail_counts.pop(sig, None)
             self._warned.discard(sig)
