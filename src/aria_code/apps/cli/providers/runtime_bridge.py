@@ -440,6 +440,7 @@ async def run_chat_via_runtime(
     requires_evidence: bool = False,
     grounding_tools=(),
     evidence_already_grounded: bool = False,
+    tool_record_sink: Optional[Callable] = None,
 ):
     """Run one chat turn through the shared runtime Gateway.
 
@@ -478,23 +479,28 @@ async def run_chat_via_runtime(
     review = None if social_only else build_review_gate(config, model=model, api_url=api_url, ollama_url=ollama_url,
                                thinking_mode=thinking_mode, auth_token=auth_token)
 
-    result = await run_turn(
-        prompt, history,
-        provider_fn=provider_fn, tool_executor=executor,
-        tool_schemas=list(tool_schemas),
-        on_token=on_token, on_thinking=on_thinking,
-        on_tool_call=on_tool_call, on_tool_result=on_tool_result, on_status=on_status,
-        cancel_event=cancel_event, max_rounds=max_rounds,
-        confirm_tools=confirm_tools,
-        approval_callback=approval_callback,
-        approval_applier=approval_applier,
-        requires_evidence=requires_evidence,
-        grounding_tools=grounding_tools,
-        evidence_already_grounded=evidence_already_grounded,
-        acceptance=gate,
-        contract=contract,
-        review=review,
-    )
+    try:
+        result = await run_turn(
+            prompt, history,
+            provider_fn=provider_fn, tool_executor=executor,
+            tool_schemas=list(tool_schemas),
+            on_token=on_token, on_thinking=on_thinking,
+            on_tool_call=on_tool_call, on_tool_result=on_tool_result, on_status=on_status,
+            cancel_event=cancel_event, max_rounds=max_rounds,
+            confirm_tools=confirm_tools,
+            approval_callback=approval_callback,
+            approval_applier=approval_applier,
+            requires_evidence=requires_evidence,
+            grounding_tools=grounding_tools,
+            evidence_already_grounded=evidence_already_grounded,
+            acceptance=gate,
+            contract=contract,
+            review=review,
+        )
+    finally:
+        if tool_record_sink is not None:
+            for record in executor.trace.tool_calls:
+                tool_record_sink(record)
     return result if return_result else result.text
 
 
@@ -537,11 +543,24 @@ async def run_subagent_turn(prompt: str, task: Any, *, local_tools, tool_schemas
     cfg["_agent_allowed_tools"] = sorted(allowed)
     tools = {name: value for name, value in local_tools.items() if name in allowed}
     schemas = [s for s in tool_schemas if (s.get("function") or s).get("name") in allowed]
+    from aria_code.runtime.task_verification import MAX_RECEIPTS, receipt_from_record
+
+    def record_evidence(record):
+        if task is None:
+            return
+        if not hasattr(task, "evidence"):
+            task.evidence = []
+        if len(task.evidence) >= MAX_RECEIPTS:
+            task.evidence_truncated = True
+            return
+        task.evidence.append(receipt_from_record(record, str(getattr(task, "workspace", "") or ".")))
+
     result = await run_chat_via_runtime(
         prompt=prompt, history=[], local_tools=tools, tool_schemas=schemas,
         model=str(cfg.get("model") or ""), config=cfg, api_url=api_url,
         ollama_url=str(cfg.get("ollama_url") or "http://localhost:11434"),
         execution_context=lambda: dict(context), return_result=True,
+        tool_record_sink=record_evidence,
         max_rounds=min(int(getattr(task, "max_rounds", profile.max_rounds)), profile.max_rounds),
         system_override=("You are a delegated Aria task agent. Stay within the task goal, available tools and inherited permissions. "
                          "Never delegate, publish, send messages, deploy or claim unexecuted checks. "
@@ -551,4 +570,8 @@ async def run_subagent_turn(prompt: str, task: Any, *, local_tools, tool_schemas
     )
     if getattr(result, "error", None):
         raise RuntimeError(str(result.error))
+    final = getattr(result, "final", None)
+    if (getattr(result, "cancelled", False) or (final is not None and
+            (not getattr(final, "success", False) or (getattr(final, "acceptance", None) or {}).get("verified") is False))):
+        raise RuntimeError("The delegated runtime did not complete with accepted execution")
     return str(getattr(result, "text", "") or "")

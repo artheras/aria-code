@@ -65,10 +65,12 @@ Tool contract example:
 `task_status`, `task_result` and `task_cancel` retain the existing interface.
 Task records now retain the selected role, acceptance criteria and budgets across
 restart. Restarted running tasks become interrupted, not silently resumed.
-`done` means the runner returned without a runtime error. It does **not** mean
-acceptance criteria were independently verified; the parent must review the
-handoff, actual artifacts and executed checks. A handoff's VERIFICATION field is
-the delegate's report and must not be treated as a signed test result.
+`done` means the runner returned without a runtime error. Declare machine predicates
+in `spawn_task.checks`, then inspect `task_result.verified`: true means these predicates
+passed, false means failed checks, and null means none were requested. The parent
+must still review semantic correctness and completeness. A handoff's VERIFICATION
+field is the delegate's report, not a signed test result. See
+[declared task verification](task-verification.md) for file, tool and command checks.
 
 ## Enforced execution boundaries
 
@@ -116,7 +118,8 @@ next increments are integration and evidence rather than more industry labels:
 | Priority | Gap | Next concrete increment |
 | --- | --- | --- |
 | Delivered | General roles and working delegation | Shared catalog, role tool restrictions, async scheduling fix, budgets and persisted contracts |
-| Next | Verifiable cross-domain completion | Typed evidence/artifact results and domain-neutral acceptance adapters; never infer success from prose |
+| Delivered | Declared machine predicates | Bounded artifact read-back and host-observed tool/command receipts; see task-verification.md |
+| Next | Broader acceptance | Current-revision command binding, semantic review and document rendering checks |
 | Next | Skills and scoped memory in delegates | Load relevant authorized workflow knowledge with provenance and tenant/project boundaries |
 | Next | Custom task-role definitions | Validated declarative project roles; reject permission upgrades and untrusted executable configuration |
 | Next | Documents and datasets | Connect actual renderers/computation tools and verify exported files with representative tasks |

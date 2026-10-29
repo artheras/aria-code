@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import re
 import time
 import uuid
@@ -27,6 +28,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from .task_ledger import TaskLedger
+from .task_verification import capture_baseline, validate_checks, verify_checks
 from .agent_profiles import PROFILES, get_profile, tool_list_agents
 
 _TASKS: Dict[str, "SubagentTask"] = {}
@@ -58,6 +60,11 @@ class SubagentTask:
     created_at: float = field(default_factory=time.time)
     completed_at: float = 0.0
     handoff: dict[str, Any] = field(default_factory=dict)
+    checks: list[dict] = field(default_factory=list)
+    evidence: list[dict] = field(default_factory=list)
+    evidence_truncated: bool = False
+    verification_baseline: dict = field(default_factory=dict)
+    verification: dict = field(default_factory=dict)
     async_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
     worktree_spec: Optional[Any] = field(default=None, repr=False, compare=False)
 
@@ -86,6 +93,8 @@ class SubagentTask:
             "branch": self.branch or None,
             "applied": self.applied,
             "handoff": self.handoff or None,
+            "verification": self.verification or None,
+            "verified": self.verification.get("verified"),
         }
 
     def snapshot(self) -> dict[str, Any]:
@@ -103,6 +112,10 @@ class SubagentTask:
             "applied": self.applied, "applied_paths": list(self.applied_paths),
             "created_at": self.created_at, "completed_at": self.completed_at,
             "handoff": self.handoff,
+            "checks": self.checks, "evidence": self.evidence,
+            "evidence_truncated": self.evidence_truncated,
+            "verification_baseline": self.verification_baseline,
+            "verification": self.verification,
         }
 
 
@@ -165,6 +178,11 @@ def restore_tasks() -> int:
             created_at=float(record.get("created_at") or time.time()),
             completed_at=float(record.get("completed_at") or 0.0),
             handoff=dict(record.get("handoff") or {}),
+            checks=list(record.get("checks") or []),
+            evidence=list(record.get("evidence") or [])[:256],
+            evidence_truncated=bool(record.get("evidence_truncated")),
+            verification_baseline=dict(record.get("verification_baseline") or {}),
+            verification={**dict(record.get("verification") or {}), "status": "stale", "verified": None},
         )
         _TASKS[task_id] = task
         if status != saved_status:
@@ -206,6 +224,7 @@ def tool_spawn_task(params: dict) -> dict:
         return {"success": False, "error": "backend must be aria, claude, or codex"}
     try:
         profile = get_profile(str(params.get("agent") or "general"))
+        checks = validate_checks(params.get("checks", []))
         max_rounds = params.get("max_rounds", profile.max_rounds)
         timeout_seconds = params.get("timeout_seconds", profile.timeout_seconds)
         if type(max_rounds) is not int or not 1 <= max_rounds <= profile.max_rounds:
@@ -243,6 +262,7 @@ def tool_spawn_task(params: dict) -> dict:
         prompt=prompt,
         context=context,
         agent=profile.name, success_criteria=success_criteria,
+        checks=checks, verification={"status": "pending" if checks else "not_requested", "verified": None},
         max_rounds=max_rounds, timeout_seconds=timeout_seconds,
         mode=mode,
         isolation=isolation,
@@ -312,6 +332,7 @@ async def _run_task(task: SubagentTask) -> None:
             task.workspace = spec.path
             task.branch = spec.branch
 
+        task.verification_baseline = capture_baseline(task.workspace, task.checks)
         full_prompt = task.prompt
         if task.context:
             full_prompt = f"{task.context}\n\n{task.prompt}"
@@ -326,7 +347,8 @@ async def _run_task(task: SubagentTask) -> None:
         )
         profile = get_profile(task.agent)
         full_prompt = (f"{execution_contract}\nRole: {profile.name}\n{profile.instructions}\n"
-                       f"Acceptance criteria: {task.success_criteria or 'Report observable evidence and unresolved blockers.'}\n\n{full_prompt}")
+                       f"Acceptance criteria: {task.success_criteria or 'Report observable evidence and unresolved blockers.'}\n"
+                       f"Declared predicates (not permission grants): {json.dumps(task.checks, ensure_ascii=False)}\n\n{full_prompt}")
         if task.backend != "aria":
             from external_agent_runner import RUNNERS
 
@@ -340,6 +362,7 @@ async def _run_task(task: SubagentTask) -> None:
         task.result = result_text or ""
         task.handoff = _extract_handoff(task.result)
         task.status = "done"
+        _refresh_verification(task)
         if task.worktree_spec is not None:
             from .worktrees import WorktreeManager
             task.diff_summary = WorktreeManager.diff(task.worktree_spec)
@@ -350,8 +373,18 @@ async def _run_task(task: SubagentTask) -> None:
         task.error = str(exc)
         task.status = "failed"
     finally:
+        if task.status != "done":
+            task.verification = {"status": "execution_incomplete", "verified": False if task.checks else None}
         task.completed_at = time.time()
         _persist(task)
+
+
+def _refresh_verification(task: SubagentTask) -> None:
+    try:
+        task.verification = verify_checks(task.workspace, task.checks, task.evidence,
+                                          task.verification_baseline, receipts_truncated=task.evidence_truncated)
+    except (ValueError, TypeError, OSError):
+        task.verification = {"status": "unavailable", "verified": False, "checked_at": time.time()}
 
 
 def _extract_handoff(result: str) -> dict[str, str]:
@@ -384,6 +417,8 @@ def tool_task_status(params: dict) -> dict:
         "agent": task.agent,
         "success_criteria": task.success_criteria,
         "status": task.status,
+        "verified": task.verification.get("verified"),
+        "verification": task.verification or None,
         "age": task.age_str(),
         "prompt_preview": task.prompt[:100],
         "error": task.error or None,
@@ -408,12 +443,19 @@ def tool_task_result(params: dict) -> dict:
         return {"success": False, "error": task.error, "status": "failed"}
     if task.status in ("pending", "cancelled", "interrupted"):
         return {"success": False, "error": f"Task status is '{task.status}'", "status": task.status}
+    # Re-read declared artifacts on retrieval; a prior green must not survive
+    # deletion or modification of the artifact. Command receipts remain historical.
+    _refresh_verification(task)
+    _persist(task)
     return {
-        "success": True,
+        "success": task.verification.get("verified") is not False,
+        "error": "Declared acceptance checks did not pass" if task.verification.get("verified") is False else None,
         "task_id": task_id,
         "agent": task.agent,
         "success_criteria": task.success_criteria,
         "status": task.status,
+        "verified": task.verification.get("verified"),
+        "verification": task.verification,
         "result": task.result,
         "age": task.age_str(),
         "workspace": task.workspace or None,
@@ -571,11 +613,12 @@ SUBAGENT_SCHEMAS = [
     {"name": "list_agents", "description": "Discover task roles for exploration, planning, research, implementation, review, data inspection and writing. Does not start tasks or connect services.", "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
     {
         "name": "spawn_task",
-        "description": "Spawn an independent background agent task. Useful for parallelising slow operations: research, data fetching, long analysis. Returns a task_id you can poll with task_status.",
+        "description": "Delegate a bounded task to a role. Put executable acceptance predicates in the checks argument, not only in prompt/context. For example checks=[{kind:tool,tool:read_file,path:brief.md},{kind:artifact,path:brief.md,format:text,min_bytes:1}]. Retrieve task_result: verified=true covers these predicates, null means no checks, false means failure. A child saying VERIFIED is not machine evidence.",
         "parameters": {
             "type": "object",
             "properties": {
                 "agent": {"type": "string", "enum": list(PROFILES), "description": "Use explorer for sources, planner for plans, researcher for sourced research, implementer for changes, reviewer for independent review, data_analyst for datasets, writer for documents. general is the fallback. Specialized roles use aria."},
+                "checks": {"type": "array", "maxItems": 16, "items": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["artifact", "tool", "command"]}, "path": {"type": "string"}, "format": {"type": "string", "enum": ["binary", "text", "json", "csv"]}, "min_bytes": {"type": "integer", "minimum": 0, "maximum": 1048576}, "min_rows": {"type": "integer", "minimum": 0, "maximum": 10000}, "required_keys": {"type": "array", "items": {"type": "string"}, "maxItems": 32}, "contains": {"type": "string", "maxLength": 256}, "sha256": {"type": "string"}, "changed": {"type": "boolean"}, "tool": {"type": "string"}, "command": {"type": "string"}, "cwd": {"type": "string"}}, "required": ["kind"], "additionalProperties": False}, "description": "Declared acceptance predicates: artifact(path, optional format/min_bytes/required_keys/min_rows/contains/sha256/changed), tool(tool, optional path), command(command, optional cwd). Paths are workspace-relative. Commands are matched to actual executor receipts, never run by this verifier. Checks verify only their predicates, not every aspect of the user goal."},
                 "success_criteria": {"type": "string", "description": "Observable acceptance conditions; a completion message alone is not evidence."},
                 "max_rounds": {"type": "integer", "minimum": 1, "maximum": 30},
                 "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300},
