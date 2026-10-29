@@ -192,7 +192,8 @@ impl TaskAgent {
         }
         match serde_json::from_slice::<Command>(raw) {
             Ok(c) => self.handle(c),
-            Err(_) => fail("invalid_request"),
+            Err(_) => json!({"ok":false,"error":"invalid_request","simulation_only":true,
+                "hint":"Use only fields for the selected action: create(request_id,goal,scenario,constraints?); start(task_id,request_id); status/stop/trace(task_id); wait(task_id,timeout_ms); obstacle(task_id,request_id,cell); health(). Omit request_id from read actions."}),
         }
     }
     pub fn handle(&mut self, command: Command) -> Value {
@@ -421,9 +422,7 @@ fn mcp_dispatch(agent: &mut TaskAgent, raw: &[u8], initialized: &mut bool) -> Op
         return Some(error(-32600, "Invalid request"));
     }
     // Notifications never execute tools, even when their payload looks valid.
-    if req.get("id").is_none() {
-        return None;
-    }
+    req.get("id")?;
     if !(req["id"].is_null() || req["id"].is_string() || req["id"].is_i64() || req["id"].is_u64()) {
         return Some(error(-32600, "Invalid ID"));
     }
@@ -594,6 +593,13 @@ mod tests {
     #[test]
     fn strict_request_and_wait_bounds() {
         let mut agent = TaskAgent::default();
+        let invalid =
+            agent.dispatch(br#"{"action":"status","task_id":"demo","request_id":"extra"}"#);
+        assert_eq!(invalid["error"], "invalid_request");
+        assert!(invalid["hint"]
+            .as_str()
+            .unwrap()
+            .contains("Omit request_id"));
         let id = create(&mut agent, "a");
         assert_eq!(
             agent.handle(Command::Wait {

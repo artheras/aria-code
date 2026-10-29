@@ -30,6 +30,8 @@ WORKFLOW_KNOWLEDGE = """Warehouse task agent workflow:
 - Understand the user's goal, map, destination and constraints. Ask for missing real-world data;
   use synthetic scenes only when the user requested a demo/simulation. Never invent a real map.
 - Delegate a mission through warehouse_task. Preserve the returned task_id and request IDs.
+- Send request_id only with create/start/obstacle. For status/stop/trace send only action
+  and task_id; wait also requires timeout_ms (0–1000). Never add request_id to read actions.
 - The native agent selects and updates routes from current feedback; do not issue one model
   call per grid cell or tell the user to manually chain low-level APIs.
 - Start is an acknowledgement, not success. Wait/status until completed, stopped, failed or
