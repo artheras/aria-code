@@ -1,4 +1,4 @@
-# Aria × Nebius × NVIDIA: reproducible coding demo
+# Nebius inventory coding workflow
 
 Aria turns an inventory request into Python code, executed tests, JSON output,
 and a report. Inference uses **`nvidia/nemotron-3-super-120b-a12b` on Nebius Token
@@ -16,8 +16,8 @@ python3 -m venv .venv
 python -m pip install -e .
 # Set NEBIUS_API_KEY privately in your shell or secret manager.
 # Never commit it, paste it into the task, or include it in command arguments.
-python examples/hackathon/run_demo.py --workspace /tmp/aria-demo-new --check
-python examples/hackathon/run_demo.py --workspace /tmp/aria-demo-new
+python examples/nebius-inventory/run_demo.py --workspace /tmp/aria-demo-new --check
+python examples/nebius-inventory/run_demo.py --workspace /tmp/aria-demo-new
 ```
 
 `--check` does not contact Nebius and is not proof that a key works. Each live run
@@ -37,23 +37,13 @@ failed acceptance, failed completion or timeout. Inspect `evidence.json`,
 counts are not interpreted as zero cost. Model output is nondeterministic: an
 earlier successful run is not a promise that every run will pass.
 
-## Recorded evidence and video
+## Independent verification
 
-The review video is an **edited visualization of an actual runtime trace**, not
-a screen recording of the interactive desktop product. The recorded source was
-`671f559f36464c49b1e720d0be2f3b9c78bb860d`; later prompt/format fixes are separate.
-The observed run took 39.36 seconds and made 9 inference requests. It generated
-7 unittest cases and passed 8 independently defined acceptance tests. One stream
-recorded `IncompleteRead`; do not describe transport as flawless. These results
-describe one task, not a model benchmark. No GPU deployment, fine-tuning, robot
-control, or cross-provider superiority is claimed.
-
-For a captured workspace, rerun deterministic verification without any API key:
+Verify a generated workspace without making an inference call:
 
 ```sh
-python examples/hackathon/verify.py /path/to/captured/workspace
+python examples/nebius-inventory/verify.py /path/to/generated/workspace
 ```
 
-Current review assets are prepared separately from the source repository. A
-public demo/video URL and final Devpost submission still require entrant review
-and publication. This directory is a runnable source example, not a hosted demo.
+The verifier checks quantities, duplicate SKUs, over-reservation, CLI output,
+and required deliverables. It is kept outside the model's task directory.
