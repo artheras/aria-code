@@ -507,6 +507,8 @@ def subagent_run_options(config: dict, task: Any) -> tuple[dict, dict]:
     """
     cfg = dict(config or {})
     mode = str(getattr(task, "mode", "") or "read-only")
+    if mode != "read-only" and cfg.get("permission_mode") in _READ_ONLY_MODES:
+        raise PermissionError("A child cannot exceed the parent permission mode")
     cfg["permission_mode"] = "read-only" if mode == "read-only" else "workspace-write"
     context: dict = {"_session_id": str(getattr(task, "session_id", "") or "")}
     workspace = str(getattr(task, "workspace", "") or "")
@@ -524,12 +526,29 @@ async def run_subagent_turn(prompt: str, task: Any, *, local_tools, tool_schemas
                             config: dict, api_url: Optional[str]) -> str:
     """Run one background task through the same runtime as a chat turn."""
     cfg, context = subagent_run_options(config, task)
+    from aria_code.runtime.agent_profiles import get_profile
+    profile = get_profile(str(getattr(task, "agent", "general")))
+    delegation = {"spawn_task", "task_cancel", "task_status", "task_result", "task_list", "list_agents"}
+    allowed = set(local_tools) - delegation
+    if profile.tools is not None:
+        allowed.intersection_update(profile.tools)
+    if "_agent_allowed_tools" in cfg:
+        allowed.intersection_update(cfg["_agent_allowed_tools"])
+    cfg["_agent_allowed_tools"] = sorted(allowed)
+    tools = {name: value for name, value in local_tools.items() if name in allowed}
+    schemas = [s for s in tool_schemas if (s.get("function") or s).get("name") in allowed]
     result = await run_chat_via_runtime(
-        prompt=prompt, history=[], local_tools=local_tools, tool_schemas=tool_schemas,
+        prompt=prompt, history=[], local_tools=tools, tool_schemas=schemas,
         model=str(cfg.get("model") or ""), config=cfg, api_url=api_url,
         ollama_url=str(cfg.get("ollama_url") or "http://localhost:11434"),
         execution_context=lambda: dict(context), return_result=True,
+        max_rounds=min(int(getattr(task, "max_rounds", profile.max_rounds)), profile.max_rounds),
+        system_override=("You are a delegated Aria task agent. Stay within the task goal, available tools and inherited permissions. "
+                         "Never delegate, publish, send messages, deploy or claim unexecuted checks. "
+                         "End with FINDINGS: ...; CHANGED_FILES: ...; VERIFICATION: ...; BLOCKERS: ... . "
+                         "Report actual source locations and executed checks; say when checks were not run.\n"
+                         + profile.instructions),
     )
-    if getattr(result, "error", None) and not str(getattr(result, "text", "") or "").strip():
+    if getattr(result, "error", None):
         raise RuntimeError(str(result.error))
     return str(getattr(result, "text", "") or "")

@@ -24,7 +24,7 @@ def default_ledger_path() -> Path:
     override = os.getenv("ARIA_TASK_LEDGER_PATH", "").strip()
     if override:
         return Path(override).expanduser()
-    root = Path(os.getenv("ARIA_CONFIG_DIR") or (Path.home() / ".aria"))
+    root = Path(os.getenv("ARIA_CONFIG_DIR") or os.getenv("ARIA_HOME") or (Path.home() / ".aria"))
     return root / "task_ledger.json"
 
 

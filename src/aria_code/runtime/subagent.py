@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -26,6 +27,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from .task_ledger import TaskLedger
+from .agent_profiles import PROFILES, get_profile, tool_list_agents
 
 _TASKS: Dict[str, "SubagentTask"] = {}
 _RUNNER: Optional[Callable] = None  # set by aria_cli.py
@@ -40,6 +42,10 @@ class SubagentTask:
     status: str = "pending"   # pending | running | done | failed | cancelled
     result: str = ""
     error: str = ""
+    agent: str = "general"
+    success_criteria: str = ""
+    max_rounds: int = 30
+    timeout_seconds: int = 300
     mode: str = "read-only"
     isolation: str = "shared"
     backend: str = "aria"    # aria | claude | codex — which agent actually runs the task
@@ -65,6 +71,10 @@ class SubagentTask:
 
     def to_dict(self) -> dict:
         return {
+            "agent": self.agent,
+            "success_criteria": self.success_criteria,
+            "max_rounds": self.max_rounds,
+            "timeout_seconds": self.timeout_seconds,
             "task_id": self.task_id,
             "status": self.status,
             "prompt": self.prompt[:200] + ("…" if len(self.prompt) > 200 else ""),
@@ -81,6 +91,10 @@ class SubagentTask:
     def snapshot(self) -> dict[str, Any]:
         """Return the serializable task contract and latest outcome."""
         return {
+            "agent": self.agent,
+            "success_criteria": self.success_criteria,
+            "max_rounds": self.max_rounds,
+            "timeout_seconds": self.timeout_seconds,
             "task_id": self.task_id, "prompt": self.prompt, "context": self.context,
             "status": self.status, "result": self.result, "error": self.error,
             "mode": self.mode, "isolation": self.isolation, "backend": self.backend,
@@ -133,6 +147,10 @@ def restore_tasks() -> int:
             error = "Queued without a runner and never started; rerun or delegate it again."
         task = SubagentTask(
             task_id=task_id, prompt=str(record.get("prompt") or ""),
+            agent=str(record.get("agent") or "general"),
+            success_criteria=str(record.get("success_criteria") or ""),
+            max_rounds=int(record.get("max_rounds") or 30),
+            timeout_seconds=int(record.get("timeout_seconds") or 300),
             context=str(record.get("context") or ""), status=status,
             result=str(record.get("result") or ""), error=error,
             mode=str(record.get("mode") or "read-only"),
@@ -186,6 +204,29 @@ def tool_spawn_task(params: dict) -> dict:
         return {"success": False, "error": "isolation must be auto, worktree, or shared"}
     if backend not in {"aria", "claude", "codex"}:
         return {"success": False, "error": "backend must be aria, claude, or codex"}
+    try:
+        profile = get_profile(str(params.get("agent") or "general"))
+        max_rounds = params.get("max_rounds", profile.max_rounds)
+        timeout_seconds = params.get("timeout_seconds", profile.timeout_seconds)
+        if type(max_rounds) is not int or not 1 <= max_rounds <= profile.max_rounds:
+            raise ValueError(f"max_rounds must be 1–{profile.max_rounds}")
+        if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= profile.timeout_seconds:
+            raise ValueError(f"timeout_seconds must be 1–{profile.timeout_seconds}")
+        if mode == "workspace-write" and not profile.writable:
+            raise ValueError(f"{profile.name} is a read-only role")
+        if mode == "workspace-write" and params.get("_parent_permission_mode") in {"read-only", "readonly", "read_only", "plan"}:
+            raise ValueError("A child cannot exceed the parent's read-only permissions")
+        if profile.name != "general" and backend != "aria":
+            raise ValueError("Restricted profiles currently require the aria backend")
+        if sum(t.status in {"pending", "running"} for t in _TASKS.values()) >= 8:
+            raise ValueError("Active task limit reached (8); wait or cancel a task first")
+        if profile.name != "general" and _RUNNER is None:
+            raise ValueError("No Aria runner is registered; this role cannot start")
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
+    success_criteria = str(params.get("success_criteria") or "")
+    if len(str(prompt)) > 32000 or len(str(context)) > 32000 or len(success_criteria) > 4000:
+        return {"success": False, "error": "Task brief exceeds bounded context limits"}
     if isolation == "auto":
         isolation = "worktree" if mode == "workspace-write" else "shared"
     if mode == "read-only" and isolation == "worktree":
@@ -201,6 +242,8 @@ def tool_spawn_task(params: dict) -> dict:
         task_id=task_id,
         prompt=prompt,
         context=context,
+        agent=profile.name, success_criteria=success_criteria,
+        max_rounds=max_rounds, timeout_seconds=timeout_seconds,
         mode=mode,
         isolation=isolation,
         backend=backend,
@@ -214,11 +257,14 @@ def tool_spawn_task(params: dict) -> dict:
     # the "aria" backend needs one registered via register_runner().
     if backend != "aria" or _RUNNER is not None:
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None and loop.is_running():
                 task.async_task = asyncio.ensure_future(_run_background(task))
             else:
-                loop.run_until_complete(_run_background(task))
+                asyncio.run(_run_background(task))
         except Exception as exc:
             task.status = "failed"
             task.error = str(exc)
@@ -231,18 +277,28 @@ def tool_spawn_task(params: dict) -> dict:
     return {
         "success": True,
         "task_id": task_id,
+        "agent": task.agent,
+        "success_criteria": task.success_criteria,
         "status": task.status,
         "mode": task.mode,
         "isolation": task.isolation,
         "message": (
-            f"Task {task_id} spawned. Use task_status('{task_id}') to check progress."
-            if task.status == "running" else
-            f"Task {task_id} queued (no runner registered). Check /tasks."
+            f"Task {task_id}: {task.status}. Use task_status/task_result to inspect the outcome."
         ),
     }
 
 
 async def _run_background(task: SubagentTask) -> None:
+    try:
+        await asyncio.wait_for(_run_task(task), timeout=task.timeout_seconds)
+    except asyncio.TimeoutError:
+        task.status = "failed"
+        task.error = "Task execution deadline exceeded; inspect any partial artifacts before retrying."
+        task.completed_at = time.time()
+        _persist(task)
+
+
+async def _run_task(task: SubagentTask) -> None:
     task.status = "running"
     _persist(task)
     try:
@@ -268,7 +324,9 @@ async def _run_background(task: SubagentTask) -> None:
             "Do not spawn another subagent or push changes. End with a structured "
             "handoff: FINDINGS: ...; CHANGED_FILES: ...; VERIFICATION: ...; BLOCKERS: ..."
         )
-        full_prompt = f"{execution_contract}\n\n{full_prompt}"
+        profile = get_profile(task.agent)
+        full_prompt = (f"{execution_contract}\nRole: {profile.name}\n{profile.instructions}\n"
+                       f"Acceptance criteria: {task.success_criteria or 'Report observable evidence and unresolved blockers.'}\n\n{full_prompt}")
         if task.backend != "aria":
             from external_agent_runner import RUNNERS
 
@@ -287,6 +345,7 @@ async def _run_background(task: SubagentTask) -> None:
             task.diff_summary = WorktreeManager.diff(task.worktree_spec)
     except asyncio.CancelledError:
         task.status = "cancelled"
+        raise
     except Exception as exc:
         task.error = str(exc)
         task.status = "failed"
@@ -298,19 +357,16 @@ async def _run_background(task: SubagentTask) -> None:
 def _extract_handoff(result: str) -> dict[str, str]:
     """Extract a compact handoff when the agent supplied the task contract."""
     text = str(result or "")
-    keys = ("FINDINGS", "CHANGED_FILES", "VERIFICATION", "BLOCKERS")
+    # Models commonly return Markdown headings or title case even when the
+    # contract asks for uppercase labels. Preserve the reported text; parsing
+    # it is not independent verification of the claims.
+    pattern = r"(?im)(?:^|[;\n])[ \t]*(?:\*\*)?(FINDINGS|CHANGED[ _]FILES|VERIFICATION|BLOCKERS)[ \t]*:[ \t]*(?:\*\*)?"
+    matches = list(re.finditer(pattern, text))
     out: dict[str, str] = {}
-    for index, key in enumerate(keys):
-        marker = f"{key}:"
-        start = text.rfind(marker)
-        if start < 0:
-            continue
-        end = len(text)
-        for later_key in keys[index + 1:]:
-            candidate = text.find(f"{later_key}:", start + len(marker))
-            if candidate >= 0:
-                end = min(end, candidate)
-        out[key.lower()] = text[start + len(marker):end].strip().strip(";")
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        key = match.group(1).lower().replace(" ", "_")
+        out[key] = text[match.end():end].strip().strip(";")
     return out
 
 
@@ -325,6 +381,8 @@ def tool_task_status(params: dict) -> dict:
     return {
         "success": True,
         "task_id": task_id,
+        "agent": task.agent,
+        "success_criteria": task.success_criteria,
         "status": task.status,
         "age": task.age_str(),
         "prompt_preview": task.prompt[:100],
@@ -353,6 +411,8 @@ def tool_task_result(params: dict) -> dict:
     return {
         "success": True,
         "task_id": task_id,
+        "agent": task.agent,
+        "success_criteria": task.success_criteria,
         "status": task.status,
         "result": task.result,
         "age": task.age_str(),
@@ -499,6 +559,7 @@ def apply_task_worktree(task_id: str, *, cleanup: bool = True) -> dict:
 # ── Tool registry (added to LOCAL_TOOLS in aria_cli.py) ───────────────────────
 
 SUBAGENT_TOOLS = {
+    "list_agents": (tool_list_agents, "Discover general-purpose task roles, limits and tool policies"),
     "spawn_task":    (tool_spawn_task,   "Spawn a background sub-task; returns task_id"),
     "task_status":   (tool_task_status,  "Check status of a background task by task_id"),
     "task_result":   (tool_task_result,  "Retrieve result of a completed background task"),
@@ -507,12 +568,17 @@ SUBAGENT_TOOLS = {
 }
 
 SUBAGENT_SCHEMAS = [
+    {"name": "list_agents", "description": "Discover task roles for exploration, planning, research, implementation, review, data inspection and writing. Does not start tasks or connect services.", "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
     {
         "name": "spawn_task",
         "description": "Spawn an independent background agent task. Useful for parallelising slow operations: research, data fetching, long analysis. Returns a task_id you can poll with task_status.",
         "parameters": {
             "type": "object",
             "properties": {
+                "agent": {"type": "string", "enum": list(PROFILES), "description": "Use explorer for sources, planner for plans, researcher for sourced research, implementer for changes, reviewer for independent review, data_analyst for datasets, writer for documents. general is the fallback. Specialized roles use aria."},
+                "success_criteria": {"type": "string", "description": "Observable acceptance conditions; a completion message alone is not evidence."},
+                "max_rounds": {"type": "integer", "minimum": 1, "maximum": 30},
+                "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300},
                 "prompt":  {"type": "string", "description": "The task for the sub-agent to perform"},
                 "context": {"type": "string", "description": "Optional background context to inject into the sub-agent's system prompt"},
                 "mode": {
