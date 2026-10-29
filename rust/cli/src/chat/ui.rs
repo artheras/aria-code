@@ -253,7 +253,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 .map(|n| format!(" · {n} {}", app.tr("items", "项")))
                 .unwrap_or_default();
             let reused = if action.cancelled {
-                app.tr(" · turn cancelled before result", " · 本轮已取消，未收到结果")
+                app.tr(
+                    " · turn cancelled before result",
+                    " · 本轮已取消，未收到结果",
+                )
             } else if action.staged {
                 app.tr(" · staged only", " · 仅暂存")
             } else if action.reused {

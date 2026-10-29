@@ -562,7 +562,10 @@ impl App {
                 // A completed inspection must not keep the progress strip active
                 // while the model is preparing the next response.
                 let start = self.current_start();
-                let pending = self.entries.iter().skip(start)
+                let pending = self
+                    .entries
+                    .iter()
+                    .skip(start)
                     .any(|e| e.action.as_ref().is_some_and(|a| !a.done));
                 if !pending {
                     self.phase.finish();
@@ -1294,12 +1297,19 @@ mod tests {
         }
         a.event(json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"analyze_financial_statements","success":false,"error":"source_timeout"})).unwrap();
         assert!(a.phase.strip(false).contains("●"));
-        assert!(a.entries.iter().any(|e| e.action.as_ref().is_some_and(|x| !x.done && !x.cancelled)));
+        assert!(a
+            .entries
+            .iter()
+            .any(|e| e.action.as_ref().is_some_and(|x| !x.done && !x.cancelled)));
         a.event(json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"get_market_data","success":true})).unwrap();
         assert!(!a.phase.strip(false).contains("●"));
         assert_eq!(a.status, "Preparing response");
         assert!(a.turn.is_some());
-        assert!(a.entries.iter().filter_map(|e| e.action.as_ref()).all(|x| !x.cancelled));
+        assert!(a
+            .entries
+            .iter()
+            .filter_map(|e| e.action.as_ref())
+            .all(|x| !x.cancelled));
     }
 
     #[test]

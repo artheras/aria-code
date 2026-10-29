@@ -141,7 +141,7 @@ def _general_prompt() -> str:
         "\n- A standalone greeting or thanks needs only a short direct reply, with no tools, "
         "directory inventory, personal-file references or internal role titles."
         "\n- A standalone question about your capabilities needs a direct explanation in the user\'s language. "
-        "Do not resume an earlier stock analysis, scan files, or claim an external connection is active without evidence."
+        "Do not resume an earlier task, scan files, or claim an external connection is active without evidence."
     )
 
 
