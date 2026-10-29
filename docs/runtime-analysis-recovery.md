@@ -13,3 +13,7 @@ Local verification included Python runtime, native worker protocol, cancellation
 Live Yahoo checks on the test machine still returned no usable statements (AAPL timeout around 21 seconds; NVDA empty result around 16 seconds). This patch improves bounded failure and honest metrics; it does not claim Yahoo service availability has been restored. Native Rust changes need their own build/test; passing Python protocol tests against an existing frontend is not proof of the new UI binary.
 
 Run the focused Python regression with `python -m pytest tests/test_financial_statement_recovery.py tests/test_nebius_workspace_regression.py tests/test_model_capability_registry.py tests/test_runtime_agent_loop.py tests/test_native_app.py`. Build and test the native UI from `rust/` with `cargo test --locked -p aria-native`.
+
+## Capability questions
+
+Standalone questions such as “你除了分析股票外还能帮我做什么” describe the assistant, not a current market-analysis task. They now classify as general conversation, skip deterministic finance routing and financial evidence requirements, carry no project context or tools, and block unsolicited tool execution. Full-message matching preserves tools and evidence requirements for mixed requests such as “what can you do; analyze AAPL today”. The original Chinese question passed a real Nebius replay in about 7 seconds with one inference request, zero offered tools and zero tool calls. Tests also cover the question after a financial turn in the native worker protocol.

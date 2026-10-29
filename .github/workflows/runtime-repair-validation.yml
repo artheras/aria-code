@@ -19,6 +19,8 @@ jobs:
           tests/test_logistics_and_finance_agents.py tests/test_prompt_selection.py
           tests/test_runtime_bridge.py tests/test_runtime_bridge_fallback.py
           tests/test_runtime_agent_loop.py tests/test_cli_runtime_consumer.py
+          tests/test_capability_questions.py tests/test_conversation_policy.py
+          tests/test_research_protocol.py tests/test_intent_signals.py
   rust:
     runs-on: ubuntu-latest
     steps:

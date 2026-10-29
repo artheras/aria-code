@@ -125,6 +125,9 @@ def run_deterministic_chain(
       "分析A股" is treated as the A-share market instead of ticker ``A``.
     """
 
+    from aria_code.apps.cli.conversation_policy import is_capability_question
+    if is_capability_question(message):
+        return {"success": False}
     config = DeterministicRouterConfig(
         model_has_tools=model_has_tools,
         has_brokers=has_brokers,

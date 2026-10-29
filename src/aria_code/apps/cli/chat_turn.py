@@ -641,8 +641,8 @@ class ChatTurnMixin:
             else:
                 print(f"  {text}")
 
-        from aria_code.apps.cli.conversation_policy import is_social_message
-        _task = None if (not (_rt_sys_ov or "").strip() and is_social_message(message)) else _task_isolation.prepare(_runtime_config, notify=_task_note)
+        from aria_code.apps.cli.conversation_policy import is_conversation_only_message
+        _task = None if (not (_rt_sys_ov or "").strip() and is_conversation_only_message(message)) else _task_isolation.prepare(_runtime_config, notify=_task_note)
         _task_context = _task_isolation.execution_context(_task, _runtime_config)
         try:
             for _rt_attempt in range(2):

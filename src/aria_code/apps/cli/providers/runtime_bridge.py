@@ -453,14 +453,16 @@ async def run_chat_via_runtime(
     """
     from aria_code.runtime.gateway import run_turn
     from aria_code.apps.cli.workspace_route import workspace_config
-    from aria_code.apps.cli.conversation_policy import is_social_message
+    from aria_code.apps.cli.conversation_policy import is_conversation_only_message
 
     config = workspace_config(prompt, model, config, api_url)
-    social_only = not (system_override or "").strip() and is_social_message(prompt)
+    social_only = not (system_override or "").strip() and is_conversation_only_message(prompt)
     if social_only:
         # Host-owned policy, also enforced at execution if a provider returns
         # an unsolicited call despite receiving no schemas. Never save it.
         config = {**config, "_conversation_only": True}
+        requires_evidence = False
+        grounding_tools = ()
         tool_schemas = []
         project_context = None
 
