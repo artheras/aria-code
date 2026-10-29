@@ -1,0 +1,15 @@
+{
+  "type":"object",
+  "properties":{
+    "action":{"type":"string","enum":["health","create","start","status","wait","stop","obstacle","trace"]},
+    "goal":{"type":"string","description":"User's task goal and constraints, as context; never a shell command."},
+    "scenario":{"type":"object","properties":{"width":{"type":"integer"},"height":{"type":"integer"},"start":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},"goal":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},"obstacles":{"type":"array","items":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2}}},"required":["width","height","start","goal","obstacles"],"additionalProperties":false},
+    "constraints":{"type":"object","properties":{"max_steps":{"type":"integer","minimum":1,"maximum":512},"deadline_ms":{"type":"integer","minimum":100,"maximum":120000}},"additionalProperties":false},
+    "task_id":{"type":"string"},
+    "request_id":{"type":"string","description":"Stable unique operation ID. Reuse only to retry the same create/start/obstacle operation."},
+    "cell":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},
+    "timeout_ms":{"type":"integer","minimum":0,"maximum":1000}
+  },
+  "required":["action"],
+  "additionalProperties":false
+}

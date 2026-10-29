@@ -29,7 +29,7 @@ Usage:
   aria-native sessions show ID
   aria-native [--python EXE] [-C DIR] resume ID [--] [ARIA ARGUMENTS...]
   aria-native update check --current VERSION [--channel native|npm|pip|source] [--offline|--refresh]
-  aria-native physical [jsonl|serve --listen 127.0.0.1:8765]
+  aria-native physical [jsonl|agent-jsonl|mcp|serve --listen 127.0.0.1:8765]
   aria-native index imports|symbols < REQUEST.json
   aria-native --version
 

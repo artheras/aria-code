@@ -1,4 +1,6 @@
 //! Simulation-only, deterministic navigation. No hardware transport is provided.
+pub mod task_agent;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -458,9 +460,14 @@ pub fn entry(args: &[String]) -> Result<i32, String> {
             jsonl(io::stdin().lock(), io::stdout().lock()).map_err(|e| e.to_string())?;
             Ok(0)
         }
+        [arg] if arg == "agent-jsonl" || arg == "mcp" => {
+            task_agent::stdio(io::stdin().lock(), io::stdout().lock(), arg == "mcp")
+                .map_err(|e| e.to_string())?;
+            Ok(0)
+        }
         [arg] if arg == "serve" => serve("127.0.0.1:8765"),
         [arg, flag, address] if arg == "serve" && flag == "--listen" => serve(address),
-        _ => Err("Usage: physical [jsonl|serve --listen 127.0.0.1:8765]".into()),
+        _ => Err("Usage: physical [jsonl|agent-jsonl|mcp|serve --listen 127.0.0.1:8765]".into()),
     }
 }
 

@@ -167,6 +167,10 @@ def build_turn_system_prompt(
         return _general_prompt()
 
     parts = [select_base_prompt(message, intent=intent), OUTPUT_DISCIPLINE]
+    from aria_code.agents.warehouse.task_agent import is_navigation_task, WORKFLOW_KNOWLEDGE
+    if is_navigation_task(message):
+        parts.append(WORKFLOW_KNOWLEDGE)
+
     if project_context and project_context.strip():
         parts.append(project_context.strip())
 

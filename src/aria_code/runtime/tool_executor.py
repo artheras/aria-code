@@ -167,6 +167,11 @@ class ToolExecutor:
             if tool_name in {"write_file", "edit_file", "multi_edit", "notebook_edit"}:
                 if approval is not None and approval.approved:
                     prepared["_skip_confirm"] = True
+        if tool_name == "warehouse_task":
+            # Tool arguments cannot select another conversation or permission mode.
+            session = context.get("_session_id") or self.config.get("last_session_id")
+            prepared["_warehouse_scope"] = str(session or "")
+            prepared["_warehouse_read_only"] = self.config.get("permission_mode") in {"read-only", "readonly", "read_only", "plan"}
         if tool_name == "run_command":
             prepared["policy"] = self.config.get("command_policy", "safe")
             prepared["permission_mode"] = self.config.get("permission_mode", "workspace-write")

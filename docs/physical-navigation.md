@@ -1,5 +1,7 @@
 # Native navigation simulation
 
+For goal-based delegation from Aria or MCP, use the [warehouse task agent](warehouse-task-agent.md). The raw grid UI below remains a separate development fixture.
+
 Aria provides a deterministic **2D logical grid simulation** implemented in Rust.
 It is a software integration and verification fixture. It has no physics engine,
 real camera, learned perception, robot dynamics, ROS transport or hardware driver.

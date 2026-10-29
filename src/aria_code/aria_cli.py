@@ -1112,6 +1112,10 @@ except Exception as _exc:
     logger.debug("Repo-map tools init error: %s", _exc)
     REPO_MAP_SCHEMAS: list = []  # type: ignore[no-redef]
 
+# Stateful task agents reuse the host model; their controllers run natively.
+from aria_code.agents.warehouse.task_agent import WAREHOUSE_TOOLS, WAREHOUSE_SCHEMAS
+LOCAL_TOOLS.update(WAREHOUSE_TOOLS)
+
 # ── Register the project graph (impact analysis before editing) ──────────────
 try:
     from aria_code.runtime.project_graph import PROJECT_GRAPH_TOOLS, PROJECT_GRAPH_SCHEMAS
@@ -1276,6 +1280,7 @@ LOCAL_TOOL_SCHEMAS.extend(_wrap_bare_schemas(LSP_SCHEMAS))
 # tests/test_tool_scope.py caught for the code-audit tools.
 LOCAL_TOOL_SCHEMAS.extend(_wrap_bare_schemas(REPO_MAP_SCHEMAS))
 LOCAL_TOOL_SCHEMAS.extend(_wrap_bare_schemas(PROJECT_GRAPH_SCHEMAS))
+LOCAL_TOOL_SCHEMAS.extend(_wrap_bare_schemas(WAREHOUSE_SCHEMAS))
 LOCAL_TOOL_SCHEMAS.extend(_wrap_bare_schemas(ARTIFACT_TOOL_SCHEMAS))
 
 

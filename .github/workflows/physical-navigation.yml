@@ -4,12 +4,28 @@ on:
     paths:
       - 'rust/**'
       - 'tests/test_native_physical.py'
+      - 'tests/test_warehouse_task_agent.py'
+      - 'src/aria_code/agents/**'
+      - 'src/aria_code/apps/cli/tool_scope.py'
+      - 'src/aria_code/apps/cli/prompts/select.py'
+      - 'src/aria_code/runtime/tool_executor.py'
+      - 'src/aria_code/packages/aria_mcp/**'
+      - 'src/aria_code/aria_cli.py'
+      - 'src/aria_code/apps/cli/headless.py'
       - '.github/workflows/physical-navigation.yml'
   push:
     branches: [main]
     paths:
       - 'rust/**'
       - 'tests/test_native_physical.py'
+      - 'tests/test_warehouse_task_agent.py'
+      - 'src/aria_code/agents/**'
+      - 'src/aria_code/apps/cli/tool_scope.py'
+      - 'src/aria_code/apps/cli/prompts/select.py'
+      - 'src/aria_code/runtime/tool_executor.py'
+      - 'src/aria_code/packages/aria_mcp/**'
+      - 'src/aria_code/aria_cli.py'
+      - 'src/aria_code/apps/cli/headless.py'
       - '.github/workflows/physical-navigation.yml'
   workflow_dispatch:
 permissions:
@@ -40,5 +56,9 @@ jobs:
       - name: Independent executable and HTTP checks
         env:
           ARIA_PHYSICAL_BINARY: ${{ github.workspace }}/rust/target/debug/aria-physical${{ runner.os == 'Windows' && '.exe' || '' }}
+          PYTHONPATH: ${{ github.workspace }}/src
           ARIA_NATIVE_BINARY: ${{ github.workspace }}/rust/target/debug/aria-native${{ runner.os == 'Windows' && '.exe' || '' }}
-        run: python tests/test_native_physical.py
+        run: |
+          python -m pip install -e .
+          python tests/test_native_physical.py
+          python tests/test_warehouse_task_agent.py
