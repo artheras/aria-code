@@ -1,5 +1,7 @@
 # Remaining Python migration work
 
+Latest caller-based priorities and the native navigation increment: [2026-10-29 audit](native-migration-next.md). Historical measurements below retain their original dates.
+
 ## Audit of 2026-10-19 (main `dd4af04`+)
 
 Measured, not estimated. Tracked code: Python `src` 549 modules / 151k lines
