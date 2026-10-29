@@ -17,3 +17,7 @@ Run the focused Python regression with `python -m pytest tests/test_financial_st
 ## Capability questions
 
 Standalone questions such as “你除了分析股票外还能帮我做什么” describe the assistant, not a current market-analysis task. They now classify as general conversation, skip deterministic finance routing and financial evidence requirements, carry no project context or tools, and block unsolicited tool execution. Full-message matching preserves tools and evidence requirements for mixed requests such as “what can you do; analyze AAPL today”. The original Chinese question passed a real Nebius replay in about 7 seconds with one inference request, zero offered tools and zero tool calls. Tests also cover the question after a financial turn in the native worker protocol.
+
+## SEC annual-disclosure fallback
+
+When Yahoo fails, the financial tool can use period-aligned SEC annual disclosures. It joins only same-accession annual USD income and balance facts, records provenance and source attempts, and does not silently use expired cache data. The legacy SEC equity tag was corrected. Contact configuration is intentionally pending because Arthera has not yet provided a contact mailbox; no personal or fabricated email is substituted. An initial SEC request returned HTTP 403, so this is an implemented and offline-tested fallback, not a claim that live SEC access has been restored. See [configuration and verification](../examples/financial-sources/README.md).

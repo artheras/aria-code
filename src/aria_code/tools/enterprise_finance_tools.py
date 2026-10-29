@@ -14,7 +14,7 @@ def _number(data: dict, key: str) -> float | None:
         raise ValueError(f"{key} must be a finite number")
     try:
         value = float(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(f"{key} must be a finite number") from exc
     if not math.isfinite(value):
         raise ValueError(f"{key} must be a finite number")
@@ -122,6 +122,8 @@ def tool_analyze_financial_statements(params: Dict[str, Any]) -> Dict[str, Any]:
     if not all(isinstance(item, dict) for item in (income, balance, cashflow)):
         return {"success": False, "error_code": "invalid_financials", "error": "Statement sections must be objects"}
     source, period = "caller-supplied statements", None
+    source_attempts = []
+    disclosure = {}
     diagnosis = "missing_statements"
     if company_name and len(company_name) <= 10 and not income:
         if not params.get("network_enabled", True):
@@ -138,23 +140,46 @@ def tool_analyze_financial_statements(params: Dict[str, Any]) -> Dict[str, Any]:
                 diagnosis = str(exc) if str(exc) in {"empty_statements", "no_common_period"} else "source_error"
             except Exception:
                 diagnosis = "source_unavailable"
+            source_attempts.append({'source': 'yfinance', 'success': bool(income), 'error_code': None if income else diagnosis})
+            if not income:
+                from aria_code.datasources.sec_statements import SECError, fetch_annual_statements
+                try:
+                    disclosure = fetch_annual_statements(company_name)
+                    income, balance = disclosure['income_statement'], disclosure['balance_sheet']
+                    cashflow, period = disclosure['cashflow'], disclosure['period']
+                    source = f"sec-edgar:{company_name}"
+                    source_attempts.append({'source': 'sec-edgar', 'success': True})
+                except SECError as exc:
+                    source_attempts.append({'source': 'sec-edgar', 'success': False, 'error_code': exc.code})
     if not income:
+        fallback_code = next((attempt.get('error_code') for attempt in source_attempts if attempt['source'] == 'sec-edgar'), None)
+        fallback_message = {
+            'sec_identity_required': ' SEC fallback needs your declared company/contact email.',
+            'sec_access_denied': ' SEC fallback denied access.',
+            'sec_rate_limited': ' SEC fallback is rate-limited; no automatic retry was made.',
+        }.get(fallback_code, f' SEC fallback: {fallback_code}.' if fallback_code else '')
         return {
             "success": False, "error_code": diagnosis, "source": f"yfinance:{company_name}",
-            "error": f"No financial statements available for {company_name or 'this company'} ({diagnosis}). This tool does not estimate missing figures.",
+            "source_attempts": source_attempts,
+            "error": f"No financial statements available for {company_name or 'this company'} ({diagnosis}).{fallback_message} This tool does not estimate missing figures.",
             "next_actions": ["Continue other analysis using available market data; disclose missing financial statements.",
                              "Supply income_statement, balance_sheet and cashflow through financials.",
-                             "Check Yahoo connectivity and yfinance dependencies; Google login does not authorize Yahoo data."],
+                             "Check source_attempts. Configure EDGAR_USER_AGENT with your company and contact email for the SEC fallback. Google login does not authorize financial sources."],
         }
     try:
         metrics = compute_financial_metrics(income, balance, cashflow)
     except ValueError as exc:
         return {"success": False, "error_code": "invalid_financials", "error": str(exc)}
     metrics.update(company_name=company_name, data_source=source, period=period)
+    if disclosure:
+        metrics.update({key: value for key, value in disclosure.items() if key not in {'income_statement', 'balance_sheet', 'cashflow'}})
+        metrics['limitations'].append('SEC metrics describe the disclosed annual period, not live market data. Cash flow was not evaluated.')
+        if disclosure.get('stale'):
+            metrics['limitations'].append('The selected annual period is over 550 days old; do not describe it as current financial data.')
     def display(value):
         return "unavailable" if value is None else str(value)
     return {
-        "success": True, "data": metrics,
+        "success": True, "data": metrics, "source_attempts": source_attempts,
         "summary": f"{company_name} financial metrics ({source}, period {period or 'caller supplied'}): gross margin {display(metrics['gross_margin_pct'])}%; net margin {display(metrics['net_margin_pct'])}%; ROE {display(metrics['dupont']['roe'])}%. Missing metrics are unavailable; solvency was not classified.",
     }
 
@@ -163,7 +188,7 @@ def register_enterprise_finance_tools(tools_dict: Dict[str, Any], schemas_list: 
     tools_dict["analyze_financial_statements"] = (tool_analyze_financial_statements, "Analyze company financial statements (P&L, Balance Sheet, Cash Flow) and Dupont decomposition")
     schemas_list.append({
         "name": "analyze_financial_statements",
-        "description": "Analyze corporate financial statements, working capital cycle, and solvency. If company_name is a ticker (e.g. AAPL), it fetches real Yahoo Finance data.",
+        "description": "Compute supported corporate financial metrics. For a ticker, try Yahoo then SEC annual disclosures. Missing metrics stay unknown; no solvency classification is inferred. Each result identifies its source and reporting period.",
         "parameters": {
             "type": "object",
             "properties": {
