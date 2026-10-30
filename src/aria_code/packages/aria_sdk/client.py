@@ -28,6 +28,8 @@ from aria_code.runtime import (
     run_agent,
 )
 
+from aria_code.runtime.task_outcome import task_outcome
+
 from .providers import build_llm_provider
 from .streaming import stream_provider_result
 from .types import AriaAgentOptions, AriaMessage, AriaResult
@@ -196,6 +198,8 @@ class AriaSDKClient:
                         "tool": event.tool,
                         "result": dict(event.result),
                         "elapsed": event.elapsed,
+                        **({"task_outcome": task_outcome(event.result, fresh=event.tool == "task_result")}
+                           if event.tool in {"task_status", "task_result"} else {}),
                     },
                 )
             elif isinstance(event, AgentEventStatus):
@@ -212,7 +216,7 @@ class AriaSDKClient:
                     role="assistant",
                     content=final_text,
                     data={
-                        "success": True,
+                        "success": False,
                         "cancelled": True,
                         "provider": "runtime",
                         "session_id": self.session_id,
