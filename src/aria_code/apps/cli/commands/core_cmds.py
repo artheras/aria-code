@@ -1662,6 +1662,24 @@ class CoreCommandsMixin:
         sub = args.strip().lower()
         reg = self.terminal._mcp_registry
 
+        if sub == "finance" or sub.startswith("finance "):
+            import shlex
+            from pathlib import Path
+            from aria_code.packages.aria_mcp.config import install_financial_service_config
+            try:
+                parts = shlex.split(args.strip(), posix=True)
+                if len(parts) != 3 or parts[:2] != ["finance", "install"]:
+                    self.context.console.print(
+                        'Install financial-service in its own environment, then run: '
+                        '/mcp finance install "/absolute/path/to/service-venv/bin/python"')
+                    return
+                target = install_financial_service_config(Path(MCP_CONFIG_PATH), Path(parts[2]))
+                self.context.console.print(
+                    f"Financial MCP configured at {target}. Networking is off. Run /mcp reload to connect.")
+            except (OSError, ValueError) as exc:
+                self.context.console.print(f"Financial MCP configuration was not changed: {exc}")
+            return
+
         _parts = sub.split()
         if _parts and _parts[0] in ("reload", "restart") and len(_parts) > 1:
             # Per-server reload: restart one subprocess + reset its circuit,

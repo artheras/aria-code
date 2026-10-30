@@ -138,3 +138,5 @@ For the current command-line flags, run `aria-code --help`. For help inside the 
 Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Aria Code is open source under the [Apache License, Version 2.0](LICENSE).
 
 Releases 4.2.0 through 4.4.5 were published under the Business Source License 1.1 and remain available under those terms; releases up to and including 4.1.2 were MIT. A license grant cannot be withdrawn from someone who already has it, so each version keeps the license it shipped with — see [NOTICE](NOTICE).
+
+Shared financial tools can also run independently through the [Financial Service MCP integration](docs/financial-service.md), with a reusable Finance workflow in [Aria Plugins](https://github.com/artheras/aria-plugins). Legacy financial commands remain available.

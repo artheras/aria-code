@@ -280,6 +280,16 @@ class MCPServer:
             })
             if result is None:
                 return {"success": True, "result": None}
+            if not isinstance(result, dict):
+                return {"success": False, "error": "Invalid MCP tool result"}
+            if "isError" in result and not isinstance(result["isError"], bool):
+                return {"success": False, "error": "Invalid MCP tool error flag"}
+            if result.get("isError"):
+                error_content = result.get("content", [])
+                detail = "\n".join(str(item.get("text", "")) for item in error_content
+                                   if isinstance(item, dict)) if isinstance(error_content, list) else ""
+                return {"success": False, "error_code": "mcp_tool_error",
+                        "error": detail[:4000] or "MCP tool reported an error"}
             # MCP returns {content: [{type, text}]} or plain value
             content = result.get("content", result)
             if isinstance(content, list):

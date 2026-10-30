@@ -5,8 +5,47 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+def financial_service_server_config(python: Path) -> Dict[str, object]:
+    """A separately installed finance service; never install or run code here."""
+    python = Path(python).expanduser()
+    if not python.is_absolute() or not python.is_file():
+        raise ValueError("Provide an absolute path to the financial-service Python interpreter")
+    return {"name": "arthera-finance", "command": str(python),
+            "args": ["-m", "arthera_finance.server"],
+            "env": {"FINANCIAL_SERVICE_NETWORK": "0"},
+            "description": "Shared financial analysis and simulation; offline by default",
+            "enabled": True}
+
+
+def install_financial_service_config(path: Path, python: Path) -> Path:
+    """Explicit host operation: preserve other servers and replace config atomically."""
+    server = financial_service_server_config(python)
+    path = Path(path)
+    existing = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"servers": []}
+    if (not isinstance(existing, dict) or not isinstance(existing.get("servers", []), list)
+            or any(not isinstance(item, dict) for item in existing.get("servers", []))):
+        raise ValueError("MCP configuration must contain a list of server objects")
+    merged = merge_server_config(existing, server)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=".finance-mcp-", delete=False) as stream:
+            temporary = Path(stream.name)
+            json.dump(merged, stream, ensure_ascii=False, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return path
 
 
 def arthera_quant_engine_server_config(
