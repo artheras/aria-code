@@ -222,7 +222,10 @@ func (r acceptanceReport) summary() map[string]any {
 		checks[i] = c.summary()
 	}
 	return map[string]any{"attempt": r.Attempt, "passed": r.passed(), "regressed": r.regressed(), "ran": r.ran(),
-		"reason": r.Reason, "paths": anySlice(orEmpty(r.Paths)), "checks": checks}
+		"reason": r.Reason, "paths": anySlice(orEmpty(r.Paths)), "checks": checks,
+		// The Go gate does not capture content fingerprints yet. Never label
+		// its legacy reports as current merely because their checks passed.
+		"revision_status": "not_recorded", "revision_paths": []any{}}
 }
 
 func anySlice(items []string) []any {
