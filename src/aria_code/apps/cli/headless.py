@@ -63,7 +63,12 @@ class HeadlessMixin:
         """The work of run_prompt: a slash command, a deterministic answer, or an agent turn."""
         model = self.config.get("model", "qwen2.5:7b")
         thinking_mode = self.config.get("thinking_mode", "auto")
-        auth_token = self.config.get("auth_token")
+        from aria_code.account_session import prepare_account
+        from aria_code.apps.cli.config_store import save_cli_config
+        from aria_code.apps.cli.config_paths import resolve_paths
+        save_account = lambda cfg: save_cli_config(resolve_paths(), cfg)
+        auth_token = await prepare_account(self.config, save_account)
+        auth_token = auth_token or self.config.get("auth_token")
         user_context = _build_user_context(self.config)
 
         local_mode = self.config.get("local_mode", False)

@@ -385,7 +385,16 @@ class ChatTurnMixin:
 
         model = self.config.get("model", "qwen2.5:7b")
         thinking_mode = self.config.get("thinking_mode", "auto")
-        auth_token = self.config.get("auth_token")
+        from aria_code.account_session import prepare_account, account_id
+        _memory_owner = account_id(self.config)
+        from aria_code.apps.cli.config_store import save_cli_config
+        from aria_code.apps.cli.config_paths import resolve_paths
+        save_account = lambda cfg: save_cli_config(resolve_paths(), cfg)
+        auth_token = await prepare_account(self.config, save_account)
+        if account_id(self.config) != _memory_owner:
+            print("账户已切换，请重新发送这条消息。")
+            return
+        auth_token = auth_token or self.config.get("auth_token")
         user_context = _build_user_context(self.config)
         self.cancel_event = asyncio.Event()
         self._streaming = True
@@ -1199,7 +1208,8 @@ class ChatTurnMixin:
             # Auto-capture user preferences / facts expressed in this turn
             try:
                 from memory_manager import auto_capture_from_turn as _acft, MemoryManager as _MM
-                _acft(message, final_text or "", _MM())
+                if account_id(self.config) == _memory_owner:
+                    _acft(message, final_text or "", _MM(config=self.config))
             except Exception:
                 pass
 
@@ -1263,7 +1273,7 @@ class ChatTurnMixin:
                         pass
 
             # Auto-extract preference signals into global memory
-            if self.memory_mgr and final_text:
+            if self.memory_mgr and final_text and account_id(self.config) == _memory_owner:
                 try:
                     from memory_manager import extract_preference_signal
                     _sig = extract_preference_signal(message, final_text)

@@ -140,3 +140,7 @@ class ClientFromConfigTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_retired_domain_cannot_receive_a_memory_token():
+    assert CloudMemoryClient('https://api.arthera.finance','token').api_url == 'https://api.arthera.xyz'

@@ -1295,7 +1295,7 @@ class WorkspaceCommandsMixin:
             /memory add <fact>       — append fact to project ARIA.md
             /memory clear            — wipe project ARIA.md memory section
             /memory search <query>   — search across ARIA.md + sessions
-            /memory profile          — show global ~/.arthera/ARIA.md (injected every session)
+            /memory profile          — show global 当前账户的 ARIA.md (injected every session)
             /memory profile add <text>  — append to global profile
             /memory profile clear    — reset global profile
             /memory global           — legacy global Memory entries
@@ -1305,6 +1305,37 @@ class WorkspaceCommandsMixin:
         parts = args.strip().split(maxsplit=1)
         sub  = parts[0].lower() if parts else "show"
         rest = parts[1].strip() if len(parts) > 1 else ""
+
+        if sub in {"sync", "status", "account", "forget"}:
+            from aria_code.account_memory import AccountMemory
+            memory = AccountMemory(self.terminal.config, save=self.context.save_config)
+            if sub == "sync":
+                result = memory.sync(force=True)
+                message = "账户记忆已同步。" if result.get("ok") else "账户记忆未同步：请检查登录状态或网络，待同步内容仍保留。"
+                if result.get("ok") and result.get("pending"):
+                    message = f"本次同步已完成，仍有 {result['pending']} 条待同步。"
+                if result.get("enabled") is False:
+                    message = "账户记忆已关闭，未上传或使用记忆。"
+            elif sub == "forget":
+                message = "已标记删除，下次同步会更新云端。" if memory.forget(rest) else "请先运行 /login。"
+            elif sub == "account":
+                if rest.startswith("add "):
+                    from aria_code.memory_manager import _SENSITIVE_PATTERN
+                    fact = rest[4:].strip()
+                    saved = bool(fact) and not _SENSITIVE_PATTERN.search(fact) and memory.add(fact)
+                    message = "已保存到当前账户的待同步记忆。" if saved else "未保存：请检查登录、记忆开关或内容。"
+                else:
+                    facts = memory.facts()
+                    message = "\n".join(f"{f['id']}  {f['content']}" for f in facts) or "当前账户暂无记忆。"
+            else:
+                status = memory.status()
+                sync_label = {"sign-in-required":"需要重新登录", "service-unavailable":"服务暂不可用，请稍后重试", "pending-retry":"部分记忆待重试"}.get(status['error'], '部分记忆待同步' if status['pending'] else ('已同步' if status['last_synced'] else '尚未同步'))
+                message = (f"账户：{status['email'] or ('已登录账户' if status['account_id'] else '未登录')}\n"
+                           f"记忆：{'开启' if status['enabled'] else '关闭'} · 待同步：{status['pending']}\n"
+                           f"同步状态：{sync_label}")
+            # Memory is user-authored content, never interpret Rich markup in it.
+            print(message)
+            return
 
         if sub == "show":
             if not aria_md.exists():
@@ -1386,8 +1417,9 @@ class WorkspaceCommandsMixin:
                 self.context.console.print(f"[dim]{msg}[/dim]") if self.context.has_rich else print(msg)
 
         elif sub == "profile":
-            # Per-user ARIA.md at ~/.arthera/ARIA.md — injected into every session
-            _profile_path = aria_home() / "ARIA.md"
+            # Per-user ARIA.md at 当前账户的 ARIA.md — injected into every session
+            from aria_code.account_session import profile_path
+            _profile_path = profile_path(self.terminal.config)
             gparts = rest.strip().split(maxsplit=1)
             gsub   = gparts[0].lower() if gparts else "show"
             grest  = gparts[1].strip() if len(gparts) > 1 else ""
@@ -1395,16 +1427,16 @@ class WorkspaceCommandsMixin:
             if gsub == "show":
                 if not _profile_path.exists():
                     if self.context.has_rich:
-                        self.context.console.print("[dim]~/.arthera/ARIA.md 还不存在。用 /memory profile add <内容> 创建。[/dim]")
+                        self.context.console.print("[dim]当前账户的 ARIA.md 还不存在。用 /memory profile add <内容> 创建。[/dim]")
                     else:
-                        print("~/.arthera/ARIA.md not found. Use /memory profile add <text> to create.")
+                        print("当前账户的 ARIA.md not found. Use /memory profile add <text> to create.")
                     return
                 content = _profile_path.read_text(encoding="utf-8")
                 if self.context.has_rich:
                     try:
                         from rich.markdown import Markdown as _RMd3
                         self.context.console.print()
-                        self.context.console.print("  [dim]~/.arthera/ARIA.md[/dim]")
+                        self.context.console.print("  [dim]当前账户的 ARIA.md[/dim]")
                         self.context.console.print(_RMd3(content))
                     except Exception:
                         self.context.console.print(content)
@@ -1428,18 +1460,22 @@ class WorkspaceCommandsMixin:
                         f"# 用户背景\n\n## 偏好与背景\n\n- [{now_str}] {grest}\n",
                         encoding="utf-8",
                     )
+                from aria_code.account_memory import AccountMemory
+                from aria_code.memory_manager import _SENSITIVE_PATTERN
+                if not _SENSITIVE_PATTERN.search(grest):
+                    AccountMemory(self.terminal.config).add(grest)
                 # Refresh project context so change takes effect immediately
                 _PROJECT_CONTEXT = _load_project_context()
                 if self.context.has_rich:
-                    self.context.console.print("  [dim]✓ 已写入 ~/.arthera/ARIA.md — 下次对话自动注入[/dim]")
+                    self.context.console.print("  [dim]✓ 已写入 当前账户的 ARIA.md — 下次对话自动注入[/dim]")
                 else:
-                    print("Saved to ~/.arthera/ARIA.md")
+                    print("Saved to 当前账户的 ARIA.md")
 
             elif gsub == "clear":
                 if _profile_path.exists():
                     _profile_path.write_text("# 用户背景\n\n", encoding="utf-8")
                     _PROJECT_CONTEXT = _load_project_context()
-                    self.context.console.print("[dim]~/.arthera/ARIA.md 已清空。[/dim]") if self.context.has_rich else print("Profile cleared.")
+                    self.context.console.print("[dim]当前账户的 ARIA.md 已清空。[/dim]") if self.context.has_rich else print("Profile cleared.")
                 else:
                     self.context.console.print("[dim]文件不存在，无需清空。[/dim]") if self.context.has_rich else print("Nothing to clear.")
 
@@ -1476,12 +1512,12 @@ class WorkspaceCommandsMixin:
                 if not grest:
                     self.context.console.print("[dim]Usage: /memory global add <内容>[/dim]") if self.context.has_rich else print("Usage: /memory global add <content>")
                     return
-                self.memory_mgr.append("user_profile", grest, title="User Profile")
-                self.context.console.print(f"[dim]已写入全局 Memory: {grest[:60]}[/dim]") if self.context.has_rich else print(f"Saved: {grest[:60]}")
+                saved = self.memory_mgr.append("user_profile", grest, title="User Profile")
+                print("已保存记忆；账户记忆将在下次对话或 /memory sync 时同步。" if saved is not False else "未保存：请检查记忆开关和内容。")
 
             elif gsub == "clear":
                 n = self.memory_mgr.clear_all()
-                self.context.console.print(f"[dim]全局 Memory 已清空（删除 {n} 个文件）。[/dim]") if self.context.has_rich else print(f"Global memory cleared ({n} files).")
+                print(f"已清除当前记忆（{n} 项）；云端删除将在下次同步时完成。")
 
             else:
                 self.context.console.print("[dim]Usage: /memory global [show|add <内容>|clear][/dim]") if self.context.has_rich else print("Usage: /memory global [show|add|clear]")
