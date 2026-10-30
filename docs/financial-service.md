@@ -1,9 +1,9 @@
 # Shared Financial Service
 
 The independently installable service lives at
-https://github.com/artheras/financial-service. It exposes six read-only MCP tools:
+https://github.com/artheras/financial-service. It exposes ten read-only MCP tools:
 service information, statement analysis, annual SEC facts parsing, risk metrics,
-supplied-data backtests and optional historical market data. It does not import
+supplied-data backtests, optional historical market data and broker account queries. It does not import
 Aria Code. The finance plugin in artheras/aria-plugins supplies workflow guidance
 and host-specific configuration rather than another copy of the algorithms.
 
@@ -40,3 +40,9 @@ FINANCIAL_SERVICE_NETWORK=1 for Yahoo/SEC reads, and EDGAR_USER_AGENT for SEC's
 company/contact identification. Restart the server after changing host settings.
 Tool arguments cannot enable networking.
 
+
+Broker connections are configured per user in the Financial Service's private profile directory. Follow its [broker connection guide](https://github.com/artheras/financial-service/blob/main/docs/broker-connections.md).
+
+Set the MCP server environment to FINANCIAL_SERVICE_BROKERS_ENABLED=1 and, for real broker connections, FINANCIAL_SERVICE_NETWORK=1. FINANCIAL_SERVICE_HOME selects that user's profile directory. Keep the service process and directory separate for each user; this local connection is not a hosted multi-tenant login service. Credentials are resolved by the service host from environment references, never passed in tool arguments.
+
+Use /mcp reload after configuration, then ask the Finance tools to list connections and read the selected account, positions or existing orders. The tool arguments contain only a connection ID and query options. These tools cannot place, modify or cancel orders.

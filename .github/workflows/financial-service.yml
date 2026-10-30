@@ -30,7 +30,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install host and the pinned shared financial service
-        run: python -m pip install -e . pytest pytest-asyncio pytest-timeout "arthera-financial-service @ git+https://github.com/artheras/financial-service.git@8db3b8b987d48282dc8fc6cb7f500b437b816d7f"
+        run: python -m pip install -e . pytest pytest-asyncio pytest-timeout "arthera-financial-service @ git+https://github.com/artheras/financial-service.git@14ef6e14ac112fa570f43364165c320c488cef62"
       - name: Verify actual CLI configuration and MCP tool/error results
         shell: bash
         env:

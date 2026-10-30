@@ -73,10 +73,12 @@ async def test_actual_financial_service_through_aria_client():
     if not python:
         pytest.skip("Set ARIA_FINANCIAL_TEST_PYTHON to an environment with financial-service installed")
     server = MCPServer("arthera-finance", python, ["-m", "arthera_finance.server"],
-                       env={"FINANCIAL_SERVICE_NETWORK": "0"}, timeout=15)
+                       env={"FINANCIAL_SERVICE_NETWORK": "0", "FINANCIAL_SERVICE_BROKERS_ENABLED": "0"}, timeout=15)
     try:
         assert await server.start()
-        assert len(server.tools) == 6
+        assert len(server.tools) == 10
+        denied = await server.call_tool("financial_broker_account", {"connection_id": "unknown"})
+        assert denied["success"] is False and denied["error_code"] == "broker_access_disabled"
         result = await server.call_tool("financial_analyze_statements", {
             "financials": {"income_statement": {"revenue": 1000, "net_income": 100}}})
         assert result["success"] and result["data"]["net_margin_pct"] == 10
