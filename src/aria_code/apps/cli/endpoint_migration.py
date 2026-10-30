@@ -24,8 +24,9 @@ from where the backend lives.
 from __future__ import annotations
 
 import os
+from aria_code.service_endpoints import API_URL, current_url
 
-PRODUCTION_API_URL = "https://api.arthera.xyz"
+PRODUCTION_API_URL = API_URL
 LEGACY_DEFAULT_API_URL = "http://localhost:8000"
 # The product moved from arthera.finance to arthera.xyz and the old domain no
 # longer answers, so a config that was migrated to (or installed with) the old
@@ -40,16 +41,21 @@ def _norm(url: object) -> str:
 
 def migrate_config(config: dict) -> list[tuple[str, str, str]]:
     """Move the old localhost default to production in place; return (key, old, new)."""
+    old = config.get("api_url")
+    retired = bool(old) and current_url(str(old)) != str(old).strip().rstrip('/')
     env = os.getenv("ARTHERA_API_URL", "").strip()
     if env:
         # An explicit environment choice wins over the file for this run only;
         # nothing is rewritten, so unsetting the variable restores the file.
-        config["api_url"] = env.rstrip("/")
+        config["api_url"] = current_url(env)
         return []
+    if retired:
+        config["api_url"] = PRODUCTION_API_URL
+        return [("api_url", str(old), PRODUCTION_API_URL)]
     if config.get("api_url_pinned"):
         return []
     old = config.get("api_url")
-    if _norm(old) not in RETIRED_API_URLS:
+    if _norm(old) not in {LEGACY_DEFAULT_API_URL, "https://api.arthera.finance", "https://cn.arthera.finance"}:
         return []
     config["api_url"] = PRODUCTION_API_URL
     return [("api_url", str(old), PRODUCTION_API_URL)]
