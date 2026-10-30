@@ -173,7 +173,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install project + PyInstaller
         run: |
-          python -m pip install --quiet -e . pyinstaller
+          python -m pip install --quiet -e ".[finance]" pyinstaller
       - name: Run PyInstaller (--onedir)
         run: >
           pyinstaller --onedir --name ${{ env.BIN_NAME }}
@@ -247,7 +247,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install project + PyInstaller
         run: |
-          python -m pip install --quiet -e . pyinstaller
+          python -m pip install --quiet -e ".[finance]" pyinstaller
       - name: Run PyInstaller (--onedir)
         run: >
           pyinstaller --onedir --name ${{ env.BIN_NAME }}

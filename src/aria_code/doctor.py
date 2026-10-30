@@ -677,9 +677,6 @@ def _iter_required_modules() -> Iterable[tuple[str, str]]:
     yield "rich", "terminal UI"
     yield "prompt_toolkit", "interactive input"
     yield "requests", "HTTP client"
-    yield "pandas", "dataframes"
-    yield "numpy", "numeric processing"
-    yield "yfinance", "US/HK/global market data"
     # The default model is google/gemini-3.8-flash, so without this a fresh
     # install cannot answer a single prompt.
     yield "google.genai", "Gemini / Vertex AI (the default model)"
@@ -693,6 +690,9 @@ def _iter_optional_modules() -> Iterable[tuple[str, str, str]]:
     always declared as the optional `cn` extra. Missing an optional extra is a
     choice the user made, not a fault.
     """
+    yield "pandas", "dataframes", "finance"
+    yield "numpy", "numeric processing", "finance"
+    yield "yfinance", "US/HK/global market data", "finance"
     yield "akshare", "China A-share market data", "cn"
 
 
@@ -758,7 +758,7 @@ def run_doctor(
             checks.append(_check(f"package:{module}", "ok", purpose))
         else:
             checks.append(_check(f"package:{module}", "skip", f"{purpose} not installed (optional)",
-                                 f"pip install 'aria-code[{extra}]'"))
+                                 f"pip install 'aria-code[{extra}]<4'"))
 
     for module in ("data_service", "artifacts", "report_generator", "backtest_report"):
         checks.append(
