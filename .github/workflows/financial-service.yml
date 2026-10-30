@@ -1,0 +1,41 @@
+name: Financial Service integration
+on:
+  pull_request:
+    paths:
+      - 'src/aria_code/mcp_client.py'
+      - 'src/aria_code/packages/aria_mcp/**'
+      - 'src/aria_code/apps/cli/commands/core_cmds.py'
+      - 'tests/test_financial_service_mcp.py'
+      - '.github/workflows/financial-service.yml'
+  push:
+    branches: [main, 'feat/**']
+    paths:
+      - 'src/aria_code/mcp_client.py'
+      - 'src/aria_code/packages/aria_mcp/**'
+      - 'src/aria_code/apps/cli/commands/core_cmds.py'
+      - 'tests/test_financial_service_mcp.py'
+      - '.github/workflows/financial-service.yml'
+permissions:
+  contents: read
+jobs:
+  integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install host and the pinned shared financial service
+        run: python -m pip install -e . pytest pytest-asyncio pytest-timeout "arthera-financial-service @ git+https://github.com/artheras/financial-service.git@8db3b8b987d48282dc8fc6cb7f500b437b816d7f"
+      - name: Verify actual CLI configuration and MCP tool/error results
+        shell: bash
+        env:
+          ARIA_OFFLINE: "1"
+          FINANCIAL_SERVICE_NETWORK: "0"
+        run: |
+          export ARIA_FINANCIAL_TEST_PYTHON="$(python -c 'import sys; print(sys.executable)')"
+          python -m pytest tests/test_financial_service_mcp.py tests/test_mcp_circuit.py -q --timeout=60
