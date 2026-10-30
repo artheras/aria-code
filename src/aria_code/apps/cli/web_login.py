@@ -35,14 +35,15 @@ from .google_login import _CallbackResult, _free_port, _post_json
 
 # The apex is Firebase Hosting and the Firebase auth domain, so the page and the
 # sign-in popup are same-origin there.
-AUTH_ORIGIN = "https://arthera.xyz"
+from aria_code.service_endpoints import SITE_URL, current_url
+AUTH_ORIGIN = SITE_URL
 LOGIN_PATH = "/cli-login"
 _TIMEOUT_SECONDS = 300
 
 
 def auth_origin() -> str:
     """The host that serves the sign-in page. ARIA_AUTH_URL overrides it for staging."""
-    return (os.getenv("ARIA_AUTH_URL", "").strip() or AUTH_ORIGIN).rstrip("/")
+    return current_url(os.getenv("ARIA_AUTH_URL", "").strip() or AUTH_ORIGIN, website=True)
 
 
 def pkce_pair() -> tuple[str, str]:

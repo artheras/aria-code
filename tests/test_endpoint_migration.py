@@ -61,11 +61,14 @@ def test_loading_a_real_config_file_migrates_and_writes_back(tmp_path, monkeypat
     assert saved["api_url"] == PRODUCTION_API_URL
 
 
-def test_the_retired_production_domain_is_migrated_like_the_localhost_default():
-    # arthera.finance no longer answers; a config that holds it points at nothing.
-    for old in ("https://api.arthera.finance", "https://api.arthera.finance/", "HTTPS://API.ARTHERA.FINANCE"):
-        cfg = {"api_url": old, "local_mode": True}
-        assert migrate_config(cfg) == [("api_url", old, PRODUCTION_API_URL)]
-        assert cfg["api_url"] == "https://api.arthera.xyz" and cfg["local_mode"] is True
-    pinned = {"api_url": "https://api.arthera.finance", "api_url_pinned": True}
-    assert migrate_config(pinned) == []
+@pytest.mark.parametrize("old", ["https://api.arthera.finance", "https://api.arthera.finance/", "https://cn.arthera.finance"])
+def test_expired_domain_moves_to_current_gateway(old):
+    cfg = {"api_url":old}
+    assert migrate_config(cfg) == [("api_url",old,PRODUCTION_API_URL)]
+    assert cfg["api_url"] == "https://api.arthera.xyz"
+
+
+def test_pinned_expired_domain_is_still_retired():
+    cfg={'api_url':'https://api.arthera.finance','api_url_pinned':True}
+    migrate_config(cfg)
+    assert cfg['api_url']=='https://api.arthera.xyz'

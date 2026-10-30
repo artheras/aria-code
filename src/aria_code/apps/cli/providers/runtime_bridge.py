@@ -308,7 +308,11 @@ def make_provider_fn(
     from aria_code.apps.cli.providers.base import AriaSSEProvider, ConfiguredProvider, OllamaProvider
     from aria_code.packages.aria_sdk.streaming import stream_provider_result
 
+    from aria_code.memory_manager import MemoryManager
+    account_context = MemoryManager(config=config).load_context(max_chars=1000)
     _cloud_uctx = dict(user_context or {})
+    if account_context and not system_override:
+        _cloud_uctx["account_memory"] = account_context
     if system_override:
         _cloud_uctx["system_role_override"] = system_override
 
@@ -337,7 +341,7 @@ def make_provider_fn(
             return build_turn_system_prompt(
                 task_prompt if task_prompt is not None else prompt,
                 override=system_override,
-                project_context=str(project_context or ""),
+                project_context="\n\n".join(filter(None, [str(project_context or ""), account_context])),
             )
         except Exception:
             return system_override or ""
@@ -368,7 +372,7 @@ def make_provider_fn(
                 AriaSSEProvider(
                     api_url, model, thinking_mode=thinking_mode,
                     user_context=_cloud_uctx, auth_token=auth_token,
-                    project_context=project_context,
+                    project_context="\n\n".join(filter(None, [str(project_context or ""), account_context])),
                     use_react_gateway=bool(config.get("arthera_react_gateway")),
                     local_tools=bool(config.get("backend_local_tools")),
                 ),
