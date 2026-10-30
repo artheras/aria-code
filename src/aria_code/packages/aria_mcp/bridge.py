@@ -30,6 +30,8 @@ def default_exposures() -> List[MCPExposure]:
     """
 
     return [
+        MCPExposure("aria.warehouse.task", "agent:warehouse_navigation",
+            "Delegate a bounded simulation goal to the stateful warehouse task agent; it observes, plans, executes, replans and verifies. No hardware connection.", read_only=False),
         MCPExposure("aria.market.quote", "tool:get_market_data", "Fetch quote and technical market snapshot."),
         MCPExposure("aria.agent.team", "agent:team", "Run multi-agent financial research."),
         MCPExposure("aria.report.generate", "tool:report_generate", "Fetch data + generate a full HTML research report artifact for a symbol.", read_only=False),

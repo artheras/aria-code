@@ -65,7 +65,10 @@ MCP_PROTOCOL_VERSION = "2024-11-05"
 # actually consume the arguments).
 # ---------------------------------------------------------------------------
 
+from aria_code.agents.warehouse.task_agent import SCHEMA as WAREHOUSE_SCHEMA, WAREHOUSE_AGENT
+
 _INPUT_SCHEMAS: Dict[str, Dict[str, Any]] = {
+    "aria.warehouse.task": WAREHOUSE_SCHEMA,
     "aria.risk.assess": {
         "type": "object",
         "properties": {
@@ -446,6 +449,7 @@ _INPUT_SCHEMAS: Dict[str, Dict[str, Any]] = {
 # _call_broker_confirm_order and the module docstring). Every other
 # non-read_only exposure stays blocked by default — see _build_tools().
 _WRITE_SAFE = {
+    "aria.warehouse.task",  # simulation state only; native executor has no hardware mode
     "aria.broker.preview_order", "aria.broker.confirm_order",
     "aria.report.chart", "aria.report.indicator_chart", "aria.report.comparison_chart",
     "aria.report.allocation_chart", "aria.report.pdf",
@@ -1496,7 +1500,14 @@ async def _call_project_commands(args: Dict[str, Any]) -> Dict[str, Any]:
     return {"success": True, "root": str(root), "commands": detect_commands(root)}
 
 
+async def _call_warehouse_task(args: Dict[str, Any]) -> Dict[str, Any]:
+    import asyncio
+    public = {k: v for k, v in args.items() if not k.startswith("_")}
+    return await asyncio.to_thread(WAREHOUSE_AGENT.handle, {**public, "_warehouse_scope": "mcp-stdio-connection"})
+
+
 _HANDLERS: Dict[str, Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]] = {
+    "aria.warehouse.task": _call_warehouse_task,
     "aria.risk.assess": _call_risk_assess,
     "aria.contract.check": _call_contract_check,
     "aria.project.impact": _call_project_impact,
@@ -1555,7 +1566,7 @@ def _build_tools() -> List[Dict[str, Any]]:
     _WRITE_SAFE is a deliberate, individually-justified code change, not a
     side effect of editing the exposure list.
     """
-    from packages.aria_mcp.bridge import default_exposures
+    from aria_code.packages.aria_mcp.bridge import default_exposures
 
     tools = []
     for exposure in default_exposures():

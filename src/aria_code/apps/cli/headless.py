@@ -176,6 +176,8 @@ class HeadlessMixin:
                 # This method runs on aria_cli's names; these two live here.
                 from aria_code.apps.cli.headless import _apply_approval_decision, _headless_approval
 
+                import uuid
+                _headless_scope = str(getattr(self, "session_id", "") or uuid.uuid4())
                 _turn = await run_chat_via_runtime(
                     prompt=prompt, history=[],
                     local_tools=LOCAL_TOOLS, tool_schemas=LOCAL_TOOL_SCHEMAS,
@@ -202,6 +204,7 @@ class HeadlessMixin:
                     on_tool_result=events.tool_completed,
                     on_token=events.text_delta if events.streaming else None,
                     on_status=events.status if events.streaming else None,
+                    execution_context=lambda: {"_session_id": _headless_scope},
                     return_result=True,
                 )
                 _tools_used = list(getattr(_turn.final, "tools", []) or [])
