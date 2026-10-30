@@ -41,6 +41,8 @@ class ToolExecutor:
         self, tool_name: str, params: dict, *, approval: ApprovalDecision | None = None
     ) -> dict:
         """Execute a local tool synchronously."""
+        if "_agent_allowed_tools" in self.config and tool_name not in self.config["_agent_allowed_tools"]:
+            return {"success": False, "error": "Tool is outside this agent role’s allowed capabilities."}
         if self.config.get("_conversation_only"):
             return {"success": False, "error": "This is a standalone conversational request. Reply directly without tools or file inspection."}
         if tool_name not in self.local_tools:
@@ -66,9 +68,15 @@ class ToolExecutor:
 
     async def execute(self, tool_name: str, params: dict) -> dict:
         """Execute a tool asynchronously, using remote executor when needed."""
+        if "_agent_allowed_tools" in self.config and tool_name not in self.config["_agent_allowed_tools"]:
+            return {"success": False, "error": "Tool is outside this agent role’s allowed capabilities."}
         if self.config.get("_conversation_only"):
             return {"success": False, "error": "This is a standalone conversational request. Reply directly without tools or file inspection."}
         if tool_name in self.local_tools:
+            # Scheduler operations must remain on the active event loop. A worker
+            # thread cannot create a durable background coroutine on this loop.
+            if tool_name in {"spawn_task", "task_cancel", "task_status", "task_result", "task_list", "list_agents"}:
+                return self.execute_local(tool_name, params)
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(None, self.execute_local, tool_name, params)
         if self.remote_executor is None:
@@ -139,7 +147,7 @@ class ToolExecutor:
                 prepared.pop(key, None)
         workspace_tools = {"read_file", "write_file", "edit_file", "multi_edit", "list_files",
                            "search_code", "glob", "analyze_file", "notebook_read", "notebook_edit",
-                           "apply_patch", "run_command", "github"}
+                           "apply_patch", "run_command", "github", "spawn_task"}
         context = {
             "_workspace": self.config.get("_session_workspace_root") or self.config.get("workspace_root") or str(Path.cwd()),
             "_allowed_read_roots": [*(self.config.get("read_roots") or ()), *(self.config.get("_session_read_roots") or ())],
@@ -167,6 +175,8 @@ class ToolExecutor:
             if tool_name in {"write_file", "edit_file", "multi_edit", "notebook_edit"}:
                 if approval is not None and approval.approved:
                     prepared["_skip_confirm"] = True
+        if tool_name == "spawn_task":
+            prepared["_parent_permission_mode"] = self.config.get("permission_mode", "workspace-write")
         if tool_name == "warehouse_task":
             # Tool arguments cannot select another conversation or permission mode.
             session = context.get("_session_id") or self.config.get("last_session_id")
