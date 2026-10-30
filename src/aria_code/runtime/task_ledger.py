@@ -2,8 +2,8 @@
 
 The live scheduler intentionally remains in-memory, but an agent task must not
 disappear merely because the CLI is restarted.  This small JSON ledger records
-the user-visible task contract, state, handoff and evidence.  It contains no
-credentials and is safe to inspect locally.
+the user-visible task contract, state, handoff and evidence. Runtime credentials
+are not added, but user-provided task context may be sensitive; keep it private.
 """
 
 from __future__ import annotations
