@@ -137,6 +137,7 @@ def build_acceptance_gate(executor, config: Optional[dict] = None, message: str 
         max_attempts=int(cfg.get("acceptance_max_attempts", 2) or 2),
         commands=_declared_acceptance_commands(cfg, message),
         baseline=_build_baseline(executor, cfg, timeout),
+        revision_inputs=cfg.get("acceptance_revision_inputs") or (),
     )
 
 
@@ -582,3 +583,4 @@ async def run_subagent_turn(prompt: str, task: Any, *, local_tools, tool_schemas
             (not getattr(final, "success", False) or (getattr(final, "acceptance", None) or {}).get("verified") is False))):
         raise RuntimeError("The delegated runtime did not complete with accepted execution")
     return str(getattr(result, "text", "") or "")
+

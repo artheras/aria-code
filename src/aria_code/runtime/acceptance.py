@@ -43,6 +43,7 @@ Three constraints keep it from becoming a tax:
 from __future__ import annotations
 
 import inspect
+import hashlib
 import re
 import time
 from dataclasses import dataclass, field, replace
@@ -245,6 +246,8 @@ class AcceptanceReport:
     reason: str = ""
     paths: tuple[str, ...] = ()
     attempts_remaining: int = 0
+    revision_status: str = "not_recorded"
+    revision_paths: tuple[tuple[str, str, str], ...] = ()
 
     @property
     def ran(self) -> bool:
@@ -262,7 +265,8 @@ class AcceptanceReport:
         A gate that reports "verified" without running anything is worse than
         no gate: it launders an unchecked claim into a checked-looking one.
         """
-        return self.ran and all(check.passed for check in self.checks if not check.unavailable)
+        return (self.revision_status not in {"changed_during_checks", "unavailable"}
+                and self.ran and all(check.passed for check in self.checks if not check.unavailable))
 
     @property
     def failures(self) -> tuple[CheckResult, ...]:
@@ -274,6 +278,8 @@ class AcceptanceReport:
         return any(not check.preexisting for check in self.failures)
 
     def headline(self) -> str:
+        if self.revision_status in {"changed_during_checks", "unavailable"} and not self.failures:
+            return "验收未确认：检查期间文件版本变化或无法取得安全的文件指纹"
         if not self.ran:
             if self.not_run:
                 first = self.not_run[0]
@@ -298,6 +304,10 @@ class AcceptanceReport:
         not that the model cannot fix the bug — it is that it re-announces
         completion without having looked at why the command failed.
         """
+        if self.revision_status in {"changed_during_checks", "unavailable"}:
+            return ("文件内容在检查期间变化，或无法取得安全指纹；当前结果未验证。"
+                    "先重新读取工作区并确认变更，不要覆盖用户修改。"
+                    "保留原有权限与审批，通过正常验收流程重新检查。")
         blocks: List[str] = [
             "## 验收未通过 (Acceptance check failed)",
             "",
@@ -346,6 +356,8 @@ class AcceptanceReport:
             "reason": self.reason,
             "paths": list(self.paths),
             "checks": [check.summary() for check in self.checks],
+            "revision_status": self.revision_status,
+            "revision_paths": [dict(path=p, state=s, sha256=h or None) for p, s, h in self.revision_paths],
         }
 
 
@@ -402,6 +414,7 @@ class AcceptanceGate:
         enabled: bool = True,
         commands: Optional[Sequence[str]] = None,
         baseline: Any = None,
+        revision_inputs: Sequence[str] = (),
     ) -> None:
         self.root = Path(root).expanduser()
         # ``runtime.baseline.Baseline``: reruns a failed check on the code as
@@ -421,6 +434,30 @@ class AcceptanceGate:
         self.reports: List[AcceptanceReport] = []
         self._pending: List[str] = []
         self._all_paths: List[str] = []
+        if (not isinstance(revision_inputs, (tuple, list)) or len(revision_inputs) > 64
+                or any(not isinstance(p, str) or not p or len(p) > 512 for p in revision_inputs)):
+            raise ValueError("revision_inputs must contain at most 64 bounded paths")
+        self.revision_inputs = tuple(revision_inputs)
+
+    def _revision(self, paths: Sequence[str]) -> tuple[tuple[str, str, str], ...] | None:
+        """Bounded content snapshots, not an atomic Git/dependency revision."""
+        from .task_verification import _read_file, relative_path
+        if not paths or len(paths) > 64:
+            return None
+        snapshots = []
+        try:
+            root = self.root.resolve(strict=True)
+            for value in paths:
+                path = Path(value)
+                name = relative_path(str(path.relative_to(root)) if path.is_absolute() else value)
+                try:
+                    digest = hashlib.sha256(_read_file(str(root), name)).hexdigest()
+                    snapshots.append((name, "file", digest))
+                except FileNotFoundError:
+                    snapshots.append((name, "absent", ""))
+        except (OSError, ValueError, TypeError):
+            return None
+        return tuple(snapshots)
 
     # ── arming ────────────────────────────────────────────────────────────
 
@@ -520,6 +557,8 @@ class AcceptanceGate:
         self.attempts += 1
 
         commands, reason = self._plan(paths)
+        bound_paths = tuple(dict.fromkeys((*paths, *self.revision_inputs)))
+        before = self._revision(bound_paths)
         checks: List[CheckResult] = []
         for command in commands:
             check = await self._run_one(command)
@@ -533,12 +572,17 @@ class AcceptanceGate:
         if self.baseline is not None:
             checks = [await self._against_baseline(check) for check in checks]
 
+        after = self._revision(bound_paths)
+        revision_status = ("unavailable" if before is None or after is None else
+                           "current" if before == after else "changed_during_checks")
         report = AcceptanceReport(
             attempt=self.attempts,
             checks=tuple(checks),
             reason=reason,
             paths=paths,
             attempts_remaining=max(0, self.max_attempts - self.attempts),
+            revision_status=revision_status,
+            revision_paths=after or (),
         )
         self.reports.append(report)
         return report
@@ -556,11 +600,21 @@ class AcceptanceGate:
         to prevent.
         """
         last = self.reports[-1] if self.reports else None
+        freshness = "not_checked"
+        if last is not None:
+            if last.revision_status != "current":
+                freshness = last.revision_status
+            else:
+                current = self._revision(tuple(p for p, _, _ in last.revision_paths))
+                freshness = ("unavailable" if current is None else
+                             "current" if current == last.revision_paths else "stale")
         verified: Optional[bool] = None
         if last is not None and last.ran:
             verified = last.passed and not self.armed
             if verified and last.not_run:
                 verified = None  # what could run passed, but part of the plan did not run
+            if freshness != "current" and not last.failures:
+                verified = None
         return {
             "verified": verified,
             # False when the checks are red only where they were red before
@@ -570,5 +624,9 @@ class AcceptanceGate:
             "paths": list(self._all_paths),
             "reports": [report.summary() for report in self.reports],
             "pending_paths": list(self._pending),
-            "headline": "改动后尚未重新验收" if self.armed else (last.headline() if last is not None else ""),
+            "revision_freshness": freshness,
+            "revision_scope": "latest_check_paths_and_host_inputs_content_only",
+            "headline": ("改动后尚未重新验收" if self.armed else
+                         "文件内容变化或指纹不可用，需重新验收" if freshness not in {"current", "not_checked"} and not last.failures else
+                         last.headline() if last is not None else ""),
         }

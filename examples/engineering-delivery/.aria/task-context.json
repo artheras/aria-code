@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "entries": [{
+    "id": "engineering_delivery",
+    "kind": "skill",
+    "path": "ENGINEERING.md",
+    "description": "Use inspectable engineering decisions, declared acceptance, bounded repair, independent review and evidence-based delivery.",
+    "roles": ["explorer", "planner", "implementer", "reviewer", "writer"],
+    "auto": true
+  }]
+}
