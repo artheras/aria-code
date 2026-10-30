@@ -4,6 +4,40 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.165.0] — 2026-10-30
+
+- Merge pull request #256 from artheras/feat/scoped-task-context
+- Merge pull request #255 from artheras/feat/task-evidence-verification
+- Preserve verified task context tree on resolved task acceptance baseline
+- Resolve stacked integration against main with verified identical source tree
+- Merge pull request #254 from artheras/feat/general-task-agents
+- Merge verified main baseline into feat/general-task-agents
+- Refresh integration checks against main
+- Merge verified main baseline into feat/scoped-task-context
+- Merge verified main baseline into feat/task-evidence-verification
+- Merge pull request #253 from artheras/feat/warehouse-task-agent
+- Pin frozen-resource CI to release refs and inspect actual build commands
+- Bundle warehouse schemas in frozen workers and test real resource imports
+- Supply scoped project skills and memory to delegated tasks
+- Verify delegated task predicates with host receipts and artifact read-back
+- Add domain-neutral task roles and enforce bounded delegation
+- Clarify action-specific task parameters and recoverable errors
+- Add goal-directed warehouse task agent with native execution and conversation isolation
+- Fix task isolation and financial recovery; add Nebius inventory workflow (#251)
+- Add native navigation simulation with guarded actions and migration audit
+- Use generic inventory runtime directory names
+- Keep public Nebius integration focused on service code
+- Fix prompt and Rust CI regressions; add verified Nemotron demo with bounded repair
+- Add period-aligned SEC annual statement fallback and source diagnostics
+- Record native build and capability regression results
+- Route capability questions without financial evidence or file scans
+- Run runtime repair validation
+- Fix financial-source recovery and task completion on 0.164
+- Add Nebius Token Factory configuration and smoke test (#250)
+- Clarify security reporting and safe operation (#249)
+- Update README logo for light and dark themes (#248)
+- Unify browser account sign-in and cross-platform memory (#246)
+
 ## [0.164.0] — 2026-10-22
 
 - Changes what Aria may do on your computer: screen, mouse and keyboard actions now need approval, and firmware and robot commands are rated L4. Also fixes MCP calls failing on '_run_id' and Gemini's 'Requests ending with a model turn' error.
