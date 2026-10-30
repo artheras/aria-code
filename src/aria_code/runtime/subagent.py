@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from .task_ledger import TaskLedger
+from .task_context import ContextBundle, ContextError, load_context, tool_list_task_context, validate_refs
 from .task_verification import capture_baseline, validate_checks, verify_checks
 from .agent_profiles import PROFILES, get_profile, tool_list_agents
 
@@ -60,6 +61,9 @@ class SubagentTask:
     created_at: float = field(default_factory=time.time)
     completed_at: float = 0.0
     handoff: dict[str, Any] = field(default_factory=dict)
+    context_refs: list[str] = field(default_factory=list)
+    context_sources: list[dict] = field(default_factory=list)
+    _context_block: str = field(default="", repr=False)
     checks: list[dict] = field(default_factory=list)
     evidence: list[dict] = field(default_factory=list)
     evidence_truncated: bool = False
@@ -79,6 +83,8 @@ class SubagentTask:
     def to_dict(self) -> dict:
         return {
             "agent": self.agent,
+            "context_refs": self.context_refs,
+            "context_sources": self.context_sources,
             "success_criteria": self.success_criteria,
             "max_rounds": self.max_rounds,
             "timeout_seconds": self.timeout_seconds,
@@ -101,6 +107,8 @@ class SubagentTask:
         """Return the serializable task contract and latest outcome."""
         return {
             "agent": self.agent,
+            "context_refs": self.context_refs,
+            "context_sources": self.context_sources,
             "success_criteria": self.success_criteria,
             "max_rounds": self.max_rounds,
             "timeout_seconds": self.timeout_seconds,
@@ -165,6 +173,8 @@ def restore_tasks() -> int:
             max_rounds=int(record.get("max_rounds") or 30),
             timeout_seconds=int(record.get("timeout_seconds") or 300),
             context=str(record.get("context") or ""), status=status,
+            context_refs=list(record.get("context_refs") or []),
+            context_sources=list(record.get("context_sources") or []),
             result=str(record.get("result") or ""), error=error,
             mode=str(record.get("mode") or "read-only"),
             isolation=str(record.get("isolation") or "shared"),
@@ -256,19 +266,35 @@ def tool_spawn_task(params: dict) -> dict:
             "error": "workspace-write tasks require worktree isolation",
         }
 
+    workspace = str(params.get("_workspace") or params.get("_spawn_workspace") or Path.cwd())
+    session_id = str(params.get("_session_id") or "")
+    refs = params.get("context_refs", [])
+    try:
+        refs = validate_refs(refs)
+        if params.get("_task_context_enabled", True) is False:
+            if refs:
+                raise ContextError("Project task context is disabled by the host")
+            bundle = ContextBundle([])
+        else:
+            bundle = load_context(workspace, profile.name, session_id, refs)
+        if bundle.sources and backend != "aria":
+            raise ContextError("Scoped project task context currently requires the aria backend")
+    except ContextError as exc:
+        return {"success": False, "error": str(exc)}
     task_id = uuid.uuid4().hex[:8]
     task = SubagentTask(
         task_id=task_id,
         prompt=prompt,
         context=context,
         agent=profile.name, success_criteria=success_criteria,
+        context_refs=list(refs), context_sources=bundle.sources, _context_block=bundle.prompt_block,
         checks=checks, verification={"status": "pending" if checks else "not_requested", "verified": None},
         max_rounds=max_rounds, timeout_seconds=timeout_seconds,
         mode=mode,
         isolation=isolation,
         backend=backend,
-        workspace=str(params.get("_workspace") or params.get("_spawn_workspace") or Path.cwd()),
-        session_id=str(params.get("_session_id") or ""),
+        workspace=workspace,
+        session_id=session_id,
     )
     _TASKS[task_id] = task
     _persist(task)
@@ -298,6 +324,7 @@ def tool_spawn_task(params: dict) -> dict:
         "success": True,
         "task_id": task_id,
         "agent": task.agent,
+        "context_sources": task.context_sources,
         "success_criteria": task.success_criteria,
         "status": task.status,
         "mode": task.mode,
@@ -334,6 +361,8 @@ async def _run_task(task: SubagentTask) -> None:
 
         task.verification_baseline = capture_baseline(task.workspace, task.checks)
         full_prompt = task.prompt
+        if task._context_block:
+            full_prompt = f"{task._context_block}\n\n[Delegated user task]\n{full_prompt}"
         if task.context:
             full_prompt = f"{task.context}\n\n{task.prompt}"
         execution_contract = (
@@ -415,6 +444,7 @@ def tool_task_status(params: dict) -> dict:
         "success": True,
         "task_id": task_id,
         "agent": task.agent,
+        "context_sources": task.context_sources,
         "success_criteria": task.success_criteria,
         "status": task.status,
         "verified": task.verification.get("verified"),
@@ -452,6 +482,7 @@ def tool_task_result(params: dict) -> dict:
         "error": "Declared acceptance checks did not pass" if task.verification.get("verified") is False else None,
         "task_id": task_id,
         "agent": task.agent,
+        "context_sources": task.context_sources,
         "success_criteria": task.success_criteria,
         "status": task.status,
         "verified": task.verification.get("verified"),
@@ -601,6 +632,7 @@ def apply_task_worktree(task_id: str, *, cleanup: bool = True) -> dict:
 # ── Tool registry (added to LOCAL_TOOLS in aria_cli.py) ───────────────────────
 
 SUBAGENT_TOOLS = {
+    "list_task_context": (tool_list_task_context, "Discover eligible project skill/memory metadata for a target role"),
     "list_agents": (tool_list_agents, "Discover general-purpose task roles, limits and tool policies"),
     "spawn_task":    (tool_spawn_task,   "Spawn a background sub-task; returns task_id"),
     "task_status":   (tool_task_status,  "Check status of a background task by task_id"),
@@ -610,6 +642,7 @@ SUBAGENT_TOOLS = {
 }
 
 SUBAGENT_SCHEMAS = [
+    {"name": "list_task_context", "description": "List project-local skill and memory IDs eligible for the planned target agent. Returns descriptions, not source contents; does not scan user/global memory. Select IDs through spawn_task.context_refs.", "parameters": {"type": "object", "properties": {"agent": {"type": "string", "enum": list(PROFILES)}}, "additionalProperties": False}},
     {"name": "list_agents", "description": "Discover task roles for exploration, planning, research, implementation, review, data inspection and writing. Does not start tasks or connect services.", "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
     {
         "name": "spawn_task",
@@ -618,6 +651,7 @@ SUBAGENT_SCHEMAS = [
             "type": "object",
             "properties": {
                 "agent": {"type": "string", "enum": list(PROFILES), "description": "Use explorer for sources, planner for plans, researcher for sourced research, implementer for changes, reviewer for independent review, data_analyst for datasets, writer for documents. general is the fallback. Specialized roles use aria."},
+                "context_refs": {"type": "array", "items": {"type": "string"}, "maxItems": 8, "description": "Project skill/memory IDs from list_task_context for this agent. Do not pass paths, global memories or session IDs. Only project-declared auto entries load without explicit IDs."},
                 "checks": {"type": "array", "maxItems": 16, "items": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["artifact", "tool", "command"]}, "path": {"type": "string"}, "format": {"type": "string", "enum": ["binary", "text", "json", "csv"]}, "min_bytes": {"type": "integer", "minimum": 0, "maximum": 1048576}, "min_rows": {"type": "integer", "minimum": 0, "maximum": 10000}, "required_keys": {"type": "array", "items": {"type": "string"}, "maxItems": 32}, "contains": {"type": "string", "maxLength": 256}, "sha256": {"type": "string"}, "changed": {"type": "boolean"}, "tool": {"type": "string"}, "command": {"type": "string"}, "cwd": {"type": "string"}}, "required": ["kind"], "additionalProperties": False}, "description": "Declared acceptance predicates: artifact(path, optional format/min_bytes/required_keys/min_rows/contains/sha256/changed), tool(tool, optional path), command(command, optional cwd). Paths are workspace-relative. Commands are matched to actual executor receipts, never run by this verifier. Checks verify only their predicates, not every aspect of the user goal."},
                 "success_criteria": {"type": "string", "description": "Observable acceptance conditions; a completion message alone is not evidence."},
                 "max_rounds": {"type": "integer", "minimum": 1, "maximum": 30},
@@ -627,7 +661,7 @@ SUBAGENT_SCHEMAS = [
                 "mode": {
                     "type": "string",
                     "enum": ["read-only", "workspace-write"],
-                    "description": "Use workspace-write only when the subagent must edit code. Default: read-only.",
+                    "description": "Use workspace-write only for requested file changes or checks requiring writes. A draft returned in chat is read-only. Default: read-only.",
                 },
                 "isolation": {
                     "type": "string",

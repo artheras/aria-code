@@ -398,7 +398,8 @@ def make_provider_fn(
                 import aria_cli  # noqa: F401  (side effect: rebinds stream_ollama)
 
             selected = (
-                OllamaProvider(ollama_url, model, system_override=system_override)
+                OllamaProvider(ollama_url, model, system_override=system_override,
+                               **({"include_ambient_context": False} if config.get("_delegate_context_only") else {}))
                 if route == "ollama" else
                 ConfiguredProvider(config, model, system_override=_system_for(prompt))
             )
@@ -516,6 +517,7 @@ def subagent_run_options(config: dict, task: Any) -> tuple[dict, dict]:
     task's tools to the session's directory, whatever the task said.
     """
     cfg = dict(config or {})
+    cfg["_delegate_context_only"] = True
     mode = str(getattr(task, "mode", "") or "read-only")
     if mode != "read-only" and cfg.get("permission_mode") in _READ_ONLY_MODES:
         raise PermissionError("A child cannot exceed the parent permission mode")
@@ -538,7 +540,7 @@ async def run_subagent_turn(prompt: str, task: Any, *, local_tools, tool_schemas
     cfg, context = subagent_run_options(config, task)
     from aria_code.runtime.agent_profiles import get_profile
     profile = get_profile(str(getattr(task, "agent", "general")))
-    delegation = {"spawn_task", "task_cancel", "task_status", "task_result", "task_list", "list_agents"}
+    delegation = {"spawn_task", "task_cancel", "task_status", "task_result", "task_list", "list_agents", "list_task_context"}
     allowed = set(local_tools) - delegation
     if profile.tools is not None:
         allowed.intersection_update(profile.tools)
@@ -547,6 +549,7 @@ async def run_subagent_turn(prompt: str, task: Any, *, local_tools, tool_schemas
     cfg["_agent_allowed_tools"] = sorted(allowed)
     tools = {name: value for name, value in local_tools.items() if name in allowed}
     schemas = [s for s in tool_schemas if (s.get("function") or s).get("name") in allowed]
+    from aria_code.runtime.task_context import CONTEXT_POLICY
     from aria_code.runtime.task_verification import MAX_RECEIPTS, receipt_from_record
 
     def record_evidence(record):
@@ -570,7 +573,7 @@ async def run_subagent_turn(prompt: str, task: Any, *, local_tools, tool_schemas
                          "Never delegate, publish, send messages, deploy or claim unexecuted checks. "
                          "End with FINDINGS: ...; CHANGED_FILES: ...; VERIFICATION: ...; BLOCKERS: ... . "
                          "Report actual source locations and executed checks; say when checks were not run.\n"
-                         + profile.instructions),
+                         + CONTEXT_POLICY + profile.instructions),
     )
     if getattr(result, "error", None):
         raise RuntimeError(str(result.error))
