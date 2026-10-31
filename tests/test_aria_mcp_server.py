@@ -686,7 +686,7 @@ def test_governance_tools_refuse_a_root_outside_the_workspace_and_home(tmp_path,
 async def test_tool_errors_do_not_send_the_traceback_to_the_client(monkeypatch, capsys):
     import json as _json
 
-    from aria_code.packages.aria_mcp import server as srv
+    import aria_code.packages.aria_mcp.server as srv
 
     name = sorted(srv._TOOL_NAMES)[0]
 
