@@ -14,6 +14,14 @@ services:
     - FEISHU_APP_ID=${FEISHU_APP_ID}
     - FEISHU_APP_SECRET=${FEISHU_APP_SECRET}
     - RELAY_SECRET=${RELAY_SECRET:-}
+    # Both relays reject Feishu events they cannot verify; without one of
+    # these every event is refused.
+    - FEISHU_VERIFICATION_TOKEN=${FEISHU_VERIFICATION_TOKEN:-}
+    - FEISHU_ENCRYPT_KEY=${FEISHU_ENCRYPT_KEY:-}
+    # sqlite on the relay-data volume by default; firestore for multi-instance.
+    - RELAY_STORE=${RELAY_STORE:-sqlite}
+    - RELAY_FIRESTORE_PROJECT=${RELAY_FIRESTORE_PROJECT:-}
+    - RELAY_FIRESTORE_DATABASE=${RELAY_FIRESTORE_DATABASE:-}
     - DB_PATH=/data/relay.db
     - MESSAGE_TIMEOUT=90
     - PORT=8765

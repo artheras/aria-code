@@ -58,6 +58,10 @@ def summarise(reports: list[dict], model: str = "", private: list[dict] | None =
             mean, sem, n = stats
             lines.append(f"Mean task pass rate {mean:.0%} ± {sem:.0%} (SEM over {n} task{'s' if n != 1 else ''}).")
         extras = [f"{report[k]} {k}" for k in ("errored", "invalid") if report.get(k)]
+        if report.get("timed_out"):
+            # Timeouts are ERROR and drop out of the rate; say how many, or a
+            # suite where most attempts timed out reads like a high score.
+            extras.append(f"{report['timed_out']} of the errors timed out")
         if extras:
             lines.append(f"Not scored: {', '.join(extras)}.")
         unhealthy += int(report.get("errored", 0)) + int(report.get("invalid", 0))

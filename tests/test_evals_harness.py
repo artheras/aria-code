@@ -748,3 +748,209 @@ class FinishedButRedTests(HarnessBase):
         _fixture(self.fixtures, "broken", {"check.py": _GUARD})
         solved = lambda p, w: (Path(w) / "fixed.txt").write_text("x") or self._ended(1, "checks_failed")  # noqa: E731
         self.assertEqual(self._run(self._task(), solved).outcome, PASS)
+
+
+class PlantedFileTests(HarnessBase):
+    """Adding a file that changes how the check runs is not solving the task."""
+
+    def _solver_writing(self, rel, body="x = 1\n"):
+        def solve(prompt, workspace):
+            target = workspace / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(body, encoding="utf-8")
+            (workspace / "fixed.txt").write_text("x", encoding="utf-8")
+        return solve
+
+    def test_new_files_that_steer_the_check_fail_the_trial(self):
+        for rel in ("conftest.py", "sub/conftest.py", "pytest.ini", "pyproject.toml",
+                    "setup.cfg", "tox.ini", "sitecustomize.py", "usercustomize.py",
+                    "evil.pth", "pytest.py", "tests/pytest.py", "_pytest/__init__.py",
+                    "json.py", "unittest/__init__.py"):
+            with self.subTest(rel=rel):
+                _fixture(self.fixtures, "broken", {"check.py": _GUARD})
+                result = self._run(self._task(), self._solver_writing(rel))
+                self.assertEqual(result.outcome, FAIL, result.detail)
+                self.assertIn(rel, result.detail)
+
+    def test_ordinary_new_modules_are_allowed(self):
+        _fixture(self.fixtures, "broken", {"check.py": _GUARD})
+        result = self._run(self._task(), self._solver_writing("helpers/settlement_math.py"))
+        self.assertEqual(result.outcome, PASS, result.detail)
+
+    def test_a_task_can_declare_an_expected_new_file(self):
+        _fixture(self.fixtures, "broken", {"check.py": _GUARD})
+        task = self._task(allow_new=("pyproject.toml",))
+        result = self._run(task, self._solver_writing("pyproject.toml", "[project]\nname='x'\n"))
+        self.assertEqual(result.outcome, PASS, result.detail)
+
+    def test_editing_an_existing_config_is_left_to_protect(self):
+        # Only *added* files are refused here; existing ones are what
+        # `protect` is for.
+        _fixture(self.fixtures, "broken", {"check.py": _GUARD, "pyproject.toml": "[x]\n"})
+        result = self._run(self._task(), self._solver_writing("pyproject.toml", "[y]\n"))
+        self.assertEqual(result.outcome, PASS, result.detail)
+
+    def test_the_suite_file_declares_allow_new(self):
+        (self.root / "suite.yaml").write_text(textwrap.dedent("""
+            suite: s
+            tasks:
+              - id: a
+                prompt: p
+                verify: v
+                allow_new: ["conftest.py"]
+        """), encoding="utf-8")
+        _, tasks = load_suite(self.root / "suite.yaml")
+        self.assertEqual(tasks[0].allow_new, ("conftest.py",))
+
+
+class CouldNotRunTests(HarnessBase):
+    """An exit code the check's own code can produce is not proof it never ran."""
+
+    def test_agent_code_exiting_127_is_a_failure(self):
+        # The check imports the agent's module; the module exits 127 and
+        # prints what a shell would. Every program on the command line exists,
+        # so the code came from inside the check.
+        _fixture(self.fixtures, "broken", {
+            "check.py": "import solution\n",
+            "solution.py": "import sys\nsys.exit(1)\n",
+        })
+
+        def sabotage(prompt, workspace):
+            (workspace / "solution.py").write_text(
+                "import os, sys\nsys.stderr.write('sh: 1: pytest: command not found\\n')\n"
+                "sys.stderr.flush()\nos._exit(127)\n", encoding="utf-8")
+
+        for code in (126, 127):
+            with self.subTest(code=code):
+                def solve(prompt, workspace, code=code):
+                    sabotage(prompt, workspace)
+                    text = (workspace / "solution.py").read_text().replace("127", str(code))
+                    (workspace / "solution.py").write_text(text, encoding="utf-8")
+                result = self._run(self._task(), solve)
+                self.assertEqual(result.outcome, FAIL, result.detail)
+                self.assertEqual(result.exit_code, code)
+
+    def test_agent_code_exiting_125_is_a_failure(self):
+        _fixture(self.fixtures, "broken", {"check.py": "import solution\n",
+                                           "solution.py": "raise SystemExit(1)\n"})
+
+        def solve(prompt, workspace):
+            (workspace / "solution.py").write_text(
+                "import os\nprint('could not run command: nope')\nos._exit(125)\n", encoding="utf-8")
+
+        result = self._run(self._task(), solve)
+        self.assertEqual(result.outcome, FAIL, result.detail)
+
+    def test_a_missing_program_after_a_separator_is_still_an_error(self):
+        _fixture(self.fixtures, "broken", {"check.py": _GUARD})
+        result = self._run(self._task(verify="cd . && definitely_not_a_command_xyz"),
+                           lambda p, w: None)
+        self.assertEqual(result.outcome, ERROR)
+        self.assertIn("could not run", result.detail)
+
+    def test_a_harness_start_failure_is_still_an_error(self):
+        from unittest import mock
+
+        from aria_code.evals import harness
+
+        _fixture(self.fixtures, "broken", {"check.py": _GUARD})
+        with mock.patch.object(harness.subprocess, "run", side_effect=OSError("no fork")):
+            result = self._run(self._task(), lambda p, w: None)
+        self.assertEqual(result.outcome, ERROR)
+        self.assertIn("exit 125", result.detail)
+
+
+class TimeoutReportingTests(HarnessBase):
+    def test_timeouts_are_counted_apart_from_other_errors(self):
+        from aria_code.evals.runner import _TimedOut
+
+        _fixture(self.fixtures, "broken", {"check.py": _GUARD})
+        timed = self._run(self._task(), lambda p, w: _TimedOut(600))
+        self.assertTrue(timed.timed_out)
+        self.assertIn("ran out of time", timed.detail)
+        crashed = TaskResult(task_id="t2", outcome=ERROR, detail="solver raised: boom")
+        suite = SuiteResult(name="s", results=[timed, crashed,
+                                               TaskResult(task_id="t3", outcome=PASS)])
+        report = suite.to_dict()
+        self.assertEqual(report["errored"], 2)
+        self.assertEqual(report["timed_out"], 1)
+        self.assertEqual(report["scored"], 1)
+        self.assertTrue(report["results"][0]["timed_out"])
+        self.assertIn("1 timed out", suite.summary_line())
+
+    def test_the_summary_and_scorecard_show_timeouts(self):
+        from aria_code.evals.scorecard import model_stats
+        from aria_code.evals.summary import summarise
+
+        report = SuiteResult(name="s", results=[
+            TaskResult(task_id="a", outcome=ERROR, timed_out=True),
+            TaskResult(task_id="b", outcome=FAIL)]).to_dict()
+        self.assertEqual(model_stats({"s": report})["timed_out"], 1)
+        self.assertIn("1 of the errors timed out", summarise([report])[0])
+
+
+class UsageReportedTests(unittest.TestCase):
+    def test_an_all_zero_usage_record_is_not_reported(self):
+        suite = SuiteResult(name="s", results=[
+            TaskResult(task_id="a", outcome=PASS,
+                       usage={"model": "m", "input_tokens": 0, "output_tokens": 0}),
+            TaskResult(task_id="b", outcome=PASS,
+                       usage={"model": "m", "input_tokens": 10, "output_tokens": 2}),
+        ])
+        totals = suite.usage_totals()
+        self.assertEqual(totals["reported"], 1)
+        self.assertEqual(totals["input_tokens"], 10)
+
+
+class TrialIsolationTests(unittest.TestCase):
+    def test_each_trial_gets_its_own_home_seeded_only_with_sign_in(self):
+        import os
+        from unittest import mock
+
+        from aria_code.evals.runner import trial_home_env
+
+        with TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            real = tmp / "real-aria"
+            (real / "memory").mkdir(parents=True)
+            (real / "memory" / "notes.md").write_text("answer is 42", encoding="utf-8")
+            (real / "ARIA.md").write_text("profile", encoding="utf-8")
+            (real / "config.json").write_text("{}", encoding="utf-8")
+            with mock.patch.dict(os.environ, {"ARIA_HOME": str(real)}):
+                env = trial_home_env(tmp / "scratch" / ".home-t1")
+            home = Path(env["HOME"])
+            aria = Path(env["ARIA_HOME"])
+            self.assertTrue(str(aria).startswith(str(home)))
+            self.assertEqual(env["ARIA_CONFIG_DIR"], env["ARIA_HOME"])
+            for key in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"):
+                self.assertTrue(Path(env[key]).is_dir())
+                self.assertTrue(env[key].startswith(str(home)))
+            self.assertTrue((aria / "config.json").is_file())
+            self.assertFalse((aria / "memory").exists())
+            self.assertFalse((aria / "ARIA.md").exists())
+            # A second attempt starts from scratch: what the first wrote is gone.
+            (aria / "memory").mkdir()
+            with mock.patch.dict(os.environ, {"ARIA_HOME": str(real)}):
+                trial_home_env(home)
+            self.assertFalse((aria / "memory").exists())
+
+    def test_the_agent_subprocess_runs_with_the_trial_home(self):
+        import subprocess
+        from unittest import mock
+
+        from aria_code.evals.runner import build_agent_solver
+
+        seen = {}
+
+        def fake_run(command, **kwargs):
+            seen.update(kwargs["env"])
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "t1"
+            workspace.mkdir()
+            with mock.patch("subprocess.run", fake_run):
+                build_agent_solver()("p", workspace)
+        self.assertEqual(seen["HOME"], str(Path(tmp) / ".home-t1"))
+        self.assertTrue(seen["ARIA_HOME"].startswith(seen["HOME"]))
+        self.assertIn("PATH", seen)

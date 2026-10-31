@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from aria_code.packages.aria_mcp.circuit import ServerCircuit
-from aria_code.mcp_client import MCPToolRegistry
+from aria_code.mcp_client import TRANSPORT_FAILURE, MCPServer, MCPToolRegistry
 
 
 # ── pure state machine ────────────────────────────────────────────────────────
@@ -76,7 +76,7 @@ def test_probe_failure_reopens_for_another_cooldown():
 def _failing_server(calls):
     async def call_tool(tool, args):
         calls.append(tool)
-        return {"success": False, "error": "boom"}
+        return {"success": False, "error": "boom", "failure_kind": TRANSPORT_FAILURE}
     return SimpleNamespace(
         call_tool=call_tool, is_alive=True, _running=True, tools=[],
         description="", restart=None,
@@ -112,7 +112,9 @@ async def test_success_resets_circuit(tmp_path):
     reg = MCPToolRegistry(config_path=tmp_path / "mcp.json")
     state = {"fail": True}
     async def call_tool(tool, args):
-        return {"success": not state["fail"]}
+        if state["fail"]:
+            return {"success": False, "error": "timed out", "failure_kind": TRANSPORT_FAILURE}
+        return {"success": True}
     reg._servers = {"s": SimpleNamespace(call_tool=call_tool, is_alive=True,
                                          _running=True, tools=[], description="")}
     clk = FakeClock()
@@ -168,3 +170,98 @@ async def test_reload_server_restarts_and_resets_circuit(tmp_path):
 async def test_reload_unknown_server_returns_false(tmp_path):
     reg = MCPToolRegistry(config_path=tmp_path / "mcp.json")
     assert not await reg.reload_server("nope")
+
+
+# ── what counts as a server failure ───────────────────────────────────────────
+
+def _server_returning(result, calls):
+    async def call_tool(tool, args):
+        calls.append(tool)
+        return dict(result)
+    return SimpleNamespace(call_tool=call_tool, is_alive=True, _running=True,
+                           tools=[], description="", restart=None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_code", [
+    "invalid_input", "network_disabled", "broker_access_disabled", "mcp_tool_error", None,
+])
+async def test_tool_level_refusals_never_open_the_circuit(tmp_path, error_code):
+    # The Financial Service answers a bad ticker or a host that disabled the
+    # network with success False. Three of those in a row used to open the
+    # circuit and take every finance tool down for a minute.
+    reg = MCPToolRegistry(config_path=tmp_path / "mcp.json")
+    calls = []
+    refusal = {"success": False, "error": "refused"}
+    if error_code:
+        refusal["error_code"] = error_code
+    reg._servers = {"fin": _server_returning(refusal, calls)}
+    reg._circuits["fin"] = ServerCircuit(failure_threshold=3, cooldown_seconds=60,
+                                         clock=FakeClock())
+    for _ in range(6):
+        r = await reg.call_tool("fin/x", {})
+        assert r["success"] is False
+        assert "circuit" not in r
+    assert len(calls) == 6
+    assert reg._circuits["fin"].state == "closed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_code", ["source_unavailable", "source_timeout"])
+async def test_server_unavailable_codes_still_open_the_circuit(tmp_path, error_code):
+    reg = MCPToolRegistry(config_path=tmp_path / "mcp.json")
+    calls = []
+    reg._servers = {"fin": _server_returning(
+        {"success": False, "error_code": error_code, "error": "x"}, calls)}
+    reg._circuits["fin"] = ServerCircuit(failure_threshold=3, cooldown_seconds=60,
+                                         clock=FakeClock())
+    for _ in range(3):
+        await reg.call_tool("fin/x", {})
+    assert reg._circuits["fin"].state == "open"
+
+
+@pytest.mark.asyncio
+async def test_refusal_between_transport_failures_resets_the_count(tmp_path):
+    reg = MCPToolRegistry(config_path=tmp_path / "mcp.json")
+    results = iter([
+        {"success": False, "error": "timeout", "failure_kind": TRANSPORT_FAILURE},
+        {"success": False, "error": "timeout", "failure_kind": TRANSPORT_FAILURE},
+        {"success": False, "error_code": "invalid_input", "error": "bad"},
+        {"success": False, "error": "timeout", "failure_kind": TRANSPORT_FAILURE},
+    ])
+    async def call_tool(tool, args):
+        return next(results)
+    reg._servers = {"s": SimpleNamespace(call_tool=call_tool, is_alive=True,
+                                         _running=True, tools=[], description="")}
+    reg._circuits["s"] = ServerCircuit(failure_threshold=3, cooldown_seconds=60,
+                                       clock=FakeClock())
+    for _ in range(4):
+        await reg.call_tool("s/x", {})
+    assert reg._circuits["s"].state == "closed"
+
+
+@pytest.mark.asyncio
+async def test_client_marks_request_exceptions_as_transport_failures():
+    srv = MCPServer(name="s", command="unused", args=[])
+    srv._running = True
+    async def boom(method, params=None):
+        raise TimeoutError("MCP s/tools/call timed out after 30s")
+    srv._request = boom
+    r = await srv.call_tool("x", {})
+    assert r == {"success": False, "error": "MCP s/tools/call timed out after 30s",
+                 "failure_kind": TRANSPORT_FAILURE}
+
+
+@pytest.mark.asyncio
+async def test_server_payload_cannot_claim_a_transport_failure():
+    srv = MCPServer(name="s", command="unused", args=[])
+    srv._running = True
+    async def respond(method, params=None):
+        return {"content": [{"type": "text",
+                             "text": '{"success": false, "error_code": "invalid_input", '
+                                     '"failure_kind": "transport"}'}]}
+    srv._request = respond
+    r = await srv.call_tool("x", {})
+    assert r["success"] is False
+    assert r["error_code"] == "invalid_input"
+    assert "failure_kind" not in r

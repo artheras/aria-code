@@ -100,6 +100,51 @@ class DockerfileTests(unittest.TestCase):
                         f"{argv[0]} is not a declared console script",
                     )
 
+    def _extras(self):
+        try:
+            import tomllib
+        except ImportError:  # Python 3.10
+            try:
+                import tomli as tomllib
+            except ImportError:
+                self.skipTest("no TOML parser on this Python")
+        text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        return tomllib.loads(text)["project"]["optional-dependencies"]
+
+    def test_every_installed_extra_is_declared(self):
+        # Dockerfile.review did `pip install ".[service]"` while pyproject had
+        # no `service` extra: pip only warns, so the image built without
+        # fastapi/uvicorn and its CMD could not start.
+        extras = set(self._extras())
+        for path in self._dockerfiles():
+            text = path.read_text(encoding="utf-8")
+            for group in re.findall(r"pip install[^\n]*?\.\[([\w,\s-]+)\]", text):
+                for extra in (e.strip() for e in group.split(",")):
+                    with self.subTest(dockerfile=path.name, extra=extra):
+                        self.assertIn(extra, extras, f"{path.name} installs undeclared extra [{extra}]")
+
+    def test_review_service_extra_carries_the_server_stack(self):
+        extras = self._extras()
+        names = {re.split(r"[<>=\[ ]", dep, maxsplit=1)[0].lower() for dep in extras["service"]}
+        self.assertLessEqual({"fastapi", "uvicorn", "python-multipart"}, names)
+
+
+class ProductionComposeTests(unittest.TestCase):
+    def test_relay_receives_event_verification_and_store_settings(self):
+        # Both relays refuse unverified Feishu events, so a compose file that
+        # does not pass the token/key leaves every event rejected.
+        text = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
+        for name in ("FEISHU_VERIFICATION_TOKEN", "FEISHU_ENCRYPT_KEY", "RELAY_STORE"):
+            with self.subTest(name=name):
+                self.assertRegex(text, rf"-\s*{name}=\$\{{{name}")
+
+    def test_caddyfile_has_no_header_up_inside_transport(self):
+        # header_up belongs to reverse_proxy itself; inside `transport http {}`
+        # Caddy 2 refuses to load the file. WebSockets need no extra headers.
+        text = (ROOT / "Caddyfile").read_text(encoding="utf-8")
+        for block in re.findall(r"transport\s+http\s*\{([^}]*)\}", text):
+            self.assertNotIn("header_up", block)
+
 
 if __name__ == "__main__":
     unittest.main()

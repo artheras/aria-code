@@ -7,28 +7,28 @@ tasks:
   - id: fix-failing-test
     prompt: "这个项目的测试挂了，找出原因并修好。不要修改测试文件。"
     fixture: fix_failing_test
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [software, python, easy]
 
   - id: off-by-one
     prompt: "page_count 在最后一页不满的时候算错了，而且 per_page 为 0 时没有拒绝。修好 paginate.py，不要改测试。"
     fixture: off_by_one
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [software, python]
 
   - id: missing-arg-validation
     prompt: "transfer() 缺少输入校验：透支、负数金额、未知账户都应该被拒绝，而且不能修改传入的 balances。按测试的要求补齐 transfer.py。"
     fixture: missing_arg_validation
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [software, python]
 
   - id: reconcile-waybills
     prompt: "承运商对账脚本漏算了燃油附加费，导致把正常计费的运单也报成异常。按 test_reconcile.py 里写明的合同计费规则修好 reconcile.py，不要改测试。"
     fixture: reconcile_waybills
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     # The CSVs are the question, not the answer. An agent that edits the
     # invoice until it matches has not fixed the reconciliation — it has
@@ -41,28 +41,28 @@ tasks:
   - id: stripe-refund-validation
     prompt: "net_settlement() 会接受任何退款记录，包括不属于本期的收款和超过原收款金额的退款。按测试补上校验。"
     fixture: stripe_refund_totals
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [payments, finance]
 
   - id: cross-file-cause
     prompt: "金牌客户的发票金额变成了负数。找出根因修好，不要改测试。"
     fixture: cross_file_cause
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [software, python, payments]
 
   - id: naive-fix-regresses
     prompt: "LRUCache 淘汰的不是最久没用的那个键。修好 cache.py，让 test_cache.py 全部通过，不要改测试。"
     fixture: naive_fix_regresses
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [software, python]
 
   - id: silent-data-corruption
     prompt: "按线路汇总的保险敞口数字看着对，但排名不对。查清 exposure.py 的问题并修好，不要改测试和数据。"
     fixture: silent_data_corruption
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     protect: ["test_*.py", "*.csv"]
     tags: [logistics, finance, numeracy]
@@ -70,42 +70,42 @@ tasks:
   - id: csv-quoted-fields
     prompt: "商城导出的订单 CSV 导入后字段错位：客户名里的逗号、商品名里的引号、多行备注都会出错。修好 orders.py，不要改测试。"
     fixture: csv_quoted_fields
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [software, python]
 
   - id: shared-default-state
     prompt: "打包台上前一个包裹单的包裹会出现在下一个包裹单里。修好 shipment.py，不要改测试。"
     fixture: shared_default_state
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [software, python, logistics]
 
   - id: retry-transient-only
     prompt: "with_retries() 连参数错误也会重试，最后还把真正的错误吞掉换成 RuntimeError。按 docstring 和测试修好 fetch.py。"
     fixture: retry_transient_only
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [software, python]
 
   - id: allocate-cents
     prompt: "allocate() 按比例分摊结算金额，分出来的各份加起来经常不等于总额。按 docstring 和测试修好 allocate.py。"
     fixture: allocate_cents
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [payments, finance, numeracy]
 
   - id: drawdown-running-peak
     prompt: "月报里的最大回撤和年化收益算得不对。修好 perf.py，不要改测试。"
     fixture: drawdown_running_peak
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [finance, numeracy]
 
   - id: fifo-cost-basis
     prompt: "税务包要求按先进先出（FIFO）计算已实现盈亏，lots.py 算出来的数不对。修好它，不要改测试和交易数据。"
     fixture: fifo_cost_basis
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     protect: ["test_*.py", "*.csv"]
     tags: [finance, tax, numeracy]
@@ -113,14 +113,14 @@ tasks:
   - id: dim-weight-billing
     prompt: "我们的报价和快递公司账单对不上，大约一半包裹报低了。按承运商的计费规则修好 rating.py，不要改测试。"
     fixture: dim_weight_billing
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [logistics, billing, numeracy]
 
   - id: eta-business-days
     prompt: "结账页承诺的送达日期没考虑截单时间、周末和节假日。按 docstring 修好 eta.py，不要改测试和节假日表。"
     fixture: eta_business_days
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     protect: ["test_*.py", "*.csv"]
     tags: [logistics, dates]
@@ -128,77 +128,77 @@ tasks:
   - id: sla-timezones
     prompt: "跨时区的运单准时判断不对：有的晚到被算成了准时。修好 sla.py，不要改测试。"
     fixture: sla_timezones
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [logistics, dates]
 
   - id: pagination-cursor
     prompt: "从承运商 API 拉全量运单时，有的运单重复了，API 出问题时还会一直翻页停不下来。按 docstring 修好 client.py，不要改测试。"
     fixture: pagination_cursor
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [software, python, logistics]
 
   - id: config-deep-merge
     prompt: "一个仓改了承运商超时，结果其他仓的配置也跟着变了。按 docstring 修好 merge.py，不要改测试。"
     fixture: config_deep_merge
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [software, python]
 
   - id: sliding-window-limiter
     prompt: "限流器在时间窗交界处会放过两倍的请求，承运商返回 429。按 docstring 把 limiter.py 改成真正的滑动窗口，不要改测试。"
     fixture: sliding_window_limiter
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [software, python]
 
   - id: unique-slugs
     prompt: "商品 URL 的 slug 有问题：中文标题变成空的、重音字母被拆开、重名时会撞车。按 docstring 修好 slug.py，不要改测试。"
     fixture: unique_slugs
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [software, python]
 
   - id: sql-like-escape
     prompt: "仓库物料查询遇到带引号的品名会报错，搜 50% 或下划线时结果也不对。修好 inventory_db.py，不要改测试。"
     fixture: sql_like_escape
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [software, python, security]
 
   - id: loan-amortization
     prompt: "设备贷款的还款计划表算错了，最后余额也不是 0。按 docstring 修好 loan.py，不要改测试。"
     fixture: loan_amortization
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [finance, numeracy]
 
   - id: sharpe-ratio
     prompt: "基金月报上的夏普比率和审计复核的对不上。按 docstring 修好 risk.py，不要改测试。"
     fixture: sharpe_ratio
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [finance, numeracy]
 
   - id: xirr-dated
     prompt: "私募基金资本账户的内部收益率算得不对，日期不规则的现金流尤其离谱。按 docstring 修好 cashflows.py，不要改测试。"
     fixture: xirr_dated
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [finance, numeracy]
 
   - id: session-vwap
     prompt: "交易台的 VWAP 基准算错了：几天的数据混成一个数，有一天没成交还会直接报错。按 docstring 修好 vwap.py，不要改测试。"
     fixture: session_vwap
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [finance, trading, numeracy]
 
   - id: fefo-picking
     prompt: "冷链拣货单不对：没按先到期先出，还会拣到当天到期或被冻结的批次。按 docstring 修好 picking.py，不要改测试和批次数据。"
     fixture: fefo_picking
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     protect: ["test_*.py", "*.csv"]
     tags: [logistics, warehouse]
@@ -206,7 +206,7 @@ tasks:
   - id: depot-distance
     prompt: "按距离分配网点的结果不对，天津的单子被分到了很远的网点。修好 distance.py，不要改测试和网点数据。"
     fixture: depot_distance
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     protect: ["test_*.py", "*.csv"]
     tags: [logistics, geo, numeracy]
@@ -214,14 +214,14 @@ tasks:
   - id: dock-windows
     prompt: "月台可用时间窗合并错了，连续的两个时段没有接起来，夜班跨零点的也不对。按 docstring 修好 windows.py，不要改测试。"
     fixture: dock_windows
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     tags: [logistics, dates]
 
   - id: postcode-zones
     prompt: "有些邮编被分到了错误的配送区，从表格导出的邮编尤其明显。按 docstring 修好 zones.py，不要改测试和分区表。"
     fixture: postcode_zones
-    verify: "{python} -m pytest -q"
+    verify: "{python} -I -m pytest -q"
     requires: [pytest]
     protect: ["test_*.py", "*.csv"]
     tags: [logistics, data-quality]

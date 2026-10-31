@@ -35,9 +35,14 @@ The MCP client runs through the Python application worker and supports the Rust 
 Financial tools appear with an mcp__arthera-finance__ prefix. A JSON configuration
 template is also supplied by the finance plugin. The service starts offline;
 supplied financial statements, SEC facts, risk calculations and backtests work
-without external data. A user may explicitly edit the server's environment to set
-FINANCIAL_SERVICE_NETWORK=1 for Yahoo/SEC reads, and EDGAR_USER_AGENT for SEC's
-company/contact identification. Restart the server after changing host settings.
+without external data. The generated entry sets no environment of its own, so the
+server inherits the host's: set FINANCIAL_SERVICE_NETWORK=1 there (or in an "env"
+block you add to the server entry) for Yahoo/SEC reads, and EDGAR_USER_AGENT for
+SEC's company/contact identification. Restart the server after changing host settings.
+The server is launched with `python -I -m arthera_finance.server`: isolated mode keeps
+the current workspace off the module path, so files in a project cannot stand in for
+the service. It also ignores PYTHON* variables and the user site directory, so install
+the service into its own virtual environment rather than with `pip install --user`.
 Tool arguments cannot enable networking.
 
 

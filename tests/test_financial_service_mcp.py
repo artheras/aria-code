@@ -33,9 +33,37 @@ def test_config_preserves_existing_servers_and_metadata(tmp_path):
     config = json.loads(path.read_text())
     assert config["servers"][0] == original["servers"][0]
     assert config["host"] == original["host"]
-    assert config["servers"][1]["env"]["FINANCIAL_SERVICE_NETWORK"] == "0"
+    assert "env" not in config["servers"][1]
     install_financial_service_config(path, Path(sys.executable))
     assert len(json.loads(path.read_text())["servers"]) == 2
+
+
+def test_finance_server_runs_isolated_and_leaves_network_to_the_host():
+    from aria_code.packages.aria_mcp.config import financial_service_server_config
+    server = financial_service_server_config(Path(sys.executable))
+    # -I keeps the user's workspace (the server's cwd) off sys.path, so a
+    # planted arthera_finance package there cannot replace the service.
+    assert server["args"] == ["-I", "-m", "arthera_finance.server"]
+    # An env entry would override the host's FINANCIAL_SERVICE_NETWORK.
+    assert "FINANCIAL_SERVICE_NETWORK" not in server.get("env", {})
+
+
+async def test_isolated_launch_ignores_a_module_planted_in_the_workspace(tmp_path, monkeypatch):
+    planted = tmp_path / "arthera_finance"
+    planted.mkdir()
+    (planted / "__init__.py").write_text("")
+    (planted / "server.py").write_text("import sys; sys.stdout.write('HIJACKED'); sys.exit(7)\n")
+    monkeypatch.chdir(tmp_path)
+    import asyncio
+    from aria_code.packages.aria_mcp.config import financial_service_server_config
+    server = financial_service_server_config(Path(sys.executable))
+    proc = await asyncio.create_subprocess_exec(
+        server["command"], *server["args"], stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    # If the real service is installed it starts, sees EOF on stdin and exits.
+    out, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+    assert proc.returncode != 7
+    assert b"HIJACKED" not in out
 
 
 def test_invalid_config_and_failed_replace_leave_original_intact(tmp_path, monkeypatch):
@@ -72,7 +100,7 @@ async def test_actual_financial_service_through_aria_client():
     python = os.getenv("ARIA_FINANCIAL_TEST_PYTHON")
     if not python:
         pytest.skip("Set ARIA_FINANCIAL_TEST_PYTHON to an environment with financial-service installed")
-    server = MCPServer("arthera-finance", python, ["-m", "arthera_finance.server"],
+    server = MCPServer("arthera-finance", python, ["-I", "-m", "arthera_finance.server"],
                        env={"FINANCIAL_SERVICE_NETWORK": "0", "FINANCIAL_SERVICE_BROKERS_ENABLED": "0"}, timeout=15)
     try:
         assert await server.start()

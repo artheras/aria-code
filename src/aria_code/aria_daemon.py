@@ -6,7 +6,9 @@ Responsibilities:
   1. Price alert watchdog  — checks SQLite alerts every 30 s
   2. APScheduler cron jobs — morning brief, market scan, custom schedules
   3. Telegram bot          — bidirectional command channel
-  4. Webhook job executor  — processes jobs queued by FastAPI /webhook/trigger
+  4. Webhook job executor  — runs pending jobs from the local webhook_jobs table
+     TradingView endpoint   — POST /api/v1/webhook/tradingview (alias
+                              /api/v1/tradingview/webhook) queues alerts
   5. APNs push delivery    — fires on alert trigger or scheduled job completion
 
 Start manually:   python3 aria_daemon.py [--debug]
@@ -21,9 +23,16 @@ Config via env vars (or ~/.aria/.env):
   APNS_BUNDLE_ID            — App bundle ID (default: com.arthera.app)
   APNS_SANDBOX              — "true" for sandbox / TestFlight (default: true)
   APNS_AUTH_KEY_P8          — .p8 key content, or place file at ~/.aria/apns.p8
-  WEBHOOK_TOKEN             — Static token for /api/v1/webhook/trigger
+  WEBHOOK_TOKEN             — Token for /api/v1/webhook/tradingview, sent in the
+                              X-Aria-Token, X-TradingView-Secret or
+                              Authorization: Bearer header (never the query
+                              string). TRADINGVIEW_WEBHOOK_SECRET takes precedence.
+  ARIA_WEBHOOK_SECRET       — Passphrase TradingView puts in the alert body
+                              (TradingView cannot send headers)
   ARIA_WEBHOOK_HOST         — Daemon webhook host (default: 127.0.0.1)
-  ARIA_WEBHOOK_PORT         — Daemon webhook port (default: 8765)
+  ARIA_WEBHOOK_PORT         — Daemon webhook port (default: 8765 — the same
+                              default as the relay server; set this when both
+                              run on one machine)
   (the FastAPI backend URL is the `api_url` config key, not an env var —
    set it with `/config set api_url=...`)
   ARIA_CODE_DIR             — Path to aria-code directory
@@ -31,6 +40,7 @@ Config via env vars (or ~/.aria/.env):
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import os
 import signal
@@ -952,14 +962,16 @@ async def _webhook_http_server() -> None:
     def _authorized(request) -> bool:
         if not token:
             return True
+        # Headers only: a token in the query string ends up in proxy and
+        # access logs and in browser history. TradingView, which cannot set
+        # headers, authenticates with the body passphrase (ARIA_WEBHOOK_SECRET).
         supplied = (
             request.headers.get("X-Aria-Token")
             or request.headers.get("X-TradingView-Secret")
             or request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
-            or request.query.get("token")
-            or request.query.get("secret")
+            or ""
         )
-        return supplied == token
+        return hmac.compare_digest(supplied.encode("utf-8"), token.encode("utf-8"))
 
     async def _handle_tradingview(request):
         # Open-mode guard (channels contract): with neither an endpoint token
@@ -967,19 +979,24 @@ async def _webhook_http_server() -> None:
         # an open endpoint reachable off-host would accept injected alerts.
         try:
             from apps.channels.intake import should_refuse_open_intake
-            secret_configured = bool(os.environ.get("ARIA_WEBHOOK_SECRET", "").strip())
-            if should_refuse_open_intake(
-                getattr(request, "remote", None),
-                token_configured=bool(token),
-                secret_configured=secret_configured,
-            ):
-                return web.json_response(
-                    {"success": False,
-                     "error": "open-mode intake refused for non-local client; set ARIA_WEBHOOK_SECRET or WEBHOOK_TOKEN"},
-                    status=403,
-                )
         except ImportError:
-            pass
+            # Without the guard we cannot tell whether this client may use an
+            # open endpoint, so it may not: fail closed rather than skip it.
+            logger.error("open-intake guard unavailable; refusing TradingView webhook")
+            return web.json_response(
+                {"success": False, "error": "webhook intake guard unavailable"}, status=503,
+            )
+        secret_configured = bool(os.environ.get("ARIA_WEBHOOK_SECRET", "").strip())
+        if should_refuse_open_intake(
+            getattr(request, "remote", None),
+            token_configured=bool(token),
+            secret_configured=secret_configured,
+        ):
+            return web.json_response(
+                {"success": False,
+                 "error": "open-mode intake refused for non-local client; set ARIA_WEBHOOK_SECRET or WEBHOOK_TOKEN"},
+                status=403,
+            )
         if not _authorized(request):
             return web.json_response({"success": False, "error": "unauthorized"}, status=401)
         text = await request.text()
@@ -1008,7 +1025,15 @@ async def _webhook_http_server() -> None:
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host, port)
-    await site.start()
+    try:
+        await site.start()
+    except OSError as exc:
+        logger.error(
+            "TradingView webhook could not listen on %s:%d (%s). The relay server "
+            "also defaults to 8765; set ARIA_WEBHOOK_PORT to another port.", host, port, exc,
+        )
+        await runner.cleanup()
+        return
     logger.info("TradingView webhook listening on http://%s:%d/api/v1/webhook/tradingview", host, port)
     try:
         while True:

@@ -10,6 +10,6 @@ tasks:
       只使用标准库，不安装或复制第三方包，也不要创建 pytest.py 等测试引导脚本。
       不要修改测试或项目规则。最后运行 unittest 项目测试，确认程序可以从命令行使用。
     fixture: inventory_cli_feature
-    verify: "{python} -m unittest discover -s tests -v"
+    verify: "{python} -I -m unittest discover -s tests -v"
     protect: ["tests/**", "AGENTS.md"]
     tags: [software, python, project, cli]
