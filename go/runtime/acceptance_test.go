@@ -136,3 +136,16 @@ func TestStripJSONCommentsKeepsURLs(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+// A successful command is not evidence of a captured content revision.
+func TestAcceptanceDoesNotInventContentFreshness(t *testing.T) {
+	report := acceptanceReport{Checks: []checkResult{{Passed: true}}}
+	summary := report.summary()
+	if summary["revision_status"] != "not_recorded" {
+		t.Fatalf("uncaptured revision reported as current: %v", summary)
+	}
+	paths, ok := summary["revision_paths"].([]any)
+	if !ok || len(paths) != 0 {
+		t.Fatalf("expected an explicit empty revision list: %v", summary)
+	}
+}
