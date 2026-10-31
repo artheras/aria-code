@@ -58,7 +58,7 @@ for arg in "$@"; do
         --help|-h)
             echo "Usage: bash install.sh [--core|--dev|--upgrade|--rebuild|--no-wizard]"
             echo "  (no flag)    Full install: core + data sources + files + charts"
-            echo "  --core       Slim: CLI + yfinance only (pip install aria-code)"
+            echo "  --core       Slim: coding/chat CLI; finance is optional (pip install aria-code)"
             echo "  --dev        Full + brokers + backtest + pytest/dev tools"
             echo "  --upgrade    Upgrade all existing packages"
             echo "  --rebuild    Remove the existing venv and recreate it (fixes Python drift"
@@ -286,12 +286,12 @@ checks = [
     ('rich',           'import rich'),
     ('aiohttp',        'import aiohttp'),
     ('prompt_toolkit', 'import prompt_toolkit'),
-    ('yfinance',       'import yfinance'),
-    ('pandas',         'import pandas'),
-    ('numpy',          'import numpy'),
 ]
 if '${MODE}' != 'core':
     checks += [
+        ('yfinance', 'import yfinance'),
+        ('pandas', 'import pandas'),
+        ('numpy', 'import numpy'),
         ('akshare',       'import akshare'),
         ('pdfplumber',    'import pdfplumber'),
         ('duckdb',        'import duckdb'),

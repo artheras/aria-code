@@ -68,6 +68,8 @@ The installer downloads the binary for your OS from the latest [GitHub release](
 
 Alternative package-manager installs: `npm install -g @artheras/aria-code` (requires npm) or `python3 -m pip install --upgrade "aria-code<4"` (requires Python 3.10+; the `<4` skips an older 4.x numbering that PyPI still lists). For development from source, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+The pip base install supports coding and chat without the financial data stack. Add it with `python3 -m pip install "aria-code[finance]<4"`; `full`, `all`, and `dev` retain finance dependencies. Native/npm releases retain their bundled financial tools. See [optional finance installation](docs/optional-finance.md).
+
 ### Updates
 
 Aria checks for a newer stable version in the background at startup, at most once per day. Cached notices appear immediately; network checks never delay the prompt. It checks GitHub Releases, or scoped npm for npm installs. Pip updates pin the GitHub version and verify that version is available on PyPI, avoiding the older 4.x numbering still listed as PyPI's latest. Source checkouts receive Git update instructions.

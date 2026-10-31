@@ -28,6 +28,21 @@ on:
       - "LICENSE"
 
 jobs:
+  slim-core:
+    name: Coding install without finance dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install only the coding base and test runner
+        run: python -m pip install -e . pytest
+      - name: Check coding startup, local files and optional dependency errors
+        env:
+          ARIA_OFFLINE: "1"
+        run: python -m pytest tests/test_optional_finance.py -q
+
   runtime-integration:
     name: Runtime integration (${{ matrix.os }})
     strategy:

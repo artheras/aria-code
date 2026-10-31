@@ -36,8 +36,17 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import numpy as np
-import pandas as pd
+try:
+    import numpy as np
+    import pandas as pd
+except ModuleNotFoundError as exc:
+    if (exc.name or "").split(".")[0] in {"numpy", "pandas"}:
+        raise ModuleNotFoundError(
+            "Local market tools require the optional finance extra. "
+            "Install with: pip install 'aria-code[finance]<4'",
+            name=exc.name,
+        ) from None
+    raise
 import requests
 from aria_code.packages.aria_core.paths import aria_home
 

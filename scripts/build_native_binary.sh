@@ -74,7 +74,7 @@ echo "  using $BUILD_PYTHON ($("$BUILD_PYTHON" --version))"
 echo "── Building isolated venv for the freeze (keeps project .venv untouched) ──"
 rm -rf "$VENV_DIR"
 "$BUILD_PYTHON" -m venv "$VENV_DIR"
-"$VENV_DIR/bin/pip" install --quiet -e "$PROJECT_ROOT" pyinstaller
+"$VENV_DIR/bin/pip" install --quiet -e "${PROJECT_ROOT}[finance]" pyinstaller
 
 echo "── Running PyInstaller (--onedir) ──"
 "$VENV_DIR/bin/pyinstaller" --noconfirm --onedir --name "$BIN_NAME" \
