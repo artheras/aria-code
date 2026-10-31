@@ -38,7 +38,7 @@ class _Task(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.dir.parent, True)
 
     def grade(self) -> subprocess.CompletedProcess[str]:
-        return subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"],
+        return subprocess.run([sys.executable, "-I", "-m", "pytest", "-q", "-p", "no:cacheprovider"],
                               cwd=self.dir, capture_output=True, text=True, timeout=120)
 
     def assertPasses(self) -> None:
