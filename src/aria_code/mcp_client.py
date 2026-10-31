@@ -64,6 +64,13 @@ MCP_CONFIG_PATH = aria_home() / "mcp_servers.json"
 # MCP JSON-RPC protocol version
 MCP_PROTOCOL_VERSION = "2024-11-05"
 
+# Marks a call that failed because the server could not be reached at all
+# (timeout, closed pipe, exited process). Only these, and the explicit
+# server-side "could not produce a result" codes below, count toward the
+# per-server circuit breaker; a tool refusing its input does not.
+TRANSPORT_FAILURE = "transport"
+SERVER_UNAVAILABLE_CODES = frozenset({"source_unavailable", "source_timeout"})
+
 
 def model_safe_tool_name(server_name: str, tool_name: str) -> str:
     """Return an OpenAI/Ollama-compatible qualified MCP function name."""
@@ -270,7 +277,8 @@ class MCPServer:
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Call a tool on this server.  Returns {"success": bool, "result": …}."""
         if not self._running:
-            return {"success": False, "error": f"MCP server {self.name!r} not running"}
+            return {"success": False, "error": f"MCP server {self.name!r} not running",
+                    "failure_kind": TRANSPORT_FAILURE}
         # Strip server prefix if present (e.g. "quant_engine/backtest_strategy")
         short_name = tool_name.split("/")[-1]
         try:
@@ -297,12 +305,18 @@ class MCPServer:
                 text  = "\n".join(parts)
                 try:
                     parsed = json.loads(text)
-                    return {"success": True, **parsed} if isinstance(parsed, dict) else {"success": True, "result": parsed}
                 except Exception:
                     return {"success": True, "result": text}
+                if isinstance(parsed, dict):
+                    # Only this client decides what was a transport failure;
+                    # a server cannot claim one (or hide one) via its payload.
+                    parsed.pop("failure_kind", None)
+                    return {"success": True, **parsed}
+                return {"success": True, "result": parsed}
             return {"success": True, "result": content}
         except Exception as exc:
-            return {"success": False, "error": str(exc)}
+            # Timeout, closed pipe, exited process: the server itself failed.
+            return {"success": False, "error": str(exc), "failure_kind": TRANSPORT_FAILURE}
 
     @property
     def is_alive(self) -> bool:
@@ -523,9 +537,23 @@ class MCPToolRegistry:
             # 限流是上游数据源配额问题,不是本服务器故障——不计入熔断,
             # 否则一波限流会把整个服务器禁用,殃及无关工具。错误仍如实上抛。
             pass
-        else:
+        elif self._counts_as_server_failure(result):
             circuit.record_failure()
+        else:
+            # A tool-level refusal (invalid_input, network_disabled,
+            # broker_access_disabled, an MCP isError result, ...) means the
+            # server is up and answered. Counting those opened the circuit
+            # after three bad arguments and disabled every tool on the server.
+            # The server answered, so it is healthy as far as the breaker cares.
+            circuit.record_success()
         return result
+
+    @staticmethod
+    def _counts_as_server_failure(result: Dict[str, Any]) -> bool:
+        """True when a failed call says the server, not the request, is broken."""
+        if result.get("failure_kind") == TRANSPORT_FAILURE:
+            return True
+        return str(result.get("error_code") or "") in SERVER_UNAVAILABLE_CODES
 
     @staticmethod
     def _looks_rate_limited(result: Dict[str, Any]) -> bool:
