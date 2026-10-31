@@ -42,6 +42,9 @@ class _TimedOut:
     """
 
     returncode = 124
+    # Read by the harness so the report counts timeouts on their own line
+    # instead of folding them, unseen, into "error".
+    timed_out = True
 
     def __init__(self, seconds: int, stdout: str = "", stderr: str = "") -> None:
         self.stderr = f"{stderr}\nthe agent was still working when the {seconds}s budget ran out".strip()
@@ -164,6 +167,9 @@ def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = Fal
             # python with no pytest, reports "No module named pytest", and the model
             # spends its budget trying to install it.
             env = {**os.environ, "PATH": os.pathsep.join([str(Path(sys.executable).parent), os.environ.get("PATH", "")])}
+            # Each attempt gets its own home, so global memory, sessions and
+            # learned preferences one attempt writes cannot reach the next one.
+            env.update(trial_home_env(workspace.parent / f".home-{workspace.name}"))
             # The agent reports the tokens it used here, outside the workspace so the
             # file is never mistaken for a change the agent made.
             usage_file = workspace.parent / f".usage-{workspace.name}.json"
@@ -213,6 +219,51 @@ def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = Fal
             return timed_out
 
     return _solve
+
+
+# What a trial home is seeded with from the real Aria home: sign-in and provider
+# settings, so the agent reaches the same model. Nothing it remembers (memory,
+# sessions, the ARIA.md profile, skills it learned) is copied.
+_TRIAL_HOME_SEED = ("config.json", "providers.json", ".env", "license.json")
+
+
+def trial_home_env(home: Path) -> dict:
+    """Environment for one attempt: a fresh HOME / ARIA_HOME / XDG tree under *home*.
+
+    Provider keys and PATH stay as they are (they come from the inherited
+    environment); the user's site-packages stay importable through
+    PYTHONUSERBASE, and their git identity through a copied .gitconfig.
+    """
+    import os
+    import shutil
+    import site
+
+    from aria_code.packages.aria_core.paths import aria_home
+
+    source_aria = aria_home()
+    real_home = Path.home()
+    shutil.rmtree(home, ignore_errors=True)
+    aria = home / ".aria-code"
+    aria.mkdir(parents=True)
+    for name in _TRIAL_HOME_SEED:
+        if (source_aria / name).is_file():
+            shutil.copy2(source_aria / name, aria / name)
+    if (real_home / ".gitconfig").is_file():
+        shutil.copy2(real_home / ".gitconfig", home / ".gitconfig")
+    xdg = {key: home / sub for key, sub in (
+        ("XDG_CONFIG_HOME", ".config"), ("XDG_DATA_HOME", ".local/share"),
+        ("XDG_CACHE_HOME", ".cache"), ("XDG_STATE_HOME", ".local/state"))}
+    for path in xdg.values():
+        path.mkdir(parents=True, exist_ok=True)
+    env = {
+        "HOME": str(home),
+        "USERPROFILE": str(home),
+        "ARIA_HOME": str(aria),
+        "ARIA_CONFIG_DIR": str(aria),
+        "PYTHONUSERBASE": os.environ.get("PYTHONUSERBASE") or site.getuserbase(),
+        **{key: str(path) for key, path in xdg.items()},
+    }
+    return env
 
 
 def _read_usage(path: Path) -> dict:

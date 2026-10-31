@@ -75,13 +75,14 @@ def _scored(result: Mapping) -> bool:
 
 def model_stats(by_suite: Mapping[str, dict]) -> dict:
     """Overall and per-domain (tag) numbers for one model across the suites it ran."""
-    passed = scored = errored = invalid = 0
+    passed = scored = errored = invalid = timed_out = 0
     seconds: List[float] = []
     domains: Dict[str, List[int]] = {}
     for report in by_suite.values():
         for result in report.get("results") or []:
             outcome = str(result.get("outcome", "")).lower()
             errored += outcome == "error"
+            timed_out += outcome == "error" and bool(result.get("timed_out"))
             invalid += outcome == "invalid"
             if not _scored(result):
                 continue
@@ -95,6 +96,7 @@ def model_stats(by_suite: Mapping[str, dict]) -> dict:
     low, high = wilson(passed, scored)
     return {
         "passed": passed, "scored": scored, "errored": errored, "invalid": invalid,
+        "timed_out": timed_out,
         "pass_rate": passed / scored if scored else 0.0, "ci95": (low, high),
         "mean_seconds": sum(seconds) / len(seconds) if seconds else 0.0,
         "domains": {tag: {"passed": p, "scored": n, "pass_rate": p / n if n else 0.0}
@@ -165,11 +167,12 @@ def render_markdown(reports: Mapping[str, Mapping[str, dict]], costs: Optional[M
     stats = {label: model_stats(by_suite) for label, by_suite in reports.items()}
     domains = sorted({d for s in stats.values() for d in s["domains"]})
     lines = ["## Model scorecard", "",
-             "| Model | Pass rate | 95% CI | Scored | Not scored | Mean seconds |", "|---|---:|---:|---:|---:|---:|"]
+             "| Model | Pass rate | 95% CI | Scored | Not scored | Timed out | Mean seconds |",
+             "|---|---:|---:|---:|---:|---:|---:|"]
     for label, s in stats.items():
         low, high = s["ci95"]
         lines.append(f"| {label} | {s['pass_rate']:.0%} | {low:.0%}–{high:.0%} | {s['scored']} | "
-                     f"{s['errored'] + s['invalid']} | {s['mean_seconds']:.0f} |")
+                     f"{s['errored'] + s['invalid']} | {s['timed_out']} | {s['mean_seconds']:.0f} |")
     if domains:
         lines += ["", "### By domain", "", "| Model | " + " | ".join(domains) + " |", "|---|" + "---:|" * len(domains)]
         for label, s in stats.items():
