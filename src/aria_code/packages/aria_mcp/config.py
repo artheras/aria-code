@@ -15,9 +15,16 @@ def financial_service_server_config(python: Path) -> Dict[str, object]:
     python = Path(python).expanduser()
     if not python.is_absolute() or not python.is_file():
         raise ValueError("Provide an absolute path to the financial-service Python interpreter")
+    # -I (isolated mode): the server is spawned in the user's workspace, and a
+    # plain `-m` puts the current directory first on sys.path, so a planted
+    # arthera_finance/ or a stdlib-named .py there would run in its place. -I
+    # also ignores PYTHON* variables and the user site directory.
+    #
+    # No "env": an entry here overrides the host's environment, so a pinned
+    # FINANCIAL_SERVICE_NETWORK=0 meant market data and brokers could never be
+    # enabled. The service itself defaults to offline; the host decides.
     return {"name": "arthera-finance", "command": str(python),
-            "args": ["-m", "arthera_finance.server"],
-            "env": {"FINANCIAL_SERVICE_NETWORK": "0"},
+            "args": ["-I", "-m", "arthera_finance.server"],
             "description": "Shared financial analysis and simulation; offline by default",
             "enabled": True}
 
