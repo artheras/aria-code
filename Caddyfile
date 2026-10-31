@@ -2,23 +2,11 @@
 # 替换 relay.yourdomain.com 为你的域名
 
 relay.yourdomain.com {
+    # 飞书事件端点 (/feishu/*)、WebSocket 中继 (/ws) 与 /status 都转给 relay。
+    # Caddy 2 的 reverse_proxy 会自动透传 WebSocket 升级请求，无需手工设置
+    # Connection/Upgrade 头（header_up 也不能写在 transport http 块里——那是
+    # 无效配置，Caddy 会拒绝加载）。
     reverse_proxy relay-server:8765
-
-    # 飞书事件端点
-    handle /feishu/* {
-        reverse_proxy relay-server:8765
-    }
-
-    # WebSocket 中继
-    handle /ws {
-        reverse_proxy relay-server:8765 {
-            transport http {
-                # WebSocket 升级头
-                header_up Connection "Upgrade"
-                header_up Upgrade "websocket"
-            }
-        }
-    }
 
     log {
         output file /var/log/caddy/relay.log

@@ -129,5 +129,22 @@ class DockerfileTests(unittest.TestCase):
         self.assertLessEqual({"fastapi", "uvicorn", "python-multipart"}, names)
 
 
+class ProductionComposeTests(unittest.TestCase):
+    def test_relay_receives_event_verification_and_store_settings(self):
+        # Both relays refuse unverified Feishu events, so a compose file that
+        # does not pass the token/key leaves every event rejected.
+        text = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
+        for name in ("FEISHU_VERIFICATION_TOKEN", "FEISHU_ENCRYPT_KEY", "RELAY_STORE"):
+            with self.subTest(name=name):
+                self.assertRegex(text, rf"-\s*{name}=\$\{{{name}")
+
+    def test_caddyfile_has_no_header_up_inside_transport(self):
+        # header_up belongs to reverse_proxy itself; inside `transport http {}`
+        # Caddy 2 refuses to load the file. WebSockets need no extra headers.
+        text = (ROOT / "Caddyfile").read_text(encoding="utf-8")
+        for block in re.findall(r"transport\s+http\s*\{([^}]*)\}", text):
+            self.assertNotIn("header_up", block)
+
+
 if __name__ == "__main__":
     unittest.main()

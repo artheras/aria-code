@@ -243,6 +243,14 @@ jobs:
       - name: Build Dockerfile.relay
         run: docker build -f Dockerfile.relay -t aria-relay:ci .
 
+      - name: Caddyfile and production compose file parse
+        run: |
+          # adapt runs every directive's Caddyfile parser (it rejected the old
+          # header_up-inside-transport block) without provisioning TLS or logs.
+          docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine \
+            caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile > /dev/null
+          docker compose -f docker-compose.prod.yml config -q
+
       - name: Relay answers /status
         run: |
           docker run -d --name aria-relay -p 8765:8765 aria-relay:ci
