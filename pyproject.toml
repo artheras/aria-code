@@ -165,6 +165,14 @@ dev = [
     "python-multipart>=0.0.9",
 ]
 
+# ── Project-review HTTP service (Dockerfile.review installs ".[service]") ─────
+# Kept in step with the fastapi/uvicorn/python-multipart pins in `dev` above.
+service = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "python-multipart>=0.0.9",
+]
+
 # ── Full feature set (what the bootstrap installers install by default) ────────
 # Everything a normal user wants — all data sources + files + charts + SQL —
 # but no brokers / dev / backtest extras.

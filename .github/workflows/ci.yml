@@ -212,6 +212,50 @@ jobs:
           python -m aria_code.evals.runner evals/suites/projects.yaml --check
           python -m aria_code.evals.runner evals/suites/behavior.yaml --check
 
+  # ── The deployable images must build and start ──────────────────────────────
+  # Dockerfile.review installed ".[service]" before pyproject declared that
+  # extra: pip only warns about an unknown extra, so the image built without
+  # fastapi/uvicorn and its CMD could not start. Dockerfile.relay is the
+  # production relay image (cloudbuild.yaml) and was never built here either.
+  container-images:
+    name: Container images build and start
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Dockerfile.review
+        run: docker build -f Dockerfile.review -t aria-review:ci .
+
+      - name: Project-review service answers /health
+        run: |
+          docker run -d --name aria-review -p 8787:8787 aria-review:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/health; then
+              docker rm -f aria-review >/dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs aria-review
+          exit 1
+
+      - name: Build Dockerfile.relay
+        run: docker build -f Dockerfile.relay -t aria-relay:ci .
+
+      - name: Relay answers /status
+        run: |
+          docker run -d --name aria-relay -p 8765:8765 aria-relay:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8765/status; then
+              docker rm -f aria-relay >/dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs aria-relay
+          exit 1
+
   # ── The release artifact must actually install and run ──────────────────────
   # Nothing here ever built a wheel and looked inside it, and three defects lived
   # in that gap at once: packages.find pointed at the repo root instead of src/
