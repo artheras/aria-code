@@ -5,13 +5,14 @@ aria-code's market data, multi-agent research team, and generated-artifact
 list. Pattern mirrors Arthera's packages/quant_engine/mcp_server.py (hand-rolled
 stdio JSON-RPC, no `mcp` SDK dependency).
 
-Usage (from repo root)::
+Usage (the entry point is src/aria_code/aria_mcp_server.py)::
 
-    python3 aria_mcp_server.py
+    aria-code-mcp                          # console script from pyproject
+    python3 -m aria_code.aria_mcp_server   # same, without the script
 
 Register with Claude Code::
 
-    claude mcp add aria-code -- python3 /path/to/aria-code/aria_mcp_server.py
+    claude mcp add aria-code -- aria-code-mcp
 
 Scope: ``skill:``-backed exposures (report/backtest skills) are still never
 registered as *executable* tools — a skill is a prompt-time instruction
@@ -1639,7 +1640,13 @@ async def _handle(req: Dict[str, Any]) -> None:
         except TypeError as exc:
             _error(req_id, -32602, f"Invalid arguments for {name}: {exc}")
         except Exception as exc:
-            _error(req_id, -32603, f"Tool error: {exc}\n{traceback.format_exc()[-300:]}")
+            # Details stay on this side: a traceback carries file paths,
+            # argument values and sometimes credentials from the environment,
+            # and the client is another program's model. Log it to stderr
+            # (stdout is the JSON-RPC channel) and return a generic error.
+            logger.error("Tool %s failed: %s\n%s", name, exc, traceback.format_exc())
+            _error(req_id, -32603, f"Tool error: {name} failed ({type(exc).__name__}); "
+                                   "details are in the server's log")
 
     elif method == "ping":
         _reply(req_id, {})

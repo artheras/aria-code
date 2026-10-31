@@ -681,3 +681,25 @@ def test_governance_tools_refuse_a_root_outside_the_workspace_and_home(tmp_path,
     out = _run(_call_project_commands({"root": "/etc"}))
     assert out["success"] is False and "inside" in out["error"]
     assert _run(_call_project_commands({"root": str(tmp_path / "missing")}))["success"] is False
+
+
+async def test_tool_errors_do_not_send_the_traceback_to_the_client(monkeypatch, capsys):
+    import json as _json
+
+    from aria_code.packages.aria_mcp import server as srv
+
+    name = sorted(srv._TOOL_NAMES)[0]
+
+    async def boom(arguments):
+        raise RuntimeError("secret at /Users/someone/.aria-code/config.json")
+
+    monkeypatch.setitem(srv._HANDLERS, name, boom)
+    await srv._handle({"jsonrpc": "2.0", "id": 7, "method": "tools/call",
+                       "params": {"name": name, "arguments": {}}})
+    captured = capsys.readouterr()
+    reply = _json.loads(captured.out.strip().splitlines()[-1])
+    message = reply["error"]["message"]
+    assert reply["error"]["code"] == -32603
+    assert "RuntimeError" in message
+    assert "Traceback" not in message and "/Users/someone" not in message
+    assert "secret" not in message
