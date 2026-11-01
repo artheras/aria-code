@@ -46,6 +46,12 @@ The old Python terminal rendering should eventually be retired, not translated
 line for line, after the Rust frontend and native command inventory replace all
 required behavior. The installed worker still needs Python today.
 
+**Decision:** the end state is the same as Codex. The core (Rust TUI and Go runtime)
+runs without Python. Finance, markets and data stay in Python as the separate
+`financial-service`, reached over MCP/HTTP. There will be no pure-Python install
+to maintain alongside the native one. [The command migration matrix](command-migration-matrix.md)
+tracks where each of the 182 Python commands goes and which batches are done.
+
 ## Physical service architecture
 
 Rust owns navigation/state validation in this increment. A future Go gateway is a

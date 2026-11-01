@@ -10,7 +10,7 @@ import (
 )
 
 func nativeCommands() []string {
-	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change"}
+	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff"}
 }
 
 // commandInfo describes each command for the "/" list: [English, Chinese].
@@ -31,6 +31,11 @@ var commandInfo = map[string][2]string{
 	"/changes":       {"Review pending file edits", "查看待确认的文件修改"},
 	"/apply-change":  {"Apply a pending edit by ID", "按 ID 应用待确认修改"},
 	"/reject-change": {"Discard a pending edit by ID", "按 ID 丢弃待确认修改"},
+	"/clear":         {"Clear the conversation, keep the session", "清空对话（保留会话）"},
+	"/status":        {"Show model, session and permissions", "查看模型、会话和权限"},
+	"/context":       {"Show what the model will see next turn", "查看下一轮模型可见的上下文"},
+	"/tools":         {"List tools and whether they ask first", "列出工具及其审批方式"},
+	"/diff":          {"Show workspace changes (--patch for the patch)", "查看工作区改动（--patch 显示补丁）"},
 }
 
 // commandInfoList is nativeCommands in order, each with its description in lang.
@@ -69,6 +74,19 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		return s.undoConversation()
 	case "/rewind":
 		return s.rewindCommand(ctx, turn, fields[1:])
+	case "/clear":
+		if len(fields) != 1 {
+			return "", errors.New("usage: /clear")
+		}
+		return s.clearConversation()
+	case "/status":
+		return s.statusCommand()
+	case "/context":
+		return s.contextCommand()
+	case "/tools":
+		return s.toolsCommand()
+	case "/diff":
+		return s.diffCommand(ctx, fields[1:])
 	case "/help":
 		extraHelp := "\n/import <path> — create a new session from JSON\n/export session [path] — complete session including file snapshots\n/export bundle [path] — private diagnostics and lifecycle trace (no conversation or config)\n@ references extract DOCX/PPTX text and PDF text/OCR.\n/config set document_ocr=true — OCR empty PDF pages (Tesseract language data required)\n/config set ocr_language=eng+chi_sim+chi_tra\n/config set document_vision=true — send image/PDF-page evidence to your selected vision-capable provider; off by default\n"
 		return "Aria native interface\n\nEnter sends · Ctrl+J / Alt+Enter adds a line\nEsc cancels · Ctrl+O shows operation details · F1 opens help\nTab completes /commands and @file references\n\n/model — interactive provider/model selection\n/models [google|gcp|ollama] — discover models without generation\n/model <provider> <model> — switch explicitly\n@file:path or @\"path with spaces\" — read a text file into this turn\n/config set gcp_project=PROJECT · gcp_location=REGION · ollama_base_url=URL\n/export <format> [path] — export saved conversation\n/changes · /apply-change ID · /reject-change ID — review edits\n\n" + strings.Join(nativeCommands(), " · ") + extraHelp, nil
