@@ -449,29 +449,23 @@ pub fn draw(frame: &mut Frame, app: &App) {
             Style::new().fg(p.muted),
         ));
     }
+    // An empty conversation says nothing the input's own hint already says;
+    // only a starting runtime or a home-folder workspace earns a line here.
     if lines.is_empty() {
-        lines = vec![
-            Line::raw(app.tr(
-                "Describe a task, edit your project, or type /help.",
-                "描述任务、修改项目，或输入 /help。",
-            )),
-            Line::raw(""),
-            Line::styled(
-                if app.ready {
-                    if app.home_workspace {
-                        app.tr("Home directory · use aria -C <project> to select a project. Files are read only when needed for your task.", "当前是主目录。用 aria -C <项目目录> 选择项目；仅按任务需要读取文件。")
-                    } else {
-                        app.tr(
-                            "Type / for commands · @ to attach a file",
-                            "输入 / 查看命令 · @ 引用文件",
-                        )
-                    }
-                } else {
-                    app.tr("The runtime is starting…", "正在启动…")
-                },
+        if !app.ready {
+            lines.push(Line::styled(
+                app.tr("The runtime is starting…", "正在启动…"),
                 Style::new().fg(p.muted),
-            ),
-        ];
+            ));
+        } else if app.home_workspace {
+            lines.push(Line::styled(
+                app.tr(
+                    "Home folder · start in a project with aria -C <project>. Files are read only when a task needs them.",
+                    "当前是主目录。用 aria -C <项目目录> 在项目中启动；仅按任务需要读取文件。",
+                ),
+                Style::new().fg(p.muted),
+            ));
+        }
     }
     let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
     let total = paragraph.line_count(parts[1].width);
@@ -534,16 +528,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
     inside.width = inside.width.saturating_sub(2);
     let first = usize::from(cursor.0).saturating_sub(inside.height.saturating_sub(1) as usize);
     if app.editor.is_empty() {
-        let placeholder = if busy {
+        let placeholder: &str = if busy {
             app.tr(
                 "Type your next message — Enter queues it…",
                 "可以先写下一条消息，Enter 排队…",
             )
         } else {
-            app.tr(
-                "Describe a task, or type / for commands",
-                "描述任务，或输入 / 查看命令",
-            )
+            &example_prompt(app)
         };
         frame.render_widget(
             Paragraph::new(placeholder).style(Style::new().fg(p.muted)),
@@ -601,12 +592,12 @@ pub fn draw(frame: &mut Frame, app: &App) {
                 let text = format!("{name:<name_width$}  {detail}");
                 if i == selected {
                     Line::styled(
-                        format!(" {text}"),
+                        format!("❯ {text}"),
                         Style::new().fg(p.selection_fg).bg(p.accent),
                     )
                 } else {
                     Line::from(vec![
-                        Span::styled(format!(" {name:<name_width$}"), Style::new().fg(p.accent)),
+                        Span::styled(format!("  {name:<name_width$}"), Style::new().fg(p.accent)),
                         Span::styled(format!("  {detail}"), Style::new().fg(p.muted)),
                     ])
                 }
@@ -1001,6 +992,9 @@ fn draw_picker(frame: &mut Frame, app: &App, dialog: &Dialog, area: Rect, p: Pal
 
 /// The delivery report, coloured as the Python REPL prints it: the status by
 /// outcome, headings dim, ✓ green, ✗ red, × and ⚠ highlighted.
+/// The runtime's delivery report, read quietly: "DONE" becomes one "✓ Done"
+/// line in the success colour (not a shouted heading), blank lines go, and
+/// section names are muted labels with their content indented under them.
 fn delivery_lines(text: &str, p: Palette) -> Vec<Line<'static>> {
     const HEADINGS: [&str; 8] = [
         "Changed",
@@ -1012,32 +1006,65 @@ fn delivery_lines(text: &str, p: Palette) -> Vec<Line<'static>> {
         "Checkpoint",
         "Next",
     ];
-    text.lines()
-        .enumerate()
-        .map(|(index, line)| {
-            let trimmed = line.trim();
-            let style = if index == 0 {
-                Style::new()
-                    .fg(if trimmed == "DONE" {
-                        p.success
-                    } else {
-                        p.accent
-                    })
-                    .add_modifier(Modifier::BOLD)
-            } else if HEADINGS.contains(&trimmed) {
-                Style::new().fg(p.muted)
-            } else if trimmed.starts_with('✓') {
-                Style::new().fg(p.success)
-            } else if trimmed.starts_with('✗') {
-                Style::new().fg(p.error)
-            } else if trimmed.starts_with('×') || trimmed.starts_with('⚠') {
-                Style::new().fg(p.accent)
+    let mut out = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if index == 0 {
+            out.push(if trimmed == "DONE" {
+                Line::styled("✓ Done".to_owned(), Style::new().fg(p.success))
             } else {
-                Style::new()
-            };
-            Line::styled(line.to_owned(), style)
-        })
-        .collect()
+                Line::styled(
+                    line.to_owned(),
+                    Style::new().fg(p.accent).add_modifier(Modifier::BOLD),
+                )
+            });
+            continue;
+        }
+        let style = if HEADINGS.contains(&trimmed) {
+            Style::new().fg(p.muted)
+        } else if trimmed.starts_with('✓') {
+            Style::new().fg(p.success)
+        } else if trimmed.starts_with('✗') {
+            Style::new().fg(p.error)
+        } else if trimmed.starts_with('×') || trimmed.starts_with('⚠') {
+            Style::new().fg(p.accent)
+        } else {
+            Style::new()
+        };
+        let indent = if HEADINGS.contains(&trimmed) {
+            "  "
+        } else {
+            "    "
+        };
+        out.push(Line::styled(format!("{indent}{trimmed}"), style));
+    }
+    out
+}
+
+/// One concrete thing to try, like Claude Code's `Try "fix typecheck errors"`,
+/// picked from the session id so it stays put while the session lasts.
+fn example_prompt(app: &App) -> String {
+    const EN: [&str; 4] = [
+        "Add tests for utils.py",
+        "Explain how this project is structured",
+        "Fix the failing test",
+        "How's NVDA this week?",
+    ];
+    const ZH: [&str; 4] = [
+        "给 utils.py 补上测试",
+        "讲讲这个项目的结构",
+        "修好失败的测试",
+        "宁德时代今天怎么样？",
+    ];
+    let pick = app.session.bytes().map(usize::from).sum::<usize>() % EN.len();
+    if app.zh() {
+        format!("试试“{}” · / 命令 · @ 文件", ZH[pick])
+    } else {
+        format!("Try \"{}\" · / commands · @ files", EN[pick])
+    }
 }
 
 #[cfg(test)]
@@ -1143,6 +1170,76 @@ mod tests {
         app.home_workspace = true;
         terminal.draw(|f| draw(f, &app)).unwrap();
         assert!(display(&terminal).contains("· home folder"));
+    }
+
+    #[test]
+    fn an_empty_conversation_offers_one_example_instead_of_three_hints() {
+        let mut terminal = Terminal::new(TestBackend::new(90, 24)).unwrap();
+        let app = App {
+            ready: true,
+            session: "s1".into(),
+            ..App::default()
+        };
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let shown = display(&terminal);
+        assert!(shown.contains("Try \""), "{shown}");
+        assert!(
+            !shown.contains("Describe a task, edit your project"),
+            "{shown}"
+        );
+        assert_eq!(shown.matches("/ commands").count(), 1, "{shown}");
+    }
+
+    #[test]
+    fn the_progress_strip_names_files_relative_to_the_workspace() {
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        let mut app = App {
+            ready: true,
+            workspace: "/srv/game".into(),
+            ..App::default()
+        };
+        app.editor.insert("fix it");
+        app.submit();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":"edit_file","params":{"path":"/srv/game/src/calc.py"}})).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let shown = display(&terminal);
+        assert!(shown.contains("Editing src/calc.py"), "{shown}");
+        assert!(!shown.contains("/srv/game/src"), "{shown}");
+    }
+
+    #[test]
+    fn the_delivery_report_is_quiet() {
+        let lines = delivery_lines(
+            "DONE\n\nChanged\n  M calc.py  +4 -0\n\nNext\n  Run the tests",
+            Palette::for_theme("dark"),
+        );
+        let text: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+        assert_eq!(
+            text,
+            [
+                "✓ Done",
+                "  Changed",
+                "    M calc.py  +4 -0",
+                "  Next",
+                "    Run the tests"
+            ]
+        );
+    }
+
+    #[test]
+    fn the_selected_command_is_marked_not_only_coloured() {
+        let mut terminal = Terminal::new(TestBackend::new(90, 24)).unwrap();
+        let mut app = App {
+            ready: true,
+            commands: vec!["/help".into(), "/model".into()],
+            ..App::default()
+        };
+        app.command_info.insert("/help".into(), "Show help".into());
+        app.editor.insert("/");
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let shown = display(&terminal);
+        assert!(shown.contains("❯ /help"), "{shown}");
+        assert!(shown.contains("  /model"), "{shown}");
     }
 
     #[test]
