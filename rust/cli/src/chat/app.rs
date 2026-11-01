@@ -477,7 +477,10 @@ impl App {
                     .iter()
                     .find_map(|key| params[*key].as_str())
                     .unwrap_or("");
-                let one_line: String = safe(target).replace('\n', " ");
+                // The strip and status line name files the way the rows do:
+                // relative to the workspace.
+                let target = relative_to(target, &self.workspace);
+                let one_line: String = safe(&target).replace('\n', " ");
                 self.phase
                     .enter(phase::classify(text("tool"), params), &one_line);
                 self.status = self.phase.doing(self.zh());
@@ -488,7 +491,7 @@ impl App {
                 );
                 self.entries.back_mut().unwrap().action = Some(Action {
                     tool: safe(text("tool")),
-                    target: safe(target).replace('\n', " ").chars().take(600).collect(),
+                    target: safe(&target).replace('\n', " ").chars().take(600).collect(),
                     done: false,
                     success: false,
                     count: None,
@@ -1596,4 +1599,20 @@ mod branch_tests {
         assert_eq!(git_branch(&root.join("wt")), "task-7");
         std::fs::remove_dir_all(&root).unwrap();
     }
+}
+
+/// `target` relative to `workspace` when it lies inside it, as typed otherwise.
+fn relative_to(target: &str, workspace: &str) -> String {
+    let path = std::path::Path::new(target);
+    if path.is_absolute() && !workspace.is_empty() {
+        if let Ok(rest) = path.strip_prefix(workspace) {
+            let rest = rest.to_string_lossy();
+            return if rest.is_empty() {
+                ".".into()
+            } else {
+                rest.into_owned()
+            };
+        }
+    }
+    target.to_owned()
 }
