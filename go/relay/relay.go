@@ -1,7 +1,7 @@
 package main
 
 // The relay: Feishu events in over HTTP, users' machines on WebSockets.
-// Behaviour follows src/aria_code/aria_relay_server.py; tests/test_relay_contract.py
+// Behaviour follows the former Python relay (aria_relay_server.py); tests/test_relay_contract.py
 // holds both implementations to it.
 
 import (

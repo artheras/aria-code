@@ -1,6 +1,17 @@
 version: '3.9'
 services:
+  # The Python relay ran as root, so an existing relay-data volume holds
+  # root-owned files; the Go relay runs as UID 65532. Hand the volume over once
+  # before it starts (a no-op on a new volume).
+  relay-data-owner:
+    image: busybox:1.36
+    command: [chown, -R, "65532:65532", /data]
+    volumes:
+    - relay-data:/data
   relay-server:
+    depends_on:
+      relay-data-owner:
+        condition: service_completed_successfully
     build:
       context: .
       dockerfile: Dockerfile.relay
@@ -28,11 +39,11 @@ services:
     networks:
     - aria-net
     healthcheck:
+      # The Go image is distroless (no curl); the binary checks /status itself.
       test:
       - CMD
-      - curl
-      - -f
-      - http://localhost:8765/status
+      - /aria-relay
+      - --healthcheck
       interval: 30s
       timeout: 5s
       retries: 3
