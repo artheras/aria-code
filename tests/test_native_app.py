@@ -427,7 +427,7 @@ def test_real_terminal_paste_approval_resize_cancel_and_restore(application, ent
         wait("你好")
         wait("Completed")
         os.write(master, b"Create native-note.txt in this project\r")
-        wait("Your response required")
+        wait("Enter confirms")
         wait("File: native-note.txt")
         wait("Always allow")
         os.write(master, b"n")
@@ -444,8 +444,8 @@ def test_real_terminal_paste_approval_resize_cancel_and_restore(application, ent
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 12, 40, 0, 0))
         screen.resize(12, 40)
         p.send_signal(__import__("signal").SIGWINCH)
-        wait(lambda: screen.buffer[10][0].data == "╰" and screen.cursor.y == 9)
-        assert "Describe a task" in display()
+        wait(lambda: screen.buffer[10][0].data == "─" and screen.cursor.y == 9)
+        assert 'Try "' in display()
         os.write(master, b"\x04")
         # A terminal emulator continues reading while the application exits.
         # Drain the resize/restore frames so a full PTY output buffer cannot
@@ -651,8 +651,10 @@ def test_real_terminal_slash_opens_a_command_list_you_can_navigate(application):
         raise AssertionError((what, "\n".join(rows())))
 
     def input_line():
-        for row in rows():
-            if row.lstrip("│ ").startswith("›"):
+        # The composer is the lowest ❯ row: the / and @ lists above it mark
+        # their selected row with the same glyph.
+        for row in reversed(rows()):
+            if row.lstrip("│ ").startswith("❯"):
                 return row.strip("│ ").strip()
         return ""
 
@@ -662,7 +664,9 @@ def test_real_terminal_slash_opens_a_command_list_you_can_navigate(application):
         wait(lambda r: any("Commands" in x for x in r) and any("/help" in x for x in r), "the command list")
         listed = "\n".join(rows())
         assert "↑↓" in listed and "Tab" in listed, "the list says how to use it"
-        first_names = [x for x in rows() if x.strip().startswith("│ /")]
+        # Rows inside the list's box; the selected one is marked "❯".
+        first_names = [x for x in rows()
+                       if x.strip().startswith("│") and x.strip()[1:].lstrip(" ❯").startswith("/")]
         assert len(first_names) >= 5, "a bare slash lists several commands"
         assert "Show commands and examples" in listed, "each row carries a description"
         assert first_names[0].split()[1] == "/help", "the core commands come first, not an alphabetical dump"
@@ -670,7 +674,7 @@ def test_real_terminal_slash_opens_a_command_list_you_can_navigate(application):
         pump(0.4)
         os.write(master, b"\t")  # Tab fills in the highlighted command
         pump(0.6)
-        assert input_line().startswith("› /"), input_line()
+        assert input_line().startswith("❯ /"), input_line()
         assert "Commands" not in "\n".join(rows()), "the list closes once a command is filled in"
         # Esc closes the list without touching what was typed.
         os.write(master, b"\x15/mo")  # Ctrl+U to clear, then type /mo
@@ -678,7 +682,7 @@ def test_real_terminal_slash_opens_a_command_list_you_can_navigate(application):
         os.write(master, b"\x1b")
         pump(0.6)
         assert "Commands" not in "\n".join(rows())
-        assert input_line().startswith("› /mo"), input_line()
+        assert input_line().startswith("❯ /mo"), input_line()
         os.write(master, b"\x15\x04")
         pump(0.5)
     finally:
@@ -731,8 +735,10 @@ def test_real_terminal_at_lists_workspace_files_you_can_pick(application):
         raise AssertionError((what, "\n".join(rows())))
 
     def input_line():
-        for row in rows():
-            if row.lstrip("│ ").startswith("›"):
+        # The composer is the lowest ❯ row: the / and @ lists above it mark
+        # their selected row with the same glyph.
+        for row in reversed(rows()):
+            if row.lstrip("│ ").startswith("❯"):
                 return row.strip("│ ").strip()
         return ""
 
@@ -750,7 +756,7 @@ def test_real_terminal_at_lists_workspace_files_you_can_pick(application):
         wait(lambda r: any("@docs/architecture.md" in x for x in r), "the nested file by fuzzy match")
         os.write(master, b"\t")  # Tab fills it in
         pump(0.6)
-        assert input_line().startswith("› read @docs/architecture.md"), input_line()
+        assert input_line().startswith("❯ read @docs/architecture.md"), input_line()
         assert "Files" not in "\n".join(rows()), "the list closes once a file is filled in"
         # Esc closes the list and leaves the text alone.
         os.write(master, b"\x15read @setup")
@@ -758,7 +764,7 @@ def test_real_terminal_at_lists_workspace_files_you_can_pick(application):
         os.write(master, b"\x1b")
         pump(0.6)
         assert "Files" not in "\n".join(rows())
-        assert input_line().startswith("› read @setup"), input_line()
+        assert input_line().startswith("❯ read @setup"), input_line()
         os.write(master, b"\x15\x04")
         pump(0.5)
     finally:
@@ -814,8 +820,10 @@ def test_real_terminal_model_picker_searches_and_selects(application):
         raise AssertionError((what, "\n".join(rows())))
 
     def input_line():
-        for row in rows():
-            if row.lstrip("│ ").startswith("›"):
+        # The composer is the lowest ❯ row: the / and @ lists above it mark
+        # their selected row with the same glyph.
+        for row in reversed(rows()):
+            if row.lstrip("│ ").startswith("❯"):
                 return row.strip("│ ").strip()
         return ""
 
@@ -824,7 +832,7 @@ def test_real_terminal_model_picker_searches_and_selects(application):
         os.write(master, b"/model\r")
         wait(lambda r: any("Select Model" in x for x in r) and any("Search:" in x for x in r), "the model picker")
         shown = "\n".join(rows())
-        assert "Your response required" not in shown, "a model list is not an approval prompt"
+        assert "Enter confirms" not in shown, "a model list is not an approval prompt"
         assert "Aria catalogue" in shown, "models are grouped under a heading"
         total = [x for x in rows() if "/" in x and "Search:" in x][0].split()[-2]
         os.write(master, b"deepseek 14")
@@ -889,8 +897,10 @@ def test_real_terminal_shows_the_phase_and_a_risk_card_on_approval(application):
         raise AssertionError((what, "\n".join(rows())))
 
     def input_line():
-        for row in rows():
-            if row.lstrip("│ ").startswith("›"):
+        # The composer is the lowest ❯ row: the / and @ lists above it mark
+        # their selected row with the same glyph.
+        for row in reversed(rows()):
+            if row.lstrip("│ ").startswith("❯"):
                 return row.strip("│ ").strip()
         return ""
 
