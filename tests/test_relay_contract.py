@@ -53,8 +53,8 @@ def _relay_argv() -> list[str]:
     if command:
         return shlex.split(command)
     if not GO_RELAY.exists():
-        if os.environ.get("GITHUB_ACTIONS"):
-            raise AssertionError(f"build the relay first: {GO_RELAY} is missing")
+        # The general test jobs do not build Go; .github/workflows/go-relay.yml
+        # builds the relay and runs this file with ARIA_RELAY_COMMAND set.
         pytest.skip("build the Go relay first: cd go/relay && go build -o aria-relay .")
     return [str(GO_RELAY)]
 
