@@ -85,8 +85,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # macos-14 was retired: jobs on it were cancelled without ever
+          # getting a runner. Rust's aarch64-apple-darwin default minimum
+          # (macOS 11) does not follow the build host, so the binaries keep
+          # running on macOS 14.
           - arch: arm64
-            runner: macos-14
+            runner: macos-15
           - arch: x64
             runner: macos-15-intel
     env:
