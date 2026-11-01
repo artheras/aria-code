@@ -134,18 +134,10 @@ impl Robot {
     }
 
     /// The compact mascot: 9 columns by 4 rows, the height of the four lines of
-    /// text beside it on the welcome screen. It follows the artwork's face: an
-    /// ivory square left eye and an amber dash right eye on the black screen.
-    ///
-    /// Terminals paint a cell's background over the whole line box but draw a
-    /// block glyph only inside the font's em box, so with line spacing above 1.0
-    /// a background shows as a stripe at the cell's top and bottom. Each cell
-    /// therefore takes as its background the colour that continues across the
-    /// row seam inside the robot (cream for the cap and sides, black for the
-    /// screen) and draws the other colour as the glyph; the outline is
-    /// foreground only. The one seam that cannot be continuous, under the
-    /// screen, falls between the body and its base, where the artwork has a
-    /// seam line of its own.
+    /// text beside it on the welcome screen. Quadrant and half blocks keep the
+    /// edges exact in any font; the two eyes are identical ivory squares. The
+    /// larger 14x6 form this replaces stood taller than the text and read as
+    /// chunky, with a half-row of empty space above it.
     fn compact_cream(theme: &str) -> Self {
         let (body, ear, leg) = if theme == "light" {
             (
@@ -162,44 +154,32 @@ impl Robot {
         };
         let screen = Color::Rgb(14, 14, 14);
         let eye = Color::Rgb(255, 253, 245);
-        let amber = Color::Rgb(249, 180, 103);
         let fg = |text: &'static str, color: Color| Span::styled(text, Style::new().fg(color));
-        let bg = |text: &'static str, color: Color| Span::styled(text, Style::new().bg(color));
         let on =
             |text: &'static str, f: Color, b: Color| Span::styled(text, Style::new().fg(f).bg(b));
+        let dark = |text: &'static str| Span::styled(text, Style::new().bg(screen));
         let rows = vec![
-            // Cap: cream throughout, so its seam with the face row is cream.
-            vec![fg("▗", body), bg("       ", body), fg("▖", body)],
-            // Ears, screen top, square eye, gap, dash eye.
+            vec![fg("▗", body), on("▛▀▀▀▀▀▜", body, screen), fg("▖", body)],
             vec![
-                fg("▐", ear),
-                on("▗", screen, body),
+                on("▌", ear, body),
+                on("▌", body, screen),
                 on("▗▖", eye, screen),
-                bg(" ", screen),
-                on("▂", amber, screen),
-                bg(" ", screen),
-                on("▖", screen, body),
-                fg("▌", ear),
+                dark(" "),
+                on("▗▖", eye, screen),
+                on("▐", body, screen),
+                on("▐", ear, body),
             ],
-            // Screen bottom over the body: black above, cream below.
+            vec![fg("▐", body), on("▙▄▄▄▄▄▟", body, screen), fg("▌", body)],
             vec![
-                fg("▐", body),
-                on("▝", screen, body),
-                on("▄▄▄▄▄", body, screen),
-                on("▘", screen, body),
-                fg("▌", body),
-            ],
-            // Base and four feet.
-            vec![
-                fg(" ", ear),
-                fg("▀", ear),
+                fg("▝", ear),
                 on("▀", ear, leg),
                 fg("▀", ear),
                 on("▀", ear, leg),
                 fg("▀", ear),
                 on("▀", ear, leg),
                 fg("▀", ear),
-                fg(" ", ear),
+                on("▀", ear, leg),
+                fg("▘", ear),
             ],
         ];
         Self(rows.into_iter().map(Line::from).collect())
@@ -240,9 +220,8 @@ mod tests {
         }
     }
     #[test]
-    fn compact_mascot_has_the_artworks_wink_and_four_feet() {
+    fn compact_mascot_is_nine_by_four_with_two_identical_eyes() {
         let ivory = Some(Color::Rgb(255, 253, 245));
-        let amber = Some(Color::Rgb(249, 180, 103));
         let black = Some(Color::Rgb(14, 14, 14));
         for theme in ["light", "dark"] {
             let robot = Robot::from_event(&serde_json::json!({
@@ -251,14 +230,23 @@ mod tests {
             // As tall as the four lines of text beside it, and 9 columns wide.
             assert_eq!(robot.0.len(), 4);
             assert!(robot.0.iter().all(|row| row.width() == 9));
-            // The face: an ivory square left eye and an amber dash right eye,
-            // both on the black screen, one gap apart.
+            // Row 1: ear, frame, eye, gap, eye, frame, ear. The eyes are the
+            // same glyph in the same colours, one cell either side of the gap.
             let face = &robot.0[1].spans;
-            let eye = face.iter().find(|s| s.content == "▗▖").unwrap();
-            assert_eq!((eye.style.fg, eye.style.bg), (ivory, black));
-            let dash = face.iter().find(|s| s.content == "▂").unwrap();
-            assert_eq!((dash.style.fg, dash.style.bg), (amber, black));
+            assert_eq!(face.len(), 7);
+            assert_eq!(face[2].content, "▗▖");
+            assert_eq!(face[4].content, "▗▖");
+            assert_eq!(face[2].style, face[4].style);
+            assert_eq!(face[2].style.fg, ivory);
+            assert_eq!(face[2].style.bg, black);
+            assert_eq!(face[3].style.bg, black);
             // Four feet: alternating filled and open cells along the base.
+            let base: Vec<_> = robot.0[3]
+                .spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect();
+            assert_eq!(base.concat(), "▝▀▀▀▀▀▀▀▘");
             let feet: Vec<bool> = robot.0[3]
                 .spans
                 .iter()
@@ -266,27 +254,8 @@ mod tests {
                 .collect();
             assert_eq!(
                 feet,
-                [false, false, true, false, true, false, true, false, false]
+                [false, true, false, true, false, true, false, true, false]
             );
-        }
-    }
-
-    /// With line spacing above 1.0 a cell's background shows above and below
-    /// its glyph. The cap row must not carry the screen's black (the stripe
-    /// that showed over the robot's head), and the outline cells carry no
-    /// background at all.
-    #[test]
-    fn compact_mascot_backgrounds_do_not_stripe_with_tall_line_spacing() {
-        let black = Some(Color::Rgb(14, 14, 14));
-        for theme in ["light", "dark"] {
-            let robot = Robot::cream(theme, true);
-            assert!(robot.0[0].spans.iter().all(|s| s.style.bg != black));
-            for row in &robot.0 {
-                let first = row.spans.first().unwrap();
-                let last = row.spans.last().unwrap();
-                assert_eq!(first.style.bg, None);
-                assert_eq!(last.style.bg, None);
-            }
         }
     }
     #[test]

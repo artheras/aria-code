@@ -64,6 +64,68 @@ fn workspace_tail(text: &str, width: usize) -> String {
     }
     format!("…{}", kept.into_iter().rev().collect::<String>())
 }
+/// "gemini-3.8-flash" as "Gemini 3.8 Flash", "gpt-oss-120b" as "GPT OSS 120B".
+/// Only plain lower-case ids are reworded; anything else (Ollama tags such as
+/// `qwen2.5:7b`, mixed case) is shown as given. `/model` lists the exact ids.
+fn display_model(id: &str) -> String {
+    let id = id.rsplit('/').next().unwrap_or(id);
+    if id.is_empty()
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.')
+    {
+        return id.to_owned();
+    }
+    // Version numbers split by dashes ("sonnet-5-5") read as "5.5".
+    let mut words: Vec<String> = Vec::new();
+    for word in id.split('-').filter(|w| !w.is_empty()) {
+        let numeric = word.chars().all(|c| c.is_ascii_digit());
+        match words.last_mut() {
+            Some(last) if numeric && last.chars().all(|c| c.is_ascii_digit() || c == '.') => {
+                last.push('.');
+                last.push_str(word);
+            }
+            _ => words.push(word.to_owned()),
+        }
+    }
+    words
+        .iter()
+        .map(|word| match word.as_str() {
+            "gpt" | "glm" | "oss" | "ai" | "vl" => word.to_ascii_uppercase(),
+            w if w.ends_with('b') && w[..w.len() - 1].parse::<f64>().is_ok() => {
+                format!("{}B", &w[..w.len() - 1])
+            }
+            w => {
+                let mut chars = w.chars();
+                match chars.next() {
+                    Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+                    None => String::new(),
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn display_provider(id: &str) -> String {
+    match id {
+        "google" => "Google".into(),
+        "openai" => "OpenAI".into(),
+        "anthropic" => "Anthropic".into(),
+        "ollama" => "Ollama".into(),
+        "deepseek" => "DeepSeek".into(),
+        "xai" => "xAI".into(),
+        "openrouter" => "OpenRouter".into(),
+        other => {
+            let mut chars = other.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        }
+    }
+}
+
 const HELP: &str = "Aria interactive interface\n\nEnter  send · Alt+Enter / Ctrl+J  newline\nArrow keys  edit / browse history · /  list commands · @  pick a file · Tab  fill in\nCtrl+U / K / W  delete line / end / previous word\nPgUp / PgDn or mouse wheel  scroll transcript\nCtrl+O  toggle tool details · F1  this help\nEsc or Ctrl+C  cancel current task / dismiss dialog\nCtrl+D  exit (or delete character when input is non-empty)\n\n/new  start a new session · /resume ID  restore a session\n/sessions  list saved sessions · /help  all Aria commands\n/model  choose your model · /health  check configured services\n@file:path  reference a file · !command  run a shell command\n\nFile permissions, task isolation, checks and model routing are managed by Aria.\nApproval menus require your choice. Hidden reasoning and secret inputs\nare never written to the native transcript.";
 
 const HELP_ZH: &str = "Aria 交互界面\n\nEnter 发送 · Alt+Enter / Ctrl+J 换行\n方向键编辑 / 浏览输入历史 · 输入 / 列出命令 · @ 选择文件 · Tab 补全\nCtrl+U / K / W 删除行首 / 行尾 / 前一个词\nPgUp / PgDn 或鼠标滚轮查看对话历史\nCtrl+O 展开工具详情 · F1 打开帮助\nEsc / Ctrl+C 取消当前任务或关闭对话框\nCtrl+D 退出（输入非空时删除字符）\n\n/new 新会话 · /resume ID 恢复会话\n/sessions 会话列表 · /help 所有命令\n/model 选择模型 · /health 服务检查\n@file:path 引用文件 · !command 执行命令\naria -C <项目目录> 在指定项目中启动\n/config set ui_lang=zh 设置中文界面\n\n运行时管理文件权限、任务隔离与验证。\n审批需要你明确选择；秘密输入与隐藏推理不会写入界面记录。";
@@ -157,9 +219,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
         }
     );
     let header = if parts[0].height > 1 {
-        // Like Claude Code's welcome: a bold name and quiet details. Model
-        // before provider; the workspace needs no label, and shows the branch,
-        // or a warning when the workspace is the whole home folder.
+        // Name and version, then the model by its readable name, then where
+        // the work happens and under which permissions, quieter. The workspace
+        // needs no label; it shows the git branch, or a warning when the
+        // workspace is the whole home folder.
         let place = home_short(&app.workspace);
         let mut suffix = Vec::new();
         if app.home_workspace {
@@ -174,24 +237,25 @@ pub fn draw(frame: &mut Frame, app: &App) {
             ));
         }
         let suffix_width: usize = suffix.iter().map(|s| s.content.width()).sum();
-        let mut place_line = vec![Span::raw(workspace_tail(
-            &place,
-            usize::from(area.width).saturating_sub(usize::from(left_padding) + suffix_width + 1),
-        ))];
+        let mut place_line = vec![Span::styled(
+            workspace_tail(
+                &place,
+                usize::from(area.width)
+                    .saturating_sub(usize::from(left_padding) + suffix_width + 1),
+            ),
+            Style::new().fg(p.muted),
+        )];
         place_line.extend(suffix);
-        let mut model = vec![Span::raw(app.model.clone())];
+        let mut model = display_model(&app.model);
         if !app.provider.is_empty() {
-            model.push(Span::styled(
-                format!(" · {}", app.provider),
-                Style::new().fg(p.muted),
-            ));
+            model = format!("{model} · {}", display_provider(&app.provider));
         }
         let mut lines = vec![
             Line::from(vec![
                 Span::styled("Aria Code", Style::new().fg(p.accent).bold()),
-                Span::styled(format!(" v{}", app.version), Style::new().fg(p.muted)),
+                Span::styled(format!(" v{}", app.version), Style::new().fg(p.accent)),
             ]),
-            Line::from(model),
+            Line::raw(model),
             Line::from(place_line),
             Line::styled(runtime.to_owned(), Style::new().fg(p.muted)),
         ];
@@ -1072,13 +1136,26 @@ mod tests {
         };
         terminal.draw(|f| draw(f, &app)).unwrap();
         let shown = display(&terminal);
-        assert!(shown.contains("gemini-3.8-flash · google"), "{shown}");
+        assert!(shown.contains("Gemini 3.8 Flash · Google"), "{shown}");
         assert!(shown.contains("/srv/game · feat/boss"), "{shown}");
         assert!(!shown.contains("Workspace"), "{shown}");
         // The whole home folder as workspace is called out instead of the branch.
         app.home_workspace = true;
         terminal.draw(|f| draw(f, &app)).unwrap();
         assert!(display(&terminal).contains("· home folder"));
+    }
+
+    #[test]
+    fn model_and_provider_ids_read_as_names() {
+        assert_eq!(display_model("gemini-3.8-flash"), "Gemini 3.8 Flash");
+        assert_eq!(display_model("openai/gpt-oss-120b"), "GPT OSS 120B");
+        assert_eq!(display_model("claude-sonnet-5-5"), "Claude Sonnet 5.5");
+        assert_eq!(display_model("gpt-5"), "GPT 5");
+        assert_eq!(display_model("qwen2.5:7b"), "qwen2.5:7b");
+        assert_eq!(display_model("GLM-4.6"), "GLM-4.6");
+        assert_eq!(display_provider("google"), "Google");
+        assert_eq!(display_provider("openai"), "OpenAI");
+        assert_eq!(display_provider("my-gateway"), "My-gateway");
     }
 
     #[test]
@@ -1508,10 +1585,9 @@ mod tests {
             };
             terminal.draw(|f| draw(f, &app)).unwrap();
             let buffer = terminal.backend().buffer();
-            // 9 columns wide and 4 rows tall: ears hug the body on row 1,
-            // text two columns on.
-            assert_eq!(buffer[(0, 1)].symbol(), "▐");
-            assert_eq!(buffer[(8, 1)].symbol(), "▌");
+            // 9 columns wide and 4 rows tall: ears on row 1, text two columns on.
+            assert_eq!(buffer[(0, 1)].symbol(), "▌");
+            assert_eq!(buffer[(8, 1)].symbol(), "▐");
             assert_eq!(buffer[(11, 0)].symbol(), "A");
             assert!(display(&terminal).contains("Aria Code"));
         }
