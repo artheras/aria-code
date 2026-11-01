@@ -3,7 +3,7 @@
 __version__ used to live in aria_cli.py, which meant anything wanting the
 version string had to import the whole interactive CLI — prompt_toolkit,
 bootstrap hooks, the tool registry, all of it. The three consumers each worked
-around that differently: crash_report and a diagnostics accessor imported
+around that differently: a crash reporter (since removed) and a diagnostics accessor imported
 aria_cli anyway, and the MCP server went to importlib.metadata instead, with a
 comment explaining that pulling in aria_cli was too heavy for a binary whose
 job is speaking JSON-RPC over stdio.
