@@ -10,7 +10,7 @@ import (
 )
 
 func nativeCommands() []string {
-	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff"}
+	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load"}
 }
 
 // commandInfo describes each command for the "/" list: [English, Chinese].
@@ -36,6 +36,15 @@ var commandInfo = map[string][2]string{
 	"/context":       {"Show what the model will see next turn", "查看下一轮模型可见的上下文"},
 	"/tools":         {"List tools and whether they ask first", "列出工具及其审批方式"},
 	"/diff":          {"Show workspace changes (--patch for the patch)", "查看工作区改动（--patch 显示补丁）"},
+	"/compact":       {"Summarise the history to free context", "压缩历史以释放上下文"},
+	"/btw":           {"Ask a side question that is not kept", "顺便问一句（不计入对话）"},
+	"/recap":         {"Recap the conversation so far", "回顾目前的对话"},
+	"/regen":         {"Regenerate the last answer", "重新生成上一个回答"},
+	"/history":       {"List recent prompts", "列出最近的提问"},
+	"/rename":        {"Rename this session", "重命名当前会话"},
+	"/fork":          {"Save a copy of this session", "复制当前会话为新会话"},
+	"/save":          {"Save the session to a file (/export session)", "保存会话到文件（/export session）"},
+	"/load":          {"Load a session file (/import)", "从文件载入会话（/import）"},
 }
 
 // commandInfoList is nativeCommands in order, each with its description in lang.
@@ -87,6 +96,25 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		return s.toolsCommand()
 	case "/diff":
 		return s.diffCommand(ctx, fields[1:])
+	case "/compact":
+		return s.compactCommand(ctx, rest(text, fields[0]))
+	case "/btw":
+		return s.btwCommand(ctx, rest(text, fields[0]))
+	case "/recap":
+		return s.recapCommand(ctx)
+	case "/regen":
+		// runTurn turns /regen into the previous prompt before it gets here.
+		return "", errors.New("nothing to regenerate")
+	case "/history":
+		return s.historyCommand(fields[1:])
+	case "/rename":
+		return s.renameCommand(rest(text, fields[0]))
+	case "/fork":
+		return s.forkCommand(rest(text, fields[0]))
+	case "/save":
+		return s.exportCommand(ctx, turn, append([]string{"session"}, fields[1:]...))
+	case "/load":
+		return s.importCommand(ctx, turn, rest(text, fields[0]))
 	case "/help":
 		extraHelp := "\n/import <path> — create a new session from JSON\n/export session [path] — complete session including file snapshots\n/export bundle [path] — private diagnostics and lifecycle trace (no conversation or config)\n@ references extract DOCX/PPTX text and PDF text/OCR.\n/config set document_ocr=true — OCR empty PDF pages (Tesseract language data required)\n/config set ocr_language=eng+chi_sim+chi_tra\n/config set document_vision=true — send image/PDF-page evidence to your selected vision-capable provider; off by default\n"
 		return "Aria native interface\n\nEnter sends · Ctrl+J / Alt+Enter adds a line\nEsc cancels · Ctrl+O shows operation details · F1 opens help\nTab completes /commands and @file references\n\n/model — interactive provider/model selection\n/models [google|gcp|ollama] — discover models without generation\n/model <provider> <model> — switch explicitly\n@file:path or @\"path with spaces\" — read a text file into this turn\n/config set gcp_project=PROJECT · gcp_location=REGION · ollama_base_url=URL\n/export <format> [path] — export saved conversation\n/changes · /apply-change ID · /reject-change ID — review edits\n\n" + strings.Join(nativeCommands(), " · ") + extraHelp, nil
@@ -254,6 +282,12 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		return "", fmt.Errorf("unknown command: %s; use /help", fields[0])
 	}
 }
+
+// rest is what follows the command name, spacing inside it kept.
+func rest(text, name string) string {
+	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), name))
+}
+
 func (s *server) saveSetting(key string, value any) error {
 	// Read the latest file so another terminal's unrelated settings survive.
 	cfg, err := loadConfig(s.opts.root)

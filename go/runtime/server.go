@@ -341,7 +341,18 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 	var answer string
 	var err error
 	var evidence *turnEvidence
-	if strings.HasPrefix(strings.TrimSpace(text), "!") {
+	// /regen drops the last exchange and sends its prompt again as a turn.
+	var regenErr error
+	if strings.TrimSpace(text) == "/regen" {
+		if prompt, e := s.prepareRegen(); e != nil {
+			regenErr = e
+		} else {
+			text = prompt
+		}
+	}
+	if regenErr != nil {
+		err = regenErr
+	} else if strings.HasPrefix(strings.TrimSpace(text), "!") {
 		answer, err = s.userCommand(ctx, turn, strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), "!")))
 		s.contents = settlePending(s.contents)
 		s.contents = append(s.contents, genai.NewContentFromText(text, genai.RoleUser))
