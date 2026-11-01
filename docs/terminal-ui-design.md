@@ -63,9 +63,35 @@ the visual budget; no Claude mascot artwork is included in Aria.
 
 Aria's compact mascot is 9 columns by four rows, the height of the four lines of
 text beside it. It replaces a 14-by-six form that stood taller than that text and
-read as chunky. The two ivory eyes are identical quadrant pairs mirrored about
-the screen, and the four feet alternate filled and open cells along the base.
-Quadrant and half blocks keep the edges exact in any font.
+read as chunky.
+
+### Revision of 2026-11-01: the artwork's wink, and no stripes
+
+Measured again in the published 2.1.27 `cli.js`: Claude Code's mascot uses one
+body colour on a black inner background, its eyes are holes left by quadrant
+glyphs, its outermost cells are foreground only, it has a separate drawing for
+macOS Terminal.app, and every mascot colour has a 16-colour ANSI fallback. The
+welcome text is a bold product name followed by dim lines (model and plan,
+working directory) that split rather than overflow on narrow terminals.
+
+A user's screenshot showed a black stripe over Aria's head and a gap above its
+feet. Terminals paint a cell's background across the whole line box but draw a
+block glyph only inside the font's em box, so any line spacing above 1.0 exposes
+the background above and below the glyph. The old cap row drew cream glyphs on
+the screen's black background, hence the stripe. Each cell now takes as its
+background the colour that continues across its seam inside the robot (cream
+for the cap and sides, black for the screen) and draws the other colour as the
+glyph; outline cells have no background. The one seam that cannot be continuous,
+under the screen, falls between body and base, where the artwork has a seam line.
+This was checked with a cell simulator at line spacing 1.0 and 1.25 in light
+and dark themes, not in every terminal.
+
+The face now follows `docs/assets/aria-robot.png`: an ivory square left eye and
+an amber dash right eye (`▂`, a lower eighth block), instead of two identical
+squares. The text beside it reads like a prompt rather than a form: the version
+is muted, the model comes before its provider, the workspace has no label and
+shows the git branch read from `.git/HEAD` (or "home folder" in the accent colour
+when the workspace is the home directory), then permission and network.
 
 The cream shell, inset black screen, orange base line and ear details follow
 `docs/assets/aria-robot.png`. The original asset is unchanged. The compact

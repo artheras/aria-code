@@ -157,22 +157,42 @@ pub fn draw(frame: &mut Frame, app: &App) {
         }
     );
     let header = if parts[0].height > 1 {
+        // Like Claude Code's welcome: a bold name and quiet details. Model
+        // before provider; the workspace needs no label, and shows the branch,
+        // or a warning when the workspace is the whole home folder.
+        let place = home_short(&app.workspace);
+        let mut suffix = Vec::new();
+        if app.home_workspace {
+            suffix.push(Span::styled(
+                format!(" · {}", app.tr("home folder", "主目录")),
+                Style::new().fg(p.accent),
+            ));
+        } else if !app.branch.is_empty() {
+            suffix.push(Span::styled(
+                format!(" · {}", app.branch),
+                Style::new().fg(p.muted),
+            ));
+        }
+        let suffix_width: usize = suffix.iter().map(|s| s.content.width()).sum();
+        let mut place_line = vec![Span::raw(workspace_tail(
+            &place,
+            usize::from(area.width).saturating_sub(usize::from(left_padding) + suffix_width + 1),
+        ))];
+        place_line.extend(suffix);
+        let mut model = vec![Span::raw(app.model.clone())];
+        if !app.provider.is_empty() {
+            model.push(Span::styled(
+                format!(" · {}", app.provider),
+                Style::new().fg(p.muted),
+            ));
+        }
         let mut lines = vec![
             Line::from(vec![
                 Span::styled("Aria Code", Style::new().fg(p.accent).bold()),
-                Span::raw(format!(" v{}", app.version)),
+                Span::styled(format!(" v{}", app.version), Style::new().fg(p.muted)),
             ]),
-            Line::raw(format!("{} / {}", app.provider, app.model)),
-            Line::raw(format!(
-                "{} {}",
-                app.tr("Workspace", "工作区"),
-                workspace_tail(
-                    &home_short(&app.workspace),
-                    usize::from(area.width).saturating_sub(
-                        usize::from(left_padding) + app.tr("Workspace", "工作区").width() + 1
-                    ),
-                )
-            )),
+            Line::from(model),
+            Line::from(place_line),
             Line::styled(runtime.to_owned(), Style::new().fg(p.muted)),
         ];
         if !app.update_notice.is_empty() {
@@ -1037,6 +1057,31 @@ mod tests {
     }
 
     #[test]
+    fn welcome_lines_read_like_a_prompt_not_a_form() {
+        let mut terminal = Terminal::new(TestBackend::new(90, 24)).unwrap();
+        let mut app = App {
+            ready: true,
+            version: "0.164.0".into(),
+            model: "gemini-3.8-flash".into(),
+            provider: "google".into(),
+            workspace: "/srv/game".into(),
+            branch: "feat/boss".into(),
+            permission: "workspace-write".into(),
+            network: true,
+            ..App::default()
+        };
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let shown = display(&terminal);
+        assert!(shown.contains("gemini-3.8-flash · google"), "{shown}");
+        assert!(shown.contains("/srv/game · feat/boss"), "{shown}");
+        assert!(!shown.contains("Workspace"), "{shown}");
+        // The whole home folder as workspace is called out instead of the branch.
+        app.home_workspace = true;
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        assert!(display(&terminal).contains("· home folder"));
+    }
+
+    #[test]
     fn long_workspaces_leave_policy_and_project_name_visible() {
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         let app = App {
@@ -1463,9 +1508,10 @@ mod tests {
             };
             terminal.draw(|f| draw(f, &app)).unwrap();
             let buffer = terminal.backend().buffer();
-            // 9 columns wide and 4 rows tall: ears on row 1, text two columns on.
-            assert_eq!(buffer[(0, 1)].symbol(), "▌");
-            assert_eq!(buffer[(8, 1)].symbol(), "▐");
+            // 9 columns wide and 4 rows tall: ears hug the body on row 1,
+            // text two columns on.
+            assert_eq!(buffer[(0, 1)].symbol(), "▐");
+            assert_eq!(buffer[(8, 1)].symbol(), "▌");
             assert_eq!(buffer[(11, 0)].symbol(), "A");
             assert!(display(&terminal).contains("Aria Code"));
         }
