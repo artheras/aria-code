@@ -28,7 +28,11 @@ the 7.6 MB `demo-2026-06-22.gif`, `scripts/do_move.sh`, `top_level_modules.txt`,
 **Unwired but tested; decide wire-or-delete** (no production caller, dedicated
 tests): `cloud_memory.py`, `workspace_context.py`, `tools/video_tools.py`,
 `runtime/crash_report.py`, `video_workflow/music/foley_service.py`,
-`utils/vscode_uri.py`.
+`utils/vscode_uri.py`. Rechecked 2026-11-01: `workspace_context.py`,
+`runtime/crash_report.py` and `utils/vscode_uri.py` still had no caller and are
+removed with their tests; `cloud_memory.py` is now used by `account_memory.py`;
+the video modules stay until the Arthera platform's `agents.video.director`
+import moves.
 
 ### Where each area should end up
 
