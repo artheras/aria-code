@@ -48,7 +48,7 @@ pytest.importorskip("uvicorn", reason="relay server dependency")
 
 REPO = Path(__file__).resolve().parents[1]
 TOKEN_A, TOKEN_B = "a" * 43, "b" * 43
-CODE_A = "ABCDEFGHJKLM"
+CODE_A, CODE_B = "ABCDEFGHJKLM", "NPQRSTUVWXYZ"
 VERIFY = "tok"
 PYTHON_RELAY = [sys.executable, "-m", "aria_code.aria_relay_server"]
 
@@ -61,6 +61,8 @@ class FakeFeishu:
     def __init__(self) -> None:
         self.requests: list[dict] = []
         self.lock = threading.Lock()
+        self.fail_tokens = 0          # answer the next N token fetches with HTTP 500
+        self.token_expire = 7200      # below 60 s neither relay caches the token
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -76,12 +78,20 @@ class FakeFeishu:
                     fake.requests.append({"path": path, "query": query, "body": body,
                                           "auth": self.headers.get("Authorization", "")})
                     sent = len(fake.requests)
+                status = 200
                 if path.endswith("/auth/v3/tenant_access_token/internal"):
-                    answer = {"code": 0, "msg": "ok", "tenant_access_token": "t-test", "expire": 7200}
+                    with fake.lock:
+                        failing = fake.fail_tokens > 0
+                        fake.fail_tokens -= failing
+                    if failing:
+                        status, answer = 500, {"code": 99991663, "msg": "internal error"}
+                    else:
+                        answer = {"code": 0, "msg": "ok", "tenant_access_token": "t-test",
+                                  "expire": fake.token_expire}
                 else:
                     answer = {"code": 0, "msg": "success", "data": {"message_id": f"om_sent_{sent}"}}
                 data = json.dumps(answer).encode()
-                self.send_response(200)
+                self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
@@ -272,6 +282,15 @@ class TestStatus:
             assert listed["client_ids"] == ["aria-a"] and listed["connected_clients"] == 1
 
 
+    def test_warns_when_cloud_run_would_lose_sqlite_state(self, start):
+        relay = start(K_SERVICE="aria-relay")
+        assert "RELAY_STORE=firestore" in relay.http.get("/status").json()["store_warning"]
+
+    def test_an_unknown_store_is_an_error_not_a_silent_default(self, start):
+        with pytest.raises(AssertionError, match="relay exited"):
+            start(RELAY_STORE="nonsense")
+
+
 # ── event authenticity ─────────────────────────────────────────────────────
 
 class TestVerification:
@@ -336,6 +355,37 @@ class TestRegistration:
         assert answer == {"ok": False, "reason": "invalid secret"}
 
 
+    def test_a_refused_registration_does_not_evict_the_machine(self, relay):
+        live, _ = relay.connect()
+        with live:
+            _bind(relay)
+            intruder, answer = relay.connect(token=TOKEN_B)
+            assert not answer["ok"]
+            intruder.close()
+            time.sleep(0.5)
+            relay.event(_message(event_id="ev_after_intruder"))
+            assert _frame(live, "message")["payload"]["header"]["event_id"] == "ev_after_intruder"
+
+    def test_a_rotated_bind_code_replaces_the_old_one(self, relay):
+        relay.connect()[0].close()
+        ws, answer = relay.connect(code=CODE_B)
+        ws.close()
+        assert answer["ok"]
+        relay.event(_message("ou_x", f"/bind ARIA-BIND-{CODE_A}", event_id="ev_old_code"))
+        relay.feishu.wait_for(lambda r: r["body"].get("receive_id") == "ou_x" and "绑定码无效" in _said(r))
+        relay.event(_message("ou_owner", f"/bind ARIA-BIND-{CODE_B}", event_id="ev_new_code"))
+        relay.feishu.wait_for(lambda r: r["body"].get("receive_id") == "ou_owner" and "绑定成功" in _said(r))
+
+    def test_rotating_the_bind_code_needs_the_machines_token(self, relay):
+        relay.connect()[0].close()
+        ws, answer = relay.connect(token=TOKEN_B, code=CODE_B)
+        ws.close()
+        assert not answer["ok"]
+        relay.event(_message("ou_attacker", f"/bind ARIA-BIND-{CODE_B}", event_id="ev_stolen"))
+        relay.feishu.wait_for(lambda r: r["body"].get("receive_id") == "ou_attacker" and "绑定码无效" in _said(r))
+        assert relay.http.get("/status").json()["total_bindings"] == 0
+
+
 # ── binding and forwarding ─────────────────────────────────────────────────
 
 class TestMessages:
@@ -371,6 +421,26 @@ class TestMessages:
             ws.send(json.dumps({"type": "response", "id": first["id"], "result": {}}))
             with pytest.raises(TimeoutError):
                 ws.recv(timeout=1.5)
+
+    def test_an_event_without_an_id_is_not_dropped(self, relay):
+        ws, _ = relay.connect()
+        with ws:
+            _bind(relay)
+            payload = _message(text="no id")
+            payload["header"].pop("event_id")
+            relay.event(payload)
+            relay.event(payload)
+            first = _frame(ws, "message")
+            ws.send(json.dumps({"type": "response", "id": first["id"], "result": {}}))
+            assert _frame(ws, "message")["id"] != first["id"]
+
+    def test_a_failed_token_fetch_is_not_cached(self, relay):
+        relay.feishu.fail_tokens = 1
+        relay.event(_message(open_id="ou_first", event_id="ev_token_fails"))
+        time.sleep(1)
+        assert not [r for r in relay.feishu.messages() if r["body"].get("receive_id") == "ou_first"]
+        relay.event(_message(open_id="ou_second", event_id="ev_token_back"))
+        relay.feishu.wait_for(lambda r: r["body"].get("receive_id") == "ou_second")
 
     def test_an_unbound_user_is_told_how_to_start(self, relay):
         relay.event(_message(open_id="ou_new"))
@@ -430,6 +500,22 @@ class TestSending:
             assert _frame(ws, "send_result")["result"]["code"] == 0
         sent = relay.feishu.wait_for(lambda r: r["body"].get("receive_id") == "oc_team")
         assert "receive_id_type=chat_id" in sent["query"]
+
+    def test_a_send_feishu_cannot_take_is_answered_not_dropped(self, relay):
+        relay.feishu.token_expire = 30          # no caching: every send fetches a token
+        ws, _ = relay.connect()
+        with ws:
+            _bind(relay)
+            _forwarded(relay, ws)
+            relay.feishu.fail_tokens = 1
+            ws.send(json.dumps({"type": "send", "id": "s-down", "op": "reply", "target": "om_1",
+                                "msg_type": "text", "content": "{}"}))
+            result = _frame(ws, "send_result")
+            assert result["id"] == "s-down"
+            assert result["result"] == {"code": -1, "msg": "relay could not reach Feishu"}
+            ws.send(json.dumps({"type": "send", "id": "s-up", "op": "reply", "target": "om_1",
+                                "msg_type": "text", "content": "{}"}))
+            assert _frame(ws, "send_result")["result"]["code"] == 0
 
     def test_anything_else_is_refused_without_reaching_feishu(self, relay):
         ws, _ = relay.connect()

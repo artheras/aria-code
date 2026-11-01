@@ -21,7 +21,12 @@ The contract covers `/status`, event verification (token and signature), the
 URL challenge, registration (trust on first use, `RELAY_SECRET`), binding,
 forwarding with an immediate answer to Feishu and de-duplicated retries, the
 offline and unbound notices, sending on a client's behalf and what is refused,
-card presses, and reconnects. CI (`.github/workflows/go-relay.yml`) also runs
+card presses, and reconnects. It also covers what used to be checked only by
+the Python relay's own unit tests: a refused registration does not evict the
+connected machine, a rotated bind code replaces the old one and needs the
+machine's token, events without an id are not dropped, a failed tenant-token
+fetch is not cached, a send Feishu cannot take is answered rather than dropped,
+the Cloud Run SQLite warning, and an unknown `RELAY_STORE` failing at start. CI (`.github/workflows/go-relay.yml`) also runs
 the Go unit tests and the contract with the race detector, and builds the image.
 
 The environment is the Python relay's: `PORT`, `DB_PATH`, `RELAY_STORE`
