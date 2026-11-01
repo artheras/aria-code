@@ -1371,19 +1371,30 @@ mod tests {
 
     #[test]
     fn the_progress_strip_names_files_relative_to_the_workspace() {
+        // Native absolute paths: "/srv/game" is not absolute on Windows.
+        let workspace = std::env::temp_dir().join("aria-strip-game");
+        let file = workspace.join("src").join("calc.py");
+        let relative = std::path::Path::new("src").join("calc.py");
         let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
         let mut app = App {
             ready: true,
-            workspace: "/srv/game".into(),
+            workspace: workspace.display().to_string(),
             ..App::default()
         };
         app.editor.insert("fix it");
         app.submit();
-        app.event(serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":"edit_file","params":{"path":"/srv/game/src/calc.py"}})).unwrap();
+        app.event(
+            serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1",
+            "tool":"edit_file","params":{"path":file.display().to_string()}}),
+        )
+        .unwrap();
         terminal.draw(|f| draw(f, &app)).unwrap();
         let shown = display(&terminal);
-        assert!(shown.contains("Editing src/calc.py"), "{shown}");
-        assert!(!shown.contains("/srv/game/src"), "{shown}");
+        assert!(
+            shown.contains(&format!("Editing {}", relative.display())),
+            "{shown}"
+        );
+        assert!(!shown.contains(&file.display().to_string()), "{shown}");
     }
 
     #[test]
