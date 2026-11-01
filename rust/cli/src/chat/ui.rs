@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, BorderType, Clear, Padding, Paragraph, Wrap},
+    widgets::{Block, BorderType, Borders, Clear, Padding, Paragraph, Wrap},
     Frame,
 };
 use unicode_segmentation::UnicodeSegmentation;
@@ -310,8 +310,23 @@ pub fn draw(frame: &mut Frame, app: &App) {
     }
     frame.render_widget(Paragraph::new(header), header_area);
     let mut lines = Vec::new();
-    for entry in &app.entries {
+    let (group_start, grouped) = inspection_groups(app);
+    for (index, entry) in app.entries.iter().enumerate() {
         if entry.text.trim().is_empty() || (entry.detail && !app.details) {
+            continue;
+        }
+        if grouped.contains(&index) {
+            continue;
+        }
+        if let Some((reads, others)) = group_start.get(&index) {
+            lines.push(Line::from(vec![
+                Span::styled("✓ ", Style::new().fg(p.success)),
+                Span::raw(inspection_summary(app, *reads, *others)),
+                Span::styled(
+                    app.tr(" · Ctrl+O expands", " · Ctrl+O 展开"),
+                    Style::new().fg(p.muted),
+                ),
+            ]));
             continue;
         }
         if let Some(action) = &entry.action {
@@ -510,18 +525,24 @@ pub fn draw(frame: &mut Frame, app: &App) {
     } else {
         app.tr(" Enter send ", " Enter 发送 ")
     };
-    let mut input = Block::bordered()
-        .border_type(BorderType::Rounded)
-        .padding(Padding::horizontal(1))
-        .title(Line::styled(label, Style::new().fg(p.accent)))
+    // Like Claude Code's composer: a rule above and below, no box. The same
+    // inner width as before (two padding columns each side), so wrapping and
+    // the cursor stay where the editor computes them. The label is shown only
+    // while queueing, when it says something.
+    let mut input = Block::new()
+        .borders(Borders::TOP | Borders::BOTTOM)
+        .padding(Padding::horizontal(2))
         .border_style(Style::new().fg(p.muted));
+    if busy {
+        input = input.title(Line::styled(label, Style::new().fg(p.accent)));
+    }
     if label.width() + hint.width() + 6 <= usize::from(parts[2].width) {
         input = input.title(Line::styled(hint, Style::new().fg(p.muted)).right_aligned());
     }
     let mut inside = input.inner(parts[2]);
     frame.render_widget(input, parts[2]);
     frame.render_widget(
-        Paragraph::new("›").style(Style::new().fg(if app.ready { p.accent } else { p.muted })),
+        Paragraph::new("❯").style(Style::new().fg(if app.ready { p.accent } else { p.muted })),
         Rect::new(inside.x, inside.y, 1, inside.height.min(1)),
     );
     inside.x += 2;
@@ -686,12 +707,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
             Line::raw(""),
         ];
         if !dialog.context.is_empty() {
-            heading.extend(
-                dialog
-                    .context
-                    .lines()
-                    .map(|line| Line::styled(line.to_owned(), Style::new().fg(p.assistant))),
-            );
+            heading.extend(context_lines(&dialog.context, p));
             heading.push(Line::raw(""));
         }
         if let Some(risk) = &dialog.risk {
@@ -699,33 +715,47 @@ pub fn draw(frame: &mut Frame, app: &App) {
             heading.push(Line::raw(""));
         }
         let heading = Paragraph::new(heading).wrap(Wrap { trim: false });
-        let heading_lines = heading.line_count(area.width.min(90).saturating_sub(2));
-        let height = (heading_lines
+        let heading_lines = heading.line_count(area.width.saturating_sub(2));
+        let choice_rows: usize = dialog
+            .choices
+            .iter()
+            .map(|(_, help)| 1 + usize::from(!help.is_empty()))
+            .sum();
+        // A panel along the bottom, the width of the window and as tall as
+        // what it shows, like Claude Code's: the conversation above stays
+        // readable instead of being cut by a box in the middle.
+        let wanted = 1
+            + heading_lines
             + if dialog.choices.is_empty() {
-                6
+                3
             } else {
-                dialog.choices.len() * 3 + 3
-            })
-        .min(25) as u16;
-        let rect = popup(area, 90, height);
+                choice_rows + 2
+            };
+        let height = (wanted as u16).min(area.height.saturating_sub(2)).max(4);
+        let rect = Rect::new(area.x, area.bottom() - height, area.width, height);
         frame.render_widget(Clear, rect);
-        let block = Block::bordered()
-            .title(app.tr(
-                " Your response required · PgUp/PgDn review · Esc declines ",
-                " 需要你的选择 · PgUp/PgDn 查看预览 · Esc 拒绝 ",
-            ))
+        let block = Block::new()
+            .borders(Borders::TOP)
+            .padding(Padding::horizontal(1))
             .border_style(Style::new().fg(p.accent));
         let inside = block.inner(rect);
         frame.render_widget(block, rect);
         // Keep the operation visible while scrolling through approval choices.
-        let sections = Layout::vertical([
-            Constraint::Length(
-                (heading_lines.min(if dialog.risk.is_some() { 12 } else { 8 }) as u16)
-                    .min(inside.height.saturating_sub(3)),
-            ),
-            Constraint::Min(1),
-        ])
-        .split(inside);
+        // The context takes whatever the choices leave; a long diff scrolls
+        // with PgUp/PgDn while the choices stay in view.
+        let reserved = if dialog.choices.is_empty() {
+            3
+        } else {
+            choice_rows + 2
+        } as u16;
+        // Never less than half the panel for the context: with many choices
+        // those scroll instead, so the operation being approved stays in view.
+        let heading_rows = heading_lines.min(usize::from(u16::MAX)) as u16;
+        let context_height = heading_rows
+            .min(inside.height.saturating_sub(reserved))
+            .max(heading_rows.min(inside.height / 2));
+        let sections = Layout::vertical([Constraint::Length(context_height), Constraint::Min(1)])
+            .split(inside);
         let max_scroll = heading_lines
             .saturating_sub(usize::from(sections[0].height))
             .min(usize::from(u16::MAX)) as u16;
@@ -758,14 +788,14 @@ pub fn draw(frame: &mut Frame, app: &App) {
                         .saturating_sub(inside.height.saturating_sub(2));
                 }
                 let style = if i == dialog.selected {
-                    Style::new().fg(p.selection_fg).bg(p.accent)
+                    Style::new().fg(p.accent).bold()
                 } else {
                     Style::default()
                 };
                 rows.push(Line::styled(
                     format!(
                         "{} {}. {}",
-                        if i == dialog.selected { "›" } else { " " },
+                        if i == dialog.selected { "❯" } else { " " },
                         i + 1,
                         label
                     ),
@@ -780,7 +810,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
             }
             rows.push(Line::raw(""));
             rows.push(Line::styled(
-                "↑/↓ selects · Enter confirms · number or shortcut chooses",
+                app.tr(
+                    "Enter confirms · Esc declines · ↑/↓ or a number chooses · PgUp/PgDn review",
+                    "Enter 确认 · Esc 拒绝 · ↑/↓ 或数字选择 · PgUp/PgDn 查看",
+                ),
                 Style::new().fg(p.muted),
             ));
         }
@@ -791,6 +824,152 @@ pub fn draw(frame: &mut Frame, app: &App) {
             inside,
         );
     }
+}
+
+/// Read-only operations that may be folded into one line when several run in
+/// a row: what was looked at matters less than what was changed.
+const INSPECTIONS: [&str; 7] = [
+    "read_file",
+    "list_files",
+    "glob",
+    "search_code",
+    "find_symbol",
+    "repo_map",
+    "grep",
+];
+
+/// Runs of two or more finished, successful inspections with nothing to report
+/// (no approval note, no error), unless details are shown. Returns the first
+/// entry of each run with its (reads, other inspections) counts, and the
+/// entries folded into it.
+fn inspection_groups(
+    app: &App,
+) -> (
+    std::collections::HashMap<usize, (usize, usize)>,
+    std::collections::HashSet<usize>,
+) {
+    let mut starts = std::collections::HashMap::new();
+    let mut folded = std::collections::HashSet::new();
+    if app.details {
+        return (starts, folded);
+    }
+    let foldable = |i: usize| {
+        app.entries[i].action.as_ref().is_some_and(|a| {
+            a.done
+                && a.success
+                && !a.cancelled
+                && a.approval.is_empty()
+                && a.error.is_empty()
+                && INSPECTIONS.contains(&a.tool.as_str())
+        })
+    };
+    let mut i = 0;
+    while i < app.entries.len() {
+        if !foldable(i) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < app.entries.len() && foldable(i) {
+            i += 1;
+        }
+        if i - start >= 2 {
+            let reads = (start..i)
+                .filter(|&k| app.entries[k].action.as_ref().unwrap().tool == "read_file")
+                .count();
+            starts.insert(start, (reads, i - start - reads));
+            folded.extend(start + 1..i);
+        }
+    }
+    (starts, folded)
+}
+
+fn inspection_summary(app: &App, reads: usize, others: usize) -> String {
+    let files = |n: usize| {
+        if app.zh() {
+            format!("读取了 {n} 个文件")
+        } else if n == 1 {
+            "Read 1 file".to_owned()
+        } else {
+            format!("Read {n} files")
+        }
+    };
+    let looked = |n: usize| {
+        if app.zh() {
+            format!("查看了 {n} 处")
+        } else if n == 1 {
+            "looked in 1 place".to_owned()
+        } else {
+            format!("looked in {n} places")
+        }
+    };
+    match (reads, others) {
+        (r, 0) => files(r),
+        (0, o) => {
+            let mut text = looked(o);
+            if let Some(first) = text.get(..1) {
+                text = first.to_uppercase() + &text[1..];
+            }
+            text
+        }
+        (r, o) => format!("{}{}{}", files(r), app.tr(", ", "，"), looked(o)),
+    }
+}
+
+/// An approval's context, with any unified diff in it drawn the way an editor
+/// shows one: line numbers, added lines on green, removed lines on red.
+/// Lines outside a hunk are shown as plain context.
+fn context_lines(context: &str, p: Palette) -> Vec<Line<'static>> {
+    let (add_bg, del_bg) = if p.selection_fg == Color::White {
+        (Color::Rgb(218, 251, 225), Color::Rgb(255, 235, 233))
+    } else {
+        (Color::Rgb(18, 58, 30), Color::Rgb(74, 22, 26))
+    };
+    let mut out = Vec::new();
+    let mut hunk: Option<(usize, usize)> = None; // (old line, new line)
+    let width = 4;
+    for line in context.lines() {
+        if let Some(rest) = line.strip_prefix("@@ ") {
+            // @@ -a,b +c,d @@
+            let mut parts = rest.split_whitespace();
+            let old = parts
+                .next()
+                .and_then(|t| t.trim_start_matches('-').split(',').next()?.parse().ok());
+            let new = parts
+                .next()
+                .and_then(|t| t.trim_start_matches('+').split(',').next()?.parse().ok());
+            hunk = old.zip(new);
+            out.push(Line::styled(line.to_owned(), Style::new().fg(p.muted)));
+            continue;
+        }
+        let Some((old, new)) = hunk.as_mut() else {
+            out.push(Line::styled(line.to_owned(), Style::new().fg(p.assistant)));
+            continue;
+        };
+        let (number, sign, body, bg) = if let Some(body) = line.strip_prefix('+') {
+            let n = *new;
+            *new += 1;
+            (n, "+", body, Some(add_bg))
+        } else if let Some(body) = line.strip_prefix('-') {
+            let n = *old;
+            *old += 1;
+            (n, "-", body, Some(del_bg))
+        } else {
+            let n = *new;
+            *old += 1;
+            *new += 1;
+            (n, " ", line.strip_prefix(' ').unwrap_or(line), None)
+        };
+        let mut style = Style::new();
+        if let Some(bg) = bg {
+            style = style.bg(bg);
+        }
+        out.push(Line::from(vec![
+            Span::styled(format!("{number:>width$} "), Style::new().fg(p.muted)),
+            Span::styled(format!("{sign}{body}"), style),
+        ]));
+    }
+    out
 }
 
 /// What an action reaches, drawn above its approval: a coloured level, then
@@ -1243,6 +1422,77 @@ mod tests {
     }
 
     #[test]
+    fn an_approval_is_a_panel_along_the_bottom_with_a_numbered_diff() {
+        let mut terminal = Terminal::new(TestBackend::new(80, 30)).unwrap();
+        let mut app = App {
+            ready: true,
+            workspace: "/srv/game".into(),
+            ..App::default()
+        };
+        app.editor.insert("add subtract");
+        app.submit();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":"edit_file","params":{"path":"/srv/game/calc.py"}})).unwrap();
+        app.event(serde_json::json!({"protocol":1,"type":"approval.requested","turn_id":"turn-1","request_id":"a",
+            "title":"Make this edit to calc.py?",
+            "context":"File: calc.py\n@@ -1,2 +1,4 @@\n def add(a, b):\n     return a + b\n+def subtract(a, b):\n+    return a - b",
+            "choices":[["Allow once",""],["Decline",""]]})).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let shown = display(&terminal);
+        let rows: Vec<&str> = shown.lines().collect();
+        // The conversation above is untouched; the panel ends at the last row.
+        assert!(
+            rows.iter().any(|r| r.starts_with("› add subtract")),
+            "{shown}"
+        );
+        assert!(rows.last().unwrap().contains("Enter confirms"), "{shown}");
+        // New-file line numbers, the sign kept with the text.
+        assert!(
+            rows.iter().any(|r| r.contains("   3 +def subtract(a, b):")),
+            "{shown}"
+        );
+        assert!(
+            rows.iter().any(|r| r.contains("   1  def add(a, b):")),
+            "{shown}"
+        );
+        assert!(
+            rows.iter().any(|r| r.contains("❯ 1. Allow once")),
+            "{shown}"
+        );
+        // Added lines carry a background.
+        let lines = context_lines("@@ -1 +1,2 @@\n a\n+b", Palette::for_theme("dark"));
+        assert!(lines[2].spans[1].style.bg.is_some());
+        assert!(lines[1].spans[1].style.bg.is_none());
+    }
+
+    #[test]
+    fn consecutive_reads_fold_into_one_line_until_details_are_shown() {
+        let mut app = App {
+            ready: true,
+            workspace: "/srv/game".into(),
+            ..App::default()
+        };
+        app.editor.insert("look around");
+        app.submit();
+        for path in ["a.py", "b.py", "c.py"] {
+            app.event(serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":"read_file","params":{"path":path}})).unwrap();
+            app.event(serde_json::json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"read_file","success":true})).unwrap();
+        }
+        app.event(serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":"search_code","params":{"query":"subtract"}})).unwrap();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"search_code","success":true})).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(90, 24)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let shown = display(&terminal);
+        assert!(
+            shown.contains("✓ Read 3 files, looked in 1 place · Ctrl+O expands"),
+            "{shown}"
+        );
+        assert!(!shown.contains("b.py"), "{shown}");
+        app.details = true;
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        assert!(display(&terminal).contains("b.py"));
+    }
+
+    #[test]
     fn model_and_provider_ids_read_as_names() {
         assert_eq!(display_model("gemini-3.8-flash"), "Gemini 3.8 Flash");
         assert_eq!(display_model("openai/gpt-oss-120b"), "GPT OSS 120B");
@@ -1460,8 +1710,9 @@ mod tests {
             assert_eq!(empty_cursor.x, 4);
             assert_eq!(empty_cursor.y, height - 3);
             let buffer = terminal.backend().buffer();
-            assert_eq!(buffer[(2, height - 3)].symbol(), "›");
-            assert_eq!(buffer[(0, height - 2)].symbol(), "╰");
+            // A rule above and below the composer, the prompt two columns in.
+            assert_eq!(buffer[(2, height - 3)].symbol(), "❯");
+            assert_eq!(buffer[(0, height - 2)].symbol(), "─");
             app.editor.insert("你好👩‍💻");
             terminal.draw(|f| draw(f, &app)).unwrap();
             let cursor = terminal.backend_mut().get_cursor_position().unwrap();
@@ -1761,8 +2012,8 @@ mod tests {
             .expect("second row");
         let input = rows
             .iter()
-            .position(|r| r.contains("╭ Aria"))
-            .expect("input box title");
+            .rposition(|r| r.trim_end().ends_with("❯ /"))
+            .expect("the composer with the typed slash");
         assert!(
             help < model && model < input,
             "the list sits above the input, in order: {rows:#?}"
