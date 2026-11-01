@@ -186,6 +186,9 @@ pub struct App {
     pub phase: PhaseTrack,
     pub provider: String,
     pub workspace: String,
+    /// The workspace's git branch (or short commit when detached), read once
+    /// when the session reports its workspace. Empty outside a repository.
+    pub branch: String,
     pub permission: String,
     pub network: bool,
     pub robot: super::robot::Robot,
@@ -329,6 +332,7 @@ impl App {
                 self.version = safe(text("version"));
                 self.provider = safe(text("provider"));
                 self.workspace = safe(text("workspace"));
+                self.branch = git_branch(std::path::Path::new(&self.workspace));
                 self.permission = safe(text("permission"));
                 self.network = v["network"].as_bool().unwrap_or(false);
                 self.reference_completion = v["reference_completion"].as_bool().unwrap_or(false);
@@ -1520,5 +1524,76 @@ mod tests {
             a.add("output", &"界".repeat(MAX_TEXT), false);
         }
         assert!(a.entries.iter().map(|e| e.text.len()).sum::<usize>() <= MAX_TRANSCRIPT);
+    }
+}
+
+/// The branch checked out in `dir` or its nearest parent repository, read
+/// from `.git/HEAD` without running git. A worktree or submodule's `.git` file
+/// points at its real git directory. Detached heads show a short commit.
+pub fn git_branch(dir: &std::path::Path) -> String {
+    let mut current = Some(dir);
+    while let Some(d) = current {
+        let dot_git = d.join(".git");
+        let git_dir = if dot_git.is_dir() {
+            Some(dot_git)
+        } else if dot_git.is_file() {
+            std::fs::read_to_string(&dot_git).ok().and_then(|text| {
+                let target = text.trim().strip_prefix("gitdir:")?.trim().to_owned();
+                let target = std::path::PathBuf::from(target);
+                Some(if target.is_absolute() {
+                    target
+                } else {
+                    d.join(target)
+                })
+            })
+        } else {
+            None
+        };
+        if let Some(git_dir) = git_dir {
+            let head = std::fs::read_to_string(git_dir.join("HEAD")).unwrap_or_default();
+            let head = head.trim();
+            let name = match head.strip_prefix("ref: refs/heads/") {
+                Some(branch) => branch.to_owned(),
+                None if head.len() >= 7 && head.chars().all(|c| c.is_ascii_hexdigit()) => {
+                    head[..7].to_owned()
+                }
+                None => String::new(),
+            };
+            return name.chars().filter(|c| !c.is_control()).take(64).collect();
+        }
+        current = d.parent();
+    }
+    String::new()
+}
+
+#[cfg(test)]
+mod branch_tests {
+    use super::git_branch;
+
+    #[test]
+    fn reads_the_branch_from_the_nearest_repository() {
+        let root = std::env::temp_dir().join(format!("aria-branch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("repo/.git")).unwrap();
+        std::fs::create_dir_all(root.join("repo/src/deep")).unwrap();
+        std::fs::write(root.join("repo/.git/HEAD"), "ref: refs/heads/feat/boss\n").unwrap();
+        assert_eq!(git_branch(&root.join("repo/src/deep")), "feat/boss");
+        std::fs::write(
+            root.join("repo/.git/HEAD"),
+            "0123456789abcdef0123456789abcdef01234567\n",
+        )
+        .unwrap();
+        assert_eq!(git_branch(&root.join("repo")), "0123456");
+        // A worktree's .git file points at its git directory.
+        std::fs::create_dir_all(root.join("gitdirs/wt")).unwrap();
+        std::fs::write(root.join("gitdirs/wt/HEAD"), "ref: refs/heads/task-7\n").unwrap();
+        std::fs::create_dir_all(root.join("wt")).unwrap();
+        std::fs::write(
+            root.join("wt/.git"),
+            format!("gitdir: {}\n", root.join("gitdirs/wt").display()),
+        )
+        .unwrap();
+        assert_eq!(git_branch(&root.join("wt")), "task-7");
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

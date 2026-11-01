@@ -63,9 +63,26 @@ the visual budget; no Claude mascot artwork is included in Aria.
 
 Aria's compact mascot is 9 columns by four rows, the height of the four lines of
 text beside it. It replaces a 14-by-six form that stood taller than that text and
-read as chunky. The two ivory eyes are identical quadrant pairs mirrored about
-the screen, and the four feet alternate filled and open cells along the base.
-Quadrant and half blocks keep the edges exact in any font.
+read as chunky.
+
+### Welcome lines, 2026-11-01
+
+Measured in the published 2.1.27 `cli.js`: Claude Code's welcome text is a bold
+product name followed by quieter lines (model and plan, working directory) that
+split rather than overflow on narrow terminals. Aria's four lines beside the
+mascot now read the same way: name and version in the accent colour; the model
+by a readable name with its provider (`gemini-3.8-flash` from `google` shows as
+"Gemini 3.8 Flash · Google"; Ollama tags and other ids show as given, and
+`/model` lists exact ids); the workspace without a label, followed by its git
+branch read from `.git/HEAD` (worktrees included), or "home folder" in the
+accent colour when the workspace is the home directory; then permission and
+network. The mascot itself is unchanged.
+
+A redesign of the mascot (an amber-dash wink and per-cell backgrounds chosen so
+line spacing above 1.0 shows no stripes) was tried and not adopted; the
+original drawing was kept. With line spacing above 1.0 some terminals still
+show a thin dark line over its head, because the cap row draws cream glyphs on
+the screen's black background; a line spacing of 1.0 avoids it.
 
 The cream shell, inset black screen, orange base line and ear details follow
 `docs/assets/aria-robot.png`. The original asset is unchanged. The compact
