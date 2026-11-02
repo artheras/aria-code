@@ -104,14 +104,15 @@ class BrowserSession:
         route.continue_()
 
     def _fingerprint(self):
-        return hashlib.sha256((self.page.url + self.page.content()).encode()).hexdigest()
+        forms = self.page.evaluate("""() => [...document.querySelectorAll('input, textarea, select')].map(e => [e.value, e.checked, e.selectedIndex])""")
+        return hashlib.sha256((self.page.url + self.page.content() + json.dumps(forms)).encode()).hexdigest()
 
     def observe(self):
         if not self.page:
             raise ValueError("Open a page first")
         self._allowed(self.page.url)
         self.observation = (secrets.token_urlsafe(18), self.clock(), self._fingerprint())
-        return {
+        result = {
             "observation_id": self.observation[0], "url": self.page.url,
             "title": self.page.title(), "text": self.page.inner_text("body")[:16000],
             "elements": self.page.locator("button, input, textarea, select, a[href], [role=button]").evaluate_all("""els => els.filter(e => e.getClientRects().length).slice(0, 80).map(e => {
@@ -126,8 +127,12 @@ class BrowserSession:
                         label: (e.getAttribute('aria-label') || e.getAttribute('placeholder') || e.innerText || '').slice(0, 120)};
             })"""),
             "untrusted_content": True,
-            "_image": base64.b64encode(self.page.screenshot()).decode(),
+            "_image": base64.b64encode(self.page.screenshot(caret="initial")).decode(),
         }
+        if self._fingerprint() != self.observation[2]:
+            self.observation = None
+            raise ValueError("Page changed while observing; call browser_observe again")
+        return result
 
     def _fresh(self, token):
         if (not self.observation or token != self.observation[0]

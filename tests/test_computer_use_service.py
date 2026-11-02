@@ -24,7 +24,8 @@ class Page:
     def content(self): return self.html
     def title(self): return 'Example'
     def inner_text(self, selector): return 'Save'
-    def screenshot(self): return b'png'
+    def screenshot(self, **kwargs): return b'png'
+    def evaluate(self, expression): return []
     def locator(self, selector): return self.target
 
 
