@@ -233,9 +233,14 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 			return contents, answer.String(), errors.New("model exceeded 32 calls in one batch")
 		}
 		responses := []*genai.Part{}
+		toolImages := []*genai.Part{}
 		partialContents := func() []*genai.Content {
 			if len(responses) > 0 {
-				return append(contents, &genai.Content{Role: "user", Parts: responses})
+				out := append(contents, &genai.Content{Role: "user", Parts: responses})
+				if len(toolImages) > 0 {
+					out = append(out, &genai.Content{Role: "user", Parts: toolImages})
+				}
+				return out
 			}
 			return contents
 		}
@@ -418,8 +423,16 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 			var response map[string]any
 			json.Unmarshal(bytes, &response)
 			responses = append(responses, &genai.Part{FunctionResponse: &genai.FunctionResponse{Name: call.Name, ID: call.ID, Response: response}})
+			if result.Success {
+				for _, image := range result.Images {
+					toolImages = append(toolImages, &genai.Part{InlineData: &genai.Blob{MIMEType: image.MIMEType, Data: image.Data}})
+				}
+			}
 		}
 		contents = append(contents, &genai.Content{Role: "user", Parts: responses})
+		if len(toolImages) > 0 {
+			contents = append(contents, &genai.Content{Role: "user", Parts: toolImages})
+		}
 	}
 	return contents, answer.String(), errors.New("tool round limit reached; task is incomplete")
 }

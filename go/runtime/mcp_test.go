@@ -2,9 +2,14 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,6 +50,9 @@ func TestHelperMCPServer(t *testing.T) {
 			args, _ := m.Params["arguments"].(map[string]any)
 			if m.Params["name"] == "echo" {
 				reply["result"] = map[string]any{"content": []any{map[string]any{"type": "text", "text": fmt.Sprint("echo: ", args["text"])}}}
+				if args["text"] == "__image__" {
+					reply["result"] = map[string]any{"content": []any{map[string]any{"type": "text", "text": "observed"}, map[string]any{"type": "image", "mimeType": "image/png", "data": base64.StdEncoding.EncodeToString(nativeTestPNG(t))}}}
+				}
 			} else {
 				reply["result"] = map[string]any{"content": []any{map[string]any{"type": "text", "text": "touched"}}, "isError": false}
 			}
@@ -138,5 +146,82 @@ func TestModelCallsMCPToolsUnderApproval(t *testing.T) {
 func TestMCPToolNamesAreModelSafe(t *testing.T) {
 	if got := mcpToolName("my server", "read/file"); got != "mcp__my_server__read_file" {
 		t.Fatal(got)
+	}
+}
+
+func nativeTestPNG(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, 256, 256))
+	rng := rand.New(rand.NewSource(42))
+	rng.Read(img.Pix)
+	var b bytes.Buffer
+	if err := png.Encode(&b, img); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+func TestMCPImagesDecodedAndExcludedFromToolJSON(t *testing.T) {
+	data := nativeTestPNG(t)
+	encoded := base64.StdEncoding.EncodeToString(data)
+	if len(encoded) < 65536 {
+		t.Fatal("fixture must exceed default stream size")
+	}
+	raw, _ := json.Marshal(map[string]any{"content": []any{map[string]any{"type": "text", "text": "observed"}, map[string]any{"type": "image", "mimeType": "image/png", "data": encoded}}})
+	result := decodeMCPToolResult(raw, "local", "observe")
+	if !result.Success || len(result.Images) != 1 || !bytes.Equal(result.Images[0].Data, data) {
+		t.Fatal(result.Error)
+	}
+	visible, _ := json.Marshal(result)
+	if strings.Contains(string(visible), encoded) || strings.Contains(string(visible), "Images") {
+		t.Fatal("image leaked into tool result JSON")
+	}
+	for _, image := range []map[string]any{
+		{"type": "image", "mimeType": "image/png", "data": "bad-base64"},
+		{"type": "image", "mimeType": "image/jpeg", "data": encoded},
+		{"type": "image", "mimeType": "image/png", "data": base64.StdEncoding.EncodeToString([]byte("not png"))},
+	} {
+		raw, _ := json.Marshal(map[string]any{"content": []any{image}})
+		if decodeMCPToolResult(raw, "local", "observe").Success {
+			t.Fatal("accepted invalid image")
+		}
+	}
+	raw, _ = json.Marshal(map[string]any{"isError": true, "content": []any{map[string]any{"type": "image", "mimeType": "image/png", "data": encoded}}})
+	if result := decodeMCPToolResult(raw, "local", "observe"); result.Success || len(result.Images) != 0 {
+		t.Fatal("error image forwarded")
+	}
+}
+
+func TestNativeMCPImageReachesNextProviderTurn(t *testing.T) {
+	s := approvalServer(t, config{}, appOptions{})
+	fakeMCPServer(t, s)
+	n := 0
+	s.provider = providerFunc(func(_ context.Context, h []*genai.Content, _ string, _ []*genai.Tool, emit func(string)) (*genai.Content, error) {
+		n++
+		if n == 1 {
+			return &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{call("mcp__fake__echo", map[string]any{"text": "__image__"})}}, nil
+		}
+		last := h[len(h)-1]
+		if len(last.Parts) != 1 || last.Parts[0].InlineData == nil || last.Parts[0].InlineData.MIMEType != "image/png" {
+			t.Fatal("image missing from next turn")
+		}
+		previous := h[len(h)-2]
+		if previous.Parts[0].FunctionResponse == nil {
+			t.Fatal("tool response must precede image message")
+		}
+		messages, err := openAIMessages(h, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if messages[len(messages)-2]["role"] != "tool" || messages[len(messages)-1]["role"] != "user" {
+			t.Fatal("OpenAI tool/image message order")
+		}
+		emit("image inspected")
+		return genai.NewContentFromText("image inspected", genai.RoleModel), nil
+	})
+	s.done = make(chan struct{})
+	s.runTurn(context.Background(), "t", "inspect the image")
+	if n != 2 {
+		t.Fatalf("expected 2 model turns, got %d", n)
 	}
 }
