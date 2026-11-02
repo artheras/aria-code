@@ -234,7 +234,9 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 		return false, "", err
 	}
 	grant := name
-	if name == "run_command" {
+	// A session grant covers this exact command, or this exact workflow
+	// step list, never every one.
+	if name == "run_command" || name == "run_workflow" {
 		body, _ := json.Marshal(params)
 		grant = name + ":" + string(body)
 	}
@@ -290,7 +292,7 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 		contextText += "\nBefore SHA-256: " + change.sha + fmt.Sprintf("\nNew content: %d bytes", len(change.after))
 		contextText += "\n" + changePreview(change)
 	}
-	if name == "restore_checkpoint" {
+	if name == "restore_checkpoint" || name == "run_workflow" {
 		contextText += "\n" + str(params, "preview", "")
 	}
 	choices := [][]string{{"Allow once", "Only this operation"}, {"Allow for this session", "Same tool within the selected roots; resets with a new session"}, {"No, explain what to do differently", "Decline and provide instructions"}}
@@ -374,15 +376,7 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 	} else if strings.HasPrefix(strings.TrimSpace(text), "/") {
 		answer, err = s.command(ctx, turn, text)
 	} else {
-		hooks := agentHooks{emit: func(kind string, fields map[string]any) {
-			if err := s.emit(kind, turn, fields); err != nil {
-				cancel()
-			}
-		}, approve: s.approve, apply: func(ctx context.Context, tool string, change fileChange) toolResult {
-			return applyRecordedChange(ctx, s.scope, s.opts.root, s.snap.ID, tool, change)
-		}, stage: func(ctx context.Context, tool string, change fileChange) toolResult {
-			return stageRecordedChange(ctx, s.scope, s.opts.root, s.snap.ID, tool, change)
-		}, evidence: newTurnEvidence(s.scope.workspace), instructions: projectInstructions(s.opts.root, s.scope.workspace)}
+		hooks := s.turnHooks(turn, s.scope, cancel)
 		wasReadOnly := s.scope.readOnly
 		if readOnlyTurn {
 			s.scope.readOnly = true
@@ -461,6 +455,20 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 	s.cancel = nil
 	close(s.done)
 	s.mu.Unlock()
+}
+
+// turnHooks connect a model turn in scope sc to this session: its events,
+// approvals, checkpoints and staged changes.
+func (s *server) turnHooks(turn string, sc *scope, cancel func()) agentHooks {
+	return agentHooks{emit: func(kind string, fields map[string]any) {
+		if err := s.emit(kind, turn, fields); err != nil {
+			cancel()
+		}
+	}, approve: s.approve, apply: func(ctx context.Context, tool string, change fileChange) toolResult {
+		return applyRecordedChange(ctx, sc, s.opts.root, s.snap.ID, tool, change)
+	}, stage: func(ctx context.Context, tool string, change fileChange) toolResult {
+		return stageRecordedChange(ctx, sc, s.opts.root, s.snap.ID, tool, change)
+	}, evidence: newTurnEvidence(sc.workspace), instructions: projectInstructions(s.opts.root, sc.workspace)}
 }
 func (s *server) switchSession(id string) error {
 	var next snapshot

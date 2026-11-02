@@ -139,7 +139,16 @@ func commandTool(ctx context.Context, spec commandSpec) toolResult {
 }
 
 func (s *server) userCommand(ctx context.Context, turn, command string) (string, error) {
+	return s.userCommandTimeout(ctx, turn, command, 0)
+}
+
+// userCommandTimeout is userCommand with a timeout in seconds (0: the
+// default).
+func (s *server) userCommandTimeout(ctx context.Context, turn, command string, timeout int) (string, error) {
 	params := map[string]any{"command": command, "cwd": s.scope.workspace}
+	if timeout > 0 {
+		params["timeout"] = float64(timeout)
+	}
 	spec, err := commandPlan(s.scope, s.cfg, params)
 	if err != nil {
 		return "", err

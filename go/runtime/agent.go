@@ -73,7 +73,7 @@ func definitionFor(name string) (definition, bool) {
 	}
 	// Host commands use the same policy checks without advertising restore
 	// authority as a model tool.
-	if name == "restore_checkpoint" {
+	if name == "restore_checkpoint" || name == "run_workflow" {
 		return definition{name: name, mutate: true}, true
 	}
 	return definition{}, false
