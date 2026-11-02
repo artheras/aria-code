@@ -600,6 +600,11 @@ var unsafeFileChars = regexp.MustCompile(`[^\p{L}\p{N}._-]+`)
 
 // documentOutput is the caller's new file, or a fresh name under artifacts/report.
 func documentOutput(args map[string]any, title, ext string) (string, error) {
+	return artifactOutput(args, "report", title, ext)
+}
+
+// artifactOutput is the caller's new file, or a fresh name under artifacts/<kind>.
+func artifactOutput(args map[string]any, kind, title, ext string) (string, error) {
 	if raw, _ := args["output_path"].(string); strings.TrimSpace(raw) != "" {
 		out, err := mcpPathIn(raw, false)
 		if err != nil {
@@ -617,13 +622,13 @@ func documentOutput(args map[string]any, title, ext string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(state, "artifacts", "report")
+	dir := filepath.Join(state, "artifacts", kind)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
 	stem := strings.Trim(unsafeFileChars.ReplaceAllString(title, "_"), "._")
 	if stem == "" {
-		stem = "report"
+		stem = kind
 	}
 	return filepath.Join(dir, fmt.Sprintf("%s_%s%s", capRunes(stem, 60), time.Now().Format("20060102-150405.000"), ext)), nil
 }
