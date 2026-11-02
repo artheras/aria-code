@@ -135,6 +135,10 @@ pub fn call(
     ctrlc::set_handler(move || signal.store(true, Ordering::SeqCst))
         .map_err(|e| format!("Signal handler: {e}"))?;
     let mut command = crate::runtime::command(python, "bridge");
+    // The engine actually launched, not the worker path: runtime::command
+    // swaps in aria-runtime when it ships beside the frozen worker, and only
+    // the Go bridge expects the host's containment acknowledgement.
+    let native = crate::runtime::is_native(command.get_program());
     command
         .arg("--workspace")
         .arg(&workspace)
@@ -161,7 +165,6 @@ pub fn call(
     // Write in a separate thread too: a worker which never reads its stdin
     // must not block the timeout while a large request fills the pipe.
     let mut stdin = worker.child.stdin.take().ok_or("Missing worker stdin")?;
-    let native = crate::runtime::is_native(python);
     thread::spawn(move || {
         if native && stdin.write_all(b"\n").is_err() {
             return;
@@ -221,6 +224,37 @@ mod tests {
             assert!(validate_response(response.as_bytes()).is_err());
         }
         assert!(validate_response(&vec![b' '; MAX_MESSAGE + 1]).is_err());
+    }
+    /// A native release launches aria-runtime in place of the frozen worker
+    /// beside it; the Go bridge only answers after the host's containment
+    /// acknowledgement, which must therefore follow the launched engine.
+    #[cfg(unix)]
+    #[test]
+    fn the_go_bridge_beside_a_frozen_worker_gets_the_handshake() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let script = |name: &str, body: &str| {
+            let path = dir.path().join(name);
+            std::fs::write(&path, body).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        };
+        let worker = script("aria-code-worker", "#!/bin/sh\nexit 3\n");
+        script(
+            "aria-runtime",
+            "#!/bin/sh\nIFS= read -r ack || exit 2\n[ -z \"$ack\" ] || exit 2\nIFS= read -r request || exit 2\n\
+             printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"success\":true}}'\n",
+        );
+        let request = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call"});
+        let response = call(
+            worker.as_os_str(),
+            dir.path(),
+            Duration::from_secs(10),
+            None,
+            &request,
+        )
+        .unwrap();
+        assert_eq!(response["result"]["success"], true);
     }
     #[test]
     fn accepts_tool_result_and_rpc_error() {
