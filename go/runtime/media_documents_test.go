@@ -201,7 +201,11 @@ func fakePDFBrowser(t *testing.T) string {
 	os.MkdirAll(dir, 0o755)
 	if runtime.GOOS == "windows" {
 		path := filepath.Join(dir, "browser.cmd")
-		script := "@echo off\r\n:loop\r\nif \"%~1\"==\"\" goto :eof\r\nset \"a=%~1\"\r\nif \"%a:~0,15%\"==\"--print-to-pdf=\" echo %%PDF-1.4> \"%a:~15%\"\r\nshift\r\ngoto loop\r\n"
+		// cmd.exe splits an unquoted batch argument at "=", so the path may
+		// arrive as the argument after "--print-to-pdf".
+		script := "@echo off\r\n:loop\r\nif \"%~1\"==\"\" goto :eof\r\nset \"a=%~1\"\r\n" +
+			"if \"%a%\"==\"--print-to-pdf\" (echo %%PDF-1.4> \"%~2\"& shift & shift & goto loop)\r\n" +
+			"if \"%a:~0,15%\"==\"--print-to-pdf=\" echo %%PDF-1.4> \"%a:~15%\"\r\nshift\r\ngoto loop\r\n"
 		os.WriteFile(path, []byte(script), 0o755)
 		return path
 	}
