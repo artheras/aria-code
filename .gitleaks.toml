@@ -18,15 +18,18 @@ client bundles, and google_login.py says so at the definition. Access is
 governed by Firebase security rules and API-key restrictions, not by keeping
 the value secret, so this is a rule match rather than a disclosed credential.
 
-Scoped to that one file AND to the AIza key shape, so any other secret in that
-file, and this shape anywhere else, still fails the scan.
+The Go runtime's gateway provider (go/runtime/provider_presets.go) carries the
+same value to refresh the same sign-in, so it is listed too.
+
+Scoped to those files AND to the AIza key shape, so any other secret in them,
+and this shape anywhere else, still fails the scan.
 
 Worth confirming separately that the key's API-key restrictions and Firebase
 security rules are actually configured — the value being public only stays
 harmless while those are.
 """
 condition = "AND"
-paths = ['''(^|/)google_login\.py$''']
+paths = ['''(^|/)google_login\.py$''', '''(^|/)go/runtime/provider_presets\.go$''']
 regexes = ['''AIza[0-9A-Za-z\-_]{35}''']
 
 [[allowlists]]
@@ -93,3 +96,17 @@ description = "Invented API key in Go event-masking tests (including its origina
 condition = "AND"
 paths = ['''(^|/)go/runtime/trajectory_test\.go$''']
 regexes = ['''sk-live-1234567890abc''']
+
+[[allowlists]]
+description = """
+A model name read as an API key in the Go provider presets.
+
+go/runtime/provider_presets.go lists each provider's key environment variable
+followed by its default model, so generic-api-key reads the model name after
+GROQ_API_KEY as that key's value. It is a public model id, not a credential.
+
+Scoped to that one file AND to exactly this value.
+"""
+condition = "AND"
+paths = ['''(^|/)go/runtime/provider_presets\.go$''']
+regexes = ['''llama-3\.3-70b-versatile''']
