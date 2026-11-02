@@ -31,12 +31,12 @@ A Python command is deleted only after its replacement ships, and only together 
 | /providers /apikey /whoami /logout /doctor /update /feedback /privacy | batch 8 |
 | /cost /thinking, with token usage from both providers | batch 2b |
 | /graph /impact /lsp, with a native project graph | batch 5b |
+| /hooks /browser /screenshot, with Pre/PostToolUse, ResponseDone and SessionStart hooks in turns | batch 7b |
 
 ## Go: to do, in batches
 
 | Batch | Commands |
 |---|---|
-| 7b: extensions | /hooks (needs a PreToolUse/PostToolUse hook runner) /browser /screenshot (need computer use) |
 | 8b: account | /login (Arthera browser sign-in; the Go runtime does not call the Arthera gateway yet) |
 | Rust TUI | /copy (the clipboard is the terminal's) /completions (shell completion for the `aria` binary) |
 
