@@ -38,7 +38,7 @@ import moves.
 
 | Area (lines) | Target | Why / state |
 | --- | --- | --- |
-| Feishu relay, daemon (`aria_relay_server`, `aria_feishu_bot`, `aria_daemon`, ~3.9k) | Go (`go/relay`, 1.8k exists) | Server side, no terminal coupling; best first migration |
+| Feishu relay, daemon (`aria_relay_server`, `aria_feishu_bot`, `aria_daemon`, ~3.9k) | Go (`go/relay`, 1.8k exists) | Relay server moved to Go and removed from Python (2026-11-01); the bot and daemon stay Python because they call the Python domain code |
 | `packages/aria_mcp` (server 1.5k + installer) | Go | Protocol server; Arthera imports it, so keep a Python shim during cutover |
 | `runtime/` (11k: agent loop, transactions, sandbox) | Go (`agent.go` exists) | Blockers: whole-turn restore, process sandbox, change impact |
 | `providers/` + `apps/cli/providers` (7k, Ollama stream 1.6k) | Go | Google, OpenAI-compatible and tuned providers already native |
