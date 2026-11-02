@@ -1,9 +1,18 @@
 # Code review
 
 `/review` in the CLI and `aria-code review` on the command line run the same
-review service (`src/aria_code/review_service.py`). Its design follows the
-review flow of OpenAI's Codex CLI (Apache-2.0); the rubric and code are
-Aria Code's own.
+review service. The design follows the review flow of OpenAI's Codex CLI
+(Apache-2.0); the rubric and code are Aria Code's own.
+
+Two implementations exist while the Python worker is retired:
+
+- The Go runtime (`go/runtime/code_review.go`) serves `/review` in the native
+  app and `aria-runtime code-review` headless. It is the one that stays.
+- `src/aria_code/review_service.py` still serves the Python REPL and the
+  `aria-code review` product command, and goes with them.
+
+They share the targets, rubric, output and exit codes below. The Go version
+does not pass the deterministic pattern hints of `agents/code_review.py`.
 
 ## What gets reviewed
 
@@ -46,6 +55,8 @@ In the REPL the review is added to the conversation, so a follow-up such as
 
 ```
 aria-code review --base main --fail-on P1 --json > review.json
+# or, from a native install:
+aria-runtime code-review --base main --fail-on P1 --json > review.json
 ```
 
 Exit codes: `0` reviewed, nothing at or above the threshold; `1` a finding at

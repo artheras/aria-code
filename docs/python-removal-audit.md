@@ -45,7 +45,12 @@ Before anything is deleted: is each part of `src/aria_code` (about 165,000 lines
 3. **Move aria-code's unique finance code into financial-service**, and delete the copies already duplicated there. Trading needs its own decision: it either becomes a service capability with the same preview and confirmation gates, or it stays out.
    - In progress. Moved so far (financial-service #5 to #12): multi-source quotes and fundamentals, macro series and snapshots, central bank rates, technical factors, portfolio weights, Piotroski and Altman scores, options chains, funding rates, Fear & Greed, sector and index overviews, northbound flow, limit-up pool, A-share screener, A-share and crypto history, news.
    - Left: commodities, futures and bonds; Ichimoku, walk-forward and portfolio backtests; peer comparison; the analyst agents in `agents/financial/`; realty, logistics and data-analysis tools; report and dashboard generators. The Alibaba Cloud signal, prediction and cloud backtest tools depend on a retired backend and are not planned.
-4. **Decide the standalone services.** For the Feishu bot, the daemon, the MCP server and the review service: keep each as its own Python service, or port it.
+4. **The standalone services**, decided:
+   - **Review:** the `/review` service is ported to Go (`code_review.go`, `aria-runtime code-review`); `review_service.py` goes with the Python CLI. The project-review HTTP API (`project_review_api.py`, `Dockerfile.review`) is a separate deployment that Arthera calls; it stays a Python service for now.
+   - **MCP server** (`aria-code-mcp`): port to an `aria-runtime mcp` mode.
+   - **Trading:** a separate `arthera-trading` MCP server next to the read-only financial-service, off by default, paper trading first, every order previewed and confirmed by a person, with per-order and daily limits and a kill switch. A webhook only creates a preview; the daemon's unattended auto-execution is not carried over.
+   - **Daemon:** price alerts and schedules move into the Go runtime; anything that places orders goes through `arthera-trading`.
+   - **Feishu and Telegram bots:** stay in Python, moved out of the core into their own service that talks to the runtime over its protocol.
 5. **Then delete** the worker, the Python UI and the command modules, with the parity tests that compare against them.
 
 Steps 1 to 3 are each a PR. Deleting anything before step 2 ships breaks installs. Deleting finance code before step 3 removes features.
