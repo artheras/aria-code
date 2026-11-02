@@ -25,13 +25,14 @@ A Python command is deleted only after its replacement ships, and only together 
 | /compact /btw /recap /regen /history /rename /fork /save /load | batch 2 |
 | /init /memory /note /recall /todo /project /plan /apply-plan /checkpoint | batch 3 |
 | /git /commit /pr /gh /review /test /verify /fix /bug /trace /quality | batch 4 |
+| /search /read /ls /write /edit /code /run /build | batch 5 |
 
 ## Go: to do, in batches
 
 | Batch | Commands |
 |---|---|
 | 2b: session | /cost (needs token usage from the providers) /copy (clipboard belongs to the Rust TUI) /load-fork /thinking /ui /input |
-| 5: code tools | /search /read /write /edit /file /ls /run /build /graph /impact /architecture /lsp /code |
+| 5b: code intelligence | /graph /impact (need a port of `project_graph.py`) /lsp (needs a language-server client) |
 | 6: agents | /task /tasks /worktree /workflow /wf /delegate /orchestrate /agents /team /collab /consult /deep |
 | 7: extensions | /mcp /hooks /skills /packages /install /services /browser /screenshot /vision /upload-image /canvas /artifacts |
 | 8: account and maintenance | /login /logout /whoami /account /apikey /providers /local /cloud /update /doctor /feedback /privacy /license /setup /completions /deploy |
@@ -51,3 +52,5 @@ The Go runtime already has a native backtest and risk core (`backtest.go`, `risk
 | /canva | /canvas |
 | /scaffold | /init |
 | /ariarc | ARIA.md (/memory, /init) and /config |
+| /file | @file references in any prompt |
+| /architecture | Internal layer contract of the Python package; not a user feature |
