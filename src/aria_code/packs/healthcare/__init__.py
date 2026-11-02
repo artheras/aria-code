@@ -18,7 +18,8 @@ class HealthcarePack(BaseDomainPack):
         return tuple(found.values())
 
     def tool_names(self):
-        return TOOLS
+        # MCP tools are discovered from configured servers, not the builtin registry.
+        return ()
 
     def prompt_fragment(self, activation):
         return ("Medical literature research: use the configured healthcare MCP service; if unavailable, state this. "
