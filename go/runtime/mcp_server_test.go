@@ -114,13 +114,17 @@ func TestMCPServerProtocolAndTools(t *testing.T) {
 		t.Fatal(init)
 	}
 	tools := replies[2]["result"].(map[string]any)["tools"].([]any)
-	if len(tools) != 6 {
-		t.Fatal(len(tools))
+	if len(tools) != len(mcpServerTools) || len(tools) != len(mcpServerHandlers) {
+		t.Fatal(len(tools), len(mcpServerHandlers))
 	}
 	for _, raw := range tools {
 		tool := raw.(map[string]any)
-		if tool["annotations"].(map[string]any)["readOnlyHint"] != true || tool["inputSchema"].(map[string]any)["type"] != "object" {
-			t.Fatal("every tool is read-only with a schema", tool)
+		annotations := tool["annotations"].(map[string]any)
+		name := tool["name"].(string)
+		// Only the video editors write, each to a new file; none is destructive.
+		writes := strings.HasPrefix(name, "aria.video.") && name != "aria.video.probe" && name != "aria.video.detect_scenes"
+		if annotations["readOnlyHint"] != !writes || annotations["destructiveHint"] != false || tool["inputSchema"].(map[string]any)["type"] != "object" {
+			t.Fatal("unexpected annotations", tool)
 		}
 	}
 	risk := toolPayload(t, replies[3])

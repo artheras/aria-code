@@ -327,6 +327,52 @@ func mcpSkillGet(_ context.Context, args map[string]any) map[string]any {
 	return result
 }
 
+// writeTool makes a new file and changes nothing that exists.
+func writeTool(name, description string, properties map[string]any, required ...string) mcpServedTool {
+	t := readOnlyTool(name, description, properties, required...)
+	t.Annotations = map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false}
+	return t
+}
+
+var (
+	inputPathProp  = map[string]any{"type": "string", "description": "Video file under the working directory or your home directory."}
+	outputPathProp = map[string]any{"type": "string", "description": "Optional new file to write (never overwritten); default: a new file under Aria's artifacts/video."}
+)
+
+func init() {
+	mcpServerTools = append(mcpServerTools,
+		readOnlyTool("aria.video.probe", "Duration, size and streams (codec, resolution, frame rate) of a video, via ffprobe.",
+			map[string]any{"input_path": inputPathProp}, "input_path"),
+		readOnlyTool("aria.video.detect_scenes", "Scene-cut timestamps in seconds, from ffmpeg's scene-change score.",
+			map[string]any{"input_path": inputPathProp, "threshold": map[string]any{"type": "number", "description": "0..100, default 30; higher finds fewer, surer cuts."}}, "input_path"),
+		writeTool("aria.video.trim", "Cut start..end seconds out of a video into a new file (frame-accurate re-encode).",
+			map[string]any{"input_path": inputPathProp, "start": map[string]any{"type": "number"}, "end": map[string]any{"type": "number"}, "output_path": outputPathProp},
+			"input_path", "start", "end"),
+		writeTool("aria.video.concat", "Join 2..50 videos in order into a new file, re-encoding so different codecs and sizes still join.",
+			map[string]any{"input_paths": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "output_path": outputPathProp}, "input_paths"),
+		writeTool("aria.video.overlay_text", "Burn a caption (CJK included) onto a video at the top, centre or bottom, into a new file.",
+			map[string]any{"input_path": inputPathProp, "text": map[string]any{"type": "string"},
+				"position":  map[string]any{"type": "string", "enum": []string{"top", "center", "bottom"}},
+				"font_size": map[string]any{"type": "number"}, "font_color": map[string]any{"type": "string", "description": "white, black, yellow, red, green, blue or #RRGGBB"},
+				"output_path": outputPathProp}, "input_path", "text"),
+		writeTool("aria.video.overlay_audio", "Mix an audio track under a video's sound, or replace it, into a new file.",
+			map[string]any{"input_path": inputPathProp, "audio_path": map[string]any{"type": "string"}, "replace": map[string]any{"type": "boolean"}, "output_path": outputPathProp},
+			"input_path", "audio_path"),
+		writeTool("aria.video.convert", "Change a video's container (mp4, mov, mkv, webm, avi) and/or crop it to fill an aspect such as 9:16, into a new file.",
+			map[string]any{"input_path": inputPathProp, "output_format": map[string]any{"type": "string"}, "aspect": map[string]any{"type": "string"}, "output_path": outputPathProp},
+			"input_path"),
+		writeTool("aria.video.change_speed", "Speed a video up (factor > 1) or slow it down (factor < 1), pitch-corrected, into a new file.",
+			map[string]any{"input_path": inputPathProp, "factor": map[string]any{"type": "number"}, "output_path": outputPathProp}, "input_path", "factor"),
+	)
+	for name, handler := range map[string]func(context.Context, map[string]any) map[string]any{
+		"aria.video.probe": mcpVideoProbe, "aria.video.detect_scenes": mcpVideoDetectScenes, "aria.video.trim": mcpVideoTrim,
+		"aria.video.concat": mcpVideoConcat, "aria.video.overlay_text": mcpVideoOverlayText, "aria.video.overlay_audio": mcpVideoOverlayAudio,
+		"aria.video.convert": mcpVideoConvert, "aria.video.change_speed": mcpVideoChangeSpeed,
+	} {
+		mcpServerHandlers[name] = handler
+	}
+}
+
 var mcpServerHandlers = map[string]func(context.Context, map[string]any) map[string]any{
 	"aria.risk.assess":      mcpRiskAssess,
 	"aria.contract.check":   mcpContractCheck,
