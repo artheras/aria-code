@@ -465,5 +465,9 @@ func (s *server) turnPrompt(text string) (prompt string, readOnly bool, handled 
 		prompt, readOnly, err = engineeringPrompt(fields[0], extra)
 		return prompt, readOnly, true, err
 	}
+	if financeCommands[fields[0]] && !directFinance[fields[0]] {
+		prompt, err = s.financePrompt(context.Background(), fields[0], extra)
+		return prompt, true, true, err
+	}
 	return "", false, false, nil
 }

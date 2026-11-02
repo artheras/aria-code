@@ -37,16 +37,23 @@ A Python command is deleted only after its replacement ships, and only together 
 
 ## Still to do
 
-Every command that stays in the core now runs without Python. What remains:
+Every command now has a home outside the Python worker. What remains:
 
-1. **Finance routing.** Give the native core one generic route to `financial-service` over MCP/HTTP and register the commands below on it, so they keep working when the Python worker is gone.
-2. **Delete the Python implementation.** Only after step 1 ships: the Python worker, its terminal UI and the command modules, with the tests that exercise them. The pip package then only connects to the native core and the finance service.
+1. ~~**Finance routing.**~~ Done: the commands below reach `financial-service` through the native MCP client (see below).
+2. **Delete the Python implementation**: the Python worker, its terminal UI and the command modules, with the tests that exercise them. The pip package then only connects to the native core and the finance service.
 
 ## Finance service
 
 /accuracy /alert /analyze /ashare /asset-diag /auto-strategy /backtest /broker /carriers /chart /commodity /compare /compliance /contract-draft /corr /crypto /dashboard /data /datasource /earnings /edgar /execution /exit-calc /factor-lab /factors /feargreed /football /forex /funding /hot /ichimoku /indices /inventory /journal /limitup /longterm /macro /market /markets /news /north /ops-report /optimize /optimize-port /options /orders /paper /peer /plan-report /portfolio /positions /predict /quote /realty /report /research /revenue-calc /risk /risk-scan /screen /screen-cn /shortterm /signal /sim /stat-arb /strategy /stress /ta /team /deep /ui /canvas /artifacts /account /cloud /deploy /trade /tv /warehouse /watch
 
-The Go runtime already has a native backtest and risk core (`backtest.go`, `risk.go`, `quant/`). /backtest and /risk keep that local path. The service adds the market data behind it.
+These are routed in `go/runtime/finance.go`:
+
+- `/finance` shows whether the service is connected; `/finance setup <absolute path>` registers its console script (or a venv Python, run with `-I -m arthera_finance.server`) in `mcp_servers.json` as `arthera-finance`.
+- `/broker [connections | account|positions|orders <connection>]`, and `/account`, `/positions`, `/orders`, call the service's read-only broker tools directly.
+- Every other command in the list becomes a read-only turn: the model answers it with the service's tools (all `readOnlyHint`), cites their sources and dates, keeps missing values unknown, and says so when the service cannot answer (live quotes, news, order placement and A-share screens are not among its tools). Nothing is written and no command runs during such a turn.
+- Without the service, these commands say how to connect it instead of reaching the model.
+
+The service's tools are statements, SEC facts, risk metrics, backtests, market history and read-only broker data. Commands that need more (news, live quotes, A-share data, trading) get an honest "not available" until the service grows the tool.
 
 ## Retire
 
