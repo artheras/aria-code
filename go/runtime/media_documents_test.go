@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -191,22 +192,68 @@ func TestReportTools(t *testing.T) {
 	}
 }
 
-// Printing needs a Chrome-family browser; CI runners have one. ARIA_BROWSER
-// can point at a wrapper (one adding --no-sandbox when tests run as root).
-func TestReportPDF(t *testing.T) {
-	if browserBinary() == "" {
-		t.Skip("no Chrome, Chromium or Edge")
+// fakePDFBrowser stands in for Chrome's --print-to-pdf=PATH: it writes a
+// minimal PDF and, on Unix, keeps the page it was asked to print beside it.
+// Headless Chrome needs a working sandbox, which some CI runners lack.
+func fakePDFBrowser(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "fake browser")
+	os.MkdirAll(dir, 0o755)
+	if runtime.GOOS == "windows" {
+		path := filepath.Join(dir, "browser.cmd")
+		script := "@echo off\r\n:loop\r\nif \"%~1\"==\"\" goto :eof\r\nset \"a=%~1\"\r\nif \"%a:~0,15%\"==\"--print-to-pdf=\" echo %%PDF-1.4> \"%a:~15%\"\r\nshift\r\ngoto loop\r\n"
+		os.WriteFile(path, []byte(script), 0o755)
+		return path
 	}
+	path := filepath.Join(dir, "browser")
+	os.WriteFile(path, []byte("#!/bin/sh\nfor a; do case \"$a\" in --print-to-pdf=*) out=\"${a#--print-to-pdf=}\";; file://*) page=\"${a#file://}\";; esac; done\n"+
+		"cp \"$page\" \"$out.html\" && printf '%%PDF-1.4' > \"$out\"\n"), 0o755)
+	return path
+}
+
+func TestReportPDF(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("ARIA_HOME", filepath.Join(home, ".aria"))
+	t.Setenv("ARIA_BROWSER", fakePDFBrowser(t))
 	t.Chdir(home)
 	r := mcpReportPDF(context.Background(), map[string]any{"markdown": sampleReport})
 	if r["success"] != true {
 		t.Fatal(r)
 	}
-	data, _ := os.ReadFile(r["path"].(string))
-	if !bytes.HasPrefix(data, []byte("%PDF-")) {
+	out := r["path"].(string)
+	if data, _ := os.ReadFile(out); !bytes.HasPrefix(data, []byte("%PDF-")) {
 		t.Fatal("not a PDF")
+	}
+	if runtime.GOOS != "windows" {
+		page, _ := os.ReadFile(out + ".html")
+		if !bytes.Contains(page, []byte("Content-Security-Policy")) || !bytes.Contains(page, []byte("<table>")) {
+			t.Fatal("the browser was not given the rendered page")
+		}
+	}
+	t.Setenv("ARIA_BROWSER", filepath.Join(home, "missing-browser"))
+	if r := mcpReportPDF(context.Background(), map[string]any{"markdown": "# x"}); r["success"] != false {
+		t.Fatal(r)
+	}
+}
+
+// TestRealReportPDF prints with a real browser: ARIA_REAL_BROWSER=/path/to/chrome.
+func TestRealReportPDF(t *testing.T) {
+	browser := os.Getenv("ARIA_REAL_BROWSER")
+	if browser == "" {
+		t.Skip("set ARIA_REAL_BROWSER to a Chrome, Chromium or Edge")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ARIA_HOME", filepath.Join(home, ".aria"))
+	t.Setenv("ARIA_BROWSER", browser)
+	t.Chdir(home)
+	r := mcpReportPDF(context.Background(), map[string]any{"markdown": sampleReport})
+	if r["success"] != true {
+		t.Fatal(r)
+	}
+	if data, _ := os.ReadFile(r["path"].(string)); !bytes.HasPrefix(data, []byte("%PDF-")) || len(data) < 2000 {
+		t.Fatal("not a real PDF")
 	}
 }
