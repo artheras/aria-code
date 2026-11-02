@@ -47,7 +47,10 @@ Before anything is deleted: is each part of `src/aria_code` (about 165,000 lines
    - Left: commodities, futures and bonds; Ichimoku, walk-forward and portfolio backtests; peer comparison; the analyst agents in `agents/financial/`; realty, logistics and data-analysis tools; report and dashboard generators. The Alibaba Cloud signal, prediction and cloud backtest tools depend on a retired backend and are not planned.
 4. **The standalone services**, decided:
    - **Review:** the `/review` service is ported to Go (`code_review.go`, `aria-runtime code-review`); `review_service.py` goes with the Python CLI. The project-review HTTP API (`project_review_api.py`, `Dockerfile.review`) is a separate deployment that Arthera calls; it stays a Python service for now.
-   - **MCP server** (`aria-code-mcp`): port to an `aria-runtime mcp` mode.
+   - **MCP server** (`aria-code-mcp`): the core is ported as `aria-runtime mcp` (`go/runtime/mcp_server.go`): `aria.risk.assess`, `aria.contract.check`, `aria.project.impact`, `aria.project.commands`, `aria.skill.list` and `aria.skill.get`, all read-only. The Python server's other 39 tools go elsewhere:
+     - finance (`aria.market.quote`, `aria.agent.team`, `aria.backtest.run`): financial-service, itself an MCP server;
+     - broker (`aria.broker.*`): `arthera-trading`;
+     - reports, images, video, Figma and Canva (`aria.report.*`, `aria.video.*`, `aria.figma.*`), `aria.artifacts.list` and `aria.warehouse.task`: undecided, with the media, logistics and report generators below.
    - **Trading:** a separate `arthera-trading` MCP server next to the read-only financial-service, off by default, paper trading first, every order previewed and confirmed by a person, with per-order and daily limits and a kill switch. A webhook only creates a preview; the daemon's unattended auto-execution is not carried over.
    - **Daemon:** price alerts and schedules move into the Go runtime; anything that places orders goes through `arthera-trading`.
    - **Feishu and Telegram bots:** stay in Python, moved out of the core into their own service that talks to the runtime over its protocol.
