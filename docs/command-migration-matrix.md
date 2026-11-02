@@ -26,6 +26,7 @@ A Python command is deleted only after its replacement ships, and only together 
 | /init /memory /note /recall /todo /project /plan /apply-plan /checkpoint | batch 3 |
 | /git /commit /pr /gh /review /test /verify /fix /bug /trace /quality | batch 4 |
 | /search /read /ls /write /edit /code /run /build | batch 5 |
+| /task /worktree /tasks /delegate /agents /workflow /wf /consult | batch 6 |
 
 ## Go: to do, in batches
 
@@ -33,13 +34,12 @@ A Python command is deleted only after its replacement ships, and only together 
 |---|---|
 | 2b: session | /cost (needs token usage from the providers) /copy (clipboard belongs to the Rust TUI) /load-fork /thinking /ui /input |
 | 5b: code intelligence | /graph /impact (need a port of `project_graph.py`) /lsp (needs a language-server client) |
-| 6: agents | /task /tasks /worktree /workflow /wf /delegate /orchestrate /agents /team /collab /consult /deep |
 | 7: extensions | /mcp /hooks /skills /packages /install /services /browser /screenshot /vision /upload-image /canvas /artifacts |
 | 8: account and maintenance | /login /logout /whoami /account /apikey /providers /local /cloud /update /doctor /feedback /privacy /license /setup /completions /deploy |
 
 ## Finance service
 
-/accuracy /alert /analyze /ashare /asset-diag /auto-strategy /backtest /broker /carriers /chart /commodity /compare /compliance /contract-draft /corr /crypto /dashboard /data /datasource /earnings /edgar /execution /exit-calc /factor-lab /factors /feargreed /football /forex /funding /hot /ichimoku /indices /inventory /journal /limitup /longterm /macro /market /markets /news /north /ops-report /optimize /optimize-port /options /orders /paper /peer /plan-report /portfolio /positions /predict /quote /realty /report /research /revenue-calc /risk /risk-scan /screen /screen-cn /shortterm /signal /sim /stat-arb /strategy /stress /ta /trade /tv /warehouse /watch
+/accuracy /alert /analyze /ashare /asset-diag /auto-strategy /backtest /broker /carriers /chart /commodity /compare /compliance /contract-draft /corr /crypto /dashboard /data /datasource /earnings /edgar /execution /exit-calc /factor-lab /factors /feargreed /football /forex /funding /hot /ichimoku /indices /inventory /journal /limitup /longterm /macro /market /markets /news /north /ops-report /optimize /optimize-port /options /orders /paper /peer /plan-report /portfolio /positions /predict /quote /realty /report /research /revenue-calc /risk /risk-scan /screen /screen-cn /shortterm /signal /sim /stat-arb /strategy /stress /ta /team /deep /trade /tv /warehouse /watch
 
 The Go runtime already has a native backtest and risk core (`backtest.go`, `risk.go`, `quant/`). /backtest and /risk keep that local path. The service adds the market data behind it.
 
@@ -54,3 +54,5 @@ The Go runtime already has a native backtest and risk core (`backtest.go`, `risk
 | /ariarc | ARIA.md (/memory, /init) and /config |
 | /file | @file references in any prompt |
 | /architecture | Internal layer contract of the Python package; not a user feature |
+| /collab | /consult <provider>/<model> |
+| /orchestrate | /plan, then /apply-plan or /task |

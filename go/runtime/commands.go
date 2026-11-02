@@ -10,7 +10,7 @@ import (
 )
 
 func nativeCommands() []string {
-	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint", "/git", "/commit", "/pr", "/gh", "/review", "/test", "/verify", "/fix", "/bug", "/trace", "/quality", "/search", "/read", "/ls", "/write", "/edit", "/code", "/run", "/build"}
+	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint", "/git", "/commit", "/pr", "/gh", "/review", "/test", "/verify", "/fix", "/bug", "/trace", "/quality", "/search", "/read", "/ls", "/write", "/edit", "/code", "/run", "/build", "/task", "/worktree", "/tasks", "/delegate", "/agents", "/workflow", "/wf", "/consult"}
 }
 
 // commandInfo describes each command for the "/" list: [English, Chinese].
@@ -73,6 +73,14 @@ var commandInfo = map[string][2]string{
 	"/code":          {"Write code for a description", "按描述编写代码"},
 	"/run":           {"Run a shell command (same as !)", "运行 shell 命令（同 !）"},
 	"/build":         {"Run the project's build", "运行项目构建"},
+	"/task":          {"Run a task in its own git worktree", "在独立 git worktree 中执行任务"},
+	"/worktree":      {"Show, diff, apply or discard a task (same as /task)", "查看、对比、应用或丢弃任务（同 /task）"},
+	"/tasks":         {"List worktree tasks", "列出 worktree 任务"},
+	"/delegate":      {"Hand a task to a fresh-context subagent", "交给全新上下文的子代理执行"},
+	"/agents":        {"List project agents (.aria/agents)", "列出项目代理（.aria/agents）"},
+	"/workflow":      {"List, show or run .aria/workflows", "列出、查看或运行工作流"},
+	"/wf":            {"Same as /workflow", "同 /workflow"},
+	"/consult":       {"Ask another model for a second opinion", "请另一个模型给出第二意见"},
 }
 
 // commandInfoList is nativeCommands in order, each with its description in lang.
@@ -185,6 +193,18 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		return s.userCommand(ctx, turn, command)
 	case "/build":
 		return s.buildCommand(ctx, turn)
+	case "/task", "/worktree":
+		return s.taskCommand(ctx, turn, text)
+	case "/tasks":
+		return s.tasksCommand(ctx)
+	case "/delegate":
+		return s.delegateCommand(ctx, turn, rest(text, fields[0]))
+	case "/agents":
+		return s.agentsCommand()
+	case "/workflow", "/wf":
+		return s.workflowCommand(ctx, turn, text)
+	case "/consult":
+		return s.consultCommand(ctx, rest(text, fields[0]))
 	case "/init", "/plan", "/apply-plan", "/fix", "/bug", "/trace", "/quality", "/edit", "/code":
 		// runTurn sends these to the model before they get here.
 		return "", fmt.Errorf("%s runs as a turn in the interactive application", fields[0])
