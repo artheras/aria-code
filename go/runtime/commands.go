@@ -10,7 +10,7 @@ import (
 )
 
 func nativeCommands() []string {
-	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint", "/git", "/commit", "/pr", "/gh", "/review", "/test", "/verify", "/fix", "/bug", "/trace", "/quality", "/search", "/read", "/ls", "/write", "/edit", "/code", "/run", "/build", "/task", "/worktree", "/tasks", "/delegate", "/agents", "/workflow", "/wf", "/consult", "/mcp", "/skills", "/vision", "/upload-image"}
+	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint", "/git", "/commit", "/pr", "/gh", "/review", "/test", "/verify", "/fix", "/bug", "/trace", "/quality", "/search", "/read", "/ls", "/write", "/edit", "/code", "/run", "/build", "/task", "/worktree", "/tasks", "/delegate", "/agents", "/workflow", "/wf", "/consult", "/mcp", "/skills", "/vision", "/upload-image", "/providers", "/apikey", "/whoami", "/logout", "/doctor", "/update", "/feedback", "/privacy"}
 }
 
 // commandInfo describes each command for the "/" list: [English, Chinese].
@@ -85,6 +85,14 @@ var commandInfo = map[string][2]string{
 	"/skills":        {"List, show or use SKILL.md skills", "列出、查看或使用技能"},
 	"/vision":        {"Ask about an image", "就图片提问"},
 	"/upload-image":  {"Same as /vision", "同 /vision"},
+	"/providers":     {"List model providers and whether they are ready", "列出模型服务商及其可用状态"},
+	"/apikey":        {"Show where each provider reads its key", "查看各服务商的密钥来源"},
+	"/whoami":        {"Show the Arthera account", "查看 Arthera 账户"},
+	"/logout":        {"Sign out of Arthera on this machine", "在本机退出 Arthera 账户"},
+	"/doctor":        {"Check the installation and settings", "检查安装与设置"},
+	"/update":        {"How to update Aria", "如何更新 Aria"},
+	"/feedback":      {"Rate the last answer (kept locally)", "评价上一个回答（保存在本地）"},
+	"/privacy":       {"Show what leaves this machine", "查看哪些数据会离开本机"},
 }
 
 // commandInfoList is nativeCommands in order, each with its description in lang.
@@ -213,6 +221,22 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		return s.mcpCommand(ctx, fields[1:])
 	case "/skills":
 		return s.skillsCommand(text)
+	case "/providers":
+		return s.providersCommand()
+	case "/apikey":
+		return s.apikeyCommand()
+	case "/whoami":
+		return s.whoamiCommand()
+	case "/logout":
+		return s.logoutCommand()
+	case "/doctor":
+		return s.doctorCommand(ctx)
+	case "/update":
+		return s.updateCommand()
+	case "/feedback":
+		return s.feedbackCommand(rest(text, fields[0]))
+	case "/privacy":
+		return s.privacyCommand(fields[1:])
 	case "/init", "/plan", "/apply-plan", "/fix", "/bug", "/trace", "/quality", "/edit", "/code", "/vision", "/upload-image":
 		// runTurn sends these to the model before they get here.
 		return "", fmt.Errorf("%s runs as a turn in the interactive application", fields[0])
