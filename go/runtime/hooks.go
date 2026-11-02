@@ -27,9 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -135,12 +133,7 @@ func (s *server) fireHooks(ctx context.Context, event, tool string, params map[s
 			timeout = time.Duration(e.Timeout * float64(time.Second))
 		}
 		bounded, cancel := context.WithTimeout(ctx, timeout)
-		var cmd *exec.Cmd
-		if runtime.GOOS == "windows" {
-			cmd = exec.CommandContext(bounded, "cmd.exe", "/d", "/s", "/c", e.Command)
-		} else {
-			cmd = exec.CommandContext(bounded, "/bin/sh", "-c", e.Command)
-		}
+		cmd := shellCommand(bounded, e.Command)
 		cmd.Dir, cmd.Env, cmd.WaitDelay = s.scope.workspace, env, time.Second
 		stderr := &outputTail{limit: 2000}
 		cmd.Stdout, cmd.Stderr = &outputTail{limit: 2000}, stderr

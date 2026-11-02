@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -26,4 +27,9 @@ func stopCommandTree(cmd *exec.Cmd) {
 	if cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
+}
+
+// shellCommand runs command through /bin/sh.
+func shellCommand(ctx context.Context, command string) *exec.Cmd {
+	return exec.CommandContext(ctx, "/bin/sh", "-c", command)
 }

@@ -117,10 +117,12 @@ mod tests {
 
     #[test]
     fn bash_script_is_valid_and_completes() {
-        if std::process::Command::new("bash")
-            .arg("--version")
-            .output()
-            .is_err()
+        // On Windows `bash` is usually the WSL launcher, not a shell to test.
+        if cfg!(windows)
+            || std::process::Command::new("bash")
+                .arg("--version")
+                .output()
+                .is_err()
         {
             return;
         }

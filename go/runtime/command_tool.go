@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -104,12 +103,7 @@ func commandTool(ctx context.Context, spec commandSpec) toolResult {
 	}
 	bounded, cancel := context.WithTimeout(ctx, spec.timeout)
 	defer cancel()
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(bounded, "cmd.exe", "/d", "/s", "/c", spec.command)
-	} else {
-		cmd = exec.CommandContext(bounded, "/bin/sh", "-c", spec.command)
-	}
+	cmd := shellCommand(bounded, spec.command)
 	cmd.Dir = spec.cwd
 	cmd.Stdin = nil
 	cmd.WaitDelay = time.Second
