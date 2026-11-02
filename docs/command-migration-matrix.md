@@ -22,12 +22,13 @@ A Python command is deleted only after its replacement ships, and only together 
 |---|---|
 | /help /model /models /config /health /sessions /export /import /new /resume /permissions /undo /rewind /changes /apply-change /reject-change | earlier |
 | /clear /status /context /tools /diff | batch 1 |
+| /compact /btw /recap /regen /history /rename /fork /save /load | batch 2 |
 
 ## Go: to do, in batches
 
 | Batch | Commands |
 |---|---|
-| 2: session | /compact /cost /copy /history /rename /fork /load-fork /save /load /btw /regen /recap /thinking /ui /input |
+| 2b: session | /cost (needs token usage from the providers) /copy (clipboard belongs to the Rust TUI) /load-fork /thinking /ui /input |
 | 3: project | /init /memory /note /recall /project /ariarc /todo /plan /apply-plan /checkpoint |
 | 4: git and review | /git /commit /pr /gh /review /verify /test /fix /bug /trace /quality |
 | 5: code tools | /search /read /write /edit /file /ls /run /build /graph /impact /architecture /lsp /code |
