@@ -10,7 +10,7 @@ import (
 )
 
 func nativeCommands() []string {
-	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint", "/git", "/commit", "/pr", "/gh", "/review", "/test", "/verify", "/fix", "/bug", "/trace", "/quality", "/search", "/read", "/ls", "/write", "/edit", "/code", "/run", "/build", "/task", "/worktree", "/tasks", "/delegate", "/agents", "/workflow", "/wf", "/consult", "/mcp", "/skills", "/vision", "/upload-image", "/providers", "/apikey", "/whoami", "/logout", "/doctor", "/update", "/feedback", "/privacy", "/cost", "/thinking"}
+	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint", "/git", "/commit", "/pr", "/gh", "/review", "/test", "/verify", "/fix", "/bug", "/trace", "/quality", "/search", "/read", "/ls", "/write", "/edit", "/code", "/run", "/build", "/task", "/worktree", "/tasks", "/delegate", "/agents", "/workflow", "/wf", "/consult", "/mcp", "/skills", "/vision", "/upload-image", "/providers", "/apikey", "/whoami", "/logout", "/doctor", "/update", "/feedback", "/privacy", "/cost", "/thinking", "/graph", "/impact", "/lsp"}
 }
 
 // commandInfo describes each command for the "/" list: [English, Chinese].
@@ -95,6 +95,9 @@ var commandInfo = map[string][2]string{
 	"/privacy":       {"Show what leaves this machine", "查看哪些数据会离开本机"},
 	"/cost":          {"Show token usage for this session", "查看本会话的 token 用量"},
 	"/thinking":      {"Set how much the model thinks", "设置模型思考强度"},
+	"/graph":         {"Summarise the project graph", "查看项目依赖图概况"},
+	"/impact":        {"Show what changing a file or symbol reaches", "查看修改文件或符号的影响范围"},
+	"/lsp":           {"Run a file's language checker", "运行文件的语言检查器"},
 }
 
 // commandInfoList is nativeCommands in order, each with its description in lang.
@@ -243,6 +246,12 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		return s.costCommand()
 	case "/thinking":
 		return s.thinkingCommand(fields[1:])
+	case "/graph":
+		return s.graphCommand(ctx, fields[1:])
+	case "/impact":
+		return s.impactCommand(ctx, fields[1:])
+	case "/lsp":
+		return s.lspCommand(ctx, turn, fields[1:])
 	case "/init", "/plan", "/apply-plan", "/fix", "/bug", "/trace", "/quality", "/edit", "/code", "/vision", "/upload-image":
 		// runTurn sends these to the model before they get here.
 		return "", fmt.Errorf("%s runs as a turn in the interactive application", fields[0])
