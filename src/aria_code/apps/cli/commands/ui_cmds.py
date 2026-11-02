@@ -203,8 +203,7 @@ class UiCommandsMixin:
                 result = _tool_browser_screenshot({"url": url})
             if result.get("success"):
                 d = result["data"]
-                from computer_use_tools import pop_pending_vision_image
-                b64 = pop_pending_vision_image()
+                b64 = result.get("_vision_image")
                 if b64:
                     self.terminal._pending_image = {
                         "type": "image_url",
@@ -254,7 +253,7 @@ class UiCommandsMixin:
                 "Install: pip install mss pillow",
             )
             return
-        from computer_use_tools import _tool_computer_screenshot, pop_pending_vision_image
+        from computer_use_tools import _tool_computer_screenshot
 
         monitor = int(args.strip()) if args.strip().isdigit() else 1
         if self.context.has_rich:
@@ -265,7 +264,7 @@ class UiCommandsMixin:
 
         if result.get("success"):
             d = result["data"]
-            b64 = pop_pending_vision_image()
+            b64 = result.get("_vision_image")
             if b64:
                 self.terminal._pending_image = {
                     "type": "image_url",
@@ -399,3 +398,4 @@ class UiCommandsMixin:
             print(f"  Messages: {conv_len}  Tokens: ~{est_tokens:,}/{max_ctx:,} ({ctx_pct}%)")
             print(f"  Auto compact: {'on' if auto_compact else 'off'}  threshold={int(auto_compact_threshold * 100)}%  runs={auto_compact_count}")
             print(f"  Session: {self.terminal.session_id}")
+

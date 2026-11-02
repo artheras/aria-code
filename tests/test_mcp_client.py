@@ -16,6 +16,7 @@ def test_mcp_registry_exposes_safe_model_name_without_losing_internal_route(tmp_
     registry = MCPToolRegistry(config_path=tmp_path / "mcp.json")
     registry._servers = {
         "quant engine": SimpleNamespace(
+            timeout=30,
             tools=[{
                 "name": "market/quote",
                 "description": "Fetch a quote",
@@ -41,6 +42,7 @@ async def test_registered_mcp_handler_runs_on_registry_owner_loop(tmp_path, monk
     registry._event_loop = __import__("asyncio").get_running_loop()
     registry._servers = {
         "quant": SimpleNamespace(
+            timeout=30,
             tools=[{
                 "name": "health",
                 "description": "Health check",
@@ -79,6 +81,7 @@ async def test_mcp_server_never_sees_the_executor_private_arguments(tmp_path):
 
     registry._servers = {
         "quant": SimpleNamespace(
+            timeout=30,
             tools=[{
                 "name": "get_market_insights",
                 "description": "Insights",

@@ -170,7 +170,13 @@ func (s *scope) open(path string, write bool) (*scopedPath, error) {
 	return nil, fmt.Errorf("access denied: %s is outside the selected roots", resolved)
 }
 
+type toolImage struct {
+	MIMEType string
+	Data     []byte
+}
+
 type toolResult struct {
+	Images  []toolImage    `json:"-"`
 	Success bool           `json:"success"`
 	Data    map[string]any `json:"data,omitempty"`
 	Error   string         `json:"error,omitempty"`

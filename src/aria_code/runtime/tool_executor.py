@@ -89,12 +89,13 @@ class ToolExecutor:
             result = await self.remote_executor(tool_name, params)
         except Exception as exc:
             result = {"success": False, "error": str(exc)}
-        self._run_hook("post_tool", tool_name, params, result)
+        observable = {key: value for key, value in result.items() if key != "_vision_image"}
+        self._run_hook("post_tool", tool_name, params, observable)
         end = time.time()
         self.trace.add_tool_call(ToolCallRecord(
             tool=tool_name,
             params=params,
-            result=result,
+            result=observable,
             elapsed_ms=(end - start) * 1000,
             started_at=start,
             ended_at=end,
@@ -109,12 +110,13 @@ class ToolExecutor:
             result = fn()
         except Exception as exc:
             result = {"success": False, "error": str(exc)}
-        self._run_hook("post_tool", tool_name, params, result)
+        observable = {key: value for key, value in result.items() if key != "_vision_image"}
+        self._run_hook("post_tool", tool_name, params, observable)
         end = time.time()
         self.trace.add_tool_call(ToolCallRecord(
             tool=tool_name,
             params=params,
-            result=result,
+            result=observable,
             elapsed_ms=(end - start) * 1000,
             started_at=start,
             ended_at=end,
@@ -324,3 +326,4 @@ def _rebase_command(command: str, origins: tuple[Path, ...], workspace: Path) ->
         pattern = re.escape(str(origin)) + r"(?=[/\s'\"`;:)|&]|$)"
         command = re.sub(pattern, lambda _match: str(workspace), command)
     return command
+

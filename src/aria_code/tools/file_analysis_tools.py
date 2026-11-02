@@ -218,18 +218,11 @@ def tool_analyze_file(params: dict) -> dict:
     if not fc.success:
         return {"success": False, "path": path, "error": fc.error or "解析失败"}
 
-    # Queue the (first) image for vision-model injection on the next turn.
-    vision_attached = False
-    if fc.images_b64:
-        try:
-            from computer_use_tools import _store_screenshot
-            raw = fc.images_b64[0]
-            if "base64," in raw:
-                raw = raw.split("base64,", 1)[1]
-            _store_screenshot(raw)
-            vision_attached = True
-        except Exception:
-            pass
+    # Bind the image to this result rather than a process-wide pending slot.
+    raw = fc.images_b64[0] if fc.images_b64 else ""
+    if "base64," in raw:
+        raw = raw.split("base64,", 1)[1]
+    vision = {"_vision_image": raw} if raw else {}
 
     return {
         "success": True,
@@ -241,7 +234,8 @@ def tool_analyze_file(params: dict) -> dict:
         "truncated": fc.truncated,
         "n_tables": len(fc.tables),
         "metadata": fc.metadata,
-        "vision_attached": vision_attached,
+        "vision_attached": bool(raw),
+        **vision,
         "content": fc.content,
     }
 
@@ -883,3 +877,4 @@ class FileSession:
 
 def check_parsers() -> Dict[str, bool]:
     return refresh_optional_parsers()
+
