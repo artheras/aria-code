@@ -233,6 +233,8 @@ class MCPServer:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                # PNG MCP content routinely exceeds asyncio's 64 KiB line limit.
+                limit=24 << 20,
                 env=env,
             )
         except FileNotFoundError as exc:

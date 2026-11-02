@@ -261,3 +261,29 @@ def test_image_bytes_not_in_hooks_or_trace():
     assert executor.execute_local('capture', {})['_vision_image'] == 'private-image'
     assert '_vision_image' not in calls[-1]
     assert '_vision_image' not in executor.trace.tool_calls[-1].result
+
+
+@pytest.mark.asyncio
+async def test_real_stdio_image_exceeds_default_stream_limit(tmp_path):
+    from aria_code.mcp_client import MCPServer
+    child = tmp_path / 'mcp_image_fixture.py'
+    child.write_text("""import json,sys
+for line in sys.stdin:
+    msg=json.loads(line)
+    if 'id' not in msg: continue
+    method=msg['method']
+    if method=='initialize': result={'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'fixture','version':'1'}}
+    elif method=='tools/list': result={'tools':[]}
+    else: result={'content':[{'type':'text','text':'{}'},{'type':'image','mimeType':'image/png','data':'YQ=='*30000}]}
+    print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':result}),flush=True)
+""")
+    # Use valid base64 for a 120 KB encoded image payload.
+    child.write_text(child.read_text().replace("'YQ=='*30000", "'YWJj'*30000"))
+    s = MCPServer('image-fixture', sys.executable, [str(child)])
+    try:
+        assert await s.start()
+        result = await s.call_tool('capture', {})
+        assert result['success']
+        assert len(result['_vision_image']) == 120000
+    finally:
+        await s.stop()
