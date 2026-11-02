@@ -99,6 +99,8 @@ type agentHooks struct {
 	// instructions are the user's and the project's standing instructions
 	// (projectInstructions), appended to the system prompt for task turns.
 	instructions string
+	// mcp supplies the configured MCP servers' tools; nil for none.
+	mcp *mcpManager
 }
 
 func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, contents []*genai.Content, prompt string, hooks agentHooks) ([]*genai.Content, string, error) {
@@ -111,6 +113,10 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 	contents = settlePending(contents)
 	system := "You are Aria, Arthera's assistant. Answer in the user's language. Never refer to internal agent role names."
 	tools := nativeTools()
+	if hooks.mcp != nil {
+		hooks.mcp.ensure(ctx)
+		tools[0].FunctionDeclarations = append(tools[0].FunctionDeclarations, hooks.mcp.declarations()...)
+	}
 	greeting := social(prompt)
 	if greeting {
 		tools = nil
@@ -245,6 +251,11 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 			result := toolResult{}
 			approval := ""
 			d, known := definitionFor(call.Name)
+			isMCP := false
+			if !known && hooks.mcp != nil {
+				d, known = hooks.mcp.definition(call.Name)
+				isMCP = known
+			}
 			verdict := ContractVerdict{Allowed: true}
 			if contract != nil && known && !greeting {
 				verdict = contract.Check(call.Name, call.Args)
@@ -260,6 +271,24 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 				// Refused before approval: the call never runs and the model
 				// learns which rule held.
 				result = verdict.toolResult(call.Name)
+			case isMCP:
+				if d.mutate {
+					reads = map[string]toolResult{}
+				}
+				if d.mutate && s.readOnly {
+					result = failed(errors.New("read-only turn: this MCP tool may change things"))
+					break
+				}
+				allowed, reason, err := hooks.approve(ctx, call.Name, call.Args, fileChange{})
+				if err != nil {
+					return partialContents(), answer.String(), err
+				}
+				if !allowed {
+					result = failed(fmt.Errorf("user declined: %s", reason))
+					break
+				}
+				approval = reason
+				result = hooks.mcp.call(ctx, call.Name, call.Args)
 			case call.Name == "run_command":
 				reads = map[string]toolResult{}
 				spec, err := commandPlan(s, c, call.Args)

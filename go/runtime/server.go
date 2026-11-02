@@ -62,6 +62,7 @@ type server struct {
 	stop             context.CancelFunc
 	historyReset     bool
 	historyNotice    string
+	mcp              *mcpManager
 }
 
 func newServer(options appOptions, out io.Writer) (*server, error) {
@@ -97,7 +98,7 @@ func newServer(options appOptions, out io.Writer) (*server, error) {
 		return nil, err
 	}
 	scope.readOnly = cfg.text("permission_mode", "workspace-write") == "read-only"
-	s := &server{opts: options, cfg: cfg, scope: scope, out: out, grants: map[string]bool{}}
+	s := &server{opts: options, cfg: cfg, scope: scope, out: out, grants: map[string]bool{}, mcp: newMCPManager(options.root)}
 	if options.resumeLast {
 		options.resume = cfg.text("last_session_id", "")
 	}
@@ -248,6 +249,9 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 		return false, "persistent denial", nil
 	}
 	d, known := definitionFor(name)
+	if !known && s.mcp != nil {
+		d, known = s.mcp.definition(name)
+	}
 	if !known {
 		return false, "unknown tool", nil
 	}
@@ -377,6 +381,7 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 		answer, err = s.command(ctx, turn, text)
 	} else {
 		hooks := s.turnHooks(turn, s.scope, cancel)
+		hooks.instructions += mentionedSkills(s.opts.root, s.scope.workspace, text)
 		wasReadOnly := s.scope.readOnly
 		if readOnlyTurn {
 			s.scope.readOnly = true
@@ -468,7 +473,7 @@ func (s *server) turnHooks(turn string, sc *scope, cancel func()) agentHooks {
 		return applyRecordedChange(ctx, sc, s.opts.root, s.snap.ID, tool, change)
 	}, stage: func(ctx context.Context, tool string, change fileChange) toolResult {
 		return stageRecordedChange(ctx, sc, s.opts.root, s.snap.ID, tool, change)
-	}, evidence: newTurnEvidence(sc.workspace), instructions: projectInstructions(s.opts.root, sc.workspace)}
+	}, evidence: newTurnEvidence(sc.workspace), instructions: projectInstructions(s.opts.root, sc.workspace), mcp: s.mcp}
 }
 func (s *server) switchSession(id string) error {
 	var next snapshot
