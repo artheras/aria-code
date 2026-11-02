@@ -213,6 +213,8 @@ pub struct App {
     /// The last text a lookup was sent for, so each keystroke asks at most once.
     pub file_asked: String,
     pub status: String,
+    /// Text the frontend should put on the terminal's clipboard (/copy).
+    pub clipboard: Option<String>,
     pub details: bool,
     pub help: bool,
     pub scroll: usize,
@@ -357,7 +359,7 @@ impl App {
                     .take(1000)
                     .filter_map(|s| s.as_str().map(safe))
                     .collect();
-                for command in ["/new", "/resume", "/help-native"] {
+                for command in ["/new", "/resume", "/help-native", "/copy"] {
                     if !self.commands.iter().any(|c| c == command) {
                         self.commands.push(command.into());
                     }
@@ -745,6 +747,22 @@ impl App {
             }
             "/help-native" => {
                 self.help = true;
+                return None;
+            }
+            "/copy" => {
+                // The clipboard belongs to the terminal: the frontend writes an
+                // OSC 52 sequence, which also reaches the local clipboard over SSH.
+                match self.entries.iter().rev().find(|e| e.role == "assistant") {
+                    Some(entry) => {
+                        self.clipboard = Some(entry.text.clone());
+                        self.status = self.tr("Copied the last answer", "已复制上一个回答").into();
+                    }
+                    None => self.add(
+                        "error",
+                        self.tr("Nothing to copy yet", "还没有可复制的回答"),
+                        false,
+                    ),
+                }
                 return None;
             }
             _ => (),

@@ -33,12 +33,14 @@ A Python command is deleted only after its replacement ships, and only together 
 | /graph /impact /lsp, with a native project graph | batch 5b |
 | /hooks /browser /screenshot, with Pre/PostToolUse, ResponseDone and SessionStart hooks in turns | batch 7b |
 | /login (browser sign-in with PKCE and a loopback hand-back) | batch 8b |
+| /copy (OSC 52, in the Rust TUI) and `aria-native completions bash\|zsh\|fish` | Rust TUI |
 
-## Go: to do, in batches
+## Still to do
 
-| Batch | Commands |
-|---|---|
-| Rust TUI | /copy (the clipboard is the terminal's) /completions (shell completion for the `aria` binary) |
+Every command that stays in the core now runs without Python. What remains:
+
+1. **Finance routing.** Give the native core one generic route to `financial-service` over MCP/HTTP and register the commands below on it, so they keep working when the Python worker is gone.
+2. **Delete the Python implementation.** Only after step 1 ships: the Python worker, its terminal UI and the command modules, with the tests that exercise them. The pip package then only connects to the native core and the finance service.
 
 ## Finance service
 
