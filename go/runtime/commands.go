@@ -10,7 +10,7 @@ import (
 )
 
 func nativeCommands() []string {
-	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint"}
+	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint", "/git", "/commit", "/pr", "/gh", "/review", "/test", "/verify", "/fix", "/bug", "/trace", "/quality"}
 }
 
 // commandInfo describes each command for the "/" list: [English, Chinese].
@@ -54,6 +54,17 @@ var commandInfo = map[string][2]string{
 	"/plan":          {"Plan a task without changing anything", "只读规划任务（不修改文件）"},
 	"/apply-plan":    {"Carry out the last plan", "执行上一个计划"},
 	"/checkpoint":    {"List or restore checkpoints", "列出或恢复检查点"},
+	"/git":           {"Run git (read-only commands run directly)", "运行 git（只读命令直接执行）"},
+	"/commit":        {"Commit all changes (message written for you)", "提交全部改动（可自动生成说明）"},
+	"/pr":            {"Show or create the branch's pull request", "查看或创建当前分支的 PR"},
+	"/gh":            {"Run the GitHub CLI", "运行 GitHub CLI"},
+	"/review":        {"Review the change with an independent reviewer", "由独立审查者审查改动"},
+	"/test":          {"Run the project's checks", "运行项目检查"},
+	"/verify":        {"Run checks, then review the change", "运行检查后审查改动"},
+	"/fix":           {"Find and fix a failure", "定位并修复失败"},
+	"/bug":           {"Investigate and fix a bug", "排查并修复缺陷"},
+	"/trace":         {"Trace an error to its cause (read-only)", "追溯错误根因（只读）"},
+	"/quality":       {"Assess the change's quality (read-only)", "评估改动质量（只读）"},
 }
 
 // commandInfoList is nativeCommands in order, each with its description in lang.
@@ -136,7 +147,21 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		return s.projectCommand(ctx)
 	case "/checkpoint":
 		return s.checkpointCommand(ctx, turn, fields[1:])
-	case "/init", "/plan", "/apply-plan":
+	case "/git":
+		return s.gitCommand(ctx, turn, fields[1:])
+	case "/commit":
+		return s.commitCommand(ctx, turn, rest(text, fields[0]))
+	case "/pr":
+		return s.prCommand(ctx, turn, fields[1:])
+	case "/gh":
+		return s.ghCommand(ctx, turn, fields[1:])
+	case "/review":
+		return s.reviewChange(ctx, fields[1:])
+	case "/test":
+		return s.testCommand(ctx, turn, fields[1:])
+	case "/verify":
+		return s.verifyCommand(ctx, turn)
+	case "/init", "/plan", "/apply-plan", "/fix", "/bug", "/trace", "/quality":
 		// runTurn sends these to the model before they get here.
 		return "", fmt.Errorf("%s runs as a turn in the interactive application", fields[0])
 	case "/help":

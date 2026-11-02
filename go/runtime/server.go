@@ -351,13 +351,14 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 		}
 	}
 	// /init, /plan and /apply-plan are model turns with a prompt of their own.
-	plan := false
+	readOnlyTurn, keepPlan := false, false
 	if regenErr == nil {
 		if prompt, readOnly, handled, e := s.turnPrompt(text); handled {
 			if e != nil {
 				regenErr = e
 			} else {
-				text, plan = prompt, readOnly
+				keepPlan = strings.Fields(text)[0] == "/plan"
+				text, readOnlyTurn = prompt, readOnly
 			}
 		}
 	}
@@ -383,13 +384,13 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 			return stageRecordedChange(ctx, s.scope, s.opts.root, s.snap.ID, tool, change)
 		}, evidence: newTurnEvidence(s.scope.workspace), instructions: projectInstructions(s.opts.root, s.scope.workspace)}
 		wasReadOnly := s.scope.readOnly
-		if plan {
+		if readOnlyTurn {
 			s.scope.readOnly = true
 		}
 		s.contents, answer, err = nativeTurn(ctx, s.provider, s.scope, s.cfg, s.contents, text, hooks)
 		s.scope.readOnly = wasReadOnly
 		evidence = hooks.evidence
-		if plan && err == nil && strings.TrimSpace(answer) != "" {
+		if keepPlan && err == nil && strings.TrimSpace(answer) != "" {
 			if s.snap.Metadata == nil {
 				s.snap.Metadata = map[string]any{}
 			}
