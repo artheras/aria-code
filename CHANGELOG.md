@@ -4,6 +4,35 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.166.0] — 2026-11-02
+
+- Add approved local Computer Use and native MCP vision
+- runtime: hooks, /browser, /screenshot (7b); /login (8b); tui: /copy, completions (#281)
+- runtime: token usage + /cost /thinking (2b); project graph + /graph /impact /lsp (5b) (#278)
+- relay: production runs the Go relay; remove the Python relay (#271)
+- runtime: native /providers, /apikey, /whoami, /logout, /doctor, /update, /feedback, /privacy
+- runtime: native MCP client, /mcp, /skills, /vision, /upload-image
+- runtime: native /task, /worktree, /tasks, /delegate, /agents, /workflow, /wf, /consult
+- runtime: native /search, /read, /ls, /write, /edit, /code, /run, /build (#276)
+- runtime: native /git, /commit, /pr, /gh, /review, /test, /verify, /fix, /bug, /trace, /quality (#275)
+- runtime: project instructions + native /init, /memory, /note, /recall, /todo, /project, /plan, /apply-plan, /checkpoint (#274)
+- runtime: native /compact, /btw, /recap, /regen, /history, /rename, /fork, /save, /load (#273)
+- runtime: native /clear, /status, /context, /tools, /diff + command migration matrix (#272)
+- tui: approvals along the bottom with a numbered diff, ruled composer, quieter screens (#270)
+- tui: readable welcome lines (model name, branch, home folder) (#267)
+- relay: contract covers what only the Python relay's unit tests checked (#268)
+- chore: remove three Python modules nothing calls (#269)
+- ci(finance): pin the integration test to the hardened financial service (#266)
+- refactor(packaging): make finance optional and remove unused application prototype (#262)
+- feat(runtime): persist immutable task intent with durable runs (#261)
+- Invalidate stale acceptance evidence and guide reviewable engineering delivery (#260)
+- Add bounded research evidence inventories and reproducible no-hardware experiments (#259)
+- Harden service images, finance MCP launch and breaker, and eval harness integrity (#265)
+- Integrate ten-tool financial service with read-only broker access (#264)
+- Connect the shared Financial Service through MCP
+- Add host-scoped run queries with persisted ownership and bounded event cursors (#258)
+- Expose conservative task acceptance views and fix SDK cancellation success (#257)
+
 ## [0.165.0] — 2026-10-30
 
 - Merge pull request #256 from artheras/feat/scoped-task-context

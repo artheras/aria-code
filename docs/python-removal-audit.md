@@ -40,8 +40,11 @@ Before anything is deleted: is each part of `src/aria_code` (about 165,000 lines
      - `--help`, `--version` and `run` stay on the Python worker.
      - `ARIA_ENGINE=python` brings the Python engine back.
      - The release smoke test fails if a session does not come from the Go engine.
-   - Still to do: give pip and npm installs the native binaries. Until then, they run the Python engine.
+   - npm needs nothing more: its platform packages are built from the same native archives, so they ship `aria-runtime` too.
+   - Still to do: give pip installs the native binaries. Until then, a pip install runs the Python engine.
 3. **Move aria-code's unique finance code into financial-service**, and delete the copies already duplicated there. Trading needs its own decision: it either becomes a service capability with the same preview and confirmation gates, or it stays out.
+   - In progress. Moved so far (financial-service #5 to #12): multi-source quotes and fundamentals, macro series and snapshots, central bank rates, technical factors, portfolio weights, Piotroski and Altman scores, options chains, funding rates, Fear & Greed, sector and index overviews, northbound flow, limit-up pool, A-share screener, A-share and crypto history, news.
+   - Left: commodities, futures and bonds; Ichimoku, walk-forward and portfolio backtests; peer comparison; the analyst agents in `agents/financial/`; realty, logistics and data-analysis tools; report and dashboard generators. The Alibaba Cloud signal, prediction and cloud backtest tools depend on a retired backend and are not planned.
 4. **Decide the standalone services.** For the Feishu bot, the daemon, the MCP server and the review service: keep each as its own Python service, or port it.
 5. **Then delete** the worker, the Python UI and the command modules, with the parity tests that compare against them.
 
