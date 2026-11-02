@@ -895,7 +895,8 @@ async def run_parallel_tools(
             except Exception as exc:
                 result = {"success": False, "error": str(exc)}
             if hook is not None:
-                hook("post_tool", tool_name, tool_params, result)
+                hook("post_tool", tool_name, tool_params,
+                     {key: value for key, value in result.items() if key != "_vision_image"})
         else:
             result = {"success": False, "error": f"Unknown tool: {tool_name}"}
         return tool_call, result
@@ -935,7 +936,8 @@ async def run_serial_tool(
         except Exception as exc:
             result = {"success": False, "error": str(exc)}
         if hook is not None:
-            hook("post_tool", tool_name, tool_params, result)
+            hook("post_tool", tool_name, tool_params,
+                     {key: value for key, value in result.items() if key != "_vision_image"})
     else:
         result = {"success": False, "error": f"Unknown tool: {tool_name}"}
     return result, time.time() - started
@@ -1287,39 +1289,27 @@ def record_tool_result(
     formatter: SummaryFormatter,
 ) -> dict:
     """Append one tool result summary and return the appended record."""
-    summary = formatter(tool_name, result)
+    # Keep image bytes out of text summaries and attach only to this batch.
+    clean_result = {key: value for key, value in result.items() if key != "_vision_image"}
+    summary = formatter(tool_name, clean_result)
     record = {"tool": tool_name, "result": summary}
+    if result.get("success") and result.get("_vision_image"):
+        record["_vision_image"] = result["_vision_image"]
     tool_results.append(record)
     return record
 
 
 def build_next_turn_messages(total_response: str, tool_results: Sequence[dict]) -> Tuple[dict, dict, str]:
-    """Build assistant/user messages and follow-up text for the next agent turn.
-
-    When a screenshot tool stored an image in computer_use_tools._PENDING_VISION_IMAGE,
-    the user message content becomes a multipart list so vision models can see the image.
-    """
+    """Build messages with images belonging only to this tool batch."""
     followup = build_tool_followup(tool_results)
     assistant_message = {"role": "assistant", "content": total_response}
-
-    # Check for a pending screenshot from computer_screenshot / browser_screenshot
-    vision_b64: "str | None" = None
-    try:
-        from aria_code.computer_use_tools import pop_pending_vision_image
-        vision_b64 = pop_pending_vision_image()
-    except ImportError:
-        pass
-
-    if vision_b64:
-        user_content: "str | list" = [
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{vision_b64}"},
-            },
-            {"type": "text", "text": followup},
-        ]
-    else:
-        user_content = followup
+    images = [item["_vision_image"] for item in tool_results if item.get("_vision_image")]
+    user_content = followup
+    if images:
+        user_content = [
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{value}"}}
+            for value in images
+        ] + [{"type": "text", "text": followup}]
 
     user_message = {"role": "user", "content": user_content}
     return assistant_message, user_message, followup
@@ -1858,3 +1848,4 @@ async def run_agent(
         delivery=delivery.as_dict() if delivery.worth_showing else None,
     )
     yield AgentEventComplete(result=turn_result)
+

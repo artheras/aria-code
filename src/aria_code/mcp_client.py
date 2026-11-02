@@ -46,6 +46,7 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -301,18 +302,29 @@ class MCPServer:
             # MCP returns {content: [{type, text}]} or plain value
             content = result.get("content", result)
             if isinstance(content, list):
+                vision = {}
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "image" and item.get("mimeType") == "image/png":
+                        data = item.get("data", "")
+                        if isinstance(data, str) and len(data) <= 20_000_000:
+                            try:
+                                base64.b64decode(data, validate=True)
+                                vision = {"_vision_image": data}
+                                break
+                            except ValueError:
+                                pass
                 parts = [c.get("text", "") if isinstance(c, dict) else str(c) for c in content]
                 text  = "\n".join(parts)
                 try:
                     parsed = json.loads(text)
                 except Exception:
-                    return {"success": True, "result": text}
+                    return {"success": True, "result": text, **vision}
                 if isinstance(parsed, dict):
                     # Only this client decides what was a transport failure;
                     # a server cannot claim one (or hide one) via its payload.
                     parsed.pop("failure_kind", None)
-                    return {"success": True, **parsed}
-                return {"success": True, "result": parsed}
+                    return {"success": True, **parsed, **vision}
+                return {"success": True, "result": parsed, **vision}
             return {"success": True, "result": content}
         except Exception as exc:
             # Timeout, closed pipe, exited process: the server itself failed.
@@ -436,7 +448,15 @@ class MCPToolRegistry:
                 return _re.sub(r'\$\{(\w+)\}', lambda m: os.environ.get(m.group(1), m.group(0)), s)
             args = [_expand(a) for a in args]
             env  = {k: _expand(v) for k, v in env.items() if v}
-            srv = MCPServer(name=name, command=command, args=args, env=env, description=desc)
+            try:
+                timeout = float(cfg.get("timeout", 30))
+                if not 1 <= timeout <= 600:
+                    raise ValueError("timeout out of bounds")
+            except (TypeError, ValueError):
+                logger.warning("MCP server %r has an invalid timeout", name)
+                results[name] = False
+                continue
+            srv = MCPServer(name=name, command=command, args=args, env=env, description=desc, timeout=timeout)
             ok  = await srv.start()
             if ok:
                 self._servers[name] = srv
@@ -611,7 +631,7 @@ class MCPToolRegistry:
                 # Route the coroutine back to the event loop that owns the MCP
                 # subprocess streams; asyncio.run() in the worker creates a
                 # different loop and fails with cross-loop Future errors.
-                def _make_sync_handler(qn: str) -> Callable:
+                def _make_sync_handler(qn: str, timeout: float) -> Callable:
                     def _handler(params: dict) -> dict:
                         try:
                             current_loop = _asyncio.get_running_loop()
@@ -627,12 +647,12 @@ class MCPToolRegistry:
                             future = _asyncio.run_coroutine_threadsafe(
                                 self.call_tool(qn, params), owner_loop
                             )
-                            return future.result(timeout=60)
+                            return future.result(timeout=timeout + 5)
                         return _asyncio.run(self.call_tool(qn, params))
                     return _handler
 
                 tool_registry[model_name] = (
-                    _make_sync_handler(qname),
+                    _make_sync_handler(qname, srv.timeout),
                     tool.get("description", f"MCP tool from {srv_name}"),
                 )
                 existing_names.add(model_name)
@@ -719,3 +739,4 @@ async def init_mcp(tool_registry: Dict, schema_registry: List) -> Dict[str, bool
     if n > 0:
         logger.info("MCP: registered %d tools from %d servers", n, len(results))
     return results
+
