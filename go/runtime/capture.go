@@ -80,6 +80,9 @@ func (s *server) browserCommand(ctx context.Context, turn string, args []string)
 		if err == nil {
 			err = errors.New("the browser wrote no screenshot")
 		}
+		if strings.Contains(strings.ToLower(out), "sandbox") {
+			err = fmt.Errorf("%w; the browser's sandbox could not start here (common in containers and on some Linux setups): set ARIA_BROWSER to a browser that runs headless on this machine", err)
+		}
 		return capText(out, 4000), err
 	}
 	return fmt.Sprintf("Saved %s\n/vision %s <question> asks about it.", shot, argQuote(shot)), nil
