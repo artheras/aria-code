@@ -42,7 +42,9 @@ func argQuote(arg string) string {
 	if runtime.GOOS != "windows" {
 		return shellQuote(arg)
 	}
-	if arg != "" && !strings.ContainsAny(arg, " \t\"&|<>^%()") {
+	// = , ; also split arguments for batch files (a .cmd wrapper as
+	// ARIA_BROWSER), so they are quoted too.
+	if arg != "" && !strings.ContainsAny(arg, " \t\"&|<>^%()=,;") {
 		return arg
 	}
 	return `"` + strings.ReplaceAll(arg, `"`, `\"`) + `"`
