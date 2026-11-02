@@ -185,42 +185,37 @@ func (s *server) prCommand(ctx context.Context, turn string, args []string) (str
 
 // reviewCommandText reviews the working tree, the staged change or the
 // branch against a base, with the review gate's isolated reviewer.
+// reviewChange is /review: the review service in code_review.go, with the
+// review kept in the conversation so "fix finding 2" means something.
 func (s *server) reviewChange(ctx context.Context, args []string) (string, error) {
-	if err := s.requireGit(ctx); err != nil {
-		return "", err
-	}
-	var diff, what string
-	var err error
-	switch {
-	case len(args) == 0:
-		diff, err = s.stagedDiff(ctx)
-		what = "the uncommitted change"
-	case args[0] == "--staged" && len(args) == 1:
-		diff, err = git(ctx, s.scope.workspace, nil, 30*time.Second, "diff", "--cached", "--no-ext-diff")
-		what = "the staged change"
-	case args[0] == "--base" && len(args) == 2 && !strings.HasPrefix(args[1], "-"):
-		diff, err = git(ctx, s.scope.workspace, nil, 30*time.Second, "diff", "--no-ext-diff", args[1]+"...HEAD")
-		what = "this branch against " + args[1]
-	default:
-		return "", errors.New("usage: /review [--staged | --base BRANCH]")
-	}
+	target, err := reviewTargetFromArgs(args)
 	if err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(diff) == "" {
+	if target.kind != "file" {
+		if err := s.requireGit(ctx); err != nil {
+			return "", err
+		}
+	}
+	in, err := collectReview(ctx, s.scope.workspace, target, reviewMaxChars)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(in.diff) == "" {
 		return "Nothing to review.", nil
 	}
-	goal := "Review " + what + " for correctness and safety."
-	if plan, _ := s.snap.Metadata["plan"].(string); plan != "" {
-		goal += "\n\nThe change was meant to carry out this plan:\n" + capText(plan, 4000)
-	}
-	prompt := buildReviewPrompt(goal, diff, nil, "", 60000)
-	reply, err := s.provider.Generate(ctx, []*genai.Content{genai.NewContentFromText(prompt, genai.RoleUser)}, reviewerSystem, nil, func(string) {})
+	provider, err := reviewProvider(s.cfg, s.provider)
 	if err != nil {
 		return "", err
 	}
-	report := parseReview(contentText(reply), 1)
-	return strings.Join(report.lines(30), "\n"), nil
+	result, err := runCodeReview(ctx, provider, in, s.cfg.text("ui_lang", "en"))
+	if err != nil {
+		return "", err
+	}
+	s.snap.Messages = append(s.snap.Messages,
+		message{"role": "user", "content": "/review " + strings.Join(args, " ")},
+		message{"role": "assistant", "content": reviewHistoryNote(result)})
+	return renderCodeReview(result, s.cfg.text("ui_lang", "en")), nil
 }
 
 // checkCommands are the project's declared acceptance commands, or the ones
