@@ -10,7 +10,7 @@ import (
 )
 
 func nativeCommands() []string {
-	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load"}
+	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint"}
 }
 
 // commandInfo describes each command for the "/" list: [English, Chinese].
@@ -45,6 +45,15 @@ var commandInfo = map[string][2]string{
 	"/fork":          {"Save a copy of this session", "复制当前会话为新会话"},
 	"/save":          {"Save the session to a file (/export session)", "保存会话到文件（/export session）"},
 	"/load":          {"Load a session file (/import)", "从文件载入会话（/import）"},
+	"/init":          {"Write ARIA.md instructions for this project", "为当前项目生成 ARIA.md 说明"},
+	"/memory":        {"Show or add standing instructions", "查看或添加长期记忆"},
+	"/note":          {"Add a dated note to ARIA.md", "在 ARIA.md 记一条带日期的笔记"},
+	"/recall":        {"Search saved sessions", "搜索已保存的会话"},
+	"/todo":          {"Keep a task list", "管理待办清单"},
+	"/project":       {"Summarise this project", "查看项目概况"},
+	"/plan":          {"Plan a task without changing anything", "只读规划任务（不修改文件）"},
+	"/apply-plan":    {"Carry out the last plan", "执行上一个计划"},
+	"/checkpoint":    {"List or restore checkpoints", "列出或恢复检查点"},
 }
 
 // commandInfoList is nativeCommands in order, each with its description in lang.
@@ -115,6 +124,21 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		return s.exportCommand(ctx, turn, append([]string{"session"}, fields[1:]...))
 	case "/load":
 		return s.importCommand(ctx, turn, rest(text, fields[0]))
+	case "/memory":
+		return s.memoryCommand(rest(text, fields[0]))
+	case "/note":
+		return s.noteCommand(rest(text, fields[0]))
+	case "/recall":
+		return s.recallCommand(rest(text, fields[0]))
+	case "/todo":
+		return s.todoCommand(rest(text, fields[0]))
+	case "/project":
+		return s.projectCommand(ctx)
+	case "/checkpoint":
+		return s.checkpointCommand(ctx, turn, fields[1:])
+	case "/init", "/plan", "/apply-plan":
+		// runTurn sends these to the model before they get here.
+		return "", fmt.Errorf("%s runs as a turn in the interactive application", fields[0])
 	case "/help":
 		extraHelp := "\n/import <path> — create a new session from JSON\n/export session [path] — complete session including file snapshots\n/export bundle [path] — private diagnostics and lifecycle trace (no conversation or config)\n@ references extract DOCX/PPTX text and PDF text/OCR.\n/config set document_ocr=true — OCR empty PDF pages (Tesseract language data required)\n/config set ocr_language=eng+chi_sim+chi_tra\n/config set document_vision=true — send image/PDF-page evidence to your selected vision-capable provider; off by default\n"
 		return "Aria native interface\n\nEnter sends · Ctrl+J / Alt+Enter adds a line\nEsc cancels · Ctrl+O shows operation details · F1 opens help\nTab completes /commands and @file references\n\n/model — interactive provider/model selection\n/models [google|gcp|ollama] — discover models without generation\n/model <provider> <model> — switch explicitly\n@file:path or @\"path with spaces\" — read a text file into this turn\n/config set gcp_project=PROJECT · gcp_location=REGION · ollama_base_url=URL\n/export <format> [path] — export saved conversation\n/changes · /apply-change ID · /reject-change ID — review edits\n\n" + strings.Join(nativeCommands(), " · ") + extraHelp, nil

@@ -350,6 +350,17 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 			text = prompt
 		}
 	}
+	// /init, /plan and /apply-plan are model turns with a prompt of their own.
+	plan := false
+	if regenErr == nil {
+		if prompt, readOnly, handled, e := s.turnPrompt(text); handled {
+			if e != nil {
+				regenErr = e
+			} else {
+				text, plan = prompt, readOnly
+			}
+		}
+	}
 	if regenErr != nil {
 		err = regenErr
 	} else if strings.HasPrefix(strings.TrimSpace(text), "!") {
@@ -370,9 +381,21 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 			return applyRecordedChange(ctx, s.scope, s.opts.root, s.snap.ID, tool, change)
 		}, stage: func(ctx context.Context, tool string, change fileChange) toolResult {
 			return stageRecordedChange(ctx, s.scope, s.opts.root, s.snap.ID, tool, change)
-		}, evidence: newTurnEvidence(s.scope.workspace)}
+		}, evidence: newTurnEvidence(s.scope.workspace), instructions: projectInstructions(s.opts.root, s.scope.workspace)}
+		wasReadOnly := s.scope.readOnly
+		if plan {
+			s.scope.readOnly = true
+		}
 		s.contents, answer, err = nativeTurn(ctx, s.provider, s.scope, s.cfg, s.contents, text, hooks)
+		s.scope.readOnly = wasReadOnly
 		evidence = hooks.evidence
+		if plan && err == nil && strings.TrimSpace(answer) != "" {
+			if s.snap.Metadata == nil {
+				s.snap.Metadata = map[string]any{}
+			}
+			s.snap.Metadata["plan"] = answer
+			answer += "\n\n/apply-plan carries it out."
+		}
 	}
 	if answer != "" {
 		if s.historyReset {
