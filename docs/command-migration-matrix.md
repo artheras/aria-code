@@ -29,12 +29,12 @@ A Python command is deleted only after its replacement ships, and only together 
 | /task /worktree /tasks /delegate /agents /workflow /wf /consult | batch 6 |
 | /mcp /skills /vision /upload-image, plus MCP tools and $skill activation in turns | batch 7 |
 | /providers /apikey /whoami /logout /doctor /update /feedback /privacy | batch 8 |
+| /cost /thinking, with token usage from both providers | batch 2b |
 
 ## Go: to do, in batches
 
 | Batch | Commands |
 |---|---|
-| 2b: session | /cost (needs token usage from the providers) /load-fork /thinking /ui /input |
 | 5b: code intelligence | /graph /impact (need a port of `project_graph.py`) /lsp (needs a language-server client) |
 | 7b: extensions | /hooks (needs a PreToolUse/PostToolUse hook runner) /browser /screenshot (need computer use) |
 | 8b: account | /login (Arthera browser sign-in; the Go runtime does not call the Arthera gateway yet) |
@@ -42,7 +42,7 @@ A Python command is deleted only after its replacement ships, and only together 
 
 ## Finance service
 
-/accuracy /alert /analyze /ashare /asset-diag /auto-strategy /backtest /broker /carriers /chart /commodity /compare /compliance /contract-draft /corr /crypto /dashboard /data /datasource /earnings /edgar /execution /exit-calc /factor-lab /factors /feargreed /football /forex /funding /hot /ichimoku /indices /inventory /journal /limitup /longterm /macro /market /markets /news /north /ops-report /optimize /optimize-port /options /orders /paper /peer /plan-report /portfolio /positions /predict /quote /realty /report /research /revenue-calc /risk /risk-scan /screen /screen-cn /shortterm /signal /sim /stat-arb /strategy /stress /ta /team /deep /canvas /artifacts /account /cloud /deploy /trade /tv /warehouse /watch
+/accuracy /alert /analyze /ashare /asset-diag /auto-strategy /backtest /broker /carriers /chart /commodity /compare /compliance /contract-draft /corr /crypto /dashboard /data /datasource /earnings /edgar /execution /exit-calc /factor-lab /factors /feargreed /football /forex /funding /hot /ichimoku /indices /inventory /journal /limitup /longterm /macro /market /markets /news /north /ops-report /optimize /optimize-port /options /orders /paper /peer /plan-report /portfolio /positions /predict /quote /realty /report /research /revenue-calc /risk /risk-scan /screen /screen-cn /shortterm /signal /sim /stat-arb /strategy /stress /ta /team /deep /ui /canvas /artifacts /account /cloud /deploy /trade /tv /warehouse /watch
 
 The Go runtime already has a native backtest and risk core (`backtest.go`, `risk.go`, `quant/`). /backtest and /risk keep that local path. The service adds the market data behind it.
 
@@ -64,3 +64,5 @@ The Go runtime already has a native backtest and risk core (`backtest.go`, `risk
 | /local | /model ollama <model> |
 | /setup | /model, /config and /init |
 | /license | The Python licensing module; the native runtime has no entitlements |
+| /load-fork | /resume (a fork is a saved session) |
+| /input | The Rust TUI's composer; /config set ui_theme=… for the theme |

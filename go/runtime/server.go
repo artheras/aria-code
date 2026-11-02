@@ -63,6 +63,7 @@ type server struct {
 	historyReset     bool
 	historyNotice    string
 	mcp              *mcpManager
+	usage            *usageMeter
 }
 
 func newServer(options appOptions, out io.Writer) (*server, error) {
@@ -116,6 +117,7 @@ func newServer(options appOptions, out io.Writer) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.usage = sessionUsage(s.snap.Metadata)
 	s.provider = provider
 	if err := saveSession(options.root, s.snap); err != nil {
 		return nil, err
@@ -188,6 +190,7 @@ func (s *server) state(kind string) error {
 	return err
 }
 func (s *server) persist() error {
+	s.saveUsage()
 	contents, err := json.Marshal(s.contents)
 	if err != nil {
 		return err
@@ -339,7 +342,7 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 	}
 }
 func (s *server) runTurn(ctx context.Context, turn, text string) {
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(withUsage(ctx, s.usage))
 	defer cancel()
 	if err := s.emit("turn.started", turn, nil); err != nil {
 		cancel()
@@ -497,6 +500,7 @@ func (s *server) switchSession(id string) error {
 	}
 	s.snap = next
 	s.contents = contents
+	s.usage = sessionUsage(next.Metadata)
 	s.grants = map[string]bool{}
 	if err := s.persist(); err != nil {
 		return err
