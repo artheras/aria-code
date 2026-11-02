@@ -454,6 +454,9 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 			fields["delivery"] = delivery
 		}
 	}
+	if answer != "" && !strings.HasPrefix(strings.TrimSpace(text), "/") {
+		s.fireHooks(context.WithoutCancel(ctx), "ResponseDone", "", nil, nil, answer)
+	}
 	s.mu.Lock()
 	// Release completion and the final snapshot as one state transition.
 	s.emit("turn.completed", turn, fields)
@@ -476,7 +479,10 @@ func (s *server) turnHooks(turn string, sc *scope, cancel func()) agentHooks {
 		return applyRecordedChange(ctx, sc, s.opts.root, s.snap.ID, tool, change)
 	}, stage: func(ctx context.Context, tool string, change fileChange) toolResult {
 		return stageRecordedChange(ctx, sc, s.opts.root, s.snap.ID, tool, change)
-	}, evidence: newTurnEvidence(sc.workspace), instructions: projectInstructions(s.opts.root, sc.workspace), mcp: s.mcp}
+	}, evidence: newTurnEvidence(sc.workspace), instructions: projectInstructions(s.opts.root, sc.workspace), mcp: s.mcp,
+		hook: func(ctx context.Context, event, tool string, params map[string]any, result *toolResult) (bool, string) {
+			return s.fireHooks(ctx, event, tool, params, result, "")
+		}}
 }
 func (s *server) switchSession(id string) error {
 	var next snapshot
@@ -508,6 +514,7 @@ func (s *server) switchSession(id string) error {
 	if err := s.saveSetting("last_session_id", s.snap.ID); err != nil {
 		return err
 	}
+	s.fireHooks(context.Background(), "SessionStart", "", nil, nil, "")
 	return s.state("session.ready")
 }
 func (s *server) run(ctx context.Context, in io.Reader) error {
@@ -527,6 +534,7 @@ func (s *server) run(ctx context.Context, in io.Reader) error {
 	if !s.opts.hostContained && (!scanner.Scan() || strings.TrimSpace(scanner.Text()) != "") {
 		return errors.New("application start requires the host containment barrier newline")
 	}
+	s.fireHooks(ctx, "SessionStart", "", nil, nil, "")
 	if err := s.state("session.ready"); err != nil {
 		return err
 	}

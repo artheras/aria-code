@@ -176,6 +176,13 @@ func (s *server) doctorCommand(ctx context.Context) (string, error) {
 	} else if len(configs) > 0 {
 		add(true, "MCP", fmt.Sprintf("%d server(s) configured (/mcp starts and checks them)", len(configs)))
 	}
+	if user, project, untrusted := s.hookCounts(); user+project > 0 {
+		detail := fmt.Sprintf("%d of yours, %d from the project", user, project)
+		if untrusted {
+			detail += " (not trusted: /hooks trust)"
+		}
+		add(true, "Hooks", detail)
+	}
 	if found := workspaceFiles(s.scope.workspace); len(found) == 0 {
 		add(true, "Project instructions", "none (/init writes ARIA.md)")
 	} else {

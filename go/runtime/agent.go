@@ -101,6 +101,8 @@ type agentHooks struct {
 	instructions string
 	// mcp supplies the configured MCP servers' tools; nil for none.
 	mcp *mcpManager
+	// hook runs PreToolUse/PostToolUse hooks; false vetoes the call.
+	hook func(ctx context.Context, event, tool string, params map[string]any, result *toolResult) (bool, string)
 }
 
 func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, contents []*genai.Content, prompt string, hooks agentHooks) ([]*genai.Content, string, error) {
@@ -260,9 +262,17 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 			if contract != nil && known && !greeting {
 				verdict = contract.Check(call.Name, call.Args)
 			}
+			vetoed := ""
+			if hooks.hook != nil && known && !greeting && verdict.Allowed {
+				if ok, why := hooks.hook(ctx, "PreToolUse", call.Name, call.Args, nil); !ok {
+					vetoed = why
+				}
+			}
 			switch {
 			case greeting:
 				result = failed(errors.New("standalone social message: reply directly without tools or file inspection"))
+			case vetoed != "":
+				result = failed(errors.New(vetoed))
 			case !known:
 				result = failed(fmt.Errorf("unknown native tool: %s", call.Name))
 			case noHostFlags(call.Args) != nil:
@@ -369,6 +379,9 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 					}
 					reads[key] = result
 				}
+			}
+			if hooks.hook != nil && known && !greeting && vetoed == "" && verdict.Allowed {
+				hooks.hook(ctx, "PostToolUse", call.Name, call.Args, &result)
 			}
 			hooks.evidence.finished(call.Name, call.Args, result)
 			fields := map[string]any{"tool": call.Name, "success": result.Success, "elapsed_s": time.Since(started).Seconds()}

@@ -1,4 +1,5 @@
 mod chat;
+mod completions;
 mod frontend;
 mod render;
 mod runtime;
@@ -31,6 +32,7 @@ Usage:
   aria-native update check --current VERSION [--channel native|npm|pip|source] [--offline|--refresh]
   aria-native physical [jsonl|agent-jsonl|mcp|serve --listen 127.0.0.1:8765]
   aria-native index imports|symbols < REQUEST.json
+  aria-native completions bash|zsh|fish
   aria-native --version
 
 Examples:
@@ -73,6 +75,7 @@ enum IndexKind {
 #[derive(Debug)]
 enum Mode {
     Help,
+    Completions(String),
     Physical(Vec<String>),
     Version,
     Index(IndexKind),
@@ -238,6 +241,9 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                     return Err("Unexpected config argument".into());
                 }
                 break Mode::Config(paths);
+            }
+            Some("completions") => {
+                break Mode::Completions(utf8(args.next(), "Usage: completions bash|zsh|fish")?);
             }
             Some("sessions") => {
                 let action = utf8(args.next(), "sessions requires list, search or show")?;
@@ -417,6 +423,10 @@ fn run(options: Options) -> Result<i32, String> {
     match options.mode {
         Mode::Help => {
             print!("{HELP}");
+            Ok(0)
+        }
+        Mode::Completions(shell) => {
+            print!("{}", completions::script(&shell)?);
             Ok(0)
         }
         Mode::Version => {
