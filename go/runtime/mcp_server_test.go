@@ -121,8 +121,9 @@ func TestMCPServerProtocolAndTools(t *testing.T) {
 		tool := raw.(map[string]any)
 		annotations := tool["annotations"].(map[string]any)
 		name := tool["name"].(string)
-		// Only the video editors write, each to a new file; none is destructive.
-		writes := strings.HasPrefix(name, "aria.video.") && name != "aria.video.probe" && name != "aria.video.detect_scenes"
+		// Only the video editors and report renderers write, each to a new file; none is destructive.
+		writes := (strings.HasPrefix(name, "aria.video.") || strings.HasPrefix(name, "aria.report.")) &&
+			name != "aria.video.probe" && name != "aria.video.detect_scenes"
 		if annotations["readOnlyHint"] != !writes || annotations["destructiveHint"] != false || tool["inputSchema"].(map[string]any)["type"] != "object" {
 			t.Fatal("unexpected annotations", tool)
 		}
