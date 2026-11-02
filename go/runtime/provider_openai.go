@@ -202,18 +202,30 @@ type completionEvent struct {
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error"`
+	Usage *tokenCounts `json:"usage"`
+}
+
+// tokenCounts is the usage object of a Chat Completions response; streams
+// send it in the last event when stream_options.include_usage is set.
+type tokenCounts struct {
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
 }
 
 // A stream is not executable until every call's arguments have been parsed and
 // the server sends a completion marker. An EOF halfway through a call is an error.
-func parseCompletions(r io.Reader, streaming bool, emit func(string)) (*genai.Content, error) {
+func parseCompletions(r io.Reader, streaming bool, emit func(string), usage ...*tokenCounts) (*genai.Content, error) {
 	content := &genai.Content{Role: "model"}
 	calls := map[int]*completionCall{}
 	bytesRead := 0
 	finished := false
+	// With stream_options.include_usage the usage event comes after the
+	// finish_reason; keep reading for it until [DONE] or the stream ends.
+	wantUsage := len(usage) > 0 && usage[0] != nil
+	done, gotUsage := false, false
 	consume := func(body []byte) error {
 		if bytes.Equal(bytes.TrimSpace(body), []byte("[DONE]")) {
-			finished = true
+			finished, done = true, true
 			return nil
 		}
 		var event completionEvent
@@ -222,6 +234,10 @@ func parseCompletions(r io.Reader, streaming bool, emit func(string)) (*genai.Co
 		}
 		if event.Error != nil {
 			return errors.New("model stream reported an API error")
+		}
+		if event.Usage != nil && wantUsage {
+			*usage[0] = *event.Usage
+			gotUsage = true
 		}
 		for _, choice := range event.Choices {
 			if choice.Index != 0 {
@@ -302,7 +318,7 @@ func parseCompletions(r io.Reader, streaming bool, emit func(string)) (*genai.Co
 				if err := flush(); err != nil {
 					return content, err
 				}
-				if finished {
+				if finished && (!wantUsage || done || gotUsage) {
 					break
 				}
 				continue
@@ -389,6 +405,9 @@ func (p *openAIProvider) Generate(ctx context.Context, contents []*genai.Content
 	}
 	maxTokens := p.cfg.number("max_output_tokens", 32768)
 	payload := map[string]any{"model": model, "messages": messages, "stream": true, "temperature": 0.7, "max_tokens": maxTokens}
+	if p.cfg.boolean("stream_usage", true) {
+		payload["stream_options"] = map[string]any{"include_usage": true}
+	}
 	if temperature, ok := p.cfg["temperature"].(float64); ok {
 		payload["temperature"] = temperature
 	}
@@ -447,7 +466,9 @@ func (p *openAIProvider) Generate(ctx context.Context, contents []*genai.Content
 			retry = response.StatusCode == 429 || response.StatusCode == 500 || response.StatusCode == 503 || response.StatusCode == 504
 		} else {
 			streaming := !strings.Contains(response.Header.Get("Content-Type"), "application/json")
-			content, err = parseCompletions(response.Body, streaming, func(text string) { visible = true; emit(text) })
+			var counts tokenCounts
+			content, err = parseCompletions(response.Body, streaming, func(text string) { visible = true; emit(text) }, &counts)
+			recordUsage(ctx, counts.PromptTokens, counts.CompletionTokens, 0)
 			retry = errors.Is(err, errNoVisibleCompletion)
 		}
 		response.Body.Close()
