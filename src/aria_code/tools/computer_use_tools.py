@@ -7,8 +7,7 @@ Provides three LOCAL_TOOLS-compatible tool functions:
   computer_screenshot  Capture a screenshot of the current desktop
   computer_action      Control mouse / keyboard (click, type, scroll, move, hotkey)
 
-Screenshot tools store the image in _PENDING_VISION_IMAGE so the agent loop can
-inject it into the follow-up user message for vision-capable models.
+Screenshot images travel with each tool result; concurrent sessions never share them.
 
 Install:
     pip install playwright mss pyautogui pillow
@@ -25,28 +24,8 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
-# Module-level slot for the last screenshot (base64 PNG).
-# build_tool_followup in runtime/agent_loop.py checks this and injects
-# the image into the follow-up user message for vision models.
-_PENDING_VISION_IMAGE: Optional[str] = None   # base64-encoded PNG
-
-
-def _store_screenshot(b64: str) -> None:
-    global _PENDING_VISION_IMAGE
-    _PENDING_VISION_IMAGE = b64
-
-
-def pop_pending_vision_image() -> Optional[str]:
-    """Consume and return the pending screenshot (None if none pending)."""
-    global _PENDING_VISION_IMAGE
-    val = _PENDING_VISION_IMAGE
-    _PENDING_VISION_IMAGE = None
-    return val
-
 
 # ── Browser navigate ──────────────────────────────────────────────────────────
 
@@ -110,7 +89,7 @@ def _tool_browser_navigate(params: dict) -> dict:
             url,
             headers={"User-Agent": "Mozilla/5.0 Chrome/124.0"},
             timeout=15,
-            verify=False,
+            verify=True,
         )
         r.raise_for_status()
         raw = r.text
@@ -141,7 +120,7 @@ def _tool_browser_navigate(params: dict) -> dict:
 def _tool_browser_screenshot(params: dict) -> dict:
     """
     Navigate to a URL and capture a full-page screenshot.
-    Stores the image in _PENDING_VISION_IMAGE for vision-model injection.
+    Returns the image with this tool result for vision-model injection.
     """
     url = params.get("url", "").strip()
     if not url:
@@ -162,10 +141,10 @@ def _tool_browser_screenshot(params: dict) -> dict:
             browser.close()
 
         b64 = base64.b64encode(png_bytes).decode()
-        _store_screenshot(b64)
         size_kb = len(png_bytes) // 1024
         return {
             "success": True,
+            "_vision_image": b64,
             "data": {
                 "url": url,
                 "title": title,
@@ -189,10 +168,15 @@ def _tool_browser_screenshot(params: dict) -> dict:
 def _tool_computer_screenshot(params: dict) -> dict:
     """
     Capture a screenshot of the current desktop screen.
-    Stores the image in _PENDING_VISION_IMAGE for vision-model injection.
+    Returns the image with this tool result for vision-model injection.
     """
-    monitor_idx = int(params.get("monitor", 1))  # 0 = all screens, 1 = primary
-    max_dim = int(params.get("max_dim", 1920))    # resize if larger
+    try:
+        monitor_idx = int(params.get("monitor", 1))
+        max_dim = int(params.get("max_dim", 1920))
+        if monitor_idx < 0 or not 64 <= max_dim <= 4096:
+            raise ValueError("monitor must be nonnegative; max_dim must be 64..4096")
+    except (ValueError, TypeError) as exc:
+        return {"success": False, "error": str(exc)}
 
     # --- mss path (fast, cross-platform) ---
     try:
@@ -201,7 +185,9 @@ def _tool_computer_screenshot(params: dict) -> dict:
 
         with mss.mss() as sct:
             monitors = sct.monitors
-            mon = monitors[monitor_idx] if monitor_idx < len(monitors) else monitors[1]
+            if monitor_idx >= len(monitors):
+                return {"success": False, "error": "Monitor is unavailable"}
+            mon = monitors[monitor_idx]
             raw = sct.grab(mon)
             img = Image.frombytes("RGB", (raw.width, raw.height), raw.rgb)
 
@@ -209,15 +195,15 @@ def _tool_computer_screenshot(params: dict) -> dict:
         w, h = img.size
         if max(w, h) > max_dim:
             scale = max_dim / max(w, h)
-            img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+            img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.LANCZOS)
 
         buf = io.BytesIO()
         img.save(buf, format="PNG", optimize=True)
         b64 = base64.b64encode(buf.getvalue()).decode()
-        _store_screenshot(b64)
         size_kb = len(buf.getvalue()) // 1024
         return {
             "success": True,
+            "_vision_image": b64,
             "data": {
                 "width": img.width,
                 "height": img.height,
@@ -230,7 +216,10 @@ def _tool_computer_screenshot(params: dict) -> dict:
     except Exception as exc:
         logger.warning("mss screenshot failed: %s", exc)
 
-    # --- screencapture fallback (macOS) ---
+    # --- screencapture fallback (macOS primary screen only) ---
+    if sys.platform != "darwin" or monitor_idx != 1:
+        return {"success": False, "error": "Requested monitor capture unavailable. Install mss pillow."}
+    tmp = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
             tmp = f.name
@@ -240,14 +229,13 @@ def _tool_computer_screenshot(params: dict) -> dict:
         w, h = img.size
         if max(w, h) > max_dim:
             scale = max_dim / max(w, h)
-            img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+            img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.LANCZOS)
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         b64 = base64.b64encode(buf.getvalue()).decode()
-        _store_screenshot(b64)
-        os.unlink(tmp)
         return {
             "success": True,
+            "_vision_image": b64,
             "data": {
                 "width": img.width,
                 "height": img.height,
@@ -257,6 +245,9 @@ def _tool_computer_screenshot(params: dict) -> dict:
         }
     except Exception as exc:
         return {"success": False, "error": f"Screenshot failed: {exc}. Install: pip install mss pillow"}
+    finally:
+        if tmp and os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 # ── Computer action ───────────────────────────────────────────────────────────
@@ -273,14 +264,17 @@ def _tool_computer_action(params: dict) -> dict:
       scroll (x, y, dy)    — scroll wheel: dy > 0 = down, dy < 0 = up
       drag (x, y, ex, ey)  — drag from (x,y) to (ex,ey)
     """
-    action = params.get("action", "").lower()
-    x = int(params.get("x", 0))
-    y = int(params.get("y", 0))
-    text = params.get("text", "")
-    key = params.get("key", "")
-    dy = int(params.get("dy", 3))
-    ex = int(params.get("ex", x))
-    ey = int(params.get("ey", y))
+    try:
+        action = params.get("action", "").lower()
+        x = int(params.get("x", 0))
+        y = int(params.get("y", 0))
+        text = params.get("text", "")
+        key = params.get("key", "")
+        dy = int(params.get("dy", 3))
+        ex = int(params.get("ex", x))
+        ey = int(params.get("ey", y))
+    except (ValueError, TypeError, AttributeError):
+        return {"success": False, "error": "Invalid action parameters"}
 
     if not action:
         return {"success": False, "error": "Missing 'action' parameter"}
@@ -309,14 +303,24 @@ def _tool_computer_action(params: dict) -> dict:
         elif action == "type":
             if not text:
                 return {"success": False, "error": "Missing 'text' for type action"}
-            pyautogui.typewrite(text, interval=0.03)
+            import pyperclip
+            previous = pyperclip.paste()
+            try:
+                pyperclip.copy(text)
+                pyautogui.hotkey("command" if sys.platform == "darwin" else "ctrl", "v")
+                time.sleep(0.15)
+            finally:
+                pyperclip.copy(previous)
             return {"success": True, "data": {"action": "type", "chars": len(text)}}
 
         elif action == "key":
             if not key:
                 return {"success": False, "error": "Missing 'key' for key action"}
             # Handle combos like "ctrl+c", "cmd+space"
-            parts = [k.strip() for k in key.replace("+", " ").split() if k.strip()]
+            parts = [{"cmd": "command", "return": "enter", "esc": "escape"}.get(k.lower(), k.lower())
+                     for k in key.replace("+", " ").split() if k.strip()]
+            if not parts:
+                return {"success": False, "error": "Missing key"}
             if len(parts) > 1:
                 pyautogui.hotkey(*parts)
             else:
@@ -324,7 +328,7 @@ def _tool_computer_action(params: dict) -> dict:
             return {"success": True, "data": {"action": "key", "key": key}}
 
         elif action == "scroll":
-            pyautogui.scroll(dy, x=x, y=y)
+            pyautogui.scroll(-dy, x=x, y=y)
             return {"success": True, "data": {"action": "scroll", "x": x, "y": y, "dy": dy}}
 
         elif action == "drag":
@@ -343,7 +347,7 @@ def _tool_computer_action(params: dict) -> dict:
     except ImportError:
         return {
             "success": False,
-            "error": "pyautogui not installed. Run: pip install pyautogui",
+            "error": "Desktop dependency missing. Run: pip install 'aria-code[desktop]'",
         }
     except pyautogui.FailSafeException:
         return {
@@ -502,3 +506,4 @@ COMPUTER_USE_TOOLS = {
     "computer_screenshot":(_tool_computer_screenshot,"Capture a screenshot of the current desktop"),
     "computer_action":    (_tool_computer_action,    "Control mouse/keyboard (click, type, scroll)"),
 }
+

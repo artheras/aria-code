@@ -43,14 +43,12 @@ def test_caps_long_text(tmp_path):
 
 
 def test_image_queued_for_vision(tmp_path, monkeypatch):
-    import computer_use_tools as cu
-    cu.pop_pending_vision_image()  # clear
     f = tmp_path / "chart.png"
     f.write_bytes(_PNG)
     r = tool_analyze_file({"path": str(f)})
     assert r["success"] and r["file_type"] == "image"
     assert r["vision_attached"] is True
-    queued = cu.pop_pending_vision_image()
+    queued = r.get("_vision_image")
     assert queued is not None and "base64," not in queued  # raw b64, prefix stripped
 
 
@@ -91,3 +89,4 @@ def test_optional_parser_detection_refreshes_after_install(monkeypatch):
 
     assert status["python-docx"] is True
     assert tools._docx_mod is sentinel
+
