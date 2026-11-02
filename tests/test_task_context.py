@@ -295,7 +295,8 @@ async def test_ollama_request_does_not_load_ambient_sources(monkeypatch):
             raise StopAtRequest()
 
     monkeypatch.setitem(stream_globals, "detect_ollama_models_rich", lambda url: ([{"name": "qwen2.5:7b"}], None))
-    monkeypatch.setattr(local, "resolve_model_async", resolve)
+    from aria_code.providers import ollama_models
+    monkeypatch.setattr(ollama_models, "resolve_model_async", resolve)
     monkeypatch.setattr(classifier, "classify_intent_async", classify)
     monkeypatch.setattr(memory.MemoryManager, "load_context", ambient("global_memory"))
     monkeypatch.setattr(skills, "activate_external_skills", ambient("global_skills"))

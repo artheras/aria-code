@@ -130,6 +130,8 @@ def should_fallback(route: str, result: dict, *, is_placeholder: bool) -> bool:
     old ``_should_fallback`` that keyed on ``is_ollama_model`` and could discard a
     good backend answer (causing a re-run / hang).
     """
+    if result.get("fallback_allowed") is False or "ollama_model_unavailable:" in str(result.get("error", "")):
+        return False
     if route in ("skip", "configured"):
         return route == "skip"
     if not result.get("success") and not result.get("cancelled"):

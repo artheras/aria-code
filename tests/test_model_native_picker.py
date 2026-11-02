@@ -56,7 +56,7 @@ class NativePickerTest(unittest.IsolatedAsyncioTestCase):
             seen.update(options=options, start=start, title=title, kwargs=kwargs)
             return -1
 
-        await _call(_Mixin(), select, community=["llama3.2:3b"])
+        await _call(_Mixin(), select, community=["qwen2.5:7b", "llama3.2:3b"])
         labels = [label for label, _help in seen["options"]]
         self.assertEqual(len(labels), 3)  # two catalogue models and one community model
         self.assertIn("current", labels[1])  # Qwen 2.5 is current
@@ -71,7 +71,7 @@ class NativePickerTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_choosing_a_local_model_sets_it(self):
         mixin = _Mixin()
-        await _call(mixin, lambda o, s, t, **kw: 2, community=["llama3.2:3b"])
+        await _call(mixin, lambda o, s, t, **kw: 1, community=["llama3.2:3b"])
         self.assertEqual(mixin.set_ids, ["llama3.2:3b"])
         self.assertEqual(mixin.routed, [])
 

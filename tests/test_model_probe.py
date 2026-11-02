@@ -99,3 +99,12 @@ async def test_total_probe_timeout_cancels_the_transport(monkeypatch):
     report = await model_probe.probe_model({"model": "google/gemini-2.5-flash"}, timeout=0.01)
     assert report.category == "timeout" and not report.success
     assert cancelled == [True]
+
+
+@pytest.mark.asyncio
+async def test_missing_ollama_model_has_installation_hint(monkeypatch):
+    fake_provider(monkeypatch, [[base.LLMDone("", success=False,
+        error="ollama_model_unavailable: model is not installed")]])
+    report = await model_probe.probe_model({"model":"missing:7b", "local_provider":"ollama"})
+    assert not report.success and report.category == "model_unavailable"
+    assert "ollama pull" in report.suggestion

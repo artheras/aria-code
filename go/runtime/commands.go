@@ -230,7 +230,7 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 			return s.modelPicker(ctx, turn)
 		}
 		if len(fields) == 3 {
-			return s.selectModel(fields[1], fields[2])
+			return s.selectModel(ctx, fields[1], fields[2])
 		}
 		name := providerName(s.cfg)
 		if len(fields) == 1 {

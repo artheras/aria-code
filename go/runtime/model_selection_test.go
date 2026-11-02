@@ -11,7 +11,11 @@ import (
 
 func TestModelSwitchPersistsBothFieldsAndFailurePreservesSelection(t *testing.T) {
 	writeProviders(t, map[string]any{})
-	s := approvalServer(t, config{}, appOptions{})
+	host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"data":[{"id":"qwen-test:local"}]}`)
+	}))
+	defer host.Close()
+	s := approvalServer(t, config{"ollama_base_url": host.URL}, appOptions{})
 	if _, err := s.command(context.Background(), "t", "/model ollama qwen-test:local"); err != nil {
 		t.Fatal(err)
 	}

@@ -384,6 +384,12 @@ func (p *openAIProvider) Generate(ctx context.Context, contents []*genai.Content
 		return nil, err
 	}
 	model := p.model
+	if p.declared != nil && p.declared.ID == "ollama" {
+		model, err = requireOllamaModel(ctx, p.declared, model)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if p.declared == nil && !strings.Contains(model, "/") {
 		model = "google/" + model
 	}
