@@ -26,6 +26,9 @@ func gitRepo(t *testing.T, s *server) func(...string) {
 		}
 	}
 	run("init", "-q")
+	// /commit runs plain git, which needs an identity; CI runners have none.
+	run("config", "user.name", "t")
+	run("config", "user.email", "t@example.invalid")
 	if err := os.WriteFile(filepath.Join(s.scope.workspace, "a.txt"), []byte("one\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
