@@ -449,6 +449,9 @@ func (s *server) turnPrompt(text string) (prompt string, readOnly bool, handled 
 			prompt += "\n\nAdjustments: " + extra
 		}
 		return prompt, false, true, nil
+	case "/fix", "/bug", "/trace", "/quality":
+		prompt, readOnly, err = engineeringPrompt(fields[0], extra)
+		return prompt, readOnly, true, err
 	}
 	return "", false, false, nil
 }
