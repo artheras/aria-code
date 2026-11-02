@@ -213,7 +213,7 @@ func TestChartTools(t *testing.T) {
 	data, _ := json.Marshal(map[string]any{"success": true, "data": rows})
 	os.WriteFile(filepath.Join(home, "hist.json"), data, 0o644)
 	named := filepath.Join(home, "ind.svg")
-	if r := mcpReportIndicatorChart(ctx, map[string]any{"symbol": "AAPL", "data_path": "hist.json", "days": 60, "output_path": named}); r["success"] != true || r["path"] != named {
+	if r := mcpReportIndicatorChart(ctx, map[string]any{"symbol": "AAPL", "data_path": "hist.json", "days": 60, "output_path": named}); r["success"] != true || !sameFile(r["path"].(string), named) {
 		t.Fatal(r)
 	}
 	svg, _ := os.ReadFile(named)
@@ -313,4 +313,11 @@ func TestEquityReport(t *testing.T) {
 	if r := mcpReportGenerate(ctx, map[string]any{"symbol": "MSFT", "rows": rows, "analysis_path": "notes.md", "title": "Desk note"}); r["success"] != true {
 		t.Fatal(r)
 	}
+}
+
+// sameFile compares paths after symlinks (macOS temp dirs live under /private).
+func sameFile(a, b string) bool {
+	ia, errA := os.Stat(a)
+	ib, errB := os.Stat(b)
+	return errA == nil && errB == nil && os.SameFile(ia, ib)
 }
