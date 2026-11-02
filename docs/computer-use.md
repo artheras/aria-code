@@ -32,6 +32,6 @@ Each observation returns page text, up to 80 visible interactive elements with C
 
 Publishing, sending and purchasing require approval for the concrete action. Generating or approving a draft does not authorize publishing it. Browser capabilities do not add background scheduling or unattended publishing.
 
-The Python CLI forwards MCP PNG images into the next model turn. The current native Go MCP path presents text observations; its image forwarding is a separate follow-up and has not been added here.
+The Python CLI and native Go runtime forward MCP images into the next model turn. The native runtime accepts bounded, decodable PNG/JPEG images, keeps bytes out of tool-result JSON/events and places tool responses before the image message. A vision-capable model is required to interpret the image.
 
 Aria Code's existing `computer_screenshot` and `computer_action` tools retain their host approval rules. Install `aria-code[desktop]` for desktop capture/input dependencies. Unicode typing uses the local clipboard and restores its previous text; desktop tools require the operating system's screen capture/accessibility permissions. Tool images travel with their result rather than through process-global pending state.

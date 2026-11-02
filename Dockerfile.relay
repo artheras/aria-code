@@ -1,25 +1,24 @@
-# Dockerfile.relay — Aria 中继服务器
-# 用于 docker compose up relay-server
+# Dockerfile.relay — Aria's Feishu relay (Go), the production image
+# (cloudbuild.yaml → Cloud Run; docker compose -f docker-compose.prod.yml).
+#
+# The relay moved from Python (aria_relay_server.py) to Go (go/relay). Same
+# endpoints, environment (PORT, DB_PATH, RELAY_STORE, FEISHU_*, RELAY_SECRET,
+# MESSAGE_TIMEOUT) and SQLite/Firestore layout, so a deploy keeps every binding
+# and machine credential. tests/test_relay_contract.py holds it to the contract.
 
-FROM python:3.11-slim
+FROM golang:1.26-bookworm AS build
+WORKDIR /src
+COPY go/relay/go.mod go/relay/go.sum ./
+RUN go mod download
+COPY go/relay/*.go ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /aria-relay .
+RUN mkdir /data && chown 65532:65532 /data
 
-WORKDIR /relay
-
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# google-cloud-firestore: RELAY_STORE=firestore keeps bindings across deploys.
-RUN pip install --no-cache-dir fastapi uvicorn[standard] websockets httpx google-cloud-firestore
-
-# Install Aria's relay module without the CLI's large finance/model dependency
-# tree. Runtime dependencies above cover aria_relay_server and relay_store;
-# this image does not run the local coding/finance agent.
-COPY pyproject.toml README.md ./
-COPY src ./src
-RUN pip install --no-cache-dir --no-deps .
-
-ENV PYTHONUNBUFFERED=1
-
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /aria-relay /aria-relay
+COPY --from=build --chown=65532:65532 /data/ /data/
+# Cloud Run sets PORT; compose sets DB_PATH=/data/relay.db on its volume.
+ENV PORT=8765 DB_PATH=/tmp/relay.db
 EXPOSE 8765
-
-CMD ["python3", "-m", "aria_code.aria_relay_server"]
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD ["/aria-relay", "--healthcheck"]
+ENTRYPOINT ["/aria-relay"]

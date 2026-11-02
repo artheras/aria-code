@@ -4,7 +4,7 @@ package main
 // reaches which machine), each machine's credentials, the chats a client may
 // post to, and which client posted which card.
 //
-// Both stores keep the Python relay's layout (src/aria_code/relay_store.py),
+// Both stores keep the Python relay's layout (the former relay_store.py),
 // so either implementation can open the other's SQLite file or Firestore
 // database. The one operation that must be atomic is ClaimCredentials: the
 // first registration of a client_id wins.

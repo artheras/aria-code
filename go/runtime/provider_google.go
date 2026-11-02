@@ -182,15 +182,24 @@ func (p *googleProvider) Generate(ctx context.Context, contents []*genai.Content
 	if n := p.cfg.number("max_output_tokens", 0); n > 0 {
 		settings.MaxOutputTokens = int32(n)
 	}
+	// /thinking: auto leaves the model's default.
+	if level := p.cfg.text("thinking", "auto"); level != "auto" && level != "" {
+		settings.ThinkingConfig = &genai.ThinkingConfig{ThinkingLevel: genai.ThinkingLevel(strings.ToUpper(level))}
+	}
 	for attempt := 0; attempt < 4; attempt++ {
 		content := &genai.Content{Role: "model"}
 		var failure error
 		var finish string
 		bytes := 0
+		var usage *genai.GenerateContentResponseUsageMetadata
 		for response, err := range client.Models.GenerateContentStream(ctx, p.model, contents, settings) {
 			if err != nil {
 				failure = err
 				break
+			}
+			if response != nil && response.UsageMetadata != nil {
+				// Each chunk carries the running totals; the last one counts.
+				usage = response.UsageMetadata
 			}
 			if response == nil || len(response.Candidates) == 0 {
 				continue
@@ -225,6 +234,9 @@ func (p *googleProvider) Generate(ctx context.Context, contents []*genai.Content
 					emit(part.Text)
 				}
 			}
+		}
+		if usage != nil {
+			recordUsage(ctx, int64(usage.PromptTokenCount), int64(usage.CandidatesTokenCount), int64(usage.ThoughtsTokenCount))
 		}
 		if ctx.Err() != nil {
 			return content, ctx.Err()

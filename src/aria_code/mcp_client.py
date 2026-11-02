@@ -654,7 +654,7 @@ class MCPToolRegistry:
                     return _handler
 
                 tool_registry[model_name] = (
-                    _make_sync_handler(qname, srv.timeout),
+                    _make_sync_handler(qname, getattr(srv, "timeout", 30)),
                     tool.get("description", f"MCP tool from {srv_name}"),
                 )
                 existing_names.add(model_name)

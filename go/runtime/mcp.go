@@ -13,10 +13,15 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"os"
 	"os/exec"
@@ -178,33 +183,30 @@ func (c *mcpClient) explain(err error) error {
 }
 
 func (c *mcpClient) read(stdout io.Reader) {
-	reader := bufio.NewReaderSize(stdout, 1<<16)
-	for {
-		line, err := reader.ReadBytes('\n')
-		if len(strings.TrimSpace(string(line))) > 0 {
-			var m rpcMessage
-			if json.Unmarshal(line, &m) == nil && m.ID != nil {
-				if m.Method != "" {
-					// A request from the server (ping): answer it.
-					c.send(map[string]any{"jsonrpc": "2.0", "id": *m.ID, "result": map[string]any{}})
-				} else {
-					c.mu.Lock()
-					ch := c.pending[*m.ID]
-					delete(c.pending, *m.ID)
-					c.mu.Unlock()
-					if ch != nil {
-						ch <- m
-					}
-				}
-			}
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64<<10), 24<<20)
+	for scanner.Scan() {
+		var m rpcMessage
+		if json.Unmarshal(scanner.Bytes(), &m) != nil || m.ID == nil {
+			continue
 		}
-		if err != nil {
-			// Wait only after every read from stdout has finished.
-			c.cmd.Wait()
-			c.closeOnce()
-			return
+		if m.Method != "" {
+			c.send(map[string]any{"jsonrpc": "2.0", "id": *m.ID, "result": map[string]any{}})
+			continue
+		}
+		c.mu.Lock()
+		ch := c.pending[*m.ID]
+		delete(c.pending, *m.ID)
+		c.mu.Unlock()
+		if ch != nil {
+			ch <- m
 		}
 	}
+	if scanner.Err() != nil && c.cmd.Process != nil {
+		_ = c.cmd.Process.Kill()
+	}
+	c.cmd.Wait()
+	c.closeOnce()
 }
 
 func (c *mcpClient) send(message map[string]any) error {
@@ -405,29 +407,58 @@ func (m *mcpManager) call(ctx context.Context, name string, args map[string]any)
 	if err != nil {
 		return failed(c.explain(err))
 	}
+	return decodeMCPToolResult(raw, c.cfg.Name, tool.Name)
+}
+
+// Image bytes are separate from JSON tool results and diagnostic events.
+// Only bounded, decodable raster images are forwarded to the model.
+func decodeMCPToolResult(raw []byte, server, tool string) toolResult {
 	var result struct {
 		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			Data     string `json:"data"`
+			MIMEType string `json:"mimeType"`
 		} `json:"content"`
 		IsError bool `json:"isError"`
 	}
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return failed(fmt.Errorf("tools/call: %w", err))
 	}
-	var b strings.Builder
+	var text strings.Builder
+	var images []toolImage
+	total := 0
 	for _, part := range result.Content {
-		if part.Type == "text" {
-			b.WriteString(part.Text)
-		} else {
-			fmt.Fprintf(&b, "[%s content]", part.Type)
+		switch part.Type {
+		case "text":
+			text.WriteString(part.Text)
+		case "image":
+			if result.IsError {
+				continue
+			}
+			if len(images) >= 4 || len(part.Data) > 20_000_000 {
+				return failed(errors.New("MCP image limit exceeded"))
+			}
+			data, err := base64.StdEncoding.DecodeString(part.Data)
+			total += len(data)
+			if err != nil || total > 15_000_000 {
+				return failed(errors.New("Invalid or oversized MCP image"))
+			}
+			cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
+			mime := map[string]string{"png": "image/png", "jpeg": "image/jpeg"}[format]
+			if err != nil || mime == "" || mime != part.MIMEType || cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width > 8192 || cfg.Height > 8192 || int64(cfg.Width)*int64(cfg.Height) > 16_777_216 {
+				return failed(errors.New("Unsupported or invalid MCP image"))
+			}
+			images = append(images, toolImage{MIMEType: mime, Data: data})
+			text.WriteString("[image attached]")
+		default:
+			fmt.Fprintf(&text, "[%s content]", part.Type)
 		}
 	}
-	text := capText(b.String(), 30000)
 	if result.IsError {
-		return toolResult{Error: text, Data: map[string]any{"server": c.cfg.Name, "tool": tool.Name}}
+		return toolResult{Error: capText(text.String(), 30000), Data: map[string]any{"server": server, "tool": tool}}
 	}
-	return toolResult{Success: true, Data: map[string]any{"server": c.cfg.Name, "tool": tool.Name, "content": text}}
+	return toolResult{Success: true, Images: images, Data: map[string]any{"server": server, "tool": tool, "content": capText(text.String(), 30000)}}
 }
 
 func (m *mcpManager) status() string {
