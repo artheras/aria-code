@@ -31,14 +31,14 @@ class BuiltinPackLoadingTests(unittest.TestCase):
         reset_builtin_packs()
         self.addCleanup(reset_builtin_packs)
 
-    def test_all_four_domains_register(self):
+    def test_all_five_domains_register(self):
         names = set(load_builtin_packs())
-        self.assertEqual(names, {"finance", "logistics", "payments", "realty"})
+        self.assertEqual(names, {"finance", "logistics", "payments", "realty", "healthcare"})
 
     def test_loading_is_idempotent(self):
         load_builtin_packs()
         load_builtin_packs()
-        self.assertEqual(len(registered_packs()), 4)
+        self.assertEqual(len(registered_packs()), 5)
 
 
 class ActivationBoundaryTests(unittest.TestCase):
