@@ -264,6 +264,14 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 	// run without a prompt and say so. An explicit "ask" policy always asks.
 	assessment := AssessTool(name, params, s.scope.workspace)
 	requirement := approvalRequirement(assessment, s.cfg.text("approval_mode", "manual"), s.cfg["auto_approve_level"])
+	// A server that marks a tool destructive (arthera-trading's order
+	// execution) gets a person's approval for every call: no session grant,
+	// allow policy, allowed-tools list, skip-permissions flag or risk mode
+	// stands in for it, and a headless run refuses it.
+	destructive := s.mcp != nil && s.mcp.destructive(name)
+	if destructive {
+		requirement = "always"
+	}
 	if policy != "ask" {
 		standing := policy == "allow" || s.opts.skipPermissions || s.grants[grant] || contains(s.opts.allowedTools, name)
 		if standing && requirement != "always" {
@@ -281,6 +289,9 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 		}
 	}
 	if s.opts.noninteractive {
+		if destructive {
+			return false, "the server marks this tool destructive; every call needs interactive approval", nil
+		}
 		if requirement == "always" {
 			return false, fmt.Sprintf("L%d %s actions always need interactive approval: %s", assessment.Level, assessment.Name, strings.Join(assessment.Reasons, "; ")), nil
 		}
