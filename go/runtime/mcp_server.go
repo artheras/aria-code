@@ -85,10 +85,13 @@ func mcpProjectRoot(value any) (string, error) {
 	}
 	root := cwd
 	if strings.TrimSpace(text) != "" {
-		root = expandUser(text)
-		if !filepath.IsAbs(root) {
-			root = filepath.Join(cwd, root)
+		// Abs, not Join: on Windows "/" or "\\x" is rooted at the current
+		// drive, not relative to the working directory.
+		abs, err := filepath.Abs(expandUser(text))
+		if err != nil {
+			return "", err
 		}
+		root = abs
 	}
 	if resolved, err := filepath.EvalSymlinks(root); err == nil {
 		root = resolved
