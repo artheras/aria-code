@@ -29,6 +29,26 @@ func providerRows() ([][3]string, string, map[string]string) {
 		google = "credentials found"
 	}
 	rows := [][3]string{{"google", "Gemini (built in)", google}, {"ollama", "Local Ollama (built in)", "no key needed"}}
+	gateway := "needs /login"
+	if root, err := stateRoot(); err == nil {
+		if cfg, err := loadConfig(root); err == nil && tokenClaims(cfg.text("auth_token", "")) != nil {
+			gateway = "signed in"
+		}
+	}
+	rows = append(rows, [3]string{gatewayProviderID, "Arthera gateway (Google models, built in)", gateway})
+	for _, p := range providerPresets {
+		if _, declared := specs[p.id]; declared {
+			continue
+		}
+		state := "no key needed"
+		if p.envKey != "" {
+			state = "needs " + p.envKey
+			if strings.TrimSpace(os.Getenv(p.envKey)) != "" {
+				state = p.envKey + " is set"
+			}
+		}
+		rows = append(rows, [3]string{p.id, p.name + " (built in)", state})
+	}
 	ids := make([]string, 0, len(specs))
 	for id := range specs {
 		ids = append(ids, id)

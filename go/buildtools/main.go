@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"time"
 )
@@ -115,7 +116,46 @@ func bundle(root, onedir string, frontend bool, output io.Writer) error {
 		targetDir = filepath.Join(root, "rust", targetDir)
 	}
 	built := filepath.Join(targetDir, "release", executable("aria-native"))
-	return installNative(built, onedir, frontend, output)
+	if err := installNative(built, onedir, frontend, output); err != nil {
+		return err
+	}
+	if frontend {
+		return installRuntime(root, onedir, output)
+	}
+	return nil
+}
+
+var pyprojectVersion = regexp.MustCompile(`(?m)^version\s*=\s*"([^"]+)"`)
+
+// installRuntime builds the Go engine next to the frozen worker. The Rust
+// frontend runs it for the application, stream and tool-bridge modes, so
+// its version must be the product's.
+func installRuntime(root, onedir string, output io.Writer) error {
+	body, err := os.ReadFile(filepath.Join(root, "pyproject.toml"))
+	if err != nil {
+		return err
+	}
+	m := pyprojectVersion.FindSubmatch(body)
+	if m == nil {
+		return errors.New("pyproject.toml has no version")
+	}
+	target := filepath.Join(onedir, executable("aria-runtime"))
+	if _, err := os.Lstat(target); !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("runtime already exists or cannot be inspected: %s", target)
+	}
+	build := exec.Command("go", "build", "-trimpath", "-ldflags", "-s -w -X main.version="+string(m[1]), "-o", target, ".")
+	build.Dir = filepath.Join(root, "go", "runtime")
+	build.Env = append(os.Environ(), "CGO_ENABLED=0")
+	build.Stdout, build.Stderr = output, output
+	if err := build.Run(); err != nil {
+		os.Remove(target)
+		return fmt.Errorf("Go runtime build failed: %w", err)
+	}
+	if err := regular(target); err != nil {
+		return fmt.Errorf("Go runtime build wrote no binary: %w", err)
+	}
+	fmt.Fprintf(output, "bundled aria-runtime %s at %s\n", m[1], target)
+	return nil
 }
 
 // Copy to a same-filesystem temporary file, execute it there, then commit the
