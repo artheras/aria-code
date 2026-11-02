@@ -225,3 +225,31 @@ func TestNativeMCPImageReachesNextProviderTurn(t *testing.T) {
 		t.Fatalf("expected 2 model turns, got %d", n)
 	}
 }
+
+// A tool the server marks destructive (arthera-trading's order execution) is
+// approved by a person every time; nothing standing can approve it instead.
+func TestDestructiveMCPToolsAlwaysNeedAPerson(t *testing.T) {
+	s := approvalServer(t, config{"approval_mode": "risk", "auto_approve_level": 3},
+		appOptions{skipPermissions: true, allowedTools: []string{"mcp__trade__execute"}})
+	if err := atomicJSON(filepath.Join(s.opts.root, "tool_policy.json"), map[string]any{"allowed": []string{"mcp__trade__execute"}}); err != nil {
+		t.Fatal(err)
+	}
+	s.mcp = newMCPManager(s.opts.root)
+	s.mcp.clients["trade"] = &mcpClient{tools: []mcpTool{
+		{Name: "execute", Annotations: map[string]any{"destructiveHint": true}},
+		{Name: "preview", Annotations: map[string]any{"destructiveHint": false}},
+		{Name: "status", Annotations: map[string]any{"readOnlyHint": true, "destructiveHint": true}},
+	}}
+	s.grants["mcp__trade__execute"] = true
+	ok, reason, err := s.approve(context.Background(), "mcp__trade__execute", map[string]any{"preview_id": "tp_1"}, fileChange{})
+	if err != nil || ok || !strings.Contains(reason, "destructive") {
+		t.Fatal(ok, reason, err)
+	}
+	// An ordinary write tool keeps its standing approvals, and a read-only one
+	// is never destructive whatever else it claims.
+	for _, name := range []string{"mcp__trade__preview", "mcp__trade__status"} {
+		if ok, reason, err := s.approve(context.Background(), name, map[string]any{}, fileChange{}); err != nil || !ok {
+			t.Fatal(name, ok, reason, err)
+		}
+	}
+}

@@ -59,6 +59,15 @@ func (t mcpTool) readOnly() bool {
 	return hint
 }
 
+// destructive is an explicit destructiveHint: true. The protocol's default
+// for a non-read-only tool is also true, but taking it would make every MCP
+// write (a file server's, say) ask each time and refuse in headless runs;
+// only a server that says so gets the stricter rule.
+func (t mcpTool) destructive() bool {
+	hint, _ := t.Annotations["destructiveHint"].(bool)
+	return hint && !t.readOnly()
+}
+
 var unsafeToolChars = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
 // mcpToolName is model_safe_tool_name: providers reject slashes in names.
@@ -350,6 +359,12 @@ func (m *mcpManager) lookup(name string) (*mcpClient, mcpTool, bool) {
 		}
 	}
 	return nil, mcpTool{}, false
+}
+
+// destructive reports whether the server marked this tool destructiveHint.
+func (m *mcpManager) destructive(name string) bool {
+	_, tool, ok := m.lookup(name)
+	return ok && tool.destructive()
 }
 
 func (m *mcpManager) definition(name string) (definition, bool) {
