@@ -10,7 +10,7 @@ import (
 )
 
 func nativeCommands() []string {
-	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint", "/git", "/commit", "/pr", "/gh", "/review", "/test", "/verify", "/fix", "/bug", "/trace", "/quality"}
+	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint", "/git", "/commit", "/pr", "/gh", "/review", "/test", "/verify", "/fix", "/bug", "/trace", "/quality", "/search", "/read", "/ls", "/write", "/edit", "/code", "/run", "/build"}
 }
 
 // commandInfo describes each command for the "/" list: [English, Chinese].
@@ -65,6 +65,14 @@ var commandInfo = map[string][2]string{
 	"/bug":           {"Investigate and fix a bug", "排查并修复缺陷"},
 	"/trace":         {"Trace an error to its cause (read-only)", "追溯错误根因（只读）"},
 	"/quality":       {"Assess the change's quality (read-only)", "评估改动质量（只读）"},
+	"/search":        {"Search the code with a regex", "用正则搜索代码"},
+	"/read":          {"Show a file with line numbers", "带行号查看文件"},
+	"/ls":            {"List a directory", "列出目录"},
+	"/write":         {"Write a file (content on the next lines)", "写入文件（内容写在下一行起）"},
+	"/edit":          {"Ask for a change to one file", "让 Aria 修改指定文件"},
+	"/code":          {"Write code for a description", "按描述编写代码"},
+	"/run":           {"Run a shell command (same as !)", "运行 shell 命令（同 !）"},
+	"/build":         {"Run the project's build", "运行项目构建"},
 }
 
 // commandInfoList is nativeCommands in order, each with its description in lang.
@@ -161,7 +169,23 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		return s.testCommand(ctx, turn, fields[1:])
 	case "/verify":
 		return s.verifyCommand(ctx, turn)
-	case "/init", "/plan", "/apply-plan", "/fix", "/bug", "/trace", "/quality":
+	case "/search":
+		return s.searchCommand(ctx, fields[1:])
+	case "/read":
+		return s.readCommand(ctx, fields[1:])
+	case "/ls":
+		return s.lsCommand(ctx, fields[1:])
+	case "/write":
+		return s.writeCommand(ctx, turn, text)
+	case "/run":
+		command := rest(text, fields[0])
+		if command == "" {
+			return "", errors.New("usage: /run <command>")
+		}
+		return s.userCommand(ctx, turn, command)
+	case "/build":
+		return s.buildCommand(ctx, turn)
+	case "/init", "/plan", "/apply-plan", "/fix", "/bug", "/trace", "/quality", "/edit", "/code":
 		// runTurn sends these to the model before they get here.
 		return "", fmt.Errorf("%s runs as a turn in the interactive application", fields[0])
 	case "/help":
@@ -255,10 +279,12 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 				s.cfg.text("ui_lang", "en"), s.cfg.text("model", "gemini-3.8-flash"), s.cfg.text("ui_theme", "dark"),
 				s.cfg.text("approval_mode", "manual"), autoLevel, s.cfg.boolean("review_gate", false), s.cfg.boolean("delivery_report", true)), nil
 		}
-		if len(fields) != 3 || fields[1] != "set" {
+		if len(fields) < 3 || fields[1] != "set" {
 			return "", errors.New("usage: /config set key=value")
 		}
-		key, value, ok := strings.Cut(fields[2], "=")
+		// The value is the rest of the line, so a command keeps its spaces.
+		key, value, ok := strings.Cut(rest(rest(text, "/config"), "set"), "=")
+		key = strings.TrimSpace(key)
 		if !ok {
 			return "", errors.New("setting requires key=value")
 		}
@@ -293,6 +319,10 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		case "ocr_language":
 			if value != "eng" && value != "chi_sim" && value != "chi_tra" && value != "eng+chi_sim+chi_tra" {
 				return "", errors.New("ocr_language must be eng, chi_sim, chi_tra or eng+chi_sim+chi_tra")
+			}
+		case "build_command":
+			if strings.TrimSpace(value) == "" || len(value) > 4096 {
+				return "", errors.New("build_command must be a command of at most 4096 bytes")
 			}
 		case "review_gate", "delivery_report", "document_ocr", "document_vision":
 			switch strings.ToLower(value) {
