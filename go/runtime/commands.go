@@ -10,7 +10,7 @@ import (
 )
 
 func nativeCommands() []string {
-	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint", "/git", "/commit", "/pr", "/gh", "/review", "/test", "/verify", "/fix", "/bug", "/trace", "/quality", "/search", "/read", "/ls", "/write", "/edit", "/code", "/run", "/build", "/task", "/worktree", "/tasks", "/delegate", "/agents", "/workflow", "/wf", "/consult"}
+	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint", "/git", "/commit", "/pr", "/gh", "/review", "/test", "/verify", "/fix", "/bug", "/trace", "/quality", "/search", "/read", "/ls", "/write", "/edit", "/code", "/run", "/build", "/task", "/worktree", "/tasks", "/delegate", "/agents", "/workflow", "/wf", "/consult", "/mcp", "/skills", "/vision", "/upload-image"}
 }
 
 // commandInfo describes each command for the "/" list: [English, Chinese].
@@ -81,6 +81,10 @@ var commandInfo = map[string][2]string{
 	"/workflow":      {"List, show or run .aria/workflows", "列出、查看或运行工作流"},
 	"/wf":            {"Same as /workflow", "同 /workflow"},
 	"/consult":       {"Ask another model for a second opinion", "请另一个模型给出第二意见"},
+	"/mcp":           {"Show MCP servers and tools, or reload them", "查看或重新加载 MCP 服务与工具"},
+	"/skills":        {"List, show or use SKILL.md skills", "列出、查看或使用技能"},
+	"/vision":        {"Ask about an image", "就图片提问"},
+	"/upload-image":  {"Same as /vision", "同 /vision"},
 }
 
 // commandInfoList is nativeCommands in order, each with its description in lang.
@@ -129,7 +133,7 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 	case "/context":
 		return s.contextCommand()
 	case "/tools":
-		return s.toolsCommand()
+		return s.toolsCommand(ctx)
 	case "/diff":
 		return s.diffCommand(ctx, fields[1:])
 	case "/compact":
@@ -205,7 +209,11 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		return s.workflowCommand(ctx, turn, text)
 	case "/consult":
 		return s.consultCommand(ctx, rest(text, fields[0]))
-	case "/init", "/plan", "/apply-plan", "/fix", "/bug", "/trace", "/quality", "/edit", "/code":
+	case "/mcp":
+		return s.mcpCommand(ctx, fields[1:])
+	case "/skills":
+		return s.skillsCommand(text)
+	case "/init", "/plan", "/apply-plan", "/fix", "/bug", "/trace", "/quality", "/edit", "/code", "/vision", "/upload-image":
 		// runTurn sends these to the model before they get here.
 		return "", fmt.Errorf("%s runs as a turn in the interactive application", fields[0])
 	case "/help":
