@@ -10,7 +10,7 @@ import (
 )
 
 func nativeCommands() []string {
-	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint", "/git", "/commit", "/pr", "/gh", "/review", "/test", "/verify", "/fix", "/bug", "/trace", "/quality", "/search", "/read", "/ls", "/write", "/edit", "/code", "/run", "/build", "/task", "/worktree", "/tasks", "/delegate", "/agents", "/workflow", "/wf", "/consult", "/mcp", "/skills", "/vision", "/upload-image", "/providers", "/apikey", "/whoami", "/logout", "/doctor", "/update", "/feedback", "/privacy", "/cost", "/thinking", "/graph", "/impact", "/lsp", "/hooks", "/browser", "/screenshot", "/login"}
+	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint", "/git", "/commit", "/pr", "/gh", "/review", "/test", "/verify", "/fix", "/bug", "/trace", "/quality", "/search", "/read", "/ls", "/write", "/edit", "/code", "/run", "/build", "/task", "/worktree", "/tasks", "/delegate", "/agents", "/workflow", "/wf", "/consult", "/mcp", "/skills", "/vision", "/upload-image", "/providers", "/apikey", "/whoami", "/logout", "/doctor", "/update", "/feedback", "/privacy", "/cost", "/thinking", "/graph", "/impact", "/lsp", "/hooks", "/browser", "/screenshot", "/login", "/finance", "/broker"}
 }
 
 // commandInfo describes each command for the "/" list: [English, Chinese].
@@ -102,6 +102,8 @@ var commandInfo = map[string][2]string{
 	"/browser":       {"Screenshot a web page", "网页截图"},
 	"/screenshot":    {"Capture the screen", "截取屏幕"},
 	"/login":         {"Sign in to Arthera in the browser", "在浏览器中登录 Arthera"},
+	"/finance":       {"Connect and check the financial-service", "连接并检查金融服务"},
+	"/broker":        {"Read broker accounts, positions and orders", "查看券商账户、持仓与委托"},
 }
 
 // commandInfoList is nativeCommands in order, each with its description in lang.
@@ -450,7 +452,18 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 			s.provider = replacement
 		}
 		return fmt.Sprintf("%s=%v", key, stored), nil
+	case "/finance":
+		return s.financeCommand(ctx, fields[1:])
+	case "/broker", "/positions", "/orders", "/account":
+		return s.brokerCommand(ctx, fields[0], fields[1:])
 	default:
+		if financeCommands[fields[0]] {
+			// runTurn sends these to the model; reached only without it.
+			if _, err := s.requireFinance(ctx); err != nil {
+				return "", err
+			}
+			return "", fmt.Errorf("%s runs as a turn in the interactive application", fields[0])
+		}
 		return "", fmt.Errorf("unknown command: %s; use /help", fields[0])
 	}
 }
