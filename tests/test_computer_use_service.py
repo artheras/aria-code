@@ -18,6 +18,7 @@ class Page:
         self.target = Mock()
         self.target.count.return_value = 1
         self.target.is_visible.return_value = True
+        self.target.evaluate_all.return_value = [{"selector":"button:nth-of-type(1)","tag":"button","label":"Save"}]
         self.goto = Mock(side_effect=lambda url, **kw: setattr(self, 'url', url))
 
     def content(self): return self.html
@@ -60,6 +61,7 @@ def test_same_session_reuses_page_and_returns_new_observation(session):
     second = session.call('browser_open', {'url': 'https://example.com/b'})
     assert session.page is page
     assert first['observation_id'] != second['observation_id']
+    assert second['elements'][0]['selector'] == 'button:nth-of-type(1)'
     assert page.goto.call_count == 2
 
 

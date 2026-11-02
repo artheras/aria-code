@@ -114,6 +114,17 @@ class BrowserSession:
         return {
             "observation_id": self.observation[0], "url": self.page.url,
             "title": self.page.title(), "text": self.page.inner_text("body")[:16000],
+            "elements": self.page.locator("button, input, textarea, select, a[href], [role=button]").evaluate_all("""els => els.filter(e => e.getClientRects().length).slice(0, 80).map(e => {
+                let node = e, path = [];
+                while (node && node.nodeType === 1) {
+                    const tag = node.localName;
+                    const siblings = node.parentElement ? [...node.parentElement.children].filter(n => n.localName === tag) : [node];
+                    path.unshift(tag + ':nth-of-type(' + (siblings.indexOf(node) + 1) + ')');
+                    node = node.parentElement;
+                }
+                return {selector: path.join(' > '), tag: e.localName,
+                        label: (e.getAttribute('aria-label') || e.getAttribute('placeholder') || e.innerText || '').slice(0, 120)};
+            })"""),
             "untrusted_content": True,
             "_image": base64.b64encode(self.page.screenshot()).decode(),
         }
