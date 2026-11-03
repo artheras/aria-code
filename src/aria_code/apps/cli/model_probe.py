@@ -68,6 +68,9 @@ async def probe_model(config: dict, api_url: str = "", *, tools: bool = False,
 
     def failed(error):
         raw = str(error or "empty_response")
+        if "ollama_model_unavailable:" in raw:
+            return result(False, "model_unavailable", "The selected Ollama model is not installed or could not be verified.",
+                          "Run ollama list and /model; install the exact model with ollama pull <model> if needed.")
         if "backend_local_tools_unsupported" in raw or "tool_protocol" in raw:
             return result(False, "protocol_unsupported", "Backend does not support the local tool protocol.",
                           "Update the backend protocol or use a direct provider for local project tasks.")
@@ -91,7 +94,7 @@ async def probe_model(config: dict, api_url: str = "", *, tools: bool = False,
         if route == "ollama":
             return OllamaProvider(str(cfg.get("ollama_url") or "http://localhost:11434"), model,
                                   system_override="Only perform the requested diagnostic.",
-                                  show_market_prefetch_status=False)
+                                  show_market_prefetch_status=False, include_ambient_context=False)
         return ConfiguredProvider(cfg, model)
 
     async def run():

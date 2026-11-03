@@ -40,8 +40,14 @@ if _early_sys.argv[1:2] == ["update"]:
     from aria_code.apps.cli.updater import main as _update_main
     raise SystemExit(_update_main(_early_sys.argv[2:]))
 if _early_sys.argv[1:2] == ["health"]:
-    from aria_code.apps.cli.model_probe import main as _health_main
-    raise SystemExit(_health_main(_early_sys.argv[2:]))
+    import asyncio as _early_asyncio
+    try:
+        _early_asyncio.get_running_loop()
+    except RuntimeError:
+        from aria_code.apps.cli.model_probe import main as _health_main
+        raise SystemExit(_health_main(_early_sys.argv[2:]))
+    # A diagnostic's lazy provider imports may import aria_cli again. Finish
+    # loading its helpers without recursively running asyncio.run(probe_model).
 if _early_sys.argv[1:] in (["--version"], ["-V"]):
     print(f"aria-code {__version__}")
     raise SystemExit(0)

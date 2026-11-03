@@ -38,6 +38,21 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "runtime" {
+		// The Go engine beside another frozen program, such as the MCP
+		// server, whose Python entry point hands over to it.
+		flags := flag.NewFlagSet("aria-bundle runtime", flag.ContinueOnError)
+		root := flags.String("root", "", "Repository root (required)")
+		if err := flags.Parse(os.Args[2:]); err != nil || *root == "" || flags.NArg() != 1 {
+			fmt.Fprintln(os.Stderr, "usage: aria-bundle runtime --root REPOSITORY ONEDIR")
+			os.Exit(2)
+		}
+		if err := installRuntime(*root, flags.Arg(0), os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	flags := flag.NewFlagSet("aria-bundle", flag.ContinueOnError)
 	root := flags.String("root", "", "Repository root (required)")
 	frontend := flags.Bool("frontend", false, "Install Rust as launcher; retain the application worker")

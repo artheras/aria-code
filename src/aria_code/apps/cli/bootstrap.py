@@ -157,7 +157,7 @@ def default_config() -> dict:
         # The Arthera backend and gateway. Not localhost: see endpoint_migration.
         "api_url": os.getenv("ARTHERA_API_URL", "").strip() or "https://api.arthera.xyz",
         "local_url": "http://localhost:8000",
-        "ollama_url": os.getenv("OLLAMA_URL", "http://localhost:11434"),
+        "ollama_url": os.getenv("OLLAMA_URL") or os.getenv("OLLAMA_HOST") or "http://127.0.0.1:11434",
         # Which backend serves a bare, unprefixed model name. Only consulted
         # for names that do not name their own provider ("qwen2.5:7b"); a
         # prefixed id like "google/gemini-3.8-flash" always wins.

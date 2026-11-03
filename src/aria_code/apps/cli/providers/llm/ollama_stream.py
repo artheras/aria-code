@@ -326,6 +326,17 @@ async def stream_ollama(ollama_url: str, message: str, history: list,
     """Stream chat via local Ollama with tool calling support (native + text-based)."""
     import aiohttp
 
+    # Check before response-cache lookup or task routing. Missing models must
+    # not produce a cached answer or silently use a different model.
+    from aria_code.providers.ollama_models import ollama_base_url, resolve_model_async
+    try:
+        ollama_url = ollama_base_url({"ollama_base_url": ollama_url})
+        model = await resolve_model_async(ollama_url, model)
+    except ValueError as exc:
+        return {"success": False, "response": "", "error": str(exc), "provider": "ollama", "fallback_allowed": False}
+
+    from model_capability import get_model_capability
+
     _intent_message = _routing_message_for_turn(message, history)
 
     # ── Response cache: skip Ollama for repeated stateless queries ───────────
@@ -335,7 +346,7 @@ async def stream_ollama(ollama_url: str, message: str, history: list,
     # it here bypasses schema injection and the runtime tool loop entirely.
     _should_cache = include_ambient_context and _response_cache_eligible(message, history, enable_tools)
     if _should_cache:
-        _ck = _cache_key(model, message)
+        _ck = _cache_key(f"{ollama_url}::{model}", message)
         _cached = _cache_get(_ck)
         if _cached:
             if on_token:
@@ -348,58 +359,6 @@ async def stream_ollama(ollama_url: str, message: str, history: list,
         if _is_simple_greeting(_intent_message):
             return _offline_greeting_response()
         return _ollama_unavailable_result(ollama_url, _ollama_err)
-
-    # ── 模型自动解析：确保请求的模型在 Ollama 中存在 ─────────────────────────
-    try:
-        from local_llm_provider import resolve_model_async
-        _resolved = await resolve_model_async(ollama_url, model)
-        if _resolved != model:
-            model = _resolved   # silently remap to available model
-    except Exception:
-        pass  # resolution failed — proceed with original model name
-
-    # ── 模型分级守卫：小模型不能处理 coding/analysis/complex-finance 任务 ──────
-    # 如果分配到的模型是 small/nano 级别，但任务需要代码生成、复杂分析或长文本，
-    # 自动升级到 Ollama 中最优可用模型，防止低质量/模板化输出。
-    try:
-        from model_capability import get_model_capability, is_router_only, can_handle_coding
-        _cap_check = get_model_capability(model)
-        _task_needs_upgrade = (
-            is_router_only(_cap_check)
-            or (not can_handle_coding(_cap_check) and _is_coding_request(_intent_message))
-            # Small (1-4B) models also struggle with complex finance questions:
-            # they ignore detailed system prompts and output template garbage.
-            # Upgrade when the question is non-trivial and the model is "small".
-            # Use 8 as the minimum length threshold (works for both Chinese and English):
-            # Chinese "比特币值得投资吗" = 9 chars, English "buy or sell?" = 12 chars.
-            or (_cap_check.size_class == "small" and len(_intent_message) > 8
-                and not _is_simple_greeting(_intent_message))
-        )
-        if _task_needs_upgrade and _models_probe:
-            # 按优先级寻找可用的升级模型
-            # NOTE: gpt-oss 排在 deepseek-v3.1 前面，因为 deepseek-v3.1:671b-cloud
-            # 在 Ollama 实例中有时超时，而 gpt-oss:120b-cloud 响应稳定。
-            _upgrade_prefixes = [
-                "aria-sonata-3b", "qwen2.5-coder:7b", "qwen2.5-coder:3b",
-                "qwen2.5:7b", "qwen2.5:3b", "llama3.2:3b", "mistral",
-                # Cloud models registered in this Ollama instance (remote but available)
-                "gpt-oss", "deepseek-v3.1",
-            ]
-            # _models_probe is a list of dicts: {"name": str, "size_label": str, ...}
-            # Must extract "name" field — do NOT call .startswith() on the dict.
-            _probe_names = [
-                m["name"] if isinstance(m, dict) else m
-                for m in _models_probe
-            ]
-            for _pref in _upgrade_prefixes:
-                _candidate = next(
-                    (m for m in _probe_names if m.startswith(_pref)), None
-                )
-                if _candidate and _candidate != model:
-                    model = _candidate
-                    break
-    except Exception:
-        pass
 
     # ── 五档路由：通过 Prelude 意图分类器（或关键词 fallback）决定 prompt ────
     # Always rebuild finance prompt to get today's date

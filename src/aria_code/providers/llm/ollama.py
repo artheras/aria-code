@@ -26,7 +26,8 @@ class OllamaProvider(BaseLLMProvider):
 
     def __init__(self, config: ProviderConfig):
         super().__init__(config)
-        self.base_url = config.base_url or self.DEFAULT_URL
+        from aria_code.providers.ollama_models import ollama_base_url
+        self.base_url = ollama_base_url({"ollama_base_url": config.base_url})
         self.model    = config.model or "qwen2.5:7b"
 
     async def is_available(self) -> bool:
@@ -62,11 +63,18 @@ class OllamaProvider(BaseLLMProvider):
     ) -> AsyncIterator[Dict[str, Any]]:
         import aiohttp
 
+        from aria_code.providers.ollama_models import resolve_model_async
+        try:
+            model = await resolve_model_async(self.base_url, self.model)
+        except ValueError as exc:
+            yield {"type": "error", "message": str(exc)}
+            return
+
         temp     = temperature if temperature is not None else self.config.temperature
         n_tokens = max_tokens  if max_tokens  is not None else self.config.max_tokens
 
         payload = {
-            "model":   self.model,
+            "model":   model,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "stream":  True,
             "options": {"temperature": temp, "num_predict": n_tokens, "num_ctx": 32768},

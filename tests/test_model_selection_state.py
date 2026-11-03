@@ -22,6 +22,11 @@ class _Commands(model_cmds.ModelCommandsMixin):
 
 
 def _install_model_globals(monkeypatch):
+    from aria_code.providers import ollama_models
+    monkeypatch.setattr(ollama_models, "resolve_model_sync", lambda url, model: model)
+    async def installed(url, model):
+        return model
+    monkeypatch.setattr(ollama_models, "resolve_model_async", installed)
     monkeypatch.setattr(
         model_cmds,
         "MODELS",

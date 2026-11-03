@@ -235,7 +235,7 @@ func declaredProviderFor(c config) (*declaredProvider, error) {
 		return spec, nil
 	}
 	if name == "ollama" {
-		base := first(c.text("ollama_base_url", ""), os.Getenv("OLLAMA_HOST"), "http://127.0.0.1:11434")
+		base := first(c.text("ollama_base_url", ""), c.text("ollama_url", ""), os.Getenv("OLLAMA_HOST"), "http://127.0.0.1:11434")
 		if !strings.Contains(base, "://") {
 			base = "http://" + base
 		}

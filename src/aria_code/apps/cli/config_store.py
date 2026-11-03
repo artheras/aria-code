@@ -97,6 +97,13 @@ def load_cli_config(
     pinned = migrate_config(config)
     if pinned:
         _announce(pinned, config, pinned=True)
+    # Legacy callers read ollama_url. Resolve one effective per-user endpoint
+    # without persisting a process environment override back to the user's file.
+    from aria_code.providers.ollama_models import ollama_base_url
+    try:
+        config["ollama_url"] = ollama_base_url(config)
+    except ValueError:
+        pass  # Selection/inference reports an invalid Ollama address explicitly.
     return config
 
 

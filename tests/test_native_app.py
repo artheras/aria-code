@@ -787,10 +787,38 @@ def test_real_terminal_model_picker_searches_and_selects(application):
     pyte = pytest.importorskip("pyte")
     if not os.environ.get("ARIA_NATIVE_BINARY"):
         pytest.skip("build the Rust prototype first")
+    import http.server
+    import socketserver
+    import threading
     _, project, _, env = application
+    # The picker lists local models only when Ollama reports them installed,
+    # so a stand-in Ollama lists the one this test searches for.
+    tags = json.dumps({"models": [{"name": "deepseek-r1:14b", "model": "deepseek-r1:14b", "size": 9_000_000_000,
+                                   "modified_at": "2026-10-01T00:00:00Z",
+                                   "details": {"family": "qwen2", "parameter_size": "14.8B", "quantization_level": "Q4_K_M"}}]}).encode()
+
+    class Ollama(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200 if self.path == "/api/tags" else 404)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            if self.path == "/api/tags":
+                self.wfile.write(tags)
+
+        def log_message(self, *args):
+            pass
+
+    # socketserver, not http.server.HTTPServer: its bind looks the host name
+    # up (getfqdn), which hangs past the test timeout on macOS runners.
+    ollama = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Ollama)
+    ollama.daemon_threads = True
+    threading.Thread(target=ollama.serve_forever, daemon=True).start()
+    ollama_url = "http://127.0.0.1:%d" % ollama.server_address[1]
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 100, 0, 0))
-    terminal_env = dict(env, TERM="xterm-256color", ARIA_THEME="dark", ARIA_PYTHON=sys.executable)
+    terminal_env = dict(env, TERM="xterm-256color", ARIA_THEME="dark", ARIA_PYTHON=sys.executable,
+                        OLLAMA_HOST=ollama_url, OLLAMA_URL=ollama_url,
+                        NO_PROXY="127.0.0.1,localhost", no_proxy="127.0.0.1,localhost")
     terminal_env.pop("NO_COLOR", None)
     p = subprocess.Popen([os.environ["ARIA_NATIVE_BINARY"], "--python", sys.executable, "chat"], cwd=project,
                          env=terminal_env, stdin=slave, stdout=slave, stderr=slave)
@@ -850,6 +878,7 @@ def test_real_terminal_model_picker_searches_and_selects(application):
         p.wait(timeout=5)
         os.close(master)
         os.close(slave)
+        ollama.shutdown()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix PTY")

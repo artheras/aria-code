@@ -212,8 +212,16 @@ jobs:
           $(python scripts/pyinstaller_collect_args.py)
           --copy-metadata aria-code
           src/aria_code/aria_mcp_server.py
+      - name: Bundle the Go engine for the MCP server
+        # aria-code-mcp hands over to `aria-runtime mcp` beside it.
+        shell: bash
+        run: go -C go/buildtools run . runtime --root "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/dist-native/dist/${{ env.MCP_BIN_NAME }}"
       - name: Smoke test (MCP server binary)
-        run: dist-native\dist\${{ env.MCP_BIN_NAME }}\${{ env.MCP_BIN_NAME }}.exe --version
+        shell: bash
+        run: |
+          out="$(dist-native/dist/${{ env.MCP_BIN_NAME }}/${{ env.MCP_BIN_NAME }}.exe --version)"
+          echo "$out"
+          grep -q "aria-runtime mcp" <<< "$out" || { echo "::error::the MCP server did not hand over to the Go engine"; exit 1; }
       - name: Archive the MCP server build directory
         shell: bash
         run: go -C go/buildtools run . pack "$PWD/dist-native/dist/${{ env.MCP_BIN_NAME }}" "$PWD/dist-native/release"
@@ -284,8 +292,14 @@ jobs:
           $(python scripts/pyinstaller_collect_args.py)
           --copy-metadata aria-code
           src/aria_code/aria_mcp_server.py
+      - name: Bundle the Go engine for the MCP server
+        # aria-code-mcp hands over to `aria-runtime mcp` beside it.
+        run: go -C go/buildtools run . runtime --root "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/dist-native/dist/${{ env.MCP_BIN_NAME }}"
       - name: Smoke test (MCP server binary)
-        run: dist-native/dist/${{ env.MCP_BIN_NAME }}/${{ env.MCP_BIN_NAME }} --version
+        run: |
+          out="$(dist-native/dist/${{ env.MCP_BIN_NAME }}/${{ env.MCP_BIN_NAME }} --version)"
+          echo "$out"
+          grep -q "aria-runtime mcp" <<< "$out" || { echo "::error::the MCP server did not hand over to the Go engine"; exit 1; }
       - name: Archive the MCP server build directory
         run: go -C go/buildtools run . pack "$PWD/dist-native/dist/${{ env.MCP_BIN_NAME }}" "$PWD/dist-native/release"
       - uses: actions/upload-artifact@v4

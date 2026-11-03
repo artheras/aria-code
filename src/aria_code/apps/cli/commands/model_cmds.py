@@ -179,6 +179,15 @@ from typing import Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 
+def _installed_catalogue(rich_models):
+    """Keep cloud routes separate; local catalogue entries need a real install."""
+    from aria_code.apps.cli.model_catalog import is_provider_qualified
+    installed = {m["name"] for m in rich_models}
+    return {k: m for k, m in _get_MODELS().items()
+            if (is_provider_qualified(m["id"]) and not m["id"].startswith("ollama/"))
+            or m["id"] in installed}
+
+
 class ModelCommandsMixin:
     """Mixin: Model/config commands: model, apikey, providers, cloud, config, tools, skills."""
 
@@ -190,7 +199,9 @@ class ModelCommandsMixin:
         from the same place. Community models are keyed by name, which is
         their id.
         """
-        ids = [m["id"] for m in _get_MODELS().values()]
+        if hasattr(self, "_last_listed_models"):
+            return list(self._last_listed_models)
+        ids = [m["id"] for m in _get_MODELS().values() if "/" in m["id"]]
         for name in getattr(self, "_last_listed_community", []) or []:
             if name not in ids:
                 ids.append(name)
@@ -255,6 +266,13 @@ class ModelCommandsMixin:
                                f"运行: /apikey set {_prov} <key>")
                     self.context.console.print(f"[yellow]{msg}[/yellow]") if self.context.has_rich else print(msg)
                     return
+            if _prov == "ollama":
+                try:
+                    from aria_code.providers.ollama_models import ollama_base_url, resolve_model_async
+                    _mod = await resolve_model_async(ollama_base_url(self.terminal.config), _mod)
+                except ValueError as exc:
+                    self.context.console.print(str(exc))
+                    return
             self.terminal.config["local_provider"] = _prov
             self.terminal.config["model"] = _mod
             self.terminal.config["local_mode"] = _prov in _local_backends
@@ -293,7 +311,8 @@ class ModelCommandsMixin:
             return
 
         # ── Interactive picker (Codex style: numbered list + descriptions) ────
-        ollama_url  = self.terminal.config.get("ollama_url", "http://localhost:11434")
+        from aria_code.providers.ollama_models import ollama_base_url
+        ollama_url = ollama_base_url(self.terminal.config)
         current_provider = str(
             self.terminal.config.get("local_provider") or "ollama"
         ).lower()
@@ -352,8 +371,18 @@ class ModelCommandsMixin:
             else:
                 rich_models = []
                 ollama_err = f"API key missing · /apikey set {current_provider} <key>"
+        if current_provider != "ollama":
+            # Local catalogue entries are shown only when installed, whatever
+            # the current provider, so a cloud user can still switch to one.
+            try:
+                local_models, _ = detect_ollama_models_rich(ollama_url)
+            except Exception:
+                local_models = []
+            seen = {m["name"] for m in rich_models}
+            rich_models = rich_models + [m for m in local_models or [] if m.get("name") not in seen]
+        display_models = _installed_catalogue(rich_models)
         installed_names = {m["name"] for m in rich_models}
-        aria_ids        = {m["id"] for m in _get_MODELS().values()}
+        aria_ids        = {m["id"] for m in display_models.values()}
         runtime_by_id   = {m["name"]: m for m in rich_models}
 
         # ── Build picker title (one line, shown inside arrow_select header) ──
@@ -474,7 +503,8 @@ class ModelCommandsMixin:
             community_list = [cm for cm in rich_models if cm["name"] not in aria_ids]
             # What /model <number> will count through, recorded as it is printed.
             self._last_listed_community = [cm["name"] for cm in community_list]
-            for key, m in _get_MODELS().items():
+            self._last_listed_models = [m["id"] for m in display_models.values()] + self._last_listed_community
+            for key, m in display_models.items():
                 mid    = m["id"]
                 is_cur = mid == current_id
                 status = _status_tag(mid, m.get("badge", ""))
@@ -504,7 +534,7 @@ class ModelCommandsMixin:
         # In non-TTY: descriptions already shown in static list, keep labels short.
         num = 1
         picker_models = (
-            list(_get_MODELS().values())
+            list(display_models.values())
             if current_provider == "ollama"
             else [
                 {
@@ -597,7 +627,7 @@ class ModelCommandsMixin:
         rows: list = []  # (model_id, label, help)
         groups: list = []
         catalogue = "Aria 精选" if zh else "Aria catalogue"
-        for m in _get_MODELS().values():
+        for m in _installed_catalogue(rich_models).values():
             mid = m["id"]
             tags = short_desc(m)
             current = ("  ✓ 当前" if zh else "  ✓ current") if mid == current_id else ""
@@ -633,7 +663,9 @@ class ModelCommandsMixin:
             self.context.console.print(f"[dim]{msg}[/dim]" if self.context.has_rich else msg)
             return
         chosen = rows[choice][0]
-        if "/" in chosen:
+        if current_provider == "ollama" and chosen in {m["name"] for m in rich_models}:
+            self._set_model_by_id(chosen, provider="ollama")
+        elif "/" in chosen:
             # provider/model: the route that checks credentials and sets the provider.
             await self.cmd_model(chosen)
         else:
@@ -676,12 +708,17 @@ class ModelCommandsMixin:
 
     def _set_model_by_id(self, model_id: str, provider: str | None = None):
         """Set model by Ollama model ID (works for both built-in and community models)."""
-        self.terminal.config["model"] = model_id
         matched = next((m for m in _get_MODELS().values() if m["id"] == model_id), None)
-        self.terminal.config["local_provider"] = provider or (
-            "ollama" if matched is not None else
-            self.terminal.config.get("local_provider", "ollama")
-        )
+        target_provider = provider or ("ollama" if matched is not None else self.terminal.config.get("local_provider", "ollama"))
+        if target_provider == "ollama":
+            try:
+                from aria_code.providers.ollama_models import ollama_base_url, resolve_model_sync
+                model_id = resolve_model_sync(ollama_base_url(self.terminal.config), model_id)
+            except ValueError as exc:
+                self.context.console.print(str(exc))
+                return
+        self.terminal.config["model"] = model_id
+        self.terminal.config["local_provider"] = target_provider
         self.terminal.config["local_mode"] = (
             self.terminal.config["local_provider"]
             in {"ollama", "lmstudio", "vllm", "llamacpp", "jan", "custom"}
