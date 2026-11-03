@@ -6,7 +6,7 @@ Before anything is deleted: is each part of `src/aria_code` (about 165,000 lines
 
 | Install | Frontend | Engine |
 |---|---|---|
-| `pip install aria-code` on Linux (glibc 2.39+, x86_64/arm64), macOS 12+ (arm64/x64) or Windows x64 | Rust `aria-native` from the platform wheel | **Go** `aria-runtime` from the same wheel; the Python worker for `--help`/`run` and `ARIA_ENGINE=python` |
+| `pip install aria-code` on Linux (glibc 2.17+, x86_64/arm64), macOS 12+ (arm64/x64) or Windows x64 | Rust `aria-native` from the platform wheel | **Go** `aria-runtime` from the same wheel; the Python worker for `--help`/`run` and `ARIA_ENGINE=python` |
 | `pip install aria-code` elsewhere (pure wheel) | Python (`aria = aria_code.apps.cli.main`); the Rust TUI only if a native binary is on the machine | **Python** worker (`app_server`) |
 | Native release | Rust `aria-native` | **Python** worker, frozen with PyInstaller (`aria-code-worker`) |
 | `scripts/run_native_dev.sh`, CI, evals | Rust | Go `aria-runtime` (only when `ARIA_RUNTIME` points to it) |
@@ -42,7 +42,7 @@ Before anything is deleted: is each part of `src/aria_code` (about 165,000 lines
      - `ARIA_ENGINE=python` brings the Python engine back.
      - The release smoke test fails if a session does not come from the Go engine.
    - npm needs nothing more: its platform packages are built from the same native archives, so they ship `aria-runtime` too.
-   - pip: done. `scripts/platform_wheels.py` turns the pure wheel and the five native archives into platform wheels carrying `aria-native` and `aria-runtime` in `aria_code/_bin/`; the Rust frontend runs the Go engine beside it. Each tag is read from the binaries (Linux: the newest glibc symbol, today 2.39 from the Ubuntu 24.04 build; macOS: the declared minimum). Older Linux and other platforms get the pure wheel and the Python engine; building the Linux frontend against an older glibc would widen that.
+   - pip: done. `scripts/platform_wheels.py` turns the pure wheel and the five native archives into platform wheels carrying `aria-native` and `aria-runtime` in `aria_code/_bin/`; the Rust frontend runs the Go engine beside it. Each tag is read from the binaries (Linux: the newest glibc symbol; macOS: the declared minimum). The Linux frontend is built against glibc 2.17 with cargo-zigbuild (`ARIA_RUST_TARGET`) and the Go engine is static, so the Linux wheels are manylinux_2_17 and cover practically every distribution in use. Other platforms get the pure wheel and the Python engine.
 3. **Move aria-code's unique finance code into financial-service**, and delete the copies already duplicated there. Trading needs its own decision: it either becomes a service capability with the same preview and confirmation gates, or it stays out.
    - In progress. Moved so far (financial-service #5 to #12): multi-source quotes and fundamentals, macro series and snapshots, central bank rates, technical factors, portfolio weights, Piotroski and Altman scores, options chains, funding rates, Fear & Greed, sector and index overviews, northbound flow, limit-up pool, A-share screener, A-share and crypto history, news.
    - Since then (#13 to #15): futures and treasury yields, Ichimoku and walk-forward backtests, peer comparison, and `arthera-trading` (paper). The equity report moved to Go (`aria.report.generate`).

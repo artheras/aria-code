@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -117,12 +118,6 @@ func bundle(root, onedir string, frontend bool, output io.Writer) error {
 			return fmt.Errorf("worker already exists or cannot be inspected: %s", worker)
 		}
 	}
-	build := exec.Command("cargo", "build", "--release", "--locked", "-p", "aria-native")
-	build.Dir = filepath.Join(root, "rust")
-	build.Stdout, build.Stderr = output, output
-	if err := build.Run(); err != nil {
-		return fmt.Errorf("Rust build failed: %w", err)
-	}
 	targetDir := os.Getenv("CARGO_TARGET_DIR")
 	if targetDir == "" {
 		targetDir = "target"
@@ -130,7 +125,13 @@ func bundle(root, onedir string, frontend bool, output io.Writer) error {
 	if !filepath.IsAbs(targetDir) {
 		targetDir = filepath.Join(root, "rust", targetDir)
 	}
-	built := filepath.Join(targetDir, "release", executable("aria-native"))
+	args, built := rustBuild(targetDir)
+	build := exec.Command("cargo", args...)
+	build.Dir = filepath.Join(root, "rust")
+	build.Stdout, build.Stderr = output, output
+	if err := build.Run(); err != nil {
+		return fmt.Errorf("Rust build failed: %w", err)
+	}
 	if err := installNative(built, onedir, frontend, output); err != nil {
 		return err
 	}
@@ -138,6 +139,23 @@ func bundle(root, onedir string, frontend bool, output io.Writer) error {
 		return installRuntime(root, onedir, output)
 	}
 	return nil
+}
+
+var glibcSuffix = regexp.MustCompile(`\.\d+\.\d+$`)
+
+// rustBuild is the cargo command for aria-native and where it leaves the
+// binary. ARIA_RUST_TARGET (e.g. x86_64-unknown-linux-gnu.2.17) builds with
+// cargo-zigbuild against that glibc, so the Linux frontend, and the pip
+// platform wheel that carries it, run on older distributions than the
+// build machine.
+func rustBuild(targetDir string) ([]string, string) {
+	target := strings.TrimSpace(os.Getenv("ARIA_RUST_TARGET"))
+	if target == "" {
+		return []string{"build", "--release", "--locked", "-p", "aria-native"}, filepath.Join(targetDir, "release", executable("aria-native"))
+	}
+	triple := glibcSuffix.ReplaceAllString(target, "")
+	return []string{"zigbuild", "--release", "--locked", "-p", "aria-native", "--target", target},
+		filepath.Join(targetDir, triple, "release", executable("aria-native"))
 }
 
 var pyprojectVersion = regexp.MustCompile(`(?m)^version\s*=\s*"([^"]+)"`)
