@@ -242,10 +242,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The Rust frontend is built against glibc 2.17 (cargo-zigbuild),
+          # whatever the runner's own glibc, so the pip platform wheels that
+          # carry it install as manylinux_2_17 (scripts/platform_wheels.py
+          # reads the tag from the binary). The Go engine is static.
           - arch: x64
             runner: ubuntu-latest
+            rust_target: x86_64-unknown-linux-gnu.2.17
           - arch: arm64
             runner: ubuntu-24.04-arm
+            rust_target: aarch64-unknown-linux-gnu.2.17
     steps:
       - uses: actions/checkout@v4
         with:
@@ -260,6 +266,8 @@ jobs:
       - name: Install project + PyInstaller
         run: |
           python -m pip install --quiet -e ".[finance]" pyinstaller
+      - name: Install zig for an older-glibc Rust build
+        run: python -m pip install --quiet ziglang==0.17.0 cargo-zigbuild==0.24.0
       - name: Run PyInstaller (--onedir)
         run: >
           pyinstaller --onedir --name ${{ env.BIN_NAME }}
@@ -271,10 +279,22 @@ jobs:
       - name: Bundle the native indexer (aria-native)
         # The Rust project-graph indexer, in _internal/ where the frozen CLI
         # looks for it (go/buildtools). Builds and runs it.
+        env:
+          ARIA_RUST_TARGET: ${{ matrix.rust_target }}
         run: |
           (cd rust && rustup show)   # installs the toolchain rust/rust-toolchain.toml pins
           go -C go/buildtools run . --root "$GITHUB_WORKSPACE" --frontend "$GITHUB_WORKSPACE/dist-native/dist/${{ env.BIN_NAME }}"
           go -C go/buildtools run . verify "$PWD/dist-native/dist/${{ env.BIN_NAME }}"
+      - name: The frontend needs no newer glibc than 2.17
+        run: |
+          python - "dist-native/dist/${{ env.BIN_NAME }}/_internal/aria-native" <<'CHECK'
+          import importlib.util, sys
+          spec = importlib.util.spec_from_file_location("platform_wheels", "scripts/platform_wheels.py")
+          wheels = importlib.util.module_from_spec(spec); spec.loader.exec_module(wheels)
+          minor = wheels.glibc_minor(open(sys.argv[1], "rb").read())
+          print(f"aria-native needs glibc 2.{minor}")
+          sys.exit(0 if minor <= 17 else 1)
+          CHECK
       - name: Smoke test
         run: dist-native/dist/${{ env.BIN_NAME }}/${{ env.BIN_NAME }} --version
       - name: Archive build directory
