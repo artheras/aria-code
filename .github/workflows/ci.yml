@@ -263,6 +263,14 @@ jobs:
       - name: Build Dockerfile.relay
         run: docker build -f Dockerfile.relay -t aria-relay:ci .
 
+      - name: Build services/aria-bots and check what it carries
+        run: |
+          docker build -f services/aria-bots/Dockerfile -t aria-bots:ci .
+          docker run --rm --entrypoint aria-runtime aria-bots:ci --version
+          docker run --rm --entrypoint aria-relay-client aria-bots:ci --help > /dev/null
+          echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            | docker run --rm -i --entrypoint aria-logistics-mcp aria-bots:ci | grep -q score_carriers
+
       - name: Caddyfile and production compose file parse
         run: |
           # adapt runs every directive's Caddyfile parser (it rejected the old

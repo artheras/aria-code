@@ -133,3 +133,24 @@ func TestSelfMCPServerIsStartedBeside(t *testing.T) {
 		t.Fatal(m.configs)
 	}
 }
+
+func TestExtraMCPConfigAddsServersWithoutOverridingTheUsers(t *testing.T) {
+	root, dir := t.TempDir(), t.TempDir()
+	extra := filepath.Join(dir, "bots.json")
+	os.WriteFile(extra, []byte(`{"servers":[{"name":"logistics","command":"aria-logistics-mcp"},{"name":"mine","command":"/bin/other"}]}`), 0o644)
+	os.WriteFile(filepath.Join(root, "mcp_servers.json"), []byte(`{"servers":[{"name":"mine","command":"/bin/true"}]}`), 0o644)
+	t.Setenv("ARIA_MCP_EXTRA_CONFIG", extra)
+	configs, err := loadMCPConfig(root)
+	if err != nil || len(configs) != 2 || configs[0].Command != "/bin/true" || configs[1].Name != "logistics" {
+		t.Fatal(configs, err)
+	}
+	os.Remove(filepath.Join(root, "mcp_servers.json"))
+	if configs, err = loadMCPConfig(root); err != nil || len(configs) != 2 {
+		t.Fatal("no user file: the extra servers alone", configs, err)
+	}
+	t.Setenv("ARIA_MCP_EXTRA_CONFIG", filepath.Join(dir, "missing.json"))
+	os.WriteFile(filepath.Join(root, "mcp_servers.json"), []byte(`{"servers":[{"name":"mine","command":"/bin/true"}]}`), 0o644)
+	if configs, err = loadMCPConfig(root); err == nil || len(configs) != 1 {
+		t.Fatal("a broken extra file is reported and keeps the user's servers", configs, err)
+	}
+}

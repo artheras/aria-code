@@ -1,0 +1,179 @@
+"""The bots answer through the Go engine and give it the logistics tools over MCP."""
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import sys
+from pathlib import Path
+from unittest import mock
+
+import pytest
+
+from aria_bots import engine
+from aria_bots.logistics import mcp_server
+
+WAYBILLS = [
+    {"owner_id": "ACME", "carrier": "SF", "total_cost": 120, "origin": "SH", "destination": "BJ",
+     "billed_weight_kg": 10, "is_on_time": True, "waybill_no": "A-1"},
+    {"owner_id": "BETA", "carrier": "ZTO", "total_cost": 80, "origin": "SH", "destination": "BJ",
+     "billed_weight_kg": 10, "is_on_time": False, "waybill_no": "B-1"},
+]
+
+
+def rpc(message, data_dir=None):
+    return mcp_server.handle(message, data_dir)
+
+
+def call(name, arguments, data_dir=None):
+    result = rpc({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                  "params": {"name": name, "arguments": arguments}}, data_dir)["result"]
+    return result["isError"], json.loads(result["content"][0]["text"])
+
+
+class TestLogisticsMCPServer:
+    def test_three_read_only_tools(self):
+        init = rpc({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+        assert init["result"]["protocolVersion"] == "2024-11-05"
+        tools = rpc({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})["result"]["tools"]
+        assert sorted(t["name"] for t in tools) == ["analyze_logistics_data", "plan_inventory_policy", "score_carriers"]
+        assert all(t["annotations"]["readOnlyHint"] is True for t in tools)
+        assert all(t["inputSchema"]["type"] == "object" for t in tools)
+        assert rpc({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
+        assert rpc({"jsonrpc": "2.0", "id": 3, "method": "resources/list"})["error"]["code"] == -32601
+
+    def test_the_scope_comes_from_the_environment_not_the_model(self, monkeypatch):
+        monkeypatch.delenv("ARIA_OWNER_SCOPE", raising=False)
+        failed, body = call("score_carriers", {"waybills": WAYBILLS, "min_shipments": 1})
+        assert failed and "shippers" in body["error"]
+        monkeypatch.setenv("ARIA_OWNER_SCOPE", "ACME")
+        failed, body = call("score_carriers", {"waybills": WAYBILLS, "min_shipments": 1})
+        assert not failed and "ZTO" not in json.dumps(body["data"]["scorecard"])
+        failed, body = call("score_carriers", {"waybills": WAYBILLS, "owner_id": "BETA"})
+        assert failed, "a bound chat cannot ask for another shipper"
+        failed, body = call("score_carriers", {"waybills": WAYBILLS, "all_owners": True})
+        assert failed
+
+    def test_files_only_from_the_data_folder(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("ARIA_OWNER_SCOPE", raising=False)
+        data = tmp_path / "data"
+        data.mkdir()
+        (data / "w.json").write_text(json.dumps(WAYBILLS[:1]))
+        (tmp_path / "secret.json").write_text(json.dumps(WAYBILLS[:1]))
+        failed, body = call("score_carriers", {"file_path": str(data / "w.json")})
+        assert failed and "not available" in body["error"], "no data folder: no files at all"
+        failed, body = call("score_carriers", {"file_path": "w.json", "min_shipments": 1}, data)
+        assert not failed, body
+        for outside in (str(tmp_path / "secret.json"), "../secret.json"):
+            failed, body = call("score_carriers", {"file_path": outside}, data)
+            assert failed and "inside" in body["error"], outside
+
+    def test_unknown_tool_and_bad_json(self):
+        result = rpc({"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "nope"}})["result"]
+        assert result["isError"]
+        import io
+        out = io.StringIO()
+        mcp_server.serve(io.StringIO("not json\n\n" + json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}) + "\n"), out, None)
+        replies = [json.loads(line) for line in out.getvalue().splitlines()]
+        assert replies[0]["error"]["code"] == -32700 and replies[1]["result"] == {}
+
+
+class TestEngine:
+    def test_engine_lookup(self, tmp_path, monkeypatch):
+        fake = tmp_path / "aria-runtime"
+        fake.write_text("#!/bin/sh\n")
+        fake.chmod(0o755)
+        other = tmp_path / "python3"
+        other.write_text("")
+        other.chmod(0o755)
+        monkeypatch.setattr(engine.shutil, "which", lambda name: None)
+        monkeypatch.setenv("ARIA_RUNTIME", str(fake))
+        assert engine.find_engine() == str(fake)
+        monkeypatch.setenv("ARIA_RUNTIME", str(other))
+        assert engine.find_engine() is None, "ARIA_RUNTIME naming another program is ignored"
+        monkeypatch.delenv("ARIA_RUNTIME")
+        assert engine.find_engine() is None
+
+    def test_command_environment_and_history(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ARIA_BOTS_HOME", str(tmp_path))
+        monkeypatch.setenv("ARIA_OWNER_SCOPE", "LEAKED")
+        monkeypatch.delenv("ARIA_BOT_ALLOW_TOOLS", raising=False)
+        assert engine.command("/x/aria-runtime", "hi") == [
+            "/x/aria-runtime", "stream", "--format=jsonl", "--quiet", "--no-banner", "--prompt=hi"]
+        monkeypatch.setenv("ARIA_BOT_ALLOW_TOOLS", "web_fetch, ")
+        assert engine.command("e", "hi")[-2:] == ["--allow-tools", "web_fetch"]
+        env = engine.environment(None)
+        assert "ARIA_OWNER_SCOPE" not in env, "an unbound chat never inherits a scope"
+        assert engine.environment("ACME")["ARIA_OWNER_SCOPE"] == "ACME"
+        config = json.loads(Path(env["ARIA_MCP_EXTRA_CONFIG"]).read_text())
+        (server,) = config["servers"]
+        assert server["name"] == "aria-logistics" and server["args"] == ["-m", "aria_bots.logistics.mcp_server"]
+        prompt = engine.with_history("now?", [{"role": "user", "content": "first"}, {"role": "assistant", "content": "ok"}])
+        assert prompt.index("User: first") < prompt.index("Assistant: ok") < prompt.index("now?")
+        assert engine.with_history("now?", []) == "now?"
+
+    def test_read_answer(self):
+        lines = [{"type": "turn.started"}, {"type": "answer.delta", "text": "par"},
+                 {"type": "answer.delta", "text": "tial"}]
+        raw = "\n".join(json.dumps(e) for e in lines).encode()
+        assert engine.read_answer(raw) == (False, "partial")
+        done = raw + b"\n" + json.dumps({"type": "turn.completed", "success": True, "response": "final"}).encode()
+        assert engine.read_answer(done) == (True, "final")
+
+
+def fake_runtime(tmp_path: Path) -> Path:
+    """Stands in for aria-runtime: checks the handshake, answers with what it was given."""
+    script = tmp_path / "aria-runtime"
+    script.write_text(f"""#!{sys.executable}
+import json, os, sys
+assert sys.stdin.read() == "\\n", "host acknowledgement then EOF"
+prompt = [a for a in sys.argv if a.startswith("--prompt=")][0][9:]
+reply = {{"prompt": prompt, "scope": os.environ.get("ARIA_OWNER_SCOPE"), "cwd": os.getcwd(),
+          "argv": sys.argv[1:6], "mcp": os.environ.get("ARIA_MCP_EXTRA_CONFIG")}}
+print(json.dumps({{"type": "turn.started"}}))
+print(json.dumps({{"type": "turn.completed", "success": True, "response": json.dumps(reply)}}))
+""")
+    script.chmod(0o755)
+    return script
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX stand-in executable")
+def test_the_feishu_bot_answers_through_the_engine(tmp_path, monkeypatch):
+    from aria_bots import feishu_bot as bot
+
+    monkeypatch.setenv("ARIA_BOTS_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("ARIA_RUNTIME", str(fake_runtime(tmp_path)))
+
+    async def go():
+        token = bot._TURN_OWNER.set("ACME")
+        try:
+            with mock.patch.object(bot, "_ARIA_CODE_DIR", tmp_path / "no-cli-here"):
+                command = await bot._query_aria_llm("/inventory", timeout=20)
+                chat = await bot._query_aria_direct("now?", timeout=20,
+                                                    history=[{"role": "user", "content": "first"}])
+        finally:
+            bot._TURN_OWNER.reset(token)
+        return json.loads(command), json.loads(chat)
+
+    command, chat = asyncio.run(go())
+    assert command["prompt"] == "/inventory" and command["scope"] == "ACME"
+    assert command["argv"] == ["stream", "--format=jsonl", "--quiet", "--no-banner", "--prompt=/inventory"]
+    assert Path(command["cwd"]) == (tmp_path / "home" / "workspace").resolve()
+    assert command["mcp"] == str(tmp_path / "home" / "mcp_servers.json")
+    assert "User: first" in chat["prompt"] and chat["scope"] == "ACME"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX stand-in executable")
+def test_a_failed_or_slow_engine_turn_says_so(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARIA_BOTS_HOME", str(tmp_path / "home"))
+    broken = tmp_path / "aria-runtime"
+    broken.write_text("#!/bin/sh\necho 'no provider configured' >&2\nexit 1\n")
+    broken.chmod(0o755)
+    answer = asyncio.run(engine.run_turn("hi", engine=str(broken), timeout=20))
+    assert answer.startswith("❌") and "no provider configured" in answer
+    slow = tmp_path / "slow" / "aria-runtime"
+    slow.parent.mkdir()
+    slow.write_text("#!/bin/sh\nsleep 30\n")
+    slow.chmod(0o755)
+    assert asyncio.run(engine.run_turn("hi", engine=str(slow), timeout=1)).startswith("⏱️")
+    assert asyncio.run(engine.run_turn("x" * 70000, engine=str(slow))).startswith("❌")

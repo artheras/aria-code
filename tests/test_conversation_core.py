@@ -253,6 +253,8 @@ class TestFeishuAdapter:
         assert bot._TURN_OWNER.get() is None, "the scope leaked out of dispatch_event"
 
     def test_the_aria_subprocess_receives_the_scope(self, monkeypatch, tmp_path):
+        # The Python CLI path, taken only when no Go engine is installed.
+        monkeypatch.setattr(bot._engine, "find_engine", lambda: None)
         monkeypatch.setattr(bot, "_ARIA_CODE_DIR", tmp_path)
         (tmp_path / "aria_cli.py").write_text("")
         captured = {}
