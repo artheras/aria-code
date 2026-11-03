@@ -260,10 +260,27 @@ async def _feishu_push(title: str, body: str) -> None:
 
 # ── Alert watchdog ────────────────────────────────────────────────────────────
 
+def _go_daemon_running() -> bool:
+    """Whether `aria-runtime daemon` runs on this folder. It owns price alerts
+    and schedules then; this daemon keeps its Telegram bot, webhook queue and
+    portfolio watchdog, and skips the rest so nothing fires twice."""
+    try:
+        pid = int((_ARIA_DIR / "daemon-go.pid").read_text().strip())
+        if pid <= 0 or pid == os.getpid():
+            return False
+        os.kill(pid, 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 async def _alert_watchdog() -> None:
     """Check all active alerts against live prices every 30 seconds."""
     logger.info("Alert watchdog started")
     while True:
+        if _go_daemon_running():
+            await asyncio.sleep(30)
+            continue
         try:
             with sqlite3.connect(_DB_PATH) as conn:
                 conn.row_factory = sqlite3.Row
@@ -1224,6 +1241,9 @@ def _start_scheduler() -> None:
 
 
 async def _run_scheduled_job(schedule: dict) -> None:
+    if _go_daemon_running():
+        logger.info("Scheduled job %s left to aria-runtime daemon", schedule.get("name", schedule["id"]))
+        return
     logger.info("Running scheduled job: %s", schedule.get("name", schedule["id"]))
     import json as _j
     channels = _j.loads(schedule.get("channels") or '["ios","telegram"]')
@@ -1269,6 +1289,8 @@ async def _run_scheduled_job(schedule: dict) -> None:
 
 
 async def _run_morning_brief_and_push() -> None:
+    if _go_daemon_running():
+        return
     brief = await _run_morning_brief()
     await _telegram_push(brief)
     await _feishu_push("📊 Aria 晨报", brief[:2000])
@@ -1277,6 +1299,8 @@ async def _run_morning_brief_and_push() -> None:
 
 
 async def _run_evening_brief_and_push() -> None:
+    if _go_daemon_running():
+        return
     brief = await _run_evening_brief()
     await _telegram_push(brief)
     await _feishu_push("🌆 Aria 收盘简报", brief[:2000])
@@ -1285,6 +1309,8 @@ async def _run_evening_brief_and_push() -> None:
 
 
 async def _run_weekly_recap_and_push() -> None:
+    if _go_daemon_running():
+        return
     recap = await _run_weekly_recap()
     await _telegram_push(recap)
     await _feishu_push("📅 Aria 周报", recap[:2000])
