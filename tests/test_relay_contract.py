@@ -1,14 +1,15 @@
-"""The relay's contract, black-box: any implementation must pass these.
+"""The relay's contract, black-box: what the deployed relay must do.
 
-The relay is moving from Python to Go (docs/rust-cli-migration.md). These
-tests start a real relay process, talk to it only over HTTP and WebSocket,
-and stand in for Feishu with a local fake, so the same tests hold either
-implementation to the same behaviour:
+The relay was Python until 2026-11 and is now Go (go/relay). These tests
+pinned the Python relay's behaviour before it was removed, and now hold the Go
+relay to it. They start a real relay process, talk to it only over HTTP and
+WebSocket, and stand in for Feishu with a local fake:
 
-    ARIA_RELAY_COMMAND="go/relay/bin/aria-relay" pytest tests/test_relay_contract.py
+    (cd go/relay && go build -o aria-relay .) && pytest tests/test_relay_contract.py
 
-Without ARIA_RELAY_COMMAND they run the Python relay (`python -m
-aria_code.aria_relay_server`). Each test gets a fresh process and database.
+ARIA_RELAY_COMMAND names another build (CI uses a race-instrumented one);
+without it the tests use go/relay/aria-relay and skip when it is not built.
+Each test gets a fresh process and database.
 """
 
 from __future__ import annotations
@@ -20,7 +21,6 @@ import shlex
 import socket
 import socketserver
 import subprocess
-import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -38,19 +38,25 @@ class LocalServer(ThreadingHTTPServer):
         socketserver.TCPServer.server_bind(self)
         self.server_name, self.server_port = "localhost", self.server_address[1]
 
-if os.environ.get("GITHUB_ACTIONS"):
-    import fastapi  # noqa: F401  — CI must run these, not skip them
-
 httpx = pytest.importorskip("httpx")
 ws_client = pytest.importorskip("websockets.sync.client", reason="relay client dependency")
-pytest.importorskip("fastapi", reason="relay server dependency")
-pytest.importorskip("uvicorn", reason="relay server dependency")
 
 REPO = Path(__file__).resolve().parents[1]
 TOKEN_A, TOKEN_B = "a" * 43, "b" * 43
 CODE_A, CODE_B = "ABCDEFGHJKLM", "NPQRSTUVWXYZ"
 VERIFY = "tok"
-PYTHON_RELAY = [sys.executable, "-m", "aria_code.aria_relay_server"]
+GO_RELAY = REPO / "go" / "relay" / ("aria-relay.exe" if os.name == "nt" else "aria-relay")
+
+
+def _relay_argv() -> list[str]:
+    command = os.environ.get("ARIA_RELAY_COMMAND")
+    if command:
+        return shlex.split(command)
+    if not GO_RELAY.exists():
+        # The general test jobs do not build Go; .github/workflows/go-relay.yml
+        # builds the relay and runs this file with ARIA_RELAY_COMMAND set.
+        pytest.skip("build the Go relay first: cd go/relay && go build -o aria-relay .")
+    return [str(GO_RELAY)]
 
 
 # ── a fake Feishu ───────────────────────────────────────────────────────────
@@ -147,8 +153,7 @@ class Relay:
                  command: str | None = None) -> None:
         self.port = _free_port()
         self.feishu = feishu
-        command = command or os.environ.get("ARIA_RELAY_COMMAND")
-        argv = shlex.split(command) if command else PYTHON_RELAY
+        argv = shlex.split(command) if command else _relay_argv()
         base_env = {k: v for k, v in os.environ.items()
                     if not k.startswith(("FEISHU_", "RELAY_", "K_SERVICE"))}
         self.env = {
@@ -160,7 +165,6 @@ class Relay:
             "FEISHU_API_BASE": feishu.base,
             "FEISHU_VERIFICATION_TOKEN": VERIFY,
             "MESSAGE_TIMEOUT": "3",
-            "PYTHONPATH": str(REPO / "src"),
             "NO_PROXY": "127.0.0.1,localhost",
             "no_proxy": "127.0.0.1,localhost",
             **env,
@@ -567,37 +571,3 @@ class TestCardPresses:
             answer = relay.event(_press(card)).json()
             assert time.time() - started < 3.5
         assert answer == {"toast": {"type": "error", "content": "Aria 本机未及时响应，请稍后再试。"}}
-
-
-# ── switching implementations ──────────────────────────────────────────────
-
-@pytest.mark.skipif(not os.environ.get("ARIA_RELAY_COMMAND"), reason="needs a second implementation")
-@pytest.mark.parametrize("direction", ["python-then-other", "other-then-python"])
-def test_a_database_carries_over_between_implementations(tmp_path, feishu, direction):
-    """Cutting over keeps every binding and every machine's credentials."""
-    other = os.environ["ARIA_RELAY_COMMAND"]
-    python = shlex.join(PYTHON_RELAY)
-    first_command, second_command = (python, other) if direction == "python-then-other" else (other, python)
-
-    first = Relay(tmp_path, feishu, {}, command=first_command)
-    try:
-        ws, answer = first.connect()
-        with ws:
-            assert answer["ok"]
-            _bind(first)
-    finally:
-        first.close()
-
-    second = Relay(tmp_path, feishu, {}, command=second_command)
-    try:
-        assert second.http.get("/status").json()["total_bindings"] == 1
-        ws, answer = second.connect()          # the same machine is recognised
-        with ws:
-            assert answer["ok"]
-            second.event(_message(event_id="ev_after_cutover"))
-            assert _frame(ws, "message")["payload"]["header"]["event_id"] == "ev_after_cutover"
-        ws, answer = second.connect(token=TOKEN_B)   # and nobody else is let in as it
-        ws.close()
-        assert "another installation" in answer["reason"]
-    finally:
-        second.close()

@@ -93,3 +93,16 @@ description = "Invented API key in Go event-masking tests (including its origina
 condition = "AND"
 paths = ['''(^|/)go/runtime/trajectory_test\.go$''']
 regexes = ['''sk-live-1234567890abc''']
+
+[[allowlists]]
+description = "Public Firebase web project identifier in the former Go sign-in client, matching the Python client. Firebase authorization still uses IAM/rules/App Check. See https://firebase.google.com/docs/projects/api-keys"
+condition = "AND"
+paths = ['''(^|/)go/runtime/provider_presets\.go$''']
+regexes = ['''AIzaSyC9iYiroXgxTu2ANUPIjeGbITVzWEUjXAI''']
+
+[[allowlists]]
+description = "The public Groq model identifier is not an API credential; limit this exception to its preset source."
+condition = "AND"
+paths = ['''(^|/)go/runtime/provider_presets\.go$''']
+regexes = ['''llama-3\.3-70b-versatile''']
+

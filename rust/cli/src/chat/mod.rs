@@ -166,6 +166,12 @@ pub fn run(
         if let Some(status) = session.worker.child.try_wait().map_err(|e| e.to_string())? {
             return Err(format!("Application runtime exited with {status}"));
         }
+        if let Some(text) = app.clipboard.take() {
+            let mut out = io::stdout();
+            let _ = out
+                .write_all(osc52(&text).as_bytes())
+                .and_then(|_| out.flush());
+        }
         if event::poll(Duration::from_millis(25)).map_err(|e| e.to_string())? {
             dirty = true;
             let request = match event::read().map_err(|e| e.to_string())? {
@@ -224,6 +230,26 @@ pub fn run(
         }
         thread::sleep(Duration::from_millis(10));
     }
+}
+
+/// The OSC 52 sequence that puts text on the terminal's clipboard.
+pub(crate) fn osc52(text: &str) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes = text.as_bytes();
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = (chunk[0] as u32) << 16
+            | (*chunk.get(1).unwrap_or(&0) as u32) << 8
+            | *chunk.get(2).unwrap_or(&0) as u32;
+        for i in 0..4 {
+            if i <= chunk.len() {
+                encoded.push(ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                encoded.push('=');
+            }
+        }
+    }
+    format!("\x1b]52;c;{encoded}\x07")
 }
 
 fn key_request(app: &mut App, key: KeyEvent) -> Option<Value> {
@@ -632,6 +658,34 @@ mod tests {
             key_request(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
         assert_eq!(cancel["type"], "turn.cancel");
         assert_eq!(app.editor.text(), "next draft");
+    }
+
+    #[test]
+    fn osc52_encodes_the_text_for_the_clipboard() {
+        assert_eq!(super::osc52("hi"), "\x1b]52;c;aGk=\x07");
+        assert_eq!(super::osc52("答案"), "\x1b]52;c;562U5qGI\x07");
+        assert_eq!(super::osc52(""), "\x1b]52;c;\x07");
+    }
+
+    #[test]
+    fn copy_takes_the_last_answer_without_a_turn() {
+        let mut app = App {
+            ready: true,
+            ..App::default()
+        };
+        app.add("assistant", "first", false);
+        app.add("assistant", "second", false);
+        app.editor.insert("/copy");
+        assert!(app.submit().is_none());
+        assert_eq!(app.clipboard.as_deref(), Some("second"));
+        assert!(app.turn.is_none());
+        let mut empty = App {
+            ready: true,
+            ..App::default()
+        };
+        empty.editor.insert("/copy");
+        assert!(empty.submit().is_none());
+        assert!(empty.clipboard.is_none());
     }
 
     // ── The command list that opens on `/` ──────────────────────────────

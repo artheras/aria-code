@@ -48,7 +48,7 @@ def load_builtin_packs() -> tuple[str, ...]:
     """
     global _BUILTIN_LOADED
     if not _BUILTIN_LOADED:
-        for module in ("finance", "logistics", "payments", "realty"):
+        for module in ("finance", "logistics", "payments", "realty", "healthcare"):
             try:
                 __import__(f"aria_code.packs.{module}", fromlist=["register"]).register()
             except Exception:  # pragma: no cover - a broken pack must not block startup

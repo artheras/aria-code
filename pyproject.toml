@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aria-code"
-version = "0.165.0"
+version = "0.166.0"
 description = "Open-source AI agent for coding, financial analysis and logistics operations: numbers you can check, client data kept apart, actions a person approves"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -145,7 +145,7 @@ image_gen = [
 # ── Web search / browser / desktop automation ──────────────────────────────────
 web = ["ddgs>=9.0"]                                # zero-config web_search fallback
 browser = ["playwright>=1.44.0"]                   # headless browser (/browser)
-desktop = ["mss>=9.0.1", "pyautogui>=0.9.54"]      # screen capture + GUI automation
+desktop = ["mss>=9.0.1", "pyautogui>=0.9.54", "pillow>=10.0", "pyperclip>=1.9"]      # screen capture + GUI automation
 sports = ["understat>=0.1.0", "numpy>=1.26.0"]                       # football xG data
 
 # ── Language-server diagnostics (/lsp, lsp_autocheck) ──────────────────────────
@@ -246,6 +246,7 @@ all = [
 aria-code = "aria_code.apps.cli.main:main"
 aria = "aria_code.apps.cli.main:main"
 aria-code-mcp = "aria_code.aria_mcp_server:main"
+aria-computer-use = "aria_code.computer_use_server:main"
 
 [project.urls]
 Homepage = "https://github.com/artheras/aria-code"
@@ -398,3 +399,4 @@ python_files = ["test_*.py"]
 filterwarnings = [
     "ignore:datetime\\.datetime\\.utcfromtimestamp\\(\\) is deprecated:DeprecationWarning:google\\.protobuf\\.internal\\.well_known_types",
 ]
+

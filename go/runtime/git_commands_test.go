@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -84,28 +88,134 @@ func TestCommitWritesAMessageAndCommits(t *testing.T) {
 
 func TestReviewUsesTheIsolatedReviewer(t *testing.T) {
 	s := approvalServer(t, config{}, appOptions{})
-	gitRepo(t, s)
+	run := gitRepo(t, s)
 	if out, _ := s.command(context.Background(), "t", "/review"); out != "Nothing to review." {
 		t.Fatal(out)
 	}
-	if err := os.WriteFile(filepath.Join(s.scope.workspace, "a.txt"), []byte("two\n"), 0o644); err != nil {
-		t.Fatal(err)
+	write := func(name, text string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(s.scope.workspace, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
+	write("a.txt", "two\n")
+	write("new.txt", "brand new\nsecond\n")
+	write("AGENTS.md", "Never log tokens.\n")
 	var system, prompt string
 	var tools []*genai.Tool
+	reply := `{"findings":[{"title":"[P1] wrong value","body":"a.txt now says two.","confidence_score":0.9,
+	  "code_location":{"file_path":"a.txt","line_range":{"start":1,"end":1}}},
+	 {"title":"old issue","body":"elsewhere","priority":3,"code_location":{"file_path":"a.txt","line_range":{"start":40,"end":41}}}],
+	 "overall_correctness":"patch is incorrect","overall_explanation":"The value is wrong.","overall_confidence_score":0.8}`
 	s.provider = providerFunc(func(_ context.Context, h []*genai.Content, sys string, ts []*genai.Tool, _ func(string)) (*genai.Content, error) {
 		system, prompt, tools = sys, h[0].Parts[0].Text, ts
-		return genai.NewContentFromText(`{"verdict":"changes_requested","findings":[{"severity":"blocking","file":"a.txt","line":1,"issue":"wrong value"}]}`, genai.RoleModel), nil
+		return genai.NewContentFromText(reply, genai.RoleModel), nil
 	})
+	before := len(s.snap.Messages)
 	out, err := s.command(context.Background(), "t", "/review")
-	if err != nil || !strings.Contains(out, "1 blocking finding") || !strings.Contains(out, "wrong value") {
+	if err != nil || !strings.Contains(out, "Needs changes") || !strings.Contains(out, "1. [P1] wrong value  a.txt:1") ||
+		!strings.Contains(out, "Outside this change") {
 		t.Fatal(out, err)
 	}
-	if system != reviewerSystem || tools != nil || !strings.Contains(prompt, "+two") {
-		t.Fatal("review was not isolated", system, tools)
+	if !strings.HasPrefix(system, reviewRubric) || !strings.Contains(system, "AGENTS.md:\nNever log tokens.") || tools != nil {
+		t.Fatal("reviewer not isolated or rules missing", system, tools)
 	}
-	if _, err := s.command(context.Background(), "t", "/review --base --output=x"); err == nil {
-		t.Fatal("option accepted as base")
+	// Untracked files are reviewed by content, not listed by name.
+	if !strings.Contains(prompt, "+two") || !strings.Contains(prompt, "+brand new") || !strings.Contains(prompt, "uncommitted changes") {
+		t.Fatal(prompt)
+	}
+	if len(s.snap.Messages) != before+2 || !strings.Contains(s.snap.Messages[before+1]["content"].(string), "1. [P1] wrong value") {
+		t.Fatal("review not kept for follow-ups", s.snap.Messages)
+	}
+	run("add", "-A")
+	run("commit", "-q", "-m", "Change a")
+	if _, err := s.command(context.Background(), "t", "/review --commit HEAD"); err != nil || !strings.Contains(prompt, `Commit title: "Change a"`) {
+		t.Fatal(err, prompt)
+	}
+	if _, err := s.command(context.Background(), "t", "/review new.txt"); err != nil || !strings.Contains(prompt, "file new.txt") || !strings.Contains(prompt, " second") {
+		t.Fatal(err, prompt)
+	}
+	for _, bad := range []string{"/review --base --output=x", "/review --commit", "/review --staged extra", "/review --nope"} {
+		if _, err := s.command(context.Background(), "t", bad); err == nil {
+			t.Fatal("accepted", bad)
+		}
+	}
+}
+
+func TestReviewFitsWholeFilesAndNamesTheRest(t *testing.T) {
+	section := func(name string, n int) string {
+		return "diff --git a/" + name + " b/" + name + "\n@@ -1,0 +1," + fmt.Sprint(n) + " @@\n" + strings.Repeat("+x\n", n)
+	}
+	in := fitReview(reviewTarget{kind: "uncommitted"}, "/r", section("a.go", 10)+section("b.go", 50)+section("c.go", 2), 130)
+	if strings.Join(in.files, ",") != "a.go,c.go" || strings.Join(in.omitted, ",") != "b.go" || in.added != 12 {
+		t.Fatal(in.files, in.omitted, in.added)
+	}
+	_, user := buildCodeReview(in, "en", "")
+	if !strings.Contains(user, "NOT shown and must not be reviewed or guessed about: b.go") {
+		t.Fatal(user)
+	}
+	if got := in.hunks["a.go"]; len(got) != 1 || got[0] != (reviewRange{1, 10}) {
+		t.Fatal(got)
+	}
+}
+
+func TestReviewParsingDegradesInSteps(t *testing.T) {
+	r := parseCodeReview("Sure!\n```json\n{\"findings\":[],\"overall_correctness\":\"patch is correct\"}\n```", nil)
+	if !r.structured || r.correct == nil || !*r.correct {
+		t.Fatal(r)
+	}
+	r = parseCodeReview("I think it is fine.", nil)
+	if r.structured || r.explanation != "I think it is fine." {
+		t.Fatal(r)
+	}
+	if !strings.Contains(renderCodeReview(r, "zh"), "审查模型未按约定格式回答") {
+		t.Fatal(renderCodeReview(r, "zh"))
+	}
+}
+
+func TestHeadlessCodeReviewGatesOnPriority(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	var reply string
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		chunk, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": reply}, "finish_reason": "stop"}}})
+		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", chunk)
+	}))
+	defer model.Close()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("ARIA_HOME", home)
+	t.Setenv("FAKE_REVIEW_KEY", "k")
+	os.MkdirAll(filepath.Join(home, ".aria"), 0o755)
+	os.WriteFile(filepath.Join(home, ".aria", "providers.yaml"), []byte("model_providers:\n  fake:\n    base_url: "+model.URL+"/v1\n    env_key: FAKE_REVIEW_KEY\n"), 0o644)
+	atomicJSON(filepath.Join(home, "config.json"), config{"local_provider": "fake", "model": "m"})
+	s := approvalServer(t, config{}, appOptions{})
+	gitRepo(t, s)
+	os.WriteFile(filepath.Join(s.scope.workspace, "a.txt"), []byte("two\n"), 0o644)
+	t.Chdir(s.scope.workspace)
+	finding := `{"findings":[{"title":"[P2] meh","body":"b","code_location":{"file_path":"a.txt","line_range":{"start":1,"end":1}}}],"overall_correctness":"patch is incorrect"}`
+	for _, tc := range []struct {
+		reply string
+		args  []string
+		code  int
+	}{
+		{finding, []string{"--fail-on", "P1"}, 0},
+		{finding, []string{"--fail-on", "P2", "--json"}, 1},
+		{"not json", []string{"--fail-on", "P1"}, 2},
+		{"not json", nil, 0},
+		{finding, []string{"--fail-on", "P9"}, 2},
+	} {
+		reply = tc.reply
+		var out, errs strings.Builder
+		if code := codeReviewCommand(context.Background(), tc.args, &out, &errs); code != tc.code {
+			t.Fatal(tc.args, code, out.String(), errs.String())
+		}
+		if len(tc.args) > 2 && tc.args[2] == "--json" && !strings.Contains(out.String(), `"priority_label": "P2"`) {
+			t.Fatal(out.String())
+		}
 	}
 }
 

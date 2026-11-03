@@ -26,8 +26,13 @@ func verificationFixture(mode string) int {
 			fmt.Print(strings.Repeat("x", 2<<20))
 			return 0
 		}
+		engine := strings.HasPrefix(filepath.Base(os.Args[0]), "aria-runtime")
 		if mode == "mismatch" && strings.Contains(args, "--aria-worker") {
 			fmt.Println("aria-code wrong")
+		} else if engine && mode == "engine-mismatch" {
+			fmt.Println("aria-runtime development")
+		} else if engine {
+			fmt.Println("aria-runtime 0.152.0")
 		} else {
 			fmt.Println("aria-code 0.152.0")
 		}
@@ -49,7 +54,11 @@ func verificationFixture(mode string) int {
 			time.Sleep(10 * time.Second)
 			return 0
 		}
-		fmt.Println(`{"protocol":1,"type":"session.ready","version":"0.152.0","robot":[[],[],[],[]]}`)
+		if mode == "python-engine" {
+			fmt.Println(`{"protocol":1,"type":"session.ready","version":"0.152.0","robot":[[],[],[],[]]}`)
+		} else {
+			fmt.Println(`{"protocol":1,"type":"session.ready","version":"0.152.0","robot":{"design":"cream-block-v2","theme":"dark"}}`)
+		}
 		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 		if !strings.Contains(line, `"shutdown"`) {
 			return 10
@@ -87,7 +96,7 @@ func verifierDistribution(t *testing.T, internal bool) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, target := range []string{filepath.Join(root, executable("aria-code-bin")), filepath.Join(root, executable("aria-code-worker")), filepath.Join(contentsDir(root), executable("aria-native"))} {
+	for _, target := range []string{filepath.Join(root, executable("aria-code-bin")), filepath.Join(root, executable("aria-code-worker")), filepath.Join(root, executable("aria-runtime")), filepath.Join(contentsDir(root), executable("aria-native"))} {
 		temp, err := copyTemporary(binary, filepath.Dir(target))
 		if err != nil {
 			t.Fatal(err)
@@ -119,7 +128,7 @@ func TestVerifyDistribution(t *testing.T) {
 
 func TestVerifyRejectsBrokenDistribution(t *testing.T) {
 	root := verifierDistribution(t, true)
-	for _, mode := range []string{"mismatch", "malformed", "oversized", "exit", "no-close", "false-read", "version-flood"} {
+	for _, mode := range []string{"mismatch", "engine-mismatch", "python-engine", "malformed", "oversized", "exit", "no-close", "false-read", "version-flood"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Setenv("BUILDTOOLS_VERIFY_FIXTURE", mode)
 			if err := verifyFrontend(context.Background(), root, io.Discard); err == nil {

@@ -4,7 +4,9 @@ go 1.26.0
 
 require (
 	cloud.google.com/go/auth v0.9.3
+	github.com/yuin/goldmark v1.7.8
 	go.yaml.in/yaml/v3 v3.0.5
+	golang.org/x/image v0.25.0
 	golang.org/x/net v0.38.0
 	google.golang.org/genai v1.73.0
 	modernc.org/sqlite v1.60.1

@@ -73,7 +73,7 @@ func definitionFor(name string) (definition, bool) {
 	}
 	// Host commands use the same policy checks without advertising restore
 	// authority as a model tool.
-	if name == "restore_checkpoint" {
+	if name == "restore_checkpoint" || name == "run_workflow" {
 		return definition{name: name, mutate: true}, true
 	}
 	return definition{}, false
@@ -99,6 +99,10 @@ type agentHooks struct {
 	// instructions are the user's and the project's standing instructions
 	// (projectInstructions), appended to the system prompt for task turns.
 	instructions string
+	// mcp supplies the configured MCP servers' tools; nil for none.
+	mcp *mcpManager
+	// hook runs PreToolUse/PostToolUse hooks; false vetoes the call.
+	hook func(ctx context.Context, event, tool string, params map[string]any, result *toolResult) (bool, string)
 }
 
 func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, contents []*genai.Content, prompt string, hooks agentHooks) ([]*genai.Content, string, error) {
@@ -111,6 +115,10 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 	contents = settlePending(contents)
 	system := "You are Aria, Arthera's assistant. Answer in the user's language. Never refer to internal agent role names."
 	tools := nativeTools()
+	if hooks.mcp != nil {
+		hooks.mcp.ensure(ctx)
+		tools[0].FunctionDeclarations = append(tools[0].FunctionDeclarations, hooks.mcp.declarations()...)
+	}
 	greeting := social(prompt)
 	if greeting {
 		tools = nil
@@ -225,9 +233,14 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 			return contents, answer.String(), errors.New("model exceeded 32 calls in one batch")
 		}
 		responses := []*genai.Part{}
+		toolImages := []*genai.Part{}
 		partialContents := func() []*genai.Content {
 			if len(responses) > 0 {
-				return append(contents, &genai.Content{Role: "user", Parts: responses})
+				out := append(contents, &genai.Content{Role: "user", Parts: responses})
+				if len(toolImages) > 0 {
+					out = append(out, &genai.Content{Role: "user", Parts: toolImages})
+				}
+				return out
 			}
 			return contents
 		}
@@ -245,13 +258,26 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 			result := toolResult{}
 			approval := ""
 			d, known := definitionFor(call.Name)
+			isMCP := false
+			if !known && hooks.mcp != nil {
+				d, known = hooks.mcp.definition(call.Name)
+				isMCP = known
+			}
 			verdict := ContractVerdict{Allowed: true}
 			if contract != nil && known && !greeting {
 				verdict = contract.Check(call.Name, call.Args)
 			}
+			vetoed := ""
+			if hooks.hook != nil && known && !greeting && verdict.Allowed {
+				if ok, why := hooks.hook(ctx, "PreToolUse", call.Name, call.Args, nil); !ok {
+					vetoed = why
+				}
+			}
 			switch {
 			case greeting:
 				result = failed(errors.New("standalone social message: reply directly without tools or file inspection"))
+			case vetoed != "":
+				result = failed(errors.New(vetoed))
 			case !known:
 				result = failed(fmt.Errorf("unknown native tool: %s", call.Name))
 			case noHostFlags(call.Args) != nil:
@@ -260,6 +286,24 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 				// Refused before approval: the call never runs and the model
 				// learns which rule held.
 				result = verdict.toolResult(call.Name)
+			case isMCP:
+				if d.mutate {
+					reads = map[string]toolResult{}
+				}
+				if d.mutate && s.readOnly {
+					result = failed(errors.New("read-only turn: this MCP tool may change things"))
+					break
+				}
+				allowed, reason, err := hooks.approve(ctx, call.Name, call.Args, fileChange{})
+				if err != nil {
+					return partialContents(), answer.String(), err
+				}
+				if !allowed {
+					result = failed(fmt.Errorf("user declined: %s", reason))
+					break
+				}
+				approval = reason
+				result = hooks.mcp.call(ctx, call.Name, call.Args)
 			case call.Name == "run_command":
 				reads = map[string]toolResult{}
 				spec, err := commandPlan(s, c, call.Args)
@@ -341,6 +385,9 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 					reads[key] = result
 				}
 			}
+			if hooks.hook != nil && known && !greeting && vetoed == "" && verdict.Allowed {
+				hooks.hook(ctx, "PostToolUse", call.Name, call.Args, &result)
+			}
 			hooks.evidence.finished(call.Name, call.Args, result)
 			fields := map[string]any{"tool": call.Name, "success": result.Success, "elapsed_s": time.Since(started).Seconds()}
 			if result.Success && result.Data["staged"] == true {
@@ -376,8 +423,16 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 			var response map[string]any
 			json.Unmarshal(bytes, &response)
 			responses = append(responses, &genai.Part{FunctionResponse: &genai.FunctionResponse{Name: call.Name, ID: call.ID, Response: response}})
+			if result.Success {
+				for _, image := range result.Images {
+					toolImages = append(toolImages, &genai.Part{InlineData: &genai.Blob{MIMEType: image.MIMEType, Data: image.Data}})
+				}
+			}
 		}
 		contents = append(contents, &genai.Content{Role: "user", Parts: responses})
+		if len(toolImages) > 0 {
+			contents = append(contents, &genai.Content{Role: "user", Parts: toolImages})
+		}
 	}
 	return contents, answer.String(), errors.New("tool round limit reached; task is incomplete")
 }

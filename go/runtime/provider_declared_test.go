@@ -234,11 +234,11 @@ func TestAuthCommandTokensAreCachedAndRefreshedOnRejection(t *testing.T) {
 func TestUndeclaredProviderStopsTheSessionBeforeState(t *testing.T) {
 	home := writeProviders(t, map[string]any{})
 	root := t.TempDir()
-	if err := atomicJSON(filepath.Join(root, "config.json"), config{"local_provider": "anthropic"}); err != nil {
+	if err := atomicJSON(filepath.Join(root, "config.json"), config{"local_provider": "nosuchprovider"}); err != nil {
 		t.Fatal(err)
 	}
 	_, err := newServer(appOptions{root: root, workspace: t.TempDir()}, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), `provider "anthropic" is not built in`) || !strings.Contains(err.Error(), filepath.Join(home, "providers.json")) {
+	if err == nil || !strings.Contains(err.Error(), `provider "nosuchprovider" is not built in`) || !strings.Contains(err.Error(), filepath.Join(home, "providers.json")) {
 		t.Fatal(err)
 	}
 	if _, statErr := os.Stat(filepath.Join(root, "sessions")); !os.IsNotExist(statErr) {

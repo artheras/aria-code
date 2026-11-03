@@ -3,7 +3,7 @@
 set -eu
 
 if [ -n "${PORT:-}" ]; then
-  exec python3 -m aria_code.aria_relay_server
+  exec aria-relay
 fi
 
 exec aria-code "$@"

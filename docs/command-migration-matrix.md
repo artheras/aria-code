@@ -26,22 +26,34 @@ A Python command is deleted only after its replacement ships, and only together 
 | /init /memory /note /recall /todo /project /plan /apply-plan /checkpoint | batch 3 |
 | /git /commit /pr /gh /review /test /verify /fix /bug /trace /quality | batch 4 |
 | /search /read /ls /write /edit /code /run /build | batch 5 |
+| /task /worktree /tasks /delegate /agents /workflow /wf /consult | batch 6 |
+| /mcp /skills /vision /upload-image, plus MCP tools and $skill activation in turns | batch 7 |
+| /providers /apikey /whoami /logout /doctor /update /feedback /privacy | batch 8 |
+| /cost /thinking, with token usage from both providers | batch 2b |
+| /graph /impact /lsp, with a native project graph | batch 5b |
+| /hooks /browser /screenshot, with Pre/PostToolUse, ResponseDone and SessionStart hooks in turns | batch 7b |
+| /login (browser sign-in with PKCE and a loopback hand-back) | batch 8b |
+| /copy (OSC 52, in the Rust TUI) and `aria-native completions bash\|zsh\|fish` | Rust TUI |
 
-## Go: to do, in batches
+## Still to do
 
-| Batch | Commands |
-|---|---|
-| 2b: session | /cost (needs token usage from the providers) /copy (clipboard belongs to the Rust TUI) /load-fork /thinking /ui /input |
-| 5b: code intelligence | /graph /impact (need a port of `project_graph.py`) /lsp (needs a language-server client) |
-| 6: agents | /task /tasks /worktree /workflow /wf /delegate /orchestrate /agents /team /collab /consult /deep |
-| 7: extensions | /mcp /hooks /skills /packages /install /services /browser /screenshot /vision /upload-image /canvas /artifacts |
-| 8: account and maintenance | /login /logout /whoami /account /apikey /providers /local /cloud /update /doctor /feedback /privacy /license /setup /completions /deploy |
+Every command now has a home outside the Python worker. What remains:
+
+1. ~~**Finance routing.**~~ Done: the commands below reach `financial-service` through the native MCP client (see below).
+2. **Delete the Python implementation**: the Python worker, its terminal UI and the command modules, with the tests that exercise them. The pip package then only connects to the native core and the finance service.
 
 ## Finance service
 
-/accuracy /alert /analyze /ashare /asset-diag /auto-strategy /backtest /broker /carriers /chart /commodity /compare /compliance /contract-draft /corr /crypto /dashboard /data /datasource /earnings /edgar /execution /exit-calc /factor-lab /factors /feargreed /football /forex /funding /hot /ichimoku /indices /inventory /journal /limitup /longterm /macro /market /markets /news /north /ops-report /optimize /optimize-port /options /orders /paper /peer /plan-report /portfolio /positions /predict /quote /realty /report /research /revenue-calc /risk /risk-scan /screen /screen-cn /shortterm /signal /sim /stat-arb /strategy /stress /ta /trade /tv /warehouse /watch
+/accuracy /alert /analyze /ashare /asset-diag /auto-strategy /backtest /broker /carriers /chart /commodity /compare /compliance /contract-draft /corr /crypto /dashboard /data /datasource /earnings /edgar /execution /exit-calc /factor-lab /factors /feargreed /football /forex /funding /hot /ichimoku /indices /inventory /journal /limitup /longterm /macro /market /markets /news /north /ops-report /optimize /optimize-port /options /orders /paper /peer /plan-report /portfolio /positions /predict /quote /realty /report /research /revenue-calc /risk /risk-scan /screen /screen-cn /shortterm /signal /sim /stat-arb /strategy /stress /ta /team /deep /ui /canvas /artifacts /account /cloud /deploy /trade /tv /warehouse /watch
 
-The Go runtime already has a native backtest and risk core (`backtest.go`, `risk.go`, `quant/`). /backtest and /risk keep that local path. The service adds the market data behind it.
+These are routed in `go/runtime/finance.go`:
+
+- `/finance` shows whether the service is connected; `/finance setup <absolute path>` registers its console script (or a venv Python, run with `-I -m arthera_finance.server`) in `mcp_servers.json` as `arthera-finance`.
+- `/broker [connections | account|positions|orders <connection>]`, and `/account`, `/positions`, `/orders`, call the service's read-only broker tools directly.
+- Every other command in the list becomes a read-only turn: the model answers it with the service's tools (all `readOnlyHint`), cites their sources and dates, keeps missing values unknown, and says so when the service cannot answer (live quotes, news, order placement and A-share screens are not among its tools). Nothing is written and no command runs during such a turn.
+- Without the service, these commands say how to connect it instead of reaching the model.
+
+The service's tools are statements, SEC facts, risk metrics, backtests, market history and read-only broker data. Commands that need more (news, live quotes, A-share data, trading) get an honest "not available" until the service grows the tool.
 
 ## Retire
 
@@ -54,3 +66,12 @@ The Go runtime already has a native backtest and risk core (`backtest.go`, `risk
 | /ariarc | ARIA.md (/memory, /init) and /config |
 | /file | @file references in any prompt |
 | /architecture | Internal layer contract of the Python package; not a user feature |
+| /collab | /consult <provider>/<model> |
+| /orchestrate | /plan, then /apply-plan or /task |
+| /packages /services | Python package internals; not a user feature |
+| /install | pip dependencies of the Python worker; the native install has none |
+| /local | /model ollama <model> |
+| /setup | /model, /config and /init |
+| /license | The Python licensing module; the native runtime has no entitlements |
+| /load-fork | /resume (a fork is a saved session) |
+| /input | The Rust TUI's composer; /config set ui_theme=… for the theme |

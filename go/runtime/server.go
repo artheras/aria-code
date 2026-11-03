@@ -62,6 +62,8 @@ type server struct {
 	stop             context.CancelFunc
 	historyReset     bool
 	historyNotice    string
+	mcp              *mcpManager
+	usage            *usageMeter
 }
 
 func newServer(options appOptions, out io.Writer) (*server, error) {
@@ -97,7 +99,7 @@ func newServer(options appOptions, out io.Writer) (*server, error) {
 		return nil, err
 	}
 	scope.readOnly = cfg.text("permission_mode", "workspace-write") == "read-only"
-	s := &server{opts: options, cfg: cfg, scope: scope, out: out, grants: map[string]bool{}}
+	s := &server{opts: options, cfg: cfg, scope: scope, out: out, grants: map[string]bool{}, mcp: newMCPManager(options.root)}
 	if options.resumeLast {
 		options.resume = cfg.text("last_session_id", "")
 	}
@@ -115,6 +117,7 @@ func newServer(options appOptions, out io.Writer) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.usage = sessionUsage(s.snap.Metadata)
 	s.provider = provider
 	if err := saveSession(options.root, s.snap); err != nil {
 		return nil, err
@@ -187,6 +190,7 @@ func (s *server) state(kind string) error {
 	return err
 }
 func (s *server) persist() error {
+	s.saveUsage()
 	contents, err := json.Marshal(s.contents)
 	if err != nil {
 		return err
@@ -234,7 +238,9 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 		return false, "", err
 	}
 	grant := name
-	if name == "run_command" {
+	// A session grant covers this exact command, or this exact workflow
+	// step list, never every one.
+	if name == "run_command" || name == "run_workflow" {
 		body, _ := json.Marshal(params)
 		grant = name + ":" + string(body)
 	}
@@ -246,6 +252,9 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 		return false, "persistent denial", nil
 	}
 	d, known := definitionFor(name)
+	if !known && s.mcp != nil {
+		d, known = s.mcp.definition(name)
+	}
 	if !known {
 		return false, "unknown tool", nil
 	}
@@ -255,6 +264,14 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 	// run without a prompt and say so. An explicit "ask" policy always asks.
 	assessment := AssessTool(name, params, s.scope.workspace)
 	requirement := approvalRequirement(assessment, s.cfg.text("approval_mode", "manual"), s.cfg["auto_approve_level"])
+	// A server that marks a tool destructive (arthera-trading's order
+	// execution) gets a person's approval for every call: no session grant,
+	// allow policy, allowed-tools list, skip-permissions flag or risk mode
+	// stands in for it, and a headless run refuses it.
+	destructive := s.mcp != nil && s.mcp.destructive(name)
+	if destructive {
+		requirement = "always"
+	}
 	if policy != "ask" {
 		standing := policy == "allow" || s.opts.skipPermissions || s.grants[grant] || contains(s.opts.allowedTools, name)
 		if standing && requirement != "always" {
@@ -272,6 +289,9 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 		}
 	}
 	if s.opts.noninteractive {
+		if destructive {
+			return false, "the server marks this tool destructive; every call needs interactive approval", nil
+		}
 		if requirement == "always" {
 			return false, fmt.Sprintf("L%d %s actions always need interactive approval: %s", assessment.Level, assessment.Name, strings.Join(assessment.Reasons, "; ")), nil
 		}
@@ -290,7 +310,7 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 		contextText += "\nBefore SHA-256: " + change.sha + fmt.Sprintf("\nNew content: %d bytes", len(change.after))
 		contextText += "\n" + changePreview(change)
 	}
-	if name == "restore_checkpoint" {
+	if name == "restore_checkpoint" || name == "run_workflow" {
 		contextText += "\n" + str(params, "preview", "")
 	}
 	choices := [][]string{{"Allow once", "Only this operation"}, {"Allow for this session", "Same tool within the selected roots; resets with a new session"}, {"No, explain what to do differently", "Decline and provide instructions"}}
@@ -333,7 +353,7 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 	}
 }
 func (s *server) runTurn(ctx context.Context, turn, text string) {
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(withUsage(ctx, s.usage))
 	defer cancel()
 	if err := s.emit("turn.started", turn, nil); err != nil {
 		cancel()
@@ -374,15 +394,8 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 	} else if strings.HasPrefix(strings.TrimSpace(text), "/") {
 		answer, err = s.command(ctx, turn, text)
 	} else {
-		hooks := agentHooks{emit: func(kind string, fields map[string]any) {
-			if err := s.emit(kind, turn, fields); err != nil {
-				cancel()
-			}
-		}, approve: s.approve, apply: func(ctx context.Context, tool string, change fileChange) toolResult {
-			return applyRecordedChange(ctx, s.scope, s.opts.root, s.snap.ID, tool, change)
-		}, stage: func(ctx context.Context, tool string, change fileChange) toolResult {
-			return stageRecordedChange(ctx, s.scope, s.opts.root, s.snap.ID, tool, change)
-		}, evidence: newTurnEvidence(s.scope.workspace), instructions: projectInstructions(s.opts.root, s.scope.workspace)}
+		hooks := s.turnHooks(turn, s.scope, cancel)
+		hooks.instructions += mentionedSkills(s.opts.root, s.scope.workspace, text)
 		wasReadOnly := s.scope.readOnly
 		if readOnlyTurn {
 			s.scope.readOnly = true
@@ -452,6 +465,9 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 			fields["delivery"] = delivery
 		}
 	}
+	if answer != "" && !strings.HasPrefix(strings.TrimSpace(text), "/") {
+		s.fireHooks(context.WithoutCancel(ctx), "ResponseDone", "", nil, nil, answer)
+	}
 	s.mu.Lock()
 	// Release completion and the final snapshot as one state transition.
 	s.emit("turn.completed", turn, fields)
@@ -461,6 +477,23 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 	s.cancel = nil
 	close(s.done)
 	s.mu.Unlock()
+}
+
+// turnHooks connect a model turn in scope sc to this session: its events,
+// approvals, checkpoints and staged changes.
+func (s *server) turnHooks(turn string, sc *scope, cancel func()) agentHooks {
+	return agentHooks{emit: func(kind string, fields map[string]any) {
+		if err := s.emit(kind, turn, fields); err != nil {
+			cancel()
+		}
+	}, approve: s.approve, apply: func(ctx context.Context, tool string, change fileChange) toolResult {
+		return applyRecordedChange(ctx, sc, s.opts.root, s.snap.ID, tool, change)
+	}, stage: func(ctx context.Context, tool string, change fileChange) toolResult {
+		return stageRecordedChange(ctx, sc, s.opts.root, s.snap.ID, tool, change)
+	}, evidence: newTurnEvidence(sc.workspace), instructions: projectInstructions(s.opts.root, sc.workspace), mcp: s.mcp,
+		hook: func(ctx context.Context, event, tool string, params map[string]any, result *toolResult) (bool, string) {
+			return s.fireHooks(ctx, event, tool, params, result, "")
+		}}
 }
 func (s *server) switchSession(id string) error {
 	var next snapshot
@@ -484,6 +517,7 @@ func (s *server) switchSession(id string) error {
 	}
 	s.snap = next
 	s.contents = contents
+	s.usage = sessionUsage(next.Metadata)
 	s.grants = map[string]bool{}
 	if err := s.persist(); err != nil {
 		return err
@@ -491,6 +525,7 @@ func (s *server) switchSession(id string) error {
 	if err := s.saveSetting("last_session_id", s.snap.ID); err != nil {
 		return err
 	}
+	s.fireHooks(context.Background(), "SessionStart", "", nil, nil, "")
 	return s.state("session.ready")
 }
 func (s *server) run(ctx context.Context, in io.Reader) error {
@@ -510,6 +545,7 @@ func (s *server) run(ctx context.Context, in io.Reader) error {
 	if !s.opts.hostContained && (!scanner.Scan() || strings.TrimSpace(scanner.Text()) != "") {
 		return errors.New("application start requires the host containment barrier newline")
 	}
+	s.fireHooks(ctx, "SessionStart", "", nil, nil, "")
 	if err := s.state("session.ready"); err != nil {
 		return err
 	}

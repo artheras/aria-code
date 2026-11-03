@@ -103,7 +103,7 @@ func (s *server) contextCommand() (string, error) {
 	return table("Context", rows) + "\n\n/clear forgets the conversation · /undo removes the last exchange", nil
 }
 
-func (s *server) toolsCommand() (string, error) {
+func (s *server) toolsCommand(ctx context.Context) (string, error) {
 	var b strings.Builder
 	b.WriteString("Tools\n")
 	for _, d := range fileDefinitions {
@@ -128,6 +128,12 @@ func (s *server) toolsCommand() (string, error) {
 			policy = "allowed"
 		}
 		fmt.Fprintf(&b, "\n  %-12s %-5s  %-11s  %s", d.name, access, policy, firstSentence(d.description))
+	}
+	if s.mcp != nil {
+		s.mcp.ensure(ctx)
+		if len(s.mcp.declarations()) > 0 {
+			b.WriteString("\n\n" + s.mcp.toolList())
+		}
 	}
 	return b.String(), nil
 }

@@ -998,7 +998,7 @@ async def _analyze_file(file_bytes: bytes, filename: str) -> str:
 def verify_feishu_request(headers: Dict[str, str], body: bytes, payload: Dict[str, Any]) -> tuple[bool, str]:
     """(trusted, reason) for an event received directly from Feishu.
 
-    The same two checks the relay applies (aria_relay_server._verify_feishu_request),
+    The same two checks the relay applies (go/relay: relay.verify; formerly the Python relay's _verify_feishu_request),
     kept separate because the relay ships without this module's dependencies:
       - Encrypt Key: X-Lark-Signature = sha256(timestamp + nonce + key + body)
       - Verification Token: the token field in the event body

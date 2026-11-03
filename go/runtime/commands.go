@@ -10,7 +10,7 @@ import (
 )
 
 func nativeCommands() []string {
-	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint", "/git", "/commit", "/pr", "/gh", "/review", "/test", "/verify", "/fix", "/bug", "/trace", "/quality", "/search", "/read", "/ls", "/write", "/edit", "/code", "/run", "/build"}
+	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint", "/git", "/commit", "/pr", "/gh", "/review", "/test", "/verify", "/fix", "/bug", "/trace", "/quality", "/search", "/read", "/ls", "/write", "/edit", "/code", "/run", "/build", "/task", "/worktree", "/tasks", "/delegate", "/agents", "/workflow", "/wf", "/consult", "/mcp", "/skills", "/vision", "/upload-image", "/providers", "/apikey", "/whoami", "/logout", "/doctor", "/update", "/feedback", "/privacy", "/cost", "/thinking", "/graph", "/impact", "/lsp", "/hooks", "/browser", "/screenshot", "/login", "/finance", "/broker"}
 }
 
 // commandInfo describes each command for the "/" list: [English, Chinese].
@@ -73,6 +73,37 @@ var commandInfo = map[string][2]string{
 	"/code":          {"Write code for a description", "按描述编写代码"},
 	"/run":           {"Run a shell command (same as !)", "运行 shell 命令（同 !）"},
 	"/build":         {"Run the project's build", "运行项目构建"},
+	"/task":          {"Run a task in its own git worktree", "在独立 git worktree 中执行任务"},
+	"/worktree":      {"Show, diff, apply or discard a task (same as /task)", "查看、对比、应用或丢弃任务（同 /task）"},
+	"/tasks":         {"List worktree tasks", "列出 worktree 任务"},
+	"/delegate":      {"Hand a task to a fresh-context subagent", "交给全新上下文的子代理执行"},
+	"/agents":        {"List project agents (.aria/agents)", "列出项目代理（.aria/agents）"},
+	"/workflow":      {"List, show or run .aria/workflows", "列出、查看或运行工作流"},
+	"/wf":            {"Same as /workflow", "同 /workflow"},
+	"/consult":       {"Ask another model for a second opinion", "请另一个模型给出第二意见"},
+	"/mcp":           {"Show MCP servers and tools, or reload them", "查看或重新加载 MCP 服务与工具"},
+	"/skills":        {"List, show or use SKILL.md skills", "列出、查看或使用技能"},
+	"/vision":        {"Ask about an image", "就图片提问"},
+	"/upload-image":  {"Same as /vision", "同 /vision"},
+	"/providers":     {"List model providers and whether they are ready", "列出模型服务商及其可用状态"},
+	"/apikey":        {"Show where each provider reads its key", "查看各服务商的密钥来源"},
+	"/whoami":        {"Show the Arthera account", "查看 Arthera 账户"},
+	"/logout":        {"Sign out of Arthera on this machine", "在本机退出 Arthera 账户"},
+	"/doctor":        {"Check the installation and settings", "检查安装与设置"},
+	"/update":        {"How to update Aria", "如何更新 Aria"},
+	"/feedback":      {"Rate the last answer (kept locally)", "评价上一个回答（保存在本地）"},
+	"/privacy":       {"Show what leaves this machine", "查看哪些数据会离开本机"},
+	"/cost":          {"Show token usage for this session", "查看本会话的 token 用量"},
+	"/thinking":      {"Set how much the model thinks", "设置模型思考强度"},
+	"/graph":         {"Summarise the project graph", "查看项目依赖图概况"},
+	"/impact":        {"Show what changing a file or symbol reaches", "查看修改文件或符号的影响范围"},
+	"/lsp":           {"Run a file's language checker", "运行文件的语言检查器"},
+	"/hooks":         {"List hooks, or trust the project's", "查看钩子或信任项目钩子"},
+	"/browser":       {"Screenshot a web page", "网页截图"},
+	"/screenshot":    {"Capture the screen", "截取屏幕"},
+	"/login":         {"Sign in to Arthera in the browser", "在浏览器中登录 Arthera"},
+	"/finance":       {"Connect and check the financial-service", "连接并检查金融服务"},
+	"/broker":        {"Read broker accounts, positions and orders", "查看券商账户、持仓与委托"},
 }
 
 // commandInfoList is nativeCommands in order, each with its description in lang.
@@ -121,7 +152,7 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 	case "/context":
 		return s.contextCommand()
 	case "/tools":
-		return s.toolsCommand()
+		return s.toolsCommand(ctx)
 	case "/diff":
 		return s.diffCommand(ctx, fields[1:])
 	case "/compact":
@@ -185,7 +216,57 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		return s.userCommand(ctx, turn, command)
 	case "/build":
 		return s.buildCommand(ctx, turn)
-	case "/init", "/plan", "/apply-plan", "/fix", "/bug", "/trace", "/quality", "/edit", "/code":
+	case "/task", "/worktree":
+		return s.taskCommand(ctx, turn, text)
+	case "/tasks":
+		return s.tasksCommand(ctx)
+	case "/delegate":
+		return s.delegateCommand(ctx, turn, rest(text, fields[0]))
+	case "/agents":
+		return s.agentsCommand()
+	case "/workflow", "/wf":
+		return s.workflowCommand(ctx, turn, text)
+	case "/consult":
+		return s.consultCommand(ctx, rest(text, fields[0]))
+	case "/mcp":
+		return s.mcpCommand(ctx, fields[1:])
+	case "/skills":
+		return s.skillsCommand(text)
+	case "/providers":
+		return s.providersCommand()
+	case "/apikey":
+		return s.apikeyCommand()
+	case "/whoami":
+		return s.whoamiCommand()
+	case "/logout":
+		return s.logoutCommand()
+	case "/doctor":
+		return s.doctorCommand(ctx)
+	case "/update":
+		return s.updateCommand()
+	case "/feedback":
+		return s.feedbackCommand(rest(text, fields[0]))
+	case "/privacy":
+		return s.privacyCommand(fields[1:])
+	case "/cost":
+		return s.costCommand()
+	case "/thinking":
+		return s.thinkingCommand(fields[1:])
+	case "/graph":
+		return s.graphCommand(ctx, fields[1:])
+	case "/impact":
+		return s.impactCommand(ctx, fields[1:])
+	case "/lsp":
+		return s.lspCommand(ctx, turn, fields[1:])
+	case "/hooks":
+		return s.hooksCommand(ctx, fields[1:])
+	case "/browser":
+		return s.browserCommand(ctx, turn, fields[1:])
+	case "/screenshot":
+		return s.screenshotCommand(ctx, turn)
+	case "/login":
+		return s.loginCommand(ctx, turn)
+	case "/init", "/plan", "/apply-plan", "/fix", "/bug", "/trace", "/quality", "/edit", "/code", "/vision", "/upload-image":
 		// runTurn sends these to the model before they get here.
 		return "", fmt.Errorf("%s runs as a turn in the interactive application", fields[0])
 	case "/help":
@@ -320,6 +401,20 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 			if value != "eng" && value != "chi_sim" && value != "chi_tra" && value != "eng+chi_sim+chi_tra" {
 				return "", errors.New("ocr_language must be eng, chi_sim, chi_tra or eng+chi_sim+chi_tra")
 			}
+		case "token_price":
+			var in, out float64
+			if _, err := fmt.Sscanf(strings.ReplaceAll(value, " ", ""), "%g,%g", &in, &out); err != nil || in < 0 || out < 0 {
+				return "", errors.New("token_price must be <input>,<output> per million tokens, e.g. 0.3,2.5")
+			}
+		case "stream_usage":
+			switch strings.ToLower(value) {
+			case "true", "on", "1":
+				stored = true
+			case "false", "off", "0":
+				stored = false
+			default:
+				return "", errors.New("stream_usage must be: true | false")
+			}
 		case "build_command":
 			if strings.TrimSpace(value) == "" || len(value) > 4096 {
 				return "", errors.New("build_command must be a command of at most 4096 bytes")
@@ -357,7 +452,18 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 			s.provider = replacement
 		}
 		return fmt.Sprintf("%s=%v", key, stored), nil
+	case "/finance":
+		return s.financeCommand(ctx, fields[1:])
+	case "/broker", "/positions", "/orders", "/account":
+		return s.brokerCommand(ctx, fields[0], fields[1:])
 	default:
+		if financeCommands[fields[0]] {
+			// runTurn sends these to the model; reached only without it.
+			if _, err := s.requireFinance(ctx); err != nil {
+				return "", err
+			}
+			return "", fmt.Errorf("%s runs as a turn in the interactive application", fields[0])
+		}
 		return "", fmt.Errorf("unknown command: %s; use /help", fields[0])
 	}
 }

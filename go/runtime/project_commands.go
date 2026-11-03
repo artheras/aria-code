@@ -449,12 +449,25 @@ func (s *server) turnPrompt(text string) (prompt string, readOnly bool, handled 
 			prompt += "\n\nAdjustments: " + extra
 		}
 		return prompt, false, true, nil
+	case "/skills":
+		if len(fields) < 2 || fields[1] != "use" {
+			return "", false, false, nil
+		}
+		prompt, err = s.skillPrompt(rest(extra, "use"))
+		return prompt, false, true, err
+	case "/vision", "/upload-image":
+		prompt, err = visionPrompt(extra)
+		return prompt, false, true, err
 	case "/edit", "/code":
 		prompt, err = codePrompt(fields[0], extra)
 		return prompt, false, true, err
 	case "/fix", "/bug", "/trace", "/quality":
 		prompt, readOnly, err = engineeringPrompt(fields[0], extra)
 		return prompt, readOnly, true, err
+	}
+	if financeCommands[fields[0]] && !directFinance[fields[0]] {
+		prompt, err = s.financePrompt(context.Background(), fields[0], extra)
+		return prompt, true, true, err
 	}
 	return "", false, false, nil
 }
