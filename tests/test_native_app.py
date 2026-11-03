@@ -788,6 +788,7 @@ def test_real_terminal_model_picker_searches_and_selects(application):
     if not os.environ.get("ARIA_NATIVE_BINARY"):
         pytest.skip("build the Rust prototype first")
     import http.server
+    import socketserver
     import threading
     _, project, _, env = application
     # The picker lists local models only when Ollama reports them installed,
@@ -807,7 +808,10 @@ def test_real_terminal_model_picker_searches_and_selects(application):
         def log_message(self, *args):
             pass
 
-    ollama = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Ollama)
+    # socketserver, not http.server.HTTPServer: its bind looks the host name
+    # up (getfqdn), which hangs past the test timeout on macOS runners.
+    ollama = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Ollama)
+    ollama.daemon_threads = True
     threading.Thread(target=ollama.serve_forever, daemon=True).start()
     ollama_url = "http://127.0.0.1:%d" % ollama.server_address[1]
     master, slave = pty.openpty()
