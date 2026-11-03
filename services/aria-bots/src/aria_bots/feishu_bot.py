@@ -66,6 +66,7 @@ from aria_bots.channels.conversation import (
     should_respond,
 )
 from aria_bots.logistics.tenancy import OWNER_SCOPE_ENV
+from aria_bots import engine as _engine
 
 logger = logging.getLogger(__name__)
 
@@ -734,7 +735,13 @@ async def _query_aria_direct(text: str, timeout: int = 90, history: Optional[lis
     Query the LLM directly via providers/llm/registry.py — no subprocess, no tool use.
     Used for conversational NL queries where we want a clean text answer.
     Falls back to _query_aria_llm on ImportError.
+
+    With the Go engine installed, the turn runs there instead.
     """
+    runtime = _engine.find_engine()
+    if runtime:
+        return await _engine.run_turn(text, engine=runtime, owner=_TURN_OWNER.get(),
+                                      history=history, timeout=timeout)
     try:
         import sys as _sys
         _sys.path.insert(0, str(_ARIA_CODE_DIR))
@@ -765,9 +772,13 @@ async def _query_aria_llm(text: str, timeout: int = 120) -> str:
     Use _query_aria_direct() for conversational queries — this is for
     slash commands (/brief, /team, etc.) that need the full CLI context.
     """
+    runtime = _engine.find_engine()
+    if runtime:
+        return await _engine.run_turn(text, engine=runtime, owner=_TURN_OWNER.get(), timeout=timeout)
+    # No Go engine: the Python CLI, while aria-code still ships one.
     aria_cli = _ARIA_CODE_DIR / "aria_cli.py"
     if not aria_cli.exists():
-        return "❌ aria_cli.py 未找到，请检查 ARIA_CODE_DIR 配置。"
+        return "❌ 未找到 Aria 引擎：请安装 aria-runtime，或用 ARIA_RUNTIME 指向它。"
     try:
         # ARIA_BOT_MODE=1: plain output for a chat card. It no longer approves
         # tools; see _bot_cli_flags.

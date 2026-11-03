@@ -15,7 +15,7 @@ MODULES = [
     "aria_bots.channels.digest", "aria_bots.channels.registry",
     "aria_bots.logistics.tenancy", "aria_bots.logistics.records",
     "aria_bots.logistics.inventory", "aria_bots.logistics.carriers",
-    "aria_bots.logistics.freight",
+    "aria_bots.logistics.freight", "aria_bots.logistics.mcp_server", "aria_bots.engine",
 ]
 
 

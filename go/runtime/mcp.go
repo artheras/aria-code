@@ -87,11 +87,29 @@ func loadMCPConfig(root string) ([]mcpServerConfig, error) {
 	var file struct {
 		Servers []mcpServerConfig `json:"servers"`
 	}
-	if err := readJSON(filepath.Join(root, "mcp_servers.json"), &file); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	if err := readJSON(filepath.Join(root, "mcp_servers.json"), &file); err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("mcp_servers.json: %w", err)
+	}
+	// A host that runs the engine for someone else (the chat bots) adds its
+	// own servers here without editing the user's file. The user's entry of
+	// the same name wins.
+	if extra := strings.TrimSpace(os.Getenv("ARIA_MCP_EXTRA_CONFIG")); extra != "" {
+		var more struct {
+			Servers []mcpServerConfig `json:"servers"`
+		}
+		if err := readJSON(extra, &more); err != nil {
+			return file.Servers, fmt.Errorf("ARIA_MCP_EXTRA_CONFIG: %w", err)
+		}
+		names := map[string]bool{}
+		for _, cfg := range file.Servers {
+			names[cfg.Name] = true
+		}
+		for _, cfg := range more.Servers {
+			if !names[cfg.Name] {
+				file.Servers = append(file.Servers, cfg)
+				names[cfg.Name] = true
+			}
+		}
 	}
 	return file.Servers, nil
 }
@@ -326,9 +344,12 @@ func (m *mcpManager) ensure(ctx context.Context) {
 	}
 	m.loaded = true
 	configs, err := loadMCPConfig(m.root)
-	if err != nil {
+	if err != nil && configs == nil {
 		m.failed["mcp_servers.json"] = err.Error()
 		return
+	}
+	if err != nil {
+		m.failed["ARIA_MCP_EXTRA_CONFIG"] = err.Error()
 	}
 	declared := false
 	for _, cfg := range configs {
