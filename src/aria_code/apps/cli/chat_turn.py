@@ -775,7 +775,7 @@ class ChatTurnMixin:
             result = {"success": False, "error": str(_err), "response": "", "cancelled": False}
             _fallback_mode = str(self.config.get("provider_fallback", "configured")).lower()
             _rescue = None
-            if _fallback_mode != "off" and "ARIA-4223" not in str(_err):
+            if _fallback_mode != "off" and "ARIA-4223" not in str(_err) and "ollama_model_unavailable:" not in str(_err):
                 try:
                     from providers.llm.registry import stream_cloud_fallback
                     _rescue = await stream_cloud_fallback(

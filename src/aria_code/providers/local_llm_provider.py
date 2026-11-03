@@ -41,111 +41,15 @@ logger = logging.getLogger(__name__)
 # Model resolution helpers
 # ---------------------------------------------------------------------------
 
-# Preferred model-name prefixes, highest priority first.
-_PREFERRED_PREFIXES = [
-    "aria-",            # native Aria models (future)
-    "qwen2.5:",         # full qwen2.5 series
-    "qwen2.5-coder:",   # coder variant (great for finance code tasks)
-    "qwen2.5",          # any qwen2.5 variant without explicit tag
-    "qwen",             # any qwen
-    "deepseek",         # DeepSeek family
-    "gpt-oss",          # locally-hosted GPT-compatible
-    "llama",            # Meta Llama family
-    "mistral",          # Mistral family
-    "gemma",            # Google Gemma family
-    "phi",              # Microsoft Phi
-    "command",          # Cohere Command
-]
-
-_model_cache: Dict[str, str] = {}   # base_url → resolved model name
-_cache_ts: Dict[str, float] = {}
-_CACHE_TTL = 60.0                   # seconds
-
-
-def resolve_model_sync(base_url: str, requested: str) -> str:
-    """
-    Synchronously resolve the best available Ollama model.
-
-    Resolution order:
-      1. Exact match with *requested*
-      2. Same family prefix (e.g. "aria-sonata" → any model starting with "aria-")
-      3. Priority-prefix list (_PREFERRED_PREFIXES)
-      4. First model returned by /api/tags
-      5. *requested* as-is (let Ollama surface the real error)
-    """
-    import time
-    key = f"{base_url}::{requested}"
-    now = time.time()
-    if key in _model_cache and now - _cache_ts.get(key, 0) < _CACHE_TTL:
-        return _model_cache[key]
-
-    tags_url = base_url.rstrip("/") + "/api/tags"
-    try:
-        with urllib.request.urlopen(tags_url, timeout=3) as r:
-            data = json.loads(r.read())
-        available: List[str] = [m["name"] for m in data.get("models", [])]
-    except Exception:
-        return requested  # Ollama unreachable — pass through
-
-    if not available:
-        return requested
-
-    resolved = _pick_model(available, requested)
-    _model_cache[key] = resolved
-    _cache_ts[key] = now
-    return resolved
-
-
-async def resolve_model_async(base_url: str, requested: str) -> str:
-    """Async variant of resolve_model_sync (uses aiohttp if available)."""
-    import time
-    key = f"{base_url}::{requested}"
-    now = time.time()
-    if key in _model_cache and now - _cache_ts.get(key, 0) < _CACHE_TTL:
-        return _model_cache[key]
-
-    tags_url = base_url.rstrip("/") + "/api/tags"
-    try:
-        if _HAS_AIOHTTP:
-            async with aiohttp.ClientSession(trust_env=True) as s:
-                async with s.get(tags_url, timeout=aiohttp.ClientTimeout(total=3)) as r:
-                    data = await r.json()
-        else:
-            with urllib.request.urlopen(tags_url, timeout=3) as r:
-                data = json.loads(r.read())
-        available: List[str] = [m["name"] for m in data.get("models", [])]
-    except Exception:
-        return requested
-
-    if not available:
-        return requested
-
-    resolved = _pick_model(available, requested)
-    _model_cache[key] = resolved
-    _cache_ts[key] = now
-    return resolved
+from aria_code.providers.ollama_models import (
+    ollama_base_url, resolve_model_sync, resolve_model_async,
+    require_installed_model as _require_installed_model,
+)
 
 
 def _pick_model(available: List[str], requested: str) -> str:
-    """Choose the best model from *available* given *requested*."""
-    # 1. Exact match
-    if requested in available:
-        return requested
+    return _require_installed_model(available, requested)
 
-    # 2. Same family (strip tag, match prefix)
-    family = requested.split(":")[0]
-    hit = next((m for m in available if m.startswith(family)), None)
-    if hit:
-        return hit
-
-    # 3. Priority-prefix list
-    for prefix in _PREFERRED_PREFIXES:
-        hit = next((m for m in available if m.startswith(prefix)), None)
-        if hit:
-            return hit
-
-    # 4. First available
-    return available[0]
 
 
 def list_ollama_models(base_url: str) -> List[str]:
@@ -257,7 +161,7 @@ class LocalLLMProvider:
         if not isinstance(provider_urls, dict):
             provider_urls = {}
         if backend == "ollama":
-            url = config.get("ollama_url") or info["default_url"]
+            url = ollama_base_url(config)
         else:
             url = (
                 config.get(f"{backend}_url")
@@ -267,12 +171,9 @@ class LocalLLMProvider:
             )
         api_key = config.get("local_api_key", os.getenv("LOCAL_LLM_API_KEY", ""))
 
-        # Resolve model at construction time so later callers always get a
-        # valid model name (Ollama-only: other backends manage their own catalog).
-        if backend == "ollama":
-            model = resolve_model_sync(url, requested_model)
-        else:
-            model = requested_model
+        # Discovery belongs to each request, not object construction: startup
+        # and configuration inspection must also work while Ollama is offline.
+        model = requested_model
 
         return cls(backend=backend, base_url=url, model=model, api_key=api_key)
 
@@ -378,7 +279,11 @@ class LocalLLMProvider:
         # Re-resolve the model async before every call — handles the case where
         # the model was changed or wasn't available at construction time.
         base_url = url.rsplit("/api/chat", 1)[0]
-        model = await resolve_model_async(base_url, self.model)
+        try:
+            model = await resolve_model_async(base_url, self.model)
+        except ValueError as exc:
+            yield {"type": "error", "message": str(exc)}
+            return
         if model != self.model:
             self.model = model   # keep in sync for future calls
             self._capability = None  # reset capability cache for new model

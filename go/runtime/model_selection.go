@@ -19,7 +19,7 @@ import (
 	"google.golang.org/genai"
 )
 
-func (s *server) selectModel(provider, model string) (string, error) {
+func (s *server) selectModel(ctx context.Context, provider, model string) (string, error) {
 	provider = strings.ToLower(provider)
 	if provider == "gcp" {
 		provider = "vertexai"
@@ -42,6 +42,17 @@ func (s *server) selectModel(provider, model string) (string, error) {
 		if !strings.HasPrefix(model, "gemini-") && !strings.HasPrefix(model, "gemma-") && !alias && !tunedEndpointName.MatchString(model) {
 			return "", errors.New("use a Google model ID or a configured tuned model")
 		}
+	}
+	if provider == "ollama" {
+		d, err := declaredProviderFor(next)
+		if err != nil {
+			return "", err
+		}
+		model, err = requireOllamaModel(ctx, d, model)
+		if err != nil {
+			return "", err
+		}
+		next["model"] = model
 	}
 	p, err := modelProviderFor(next)
 	if err != nil {
@@ -237,7 +248,7 @@ func (s *server) modelPicker(ctx context.Context, turn string) (string, error) {
 		return "Model selection cancelled", nil
 	}
 	if *r.Choice < len(names) {
-		return s.selectModel(name, names[*r.Choice])
+		return s.selectModel(ctx, name, names[*r.Choice])
 	}
 	r, err = s.dialogRequest(ctx, "input.requested", turn, map[string]any{"prompt": "Model ID / 模型名称", "secret": false})
 	if err != nil {
@@ -246,7 +257,7 @@ func (s *server) modelPicker(ctx context.Context, turn string) (string, error) {
 	if strings.TrimSpace(r.Text) == "" {
 		return "Model selection cancelled", nil
 	}
-	return s.selectModel(name, strings.TrimSpace(r.Text))
+	return s.selectModel(ctx, name, strings.TrimSpace(r.Text))
 }
 
 func declaredModels(ctx context.Context, d *declaredProvider) ([]string, error) {
