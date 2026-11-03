@@ -227,3 +227,60 @@ class TestMarketCommands:
         assert "📈 AAPL" in titles and "📊 Aria 晨报" in titles and "✅ 预警已添加" in titles
         assert "❌ 无效条件" in titles, "a bad condition never reaches the daemon"
         assert any(t.startswith("📋 预警（1") for t in titles)
+
+
+class TestTelegramCommands:
+    def test_market_commands_and_engine_fallthrough(self, monkeypatch):
+        from aria_bots import engine, market, telegram_bot
+
+        calls = []
+
+        async def daemon(*args, timeout=60):
+            calls.append(args)
+            if args[0] == "quote":
+                return json.dumps({"symbol": "AAPL", "price": 201.5, "change_pct": -0.4, "currency": "USD"})
+            if args[0] == "once":
+                return json.dumps({"title": "📊 Aria 晨报", "body": "indices"})
+            if args[:2] == ("alert", "add") and args[3] not in market.CONDITIONS:
+                raise market.MarketError("condition must be ...")
+            return "ID  SYMBOL\nab  AAPL" if args[:2] == ("alert", "list") else "ok"
+
+        turns = []
+
+        async def run_turn(prompt, *, engine, timeout=120, **kwargs):
+            turns.append(prompt)
+            return "engine says hi"
+
+        monkeypatch.setattr(market, "daemon", daemon)
+        monkeypatch.setattr(engine, "run_turn", run_turn)
+        monkeypatch.setattr(engine, "find_engine", lambda: "/x/aria-runtime")
+
+        async def go():
+            return [await telegram_bot.handle_command(cmd, args, 1) for cmd, args in [
+                ("price", "aapl"), ("brief", ""), ("alert", "AAPL price_above 200"), ("alert", "AAPL"),
+                ("alert", "AAPL up 1"), ("alerts", ""), ("status", ""), ("report", "NVDA"), ("chat", "你好"),
+                ("help", ""), ("screen", "")]]
+
+        price, brief, added, usage, bad, alerts, status, report, chat, help_text, unknown = asyncio.run(go())
+        assert "AAPL" in price and "-0.40%" in price
+        assert "晨报" in brief and "✅" in added and "用法" in usage and bad.startswith("⚠️")
+        assert "```" in alerts and status == "ok"
+        assert report == chat == "engine says hi" and "NVDA" in turns[0] and turns[1] == "你好"
+        assert "/price" in help_text and "screen" not in help_text
+        assert "未知命令" in unknown
+        assert ("quote", "AAPL", "--json") in calls
+
+    def test_allowed_ids_and_missing_token(self, monkeypatch):
+        from aria_bots import telegram_bot
+
+        assert telegram_bot.allowed_ids("1, -100200, x,") == {1, -100200}
+        monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+        assert telegram_bot.main() == 2
+
+
+def test_football_and_swarm_are_gone():
+    from aria_bots import feishu_bot
+
+    source = Path(feishu_bot.__file__).read_text(encoding="utf-8")
+    for gone in ("football", "swarm", "yfinance", "aria_daemon"):
+        assert gone not in source.lower(), gone

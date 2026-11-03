@@ -70,7 +70,19 @@ into the same `daemon.db` (`ARIA_DAEMON_DIR`, else `~/.aria`) that a running
 turn that uses the financial-service tools. `/screen` is gone: it was the
 Python daemon's A-share screener, which has no replacement.
 
-## Still being moved
+## Telegram
 
-- The Telegram bot's command handler is still in the Python daemon.
-- `/football` and `/swarm` go away.
+```bash
+TELEGRAM_BOT_TOKEN=... TELEGRAM_ALLOWED_IDS=123,456 aria-telegram-bot
+```
+
+It has the same market commands, plus `/report` and free text through the
+engine. An empty `TELEGRAM_ALLOWED_IDS` refuses every chat. The Python daemon
+also answers with this handler while it still starts the Telegram bot, so run
+only one of them per token.
+
+## Removed
+
+`/screen` (the Python A-share screener), `/football`, `/swarm`, and the
+yfinance commodity and market-snapshot shortcuts. The engine answers those
+questions with the financial-service tools.

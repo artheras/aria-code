@@ -23,6 +23,7 @@ voice = ["faster-whisper>=1.0"]
 [project.scripts]
 aria-relay-client = "aria_bots.relay_client:main"
 aria-logistics-mcp = "aria_bots.logistics.mcp_server:main"
+aria-telegram-bot = "aria_bots.telegram_bot:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

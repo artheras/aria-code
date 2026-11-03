@@ -384,60 +384,6 @@ async def _auto_analyze_alert(symbol: str, price: float, pct_str: str) -> None:
 
 # ── Telegram command handler ─────────────────────────────────────────────────
 
-async def _telegram_command(cmd: str, args: str, chat_id: int) -> str:
-    """Route Telegram bot commands to Aria functions."""
-    args = args.strip()
-    logger.info("Telegram cmd=/%s args=%s chat=%d", cmd, args[:40], chat_id)
-
-    if cmd == "help":
-        return (
-            "*Aria 命令列表*\n\n"
-            "`/price SYMBOL` — 实时报价\n"
-            "`/report SYMBOL` — 深度分析研报\n"
-            "`/brief` — 今日晨报\n"
-            "`/screen` — 热门 A 股筛选\n"
-            "`/alert SYMBOL cond value` — 添加价格预警\n"
-            "    条件: price\\_above / price\\_below / pct\\_change\\_above\n"
-            "`/alerts` — 查看预警列表\n"
-            "`/status` — Daemon 运行状态\n"
-            "\n直接发文字也可对话 Aria。"
-        )
-
-    if cmd in ("price", "p"):
-        symbol = args.upper() or "SPY"
-        price, _ = await _fetch_price(symbol)
-        if price:
-            return f"*{symbol}* 当前价格: `¥{price:.4f}`" if len(symbol) == 6 and symbol.isdigit() else f"*{symbol}* ${price:.4f}"
-        return f"⚠️ 无法获取 {symbol} 价格（市场可能已关闭）"
-
-    if cmd == "report":
-        symbol = args.upper()
-        if not symbol:
-            return "用法: `/report AAPL` 或 `/report 600519`"
-        return await _run_report(symbol)
-
-    if cmd in ("brief", "morning", "briefing"):
-        return await _run_morning_brief()
-
-    if cmd == "screen":
-        return await _run_screener()
-
-    if cmd == "alert":
-        return await _handle_alert_add(args, chat_id)
-
-    if cmd == "alerts":
-        return _list_alerts()
-
-    if cmd == "status":
-        return _daemon_status()
-
-    if cmd == "chat":
-        # Natural language fallback
-        return await _run_chat(args)
-
-    return f"未知命令 `/{cmd}`。发送 `/help` 查看命令列表。"
-
-
 async def _run_report(symbol: str) -> str:
     """Generate a quick text summary report."""
     try:
@@ -874,69 +820,6 @@ async def _run_screener() -> str:
         return "\n".join(lines)
     except Exception as exc:
         return f"⚠️ 筛选器出错: {exc}"
-
-
-async def _handle_alert_add(args: str, chat_id: int) -> str:
-    """Parse and store an alert from Telegram. Format: SYMBOL cond value"""
-    parts = args.split()
-    if len(parts) < 3:
-        return (
-            "用法: `/alert SYMBOL condition value`\n"
-            "示例: `/alert 600362 price_below 39.5`\n"
-            "条件: `price_above` / `price_below`"
-        )
-    symbol, cond, val_str = parts[0].upper(), parts[1].lower(), parts[2]
-    valid_conds = {"price_above", "price_below", "pct_change_above", "pct_change_below"}
-    if cond not in valid_conds:
-        return f"⚠️ 无效条件 `{cond}`。可用: {', '.join(valid_conds)}"
-    try:
-        val = float(val_str)
-    except ValueError:
-        return f"⚠️ 无效数值: `{val_str}`"
-
-    import uuid
-    alert_id = str(uuid.uuid4())[:8]
-    with sqlite3.connect(_DB_PATH) as conn:
-        conn.execute(
-            "INSERT INTO alerts (id, symbol, condition, value, message, notify_push, notify_telegram) "
-            "VALUES (?,?,?,?,?,1,1)",
-            (alert_id, symbol, cond, val, f"{symbol} {cond.replace('_',' ')} {val}"),
-        )
-        conn.commit()
-    return f"✅ 预警已设置 `[{alert_id}]`\n{symbol} {cond.replace('_', ' ')} `{val}`"
-
-
-def _list_alerts() -> str:
-    with sqlite3.connect(_DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT id, symbol, condition, value, active, trigger_count FROM alerts ORDER BY created_at DESC LIMIT 15"
-        ).fetchall()
-    if not rows:
-        return "📭 暂无预警设置"
-    lines = ["*预警列表*\n"]
-    for r in rows:
-        status = "🟢" if r["active"] else "⚫"
-        lines.append(f"{status} `{r['id']}` {r['symbol']} {r['condition'].replace('_',' ')} `{r['value']}` (触发{r['trigger_count']}次)")
-    return "\n".join(lines)
-
-
-def _daemon_status() -> str:
-    pid = os.getpid()
-    with sqlite3.connect(_DB_PATH) as conn:
-        alert_count  = conn.execute("SELECT COUNT(*) FROM alerts WHERE active=1").fetchone()[0]
-        sched_count  = conn.execute("SELECT COUNT(*) FROM schedules WHERE enabled=1").fetchone()[0]
-        device_count = conn.execute("SELECT COUNT(*) FROM device_tokens").fetchone()[0]
-        job_count    = conn.execute("SELECT COUNT(*) FROM webhook_jobs WHERE status='pending'").fetchone()[0]
-    return (
-        f"*🤖 Aria Daemon 状态*\n"
-        f"  PID: `{pid}`\n"
-        f"  活跃预警: `{alert_count}`\n"
-        f"  定时任务: `{sched_count}`\n"
-        f"  推送设备: `{device_count}`\n"
-        f"  待处理 Webhook: `{job_count}`\n"
-        f"  时间: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`"
-    )
 
 
 async def _run_chat(text: str) -> str:
@@ -1418,7 +1301,9 @@ async def main() -> None:
     # Start Telegram bot if token configured
     tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     if tg_token:
-        from aria_telegram_bot import TelegramBot
+        # Commands are answered by services/aria-bots (aria-runtime daemon for
+        # market data, the Go engine for everything else).
+        from aria_telegram_bot import TelegramBot, handle_command as _telegram_command
         allowed_raw = os.environ.get("TELEGRAM_ALLOWED_IDS", "")
         allowed_ids = set(
             int(x.strip()) for x in allowed_raw.split(",") if x.strip().isdigit()
