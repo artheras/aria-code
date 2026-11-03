@@ -48,8 +48,13 @@ var fileDefinitions = []definition{
 }
 
 func nativeTools() []*genai.Tool {
+	return toolsFor(fileDefinitions)
+}
+
+// toolsFor declares definitions to the model.
+func toolsFor(definitions []definition) []*genai.Tool {
 	declarations := []*genai.FunctionDeclaration{}
-	for _, d := range fileDefinitions {
+	for _, d := range definitions {
 		properties := map[string]any{}
 		for key, value := range d.properties {
 			properties[key] = value
@@ -66,7 +71,7 @@ func nativeTools() []*genai.Tool {
 	return []*genai.Tool{{FunctionDeclarations: declarations}}
 }
 func definitionFor(name string) (definition, bool) {
-	for _, d := range fileDefinitions {
+	for _, d := range append(fileDefinitions[:len(fileDefinitions):len(fileDefinitions)], webDefinitions...) {
 		if d.name == name {
 			return d, true
 		}
@@ -80,7 +85,7 @@ func definitionFor(name string) (definition, bool) {
 }
 func eventParams(params map[string]any) map[string]any {
 	visible := map[string]any{}
-	for _, key := range []string{"path", "directory", "command", "pattern", "query"} {
+	for _, key := range []string{"path", "directory", "command", "pattern", "query", "url"} {
 		if value, ok := params[key].(string); ok {
 			visible[key] = capText(value, 600)
 		}
@@ -118,6 +123,9 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 	contents = settlePending(contents)
 	system := "You are Aria, Arthera's assistant. Answer in the user's language. Never refer to internal agent role names."
 	tools := nativeTools()
+	if c.boolean("network_enabled", true) {
+		tools[0].FunctionDeclarations = append(tools[0].FunctionDeclarations, toolsFor(webDefinitions)[0].FunctionDeclarations...)
+	}
 	if hooks.mcp != nil {
 		hooks.mcp.ensure(ctx)
 		offered := hooks.skillTools
@@ -388,6 +396,14 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 						result = fileGlob(ctx, s, call.Args)
 					case "search_code":
 						result = searchCode(ctx, s, call.Args)
+					case "web_fetch", "web_search":
+						if !c.boolean("network_enabled", true) {
+							result = failed(errors.New("network access is off for this session (network_enabled=false)"))
+						} else if call.Name == "web_fetch" {
+							result = webFetch(ctx, call.Args)
+						} else {
+							result = webSearch(ctx, call.Args)
+						}
 					}
 					reads[key] = result
 				}

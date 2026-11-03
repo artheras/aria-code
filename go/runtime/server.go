@@ -244,6 +244,11 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 		body, _ := json.Marshal(params)
 		grant = name + ":" + string(body)
 	}
+	// A web call can carry data out in its URL: each host is approved once
+	// per session (or by a standing allow), not the tool as a whole.
+	if isWebTool(name) {
+		grant = name + ":" + webHost(name, params)
+	}
 	policy, err := persistentToolPolicy(s.opts.root, name)
 	if err != nil {
 		return false, "invalid persistent policy: " + err.Error(), nil
@@ -277,7 +282,7 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 		if standing && requirement != "always" {
 			return true, "", nil
 		}
-		if !d.mutate {
+		if !d.mutate && !isWebTool(name) {
 			return true, "", nil
 		}
 		if requirement == "auto" {
