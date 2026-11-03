@@ -51,6 +51,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "src" / "aria_code"
+# The chat bots moved to services/aria-bots; aria_code's shims at their old
+# paths import them by name, which PyInstaller's analysis cannot follow.
+BOTS_ROOT = ROOT / "services" / "aria-bots" / "src"
 HOOKS_DIR = ROOT / "build" / "pyinstaller-hooks"
 
 # pandas_ta imports numba at module level, and numba brings llvmlite: an LLVM
@@ -106,9 +109,22 @@ def bare_module_names() -> list[str]:
     return sorted(names)
 
 
+def bots_module_names() -> list[str]:
+    """Every module of the aria_bots package, by its dotted name."""
+    names = set()
+    for path in (BOTS_ROOT / "aria_bots").rglob("*.py"):
+        if not _is_module(path):
+            continue
+        parts = list(path.relative_to(BOTS_ROOT).with_suffix("").parts)
+        if parts[-1] == "__init__":
+            parts = parts[:-1]
+        names.add(".".join(parts))
+    return sorted(names)
+
+
 def hidden_imports() -> list[str]:
     bare = bare_module_names()
-    return sorted(set(bare) | {f"aria_code.{name}" for name in bare} | {"aria_code"})
+    return sorted(set(bare) | {f"aria_code.{name}" for name in bare} | {"aria_code"} | set(bots_module_names()))
 
 
 def write_hook(directory: Path = HOOKS_DIR) -> Path:
@@ -130,7 +146,8 @@ def collect_args() -> list[str]:
     # root, and an absolute path with a space in it ("Application Support")
     # would be split in two by the unquoted $(...) that splices this in.
     args = ["--additional-hooks-dir", os.path.relpath(write_hook()),
-            "--hidden-import", "aria_code"]
+            "--hidden-import", "aria_code",
+            "--paths", os.path.relpath(BOTS_ROOT)]
     for module in EXCLUDED:
         args += ["--exclude-module", module]
     return args

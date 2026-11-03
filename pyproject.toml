@@ -280,7 +280,9 @@ license-files = ["LICENSE", "NOTICE"]
 #
 # tests/test_wheel_is_not_empty.py builds a wheel and asserts it contains the
 # package.
-where = ["src"]
+# services/aria-bots/src: the chat bots moved there; this wheel still ships
+# aria_bots so the shims at their old paths resolve until the Python core goes.
+where = ["src", "services/aria-bots/src"]
 # Real top-level packages (dirs with __init__.py). packages.find only matches
 # package directories — single-file top-level modules are declared in
 # [tool.setuptools].py-modules above, NOT here.
@@ -301,7 +303,7 @@ where = ["src"]
 #   from setuptools.discovery import PEP420PackageFinder as F
 #   print(sorted({p.split('.')[0] for p in F.find(where='.', include=[...])}))"
 # 结果应与 `git ls-files '*/__init__.py'` 里的顶层目录集合一致。
-include = ["aria_code*"]
+include = ["aria_code*", "aria_bots*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml", "*.json", "*.md", "*.txt", "*.sh"]
@@ -389,7 +391,7 @@ exclude = '''
 # and apps/cli/tools/*.py put it on sys.path at import time. Declaring it here
 # makes collection deterministic instead of depending on which test module
 # happened to trigger that side effect first.
-pythonpath = [".", "src", "src/aria_code"]
+pythonpath = [".", "src", "src/aria_code", "services/aria-bots/src"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
