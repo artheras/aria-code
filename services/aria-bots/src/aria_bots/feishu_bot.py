@@ -35,7 +35,7 @@ OpenClaw 同款设计：任意输入（文字/语音/图片/文件）→ Aria AI
   📄 文件          → 自动解析 PDF/Excel/代码 → Aria LLM 总结
 
 结构化命令（/command）：
-  /price AAPL           /brief          /screen
+  /price AAPL           /brief
   /report NVDA          /run /price TSLA   (调用 aria CLI -p 模式)
   /alert add SYM cond v  /alerts         /status   /help
 """
@@ -67,6 +67,7 @@ from aria_bots.channels.conversation import (
 )
 from aria_bots.logistics.tenancy import OWNER_SCOPE_ENV
 from aria_bots import engine as _engine
+from aria_bots import market as _market
 
 logger = logging.getLogger(__name__)
 
@@ -366,7 +367,6 @@ async def _handle_command(cmd: str, message_id: str, sender_id: str, chat_id: st
             "**结构化命令：**\n"
             "`/price <symbol>` — 实时价格（支持 A 股 6 位代码）\n"
             "`/brief` — 今日晨报摘要\n"
-            "`/screen` — 涨停预测 Top10\n"
             "`/report <symbol>` — 个股研报（异步推送）\n"
             "`/team <symbol>` — 🤖 多Agent研究（宏观+基本面+技术+风控）\n"
             "`/football predict Arsenal vs Chelsea pl` — ⚽ 足球比赛预测\n"
@@ -388,39 +388,19 @@ async def _handle_command(cmd: str, message_id: str, sender_id: str, chat_id: st
             return
         await reply_card(message_id, f"🔄 查询 {symbol}…", "正在获取实时行情，请稍候…", "blue")
         try:
-            price, prev = await _fetch_price_feishu(symbol)
-            if price is None:
-                await reply_card(message_id, f"❌ {symbol}", "获取行情失败，请检查代码是否正确", "red")
-                return
-            pct = f"{(price - prev) / prev * 100:+.2f}%" if prev else "N/A"
-            color = "red" if prev and price > prev else "green" if prev and price < prev else "blue"
-            body = (
-                f"**当前价** ¥{price:.3f}\n"
-                f"**涨跌幅** {pct}\n"
-                f"**昨收**  ¥{prev:.3f}" if prev else f"**当前价** {price:.4f}"
-            )
-            await reply_card(message_id, f"{'📈' if prev and price >= prev else '📉'} {symbol}", body, color)
+            title, body, color = _market.price_card(await _market.quote(symbol))
+            await reply_card(message_id, title, body, color)
         except Exception as exc:
-            await reply_card(message_id, f"❌ {symbol}", f"查询失败: {exc}", "red")
+            await reply_card(message_id, f"❌ {symbol}", f"查询失败: {str(exc)[:300]}", "red")
 
     elif verb == "brief":
         await reply_card(message_id, "⏳ 生成晨报…", "正在获取市场数据，请稍候…", "blue")
         try:
-            from aria_daemon import _run_morning_brief
-            brief = await _run_morning_brief()
-            await reply_card(message_id, "📊 Aria 晨报", brief[:2000], "green",
+            title, brief = await _market.brief("morning-brief")
+            await reply_card(message_id, title, brief[:2000], "green",
                              footer="Aria Code · 实时市场分析")
         except Exception as exc:
             await reply_card(message_id, "❌ 晨报生成失败", str(exc)[:300], "red")
-
-    elif verb == "screen":
-        await reply_card(message_id, "⏳ 筛选中…", "正在扫描 A 股涨停预测，请稍候…", "blue")
-        try:
-            from aria_daemon import _run_screener
-            result = await _run_screener()
-            await reply_card(message_id, "🔍 涨停预测 Top10", result[:2000], "turquoise")
-        except Exception as exc:
-            await reply_card(message_id, "❌ 筛选失败", str(exc)[:300], "red")
 
     elif verb == "report":
         symbol = parts[1].upper() if len(parts) > 1 else ""
@@ -432,59 +412,41 @@ async def _handle_command(cmd: str, message_id: str, sender_id: str, chat_id: st
         asyncio.create_task(_async_report(symbol, message_id))
 
     elif verb == "alert":
-        if len(parts) < 2:
-            await reply_text(message_id, "用法: /alert add <symbol> <cond> <value>")
-            return
-        sub = parts[1].lower()
-        if sub == "add" and len(parts) >= 5:
+        if len(parts) >= 5 and parts[1].lower() == "add":
             sym, cond, val = parts[2].upper(), parts[3], parts[4]
-            valid_conds = {"price_above", "price_below", "pct_change_above", "pct_change_below"}
-            if cond not in valid_conds:
+            if cond not in _market.CONDITIONS:
                 await reply_card(message_id, "❌ 无效条件",
-                                 "支持的条件：\n" + "\n".join(f"• `{c}`" for c in sorted(valid_conds)), "red")
+                                 "支持的条件：\n" + "\n".join(f"• `{c}`" for c in _market.CONDITIONS), "red")
                 return
-            import sqlite3
-            from aria_daemon import _DB_PATH
-            with sqlite3.connect(_DB_PATH) as conn:
-                conn.execute(
-                    "INSERT INTO alerts(id,symbol,condition,value,message,active) VALUES(?,?,?,?,?,1)",
-                    (f"fs_{int(time.time())}_{sym}", sym, cond, float(val),
-                     f"{sym} {cond.replace('_',' ')} {val}", )
-                )
-                conn.commit()
+            try:
+                await _market.add_alert(sym, cond, val)
+            except Exception as exc:
+                await reply_card(message_id, "❌ 预警添加失败", str(exc)[:300], "red")
+                return
             await reply_card(message_id, "✅ 预警已添加",
                              f"**{sym}** 当 {cond.replace('_',' ')} `{val}` 时触发通知", "green")
         else:
             await reply_text(message_id, "用法: /alert add <symbol> <cond> <value>")
 
     elif verb == "alerts":
-        import sqlite3
-        from aria_daemon import _DB_PATH
-        rows = sqlite3.connect(_DB_PATH).execute(
-            "SELECT symbol,condition,value FROM alerts WHERE active=1 ORDER BY created_at DESC LIMIT 20"
-        ).fetchall()
-        if not rows:
-            await reply_card(message_id, "📋 当前预警", "暂无活跃预警", "blue")
-        else:
-            lines = "\n".join(f"• **{r[0]}** {r[1].replace('_',' ')} `{r[2]}`" for r in rows)
-            await reply_card(message_id, f"📋 活跃预警（{len(rows)} 条）", lines, "blue")
+        try:
+            table = await _market.list_alerts()
+        except Exception as exc:
+            await reply_card(message_id, "❌ 预警读取失败", str(exc)[:300], "red")
+            return
+        rows = table.splitlines()[1:]
+        body = "暂无预警" if not rows else "```\n" + table[:1900] + "\n```"
+        await reply_card(message_id, f"📋 预警（{len(rows)} 条）", body, "blue")
 
     elif verb == "status":
-        import sqlite3
-        from aria_daemon import _DB_PATH, _PID_FILE
-        pid_alive = _PID_FILE.exists()
-        conn = sqlite3.connect(_DB_PATH)
-        alert_count = conn.execute("SELECT COUNT(*) FROM alerts WHERE active=1").fetchone()[0]
-        sched_count = conn.execute("SELECT COUNT(*) FROM schedules WHERE active=1").fetchone()[0]
-        job_pending = conn.execute("SELECT COUNT(*) FROM webhook_jobs WHERE status='pending'").fetchone()[0]
-        body = (
-            f"**Daemon** {'🟢 运行中' if pid_alive else '🔴 未运行'}\n"
-            f"**活跃预警** {alert_count} 条\n"
-            f"**定时任务** {sched_count} 条\n"
-            f"**待处理 Jobs** {job_pending} 个"
-        )
-        await reply_card(message_id, "📡 Aria Daemon 状态", body,
-                         "green" if pid_alive else "red")
+        try:
+            text = await _market.status()
+        except Exception as exc:
+            await reply_card(message_id, "📡 Aria Daemon 状态", str(exc)[:300], "red")
+            return
+        running = "not running" not in text.splitlines()[0] if text else False
+        await reply_card(message_id, "📡 Aria Daemon 状态", text[:2000],
+                         "green" if running else "red")
     elif verb == "football":
         sub = parts[1].lower() if len(parts) > 1 else ""
         rest = " ".join(parts[2:])
@@ -634,31 +596,18 @@ async def _handle_football_standings(league: str, message_id: str) -> None:
         await reply_card(message_id, "❌ 获取失败", str(exc)[:300], "red")
 
 
-async def _fetch_price_feishu(symbol: str):
-    """Thin wrapper around aria_daemon._fetch_price for use inside bot."""
-    try:
-        from aria_daemon import _fetch_price
-        return await _fetch_price(symbol)
-    except ImportError:
-        # Fallback: inline yfinance
-        import yfinance as yf
-        yfn = (symbol + (".SS" if symbol.startswith(("6", "5")) else ".SZ")
-               if symbol.isdigit() and len(symbol) == 6 else symbol)
-        info = yf.Ticker(yfn).fast_info
-        p = getattr(info, "last_price", None)
-        pc = getattr(info, "previous_close", None)
-        return (float(p) if p else None, float(pc) if pc else None)
-
-
 async def _async_report(symbol: str, message_id: str) -> None:
-    """Background task: generate report and reply when done."""
-    try:
-        from aria_daemon import _run_report
-        result = await _run_report(symbol)
-        await reply_card(message_id, f"📄 {symbol} 研报完成", result[:2000], "turquoise",
-                         footer="Aria Code · 多智能体分析")
-    except Exception as exc:
-        await reply_card(message_id, f"❌ {symbol} 研报失败", str(exc)[:300], "red")
+    """Background task: a research note from the engine (financial-service tools)."""
+    runtime = _engine.find_engine()
+    if not runtime:
+        await reply_card(message_id, f"❌ {symbol} 研报失败", "未找到 aria-runtime", "red")
+        return
+    prompt = (f"为 {symbol} 写一份简明研报：最新行情、技术面（趋势、RSI、MACD）、"
+              "基本面要点、主要风险，以及结论。只用工具取到的数据，注明来源与日期。")
+    result = await _engine.run_turn(prompt, engine=runtime, owner=_TURN_OWNER.get(), timeout=240)
+    failed = result.startswith(("❌", "⏱️"))
+    await reply_card(message_id, f"{'❌' if failed else '📄'} {symbol} 研报{'失败' if failed else '完成'}",
+                     result[:2000], "red" if failed else "turquoise", footer="Aria Code · 研报")
 
 
 async def _async_run_swarm(event: str, message_id: str) -> None:

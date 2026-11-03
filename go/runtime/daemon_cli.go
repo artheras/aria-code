@@ -31,6 +31,8 @@ const daemonUsage = `usage: aria-runtime daemon <command>
                                         "report SYMBOL" or "custom:TEXT"
   schedule list | schedule remove ID
   install | uninstall                   start at login (macOS LaunchAgent, Linux systemd user unit)
+  once COMMAND [--json]                 run one schedule command now and print it (no notification)
+  quote SYMBOL [--json]                 one quote from financial-service
 
 Folder: ARIA_DAEMON_DIR, else ~/.aria (daemon.db, logs/). Time zone: ARIA_DAEMON_TZ
 (default Asia/Shanghai). ARIA_DAEMON_DEFAULT_JOBS=0 turns off the four built-in briefs.`
@@ -72,6 +74,9 @@ func daemonCommand(args []string, out, errOut io.Writer) int {
 	}
 	if args[0] == "install" || args[0] == "uninstall" {
 		return daemonService(args[0], out, errOut)
+	}
+	if args[0] == "once" || args[0] == "quote" {
+		return daemonOneShot(args, out, errOut)
 	}
 	db, err := openDaemonDB(daemonDir())
 	if err != nil {
@@ -358,6 +363,75 @@ func daemonService(action string, out, errOut io.Writer) int {
 	default:
 		fmt.Fprintln(errOut, "install supports macOS and Linux; on Windows run `aria-runtime daemon run` from Task Scheduler")
 		return 1
+	}
+	return 0
+}
+
+// daemonMarket is the market a one-shot command reads (tests replace it).
+var daemonMarket = func() (marketData, func()) {
+	finance := &financeClient{}
+	return serviceMarket{finance}, finance.close
+}
+
+// daemonOneShot answers `once COMMAND` and `quote SYMBOL` for a caller such
+// as the chat bots: the same text a schedule would send, printed instead.
+func daemonOneShot(args []string, out, errOut io.Writer) int {
+	_, asJSON, args, _ := takeFlag(args, "--json", false)
+	if len(args) < 2 {
+		fmt.Fprintln(errOut, "usage: aria-runtime daemon once COMMAND | quote SYMBOL [--json]")
+		return 2
+	}
+	dir := daemonDir()
+	loadDaemonEnv(dir)
+	market, done := daemonMarket()
+	defer done()
+	ctx := context.Background()
+	if args[0] == "quote" {
+		symbol := strings.ToUpper(strings.TrimSpace(args[1]))
+		if !chartSymbol.MatchString(symbol) {
+			fmt.Fprintf(errOut, "invalid symbol %q\n", args[1])
+			return 2
+		}
+		q, err := market.quote(ctx, symbol)
+		if err != nil {
+			fmt.Fprintln(errOut, err)
+			return 1
+		}
+		if asJSON {
+			body := map[string]any{"symbol": symbol, "price": q.Price, "currency": q.Currency, "source": q.Source}
+			if q.HasChange {
+				body["change_pct"] = q.ChangePct
+			}
+			json.NewEncoder(out).Encode(body)
+			return 0
+		}
+		line := fmt.Sprintf("%s %s%s", symbol, currencyMark(q), quotePrice(q.Price))
+		if q.HasChange {
+			line += fmt.Sprintf(" (%+.2f%%)", q.ChangePct)
+		}
+		fmt.Fprintln(out, line)
+		return 0
+	}
+	db, err := openDaemonDB(dir)
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		return 1
+	}
+	defer db.Close()
+	d, err := newDaemon(db, market)
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		return 1
+	}
+	title, body, err := d.runCommand(ctx, strings.Join(args[1:], " "))
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		return 1
+	}
+	if asJSON {
+		json.NewEncoder(out).Encode(map[string]string{"title": title, "body": body})
+	} else {
+		fmt.Fprintf(out, "%s\n\n%s\n", title, body)
 	}
 	return 0
 }

@@ -333,3 +333,45 @@ func TestDaemonEnvAndProcess(t *testing.T) {
 		t.Fatal(code)
 	}
 }
+
+func TestDaemonOnceAndQuoteForCallers(t *testing.T) {
+	t.Setenv("ARIA_DAEMON_DIR", t.TempDir())
+	t.Setenv("ARIA_DAEMON_TZ", "UTC")
+	market := &fakeMarket{quotes: map[string]quote{"AAPL": {Price: 201.5, ChangePct: 1.25, HasChange: true, Currency: "USD", Source: "test"}}, weeks: map[string]float64{}}
+	saved := daemonMarket
+	defer func() { daemonMarket = saved }()
+	daemonMarket = func() (marketData, func()) { return market, func() {} }
+	run := func(args ...string) (int, string, string) {
+		var out, errOut strings.Builder
+		code := daemonCommand(args, &out, &errOut)
+		return code, out.String(), errOut.String()
+	}
+	if code, out, _ := run("quote", "aapl"); code != 0 || out != "AAPL $201.50 (+1.25%)\n" {
+		t.Fatalf("%d %q", code, out)
+	}
+	code, out, _ := run("quote", "AAPL", "--json")
+	var q map[string]any
+	if code != 0 || json.Unmarshal([]byte(out), &q) != nil || q["price"] != 201.5 || q["change_pct"] != 1.25 || q["currency"] != "USD" {
+		t.Fatal(code, out)
+	}
+	if code, _, errOut := run("quote", "MSFT"); code != 1 || errOut == "" {
+		t.Fatal("no quote is an error", code)
+	}
+	if code, _, _ := run("quote", "bad symbol!"); code != 2 {
+		t.Fatal(code)
+	}
+	code, out, _ = run("once", "custom:hello", "--json")
+	var brief map[string]string
+	if code != 0 || json.Unmarshal([]byte(out), &brief) != nil || brief["body"] != "hello" || brief["title"] == "" {
+		t.Fatal(code, out)
+	}
+	if code, out, _ := run("once", "evening-brief"); code != 0 || !strings.Contains(out, "收盘") {
+		t.Fatal(code, out)
+	}
+	if code, _, _ := run("once", "rm", "-rf"); code != 1 {
+		t.Fatal("unknown commands are refused", code)
+	}
+	if code, _, _ := run("once"); code != 2 {
+		t.Fatal(code)
+	}
+}

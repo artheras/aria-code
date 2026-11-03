@@ -11,6 +11,7 @@ Aria's chat bots, split out of the Python core:
 | `aria_bots.logistics` | Freight analysis, carrier scoring, inventory policy; every tool is scoped to the shipper a chat is bound to (`logistics.tenancy`) |
 | `aria_bots.logistics.mcp_server` | The same tools over MCP (`aria-logistics-mcp`) for the Go engine |
 | `aria_bots.engine` | Runs a chat turn on `aria-runtime stream` |
+| `aria_bots.market` | `/price`, `/brief`, `/alert`, `/alerts`, `/status` through `aria-runtime daemon` |
 
 The package does not import `aria_code`. Until the Python core is removed,
 `aria_code` keeps shims at the old paths (`aria_feishu_bot`,
@@ -60,7 +61,16 @@ Credentials come from the environment (or `~/.aria/.env`): `ARIA_RELAY_URL`,
 `ARIA_RELAY_BIND_CODE`), `FEISHU_APP_ID`, `FEISHU_APP_SECRET`,
 `FEISHU_VERIFICATION_TOKEN`/`FEISHU_ENCRYPT_KEY`, `FEISHU_ALLOWED_USER_IDS`.
 
+## Market commands
+
+`/price`, `/brief`, `/alert add`, `/alerts` and `/status` run `aria-runtime
+daemon quote|once|alert|status`. Quotes come from financial-service. Alerts go
+into the same `daemon.db` (`ARIA_DAEMON_DIR`, else `~/.aria`) that a running
+`aria-runtime daemon` watches and notifies from. `/report SYMBOL` is an engine
+turn that uses the financial-service tools. `/screen` is gone: it was the
+Python daemon's A-share screener, which has no replacement.
+
 ## Still being moved
 
-- Market commands (`price`, `report`, `brief`, `screen`, `alert`) still call
-  the Python daemon; they move to financial-service and `aria-runtime daemon`.
+- The Telegram bot's command handler is still in the Python daemon.
+- `/football` and `/swarm` go away.

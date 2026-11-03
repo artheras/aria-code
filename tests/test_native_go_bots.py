@@ -91,3 +91,32 @@ def test_an_unbound_chat_cannot_mix_shippers(model):
     asyncio.run(engine.run_turn("score our carriers", engine=binary, timeout=60))
     (result,) = seen["results"]
     assert not result["success"] and "shippers" in result["error"]
+
+
+def test_market_commands_on_the_real_daemon_cli(tmp_path, monkeypatch):
+    binary = os.environ.get("ARIA_GO_RUNTIME_BINARY")
+    if not binary:
+        pytest.skip("Build the native Go application first")
+    from aria_bots import market
+
+    monkeypatch.setenv("ARIA_RUNTIME", binary)
+    monkeypatch.setenv("ARIA_DAEMON_DIR", str(tmp_path))
+    monkeypatch.setenv("ARIA_DAEMON_DEFAULT_JOBS", "0")
+
+    async def go():
+        added = await market.add_alert("AAPL", "price_above", "200")
+        listed = await market.list_alerts()
+        status = await market.status()
+        title, body = await market.brief("custom:收盘提醒")
+        try:
+            await market.add_alert("AAPL", "price_above", "lots")
+        except market.MarketError as exc:
+            refused = str(exc)
+        return added, listed, status, title, body, refused
+
+    added, listed, status, title, body, refused = asyncio.run(go())
+    assert "AAPL" in added and "AAPL" in listed.splitlines()[1]
+    assert "active alerts: 1" in status
+    assert body == "收盘提醒" and title
+    assert "number" in refused
+    assert (tmp_path / "daemon.db").is_file()
