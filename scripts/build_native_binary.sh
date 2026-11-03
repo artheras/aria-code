@@ -120,6 +120,15 @@ echo "── Running PyInstaller for the MCP server binary (--onedir) ──"
   --copy-metadata aria-code \
   "$PROJECT_ROOT/src/aria_code/aria_mcp_server.py"
 
+# aria-code-mcp hands over to the Go engine beside it (`aria-runtime mcp`);
+# the signing loop below signs it with the rest of the folder.
+if [[ "${SKIP_NATIVE_INDEXER:-}" != "1" ]]; then
+  echo "── Bundling the Go engine for the MCP server ──"
+  go -C "$PROJECT_ROOT/go/buildtools" run . runtime --root "$PROJECT_ROOT" "$MCP_BIN_DIR"
+  "$MCP_BIN_PATH" --version | grep -q "aria-runtime mcp" \
+    || { echo "the MCP server did not hand over to the Go engine" >&2; exit 1; }
+fi
+
 # Both binaries (CLI + MCP server) go through the same sign/notarize/verify
 # pipeline below — iterate rather than duplicate the whole block per binary.
 BIN_NAMES=("$BIN_NAME" "$MCP_BIN_NAME")

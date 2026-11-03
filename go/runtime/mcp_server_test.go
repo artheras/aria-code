@@ -123,7 +123,7 @@ func TestMCPServerProtocolAndTools(t *testing.T) {
 		name := tool["name"].(string)
 		// Media tools write, each to a new file; only the paid ones are destructive,
 		// so a client asks a person before each call.
-		readOnly := map[string]bool{"aria.video.probe": true, "aria.video.detect_scenes": true, "aria.report.estimate_image_cost": true,
+		readOnly := map[string]bool{"aria.video.probe": true, "aria.video.detect_scenes": true, "aria.video.transcribe": true, "aria.report.estimate_image_cost": true,
 			"aria.video.generate_estimate": true, "aria.figma.read_file": true, "aria.figma.comments": true}
 		paid := map[string]bool{"aria.report.generate_image": true, "aria.report.edit_image": true, "aria.video.generate_submit": true}
 		writes := (strings.HasPrefix(name, "aria.video.") || strings.HasPrefix(name, "aria.report.")) && !readOnly[name]
