@@ -78,6 +78,21 @@ class TestLogisticsMCPServer:
         assert replies[0]["error"]["code"] == -32700 and replies[1]["result"] == {}
 
 
+def test_the_server_speaks_utf8_whatever_the_console_encoding():
+    """Windows defaults stdio to cp1252; the tool list has Chinese text."""
+    import subprocess
+
+    lines = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}]
+    src = Path(mcp_server.__file__).resolve().parents[2]
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONPATH": str(src)}
+    out = subprocess.run([sys.executable, "-m", "aria_bots.logistics.mcp_server"], env=env, timeout=60,
+                         input="".join(json.dumps(m) + "\n" for m in lines).encode(), capture_output=True)
+    assert out.returncode == 0, out.stderr.decode(errors="replace")[-800:]
+    replies = [json.loads(line) for line in out.stdout.decode("utf-8").split("\n") if line]
+    assert len(replies[1]["result"]["tools"]) == 3 and b"\r" not in out.stdout
+
+
 class TestEngine:
     def test_engine_lookup(self, tmp_path, monkeypatch):
         fake = tmp_path / "aria-runtime"

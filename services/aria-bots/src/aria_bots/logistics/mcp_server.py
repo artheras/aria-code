@@ -144,6 +144,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                         help=f"folder file_path is read from (default ${DATA_DIR_ENV}; none: inline records only)")
     args = parser.parse_args(argv)
     data_dir = Path(args.data_dir).expanduser() if args.data_dir else None
+    # MCP is UTF-8 JSON lines. Windows' default (cp1252, CRLF) would crash on
+    # the first non-ASCII description and add \r to every line.
+    for stream in (sys.stdin, sys.stdout):
+        stream.reconfigure(encoding="utf-8", newline="\n")  # type: ignore[union-attr]
     serve(sys.stdin, sys.stdout, data_dir)
     return 0
 
