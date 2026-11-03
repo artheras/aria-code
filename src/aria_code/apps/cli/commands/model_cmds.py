@@ -371,6 +371,15 @@ class ModelCommandsMixin:
             else:
                 rich_models = []
                 ollama_err = f"API key missing · /apikey set {current_provider} <key>"
+        if current_provider != "ollama":
+            # Local catalogue entries are shown only when installed, whatever
+            # the current provider, so a cloud user can still switch to one.
+            try:
+                local_models, _ = detect_ollama_models_rich(ollama_url)
+            except Exception:
+                local_models = []
+            seen = {m["name"] for m in rich_models}
+            rich_models = rich_models + [m for m in local_models or [] if m.get("name") not in seen]
         display_models = _installed_catalogue(rich_models)
         installed_names = {m["name"] for m in rich_models}
         aria_ids        = {m["id"] for m in display_models.values()}

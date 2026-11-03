@@ -118,7 +118,11 @@ async def check():
 asyncio.run(check())
 print("health-import-ok")
 '''
-    child=subprocess.run([sys.executable,'-c',code],env=os.environ.copy(),capture_output=True,text=True,timeout=20)
+    from pathlib import Path
+    src = Path(__file__).resolve().parents[1] / "src"
+    paths = [str(src), str(src / "aria_code"), os.environ.get("PYTHONPATH", "")]
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join(p for p in paths if p)}
+    child=subprocess.run([sys.executable,'-c',code],env=env,capture_output=True,text=True,timeout=20)
     assert child.returncode == 0, child.stderr
     assert 'health-import-ok' in child.stdout
     assert 'was never awaited' not in child.stderr
