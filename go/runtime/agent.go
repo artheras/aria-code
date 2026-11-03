@@ -106,6 +106,9 @@ type agentHooks struct {
 	instructions string
 	// mcp supplies the configured MCP servers' tools; nil for none.
 	mcp *mcpManager
+	// skillTools are the tools this turn's active skills ask for; Aria's
+	// own tool server is offered only for these.
+	skillTools map[string]bool
 	// hook runs PreToolUse/PostToolUse hooks; false vetoes the call.
 	hook func(ctx context.Context, event, tool string, params map[string]any, result *toolResult) (bool, string)
 }
@@ -125,7 +128,11 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 	}
 	if hooks.mcp != nil {
 		hooks.mcp.ensure(ctx)
-		tools[0].FunctionDeclarations = append(tools[0].FunctionDeclarations, hooks.mcp.declarations()...)
+		offered := hooks.skillTools
+		if offered == nil {
+			offered = map[string]bool{}
+		}
+		tools[0].FunctionDeclarations = append(tools[0].FunctionDeclarations, hooks.mcp.declarationsFor(offered)...)
 	}
 	greeting := social(prompt)
 	if greeting {

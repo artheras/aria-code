@@ -296,6 +296,24 @@ type mcpManager struct {
 	failed  map[string]string
 }
 
+// selfMCPName is Aria's own tool server (aria-runtime mcp: reports, charts,
+// images, video, Figma, Canva). Its tools are offered on a turn only when an
+// active skill asks for them, so ordinary turns do not carry ~40 schemas.
+const selfMCPName = "aria"
+
+// selfMCPCommand is how to start it: this executable's mcp mode. A
+// variable so tests (whose binary is not aria-runtime) can supply one.
+var selfMCPCommand = func() (string, []string, bool) {
+	if os.Getenv("ARIA_SELF_MCP") == "0" {
+		return "", nil, false
+	}
+	exe, err := os.Executable()
+	if err != nil || !strings.HasPrefix(strings.TrimSuffix(filepath.Base(exe), ".exe"), "aria-runtime") {
+		return "", nil, false
+	}
+	return exe, []string{"mcp"}, true
+}
+
 func newMCPManager(root string) *mcpManager {
 	return &mcpManager{root: root, clients: map[string]*mcpClient{}, failed: map[string]string{}}
 }
@@ -311,6 +329,14 @@ func (m *mcpManager) ensure(ctx context.Context) {
 	if err != nil {
 		m.failed["mcp_servers.json"] = err.Error()
 		return
+	}
+	declared := false
+	for _, cfg := range configs {
+		declared = declared || cfg.Name == selfMCPName
+	}
+	if command, args, ok := selfMCPCommand(); ok && !declared {
+		configs = append(configs, mcpServerConfig{Name: selfMCPName, Command: command, Args: args,
+			Description: "Aria's own tools: reports, charts, images, video, Figma, Canva"})
 	}
 	m.configs = configs
 	if remoteScope() {
@@ -376,6 +402,28 @@ func (m *mcpManager) definition(name string) (definition, bool) {
 }
 
 func (m *mcpManager) declarations() []*genai.FunctionDeclaration {
+	return m.declarationsFor(nil)
+}
+
+// declarationsFor offers every configured server's tools, and Aria's own
+// only where offered names them (nil offers them all).
+func (m *mcpManager) declarationsFor(offered map[string]bool) []*genai.FunctionDeclaration {
+	all := m.allDeclarations()
+	if offered == nil {
+		return all
+	}
+	prefix := mcpToolName(selfMCPName, "x")
+	prefix = strings.TrimSuffix(prefix, "x")
+	out := all[:0:0]
+	for _, d := range all {
+		if !strings.HasPrefix(d.Name, prefix) || offered[d.Name] {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func (m *mcpManager) allDeclarations() []*genai.FunctionDeclaration {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	names := make([]string, 0, len(m.clients))
