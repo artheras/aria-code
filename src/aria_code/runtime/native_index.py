@@ -32,17 +32,23 @@ _TIMEOUT = 120
 
 
 def native_binary() -> Optional[str]:
-    """``ARIA_NATIVE_BINARY``, else the copy bundled with a native build, else ``PATH``."""
+    """``ARIA_NATIVE_BINARY``, else the copy bundled with a native build or a
+    platform wheel, else ``PATH``."""
     configured = os.environ.get("ARIA_NATIVE_BINARY", "").strip()
     if configured:
         return configured if Path(configured).is_file() else None
+    name = "aria-native.exe" if sys.platform == "win32" else "aria-native"
     if getattr(sys, "frozen", False):
         # go/buildtools puts it in the PyInstaller contents
         # folder (_internal/), which is sys._MEIPASS at run time.
-        bundled = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / (
-            "aria-native.exe" if sys.platform == "win32" else "aria-native")
+        bundled = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / name
         if bundled.is_file():
             return str(bundled)
+    # A platform wheel (scripts/platform_wheels.py) carries it, with the Go
+    # engine beside it, in aria_code/_bin/.
+    packaged = Path(__file__).resolve().parents[1] / "_bin" / name
+    if packaged.is_file() and (sys.platform == "win32" or os.access(packaged, os.X_OK)):
+        return str(packaged)
     return shutil.which("aria-native")
 
 
