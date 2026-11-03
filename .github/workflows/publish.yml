@@ -216,9 +216,111 @@ jobs:
             exit 1
           }
 
+  # The pure wheel runs the Python engine. Platform wheels carry the Rust
+  # frontend and the Go engine from this version's native archives
+  # (scripts/platform_wheels.py), so a pip install on those five platforms
+  # runs what the native release runs. The archives sit on the draft release,
+  # which only a token with write access can read; that is all this job
+  # writes with, and it publishes nothing.
+  platform-wheels:
+    name: Build platform wheels
+    needs: verify-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build sdist + pure wheel
+        run: uv build
+
+      - name: Wait for this version's native archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Built and attached by build-native-binaries.yml, which this job
+          # cannot depend on; the same budget as the npm platform packages.
+          WANTED="aria-code-linux-x64.tar.gz aria-code-linux-arm64.tar.gz aria-code-macos-arm64.tar.gz aria-code-macos-x64.tar.gz aria-code-windows-x64.zip"
+          DEADLINE=$(( $(date +%s) + 9000 ))
+          while :; do
+            ASSETS="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null || true)"
+            MISSING=""
+            for asset in $WANTED; do
+              grep -qxF "$asset" <<< "$ASSETS" || MISSING="$MISSING $asset"
+            done
+            [ -z "$MISSING" ] && break
+            if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+              echo "::error::Native archives missing from release $TAG:$MISSING"
+              exit 1
+            fi
+            echo "Waiting for:$MISSING"
+            sleep 60
+          done
+          mkdir -p native
+          for asset in $WANTED; do
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset" --dir native
+          done
+
+      - name: Build platform wheels
+        run: |
+          set -euo pipefail
+          python3 scripts/platform_wheels.py --wheel dist/*-py3-none-any.whl --archives native --out dist
+          ls -l dist
+
+      - name: The Linux x86_64 wheel runs the Go engine
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/wheel"
+          "$RUNNER_TEMP/wheel/bin/pip" install --quiet --no-deps dist/*-manylinux_*_x86_64.whl
+          BIN="$("$RUNNER_TEMP/wheel/bin/python" -I -c 'import aria_code, pathlib; print(pathlib.Path(aria_code.__file__).parent / "_bin")')"
+          test "$("$BIN/aria-runtime" --version)" = "aria-runtime ${TAG#v}"
+          test "$("$BIN/aria-native" --entry-protocol)" = "1"
+          "$RUNNER_TEMP/wheel/bin/python" -I -c 'from aria_code.runtime.native_index import native_binary; import sys; sys.exit(0 if native_binary() == sys.argv[1] else 1)' "$BIN/aria-native"
+          python3 - "$BIN/aria-native" "$RUNNER_TEMP/wheel/bin/python" "${TAG#v}" <<'SMOKE'
+          import json, os, subprocess, sys, tempfile
+          frontend, python, version = sys.argv[1:]
+          home = tempfile.mkdtemp()
+          env = dict(os.environ, HOME=home, ARIA_HOME=os.path.join(home, "state"), ARIA_OFFLINE="1", ARIA_PYTHON=python)
+          env.pop("ARIA_ENGINE", None)
+          p = subprocess.Popen([frontend, "--python", python, "chat", "--jsonl"], cwd=home, env=env,
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+          ready = None
+          for line in p.stdout:
+              try:
+                  event = json.loads(line)
+              except ValueError:
+                  continue
+              if event.get("type") == "session.ready":
+                  ready = event
+                  p.stdin.write('{"type":"shutdown","protocol":1}\n')
+                  p.stdin.flush()
+              elif event.get("type") in ("session.failed", "protocol.error"):
+                  sys.exit(f"the session failed: {event}")
+          p.wait(timeout=30)
+          # The Go engine sends the robot design; the Python engine does not.
+          if not ready or ready.get("version") != version or (ready.get("robot") or {}).get("design") != "cream-block-v2":
+              sys.exit(f"the session did not come from the bundled Go engine: {ready}")
+          print("platform wheel: Rust frontend and Go engine", version)
+          SMOKE
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-distributions
+          path: dist/
+          if-no-files-found: error
+
   publish-pypi:
     name: Publish to PyPI
-    needs: verify-version
+    needs: [verify-version, platform-wheels]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -228,16 +330,15 @@ jobs:
       # secret in env is allowed; referencing one in a job-level `if` is not).
       HAS_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag || github.ref_name }}
-
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Build sdist + wheel
+      - name: The sdist, the pure wheel and the platform wheels
         if: env.HAS_PYPI_TOKEN == 'true'
-        run: uv build
+        uses: actions/download-artifact@v4
+        with:
+          name: python-distributions
+          path: dist
 
       - name: Check distribution metadata
         if: env.HAS_PYPI_TOKEN == 'true'
