@@ -33,6 +33,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	// Windows has no system zone database; without this the default
+	// ARIA_DAEMON_TZ (Asia/Shanghai) fails to load there.
+	_ "time/tzdata"
 
 	_ "modernc.org/sqlite"
 )

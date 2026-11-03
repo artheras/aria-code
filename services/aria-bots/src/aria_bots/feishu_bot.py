@@ -35,7 +35,7 @@ OpenClaw 同款设计：任意输入（文字/语音/图片/文件）→ Aria AI
   📄 文件          → 自动解析 PDF/Excel/代码 → Aria LLM 总结
 
 结构化命令（/command）：
-  /price AAPL           /brief          /screen
+  /price AAPL           /brief
   /report NVDA          /run /price TSLA   (调用 aria CLI -p 模式)
   /alert add SYM cond v  /alerts         /status   /help
 """
@@ -67,6 +67,7 @@ from aria_bots.channels.conversation import (
 )
 from aria_bots.logistics.tenancy import OWNER_SCOPE_ENV
 from aria_bots import engine as _engine
+from aria_bots import market as _market
 
 logger = logging.getLogger(__name__)
 
@@ -115,19 +116,6 @@ def _find_aria_code_dir() -> Path:
 
 _ARIA_CODE_DIR = _find_aria_code_dir()
 
-
-def _swarm_orchestrator_path() -> Optional[Path]:
-    """Return the explicitly configured enterprise swarm entrypoint.
-
-    The previous implementation referenced a developer's local checkout,
-    which made the public bot command fail everywhere else.  Enterprise swarm
-    orchestration is optional and may live in a separately deployed service,
-    so it must be configured instead of inferred from a workstation path.
-    """
-    raw = os.environ.get("ARIA_SWARM_ORCHESTRATOR", "").strip()
-    if not raw:
-        return None
-    return Path(raw).expanduser().resolve()
 
 # ── Feishu API endpoints ───────────────────────────────────────────────────────
 
@@ -366,13 +354,9 @@ async def _handle_command(cmd: str, message_id: str, sender_id: str, chat_id: st
             "**结构化命令：**\n"
             "`/price <symbol>` — 实时价格（支持 A 股 6 位代码）\n"
             "`/brief` — 今日晨报摘要\n"
-            "`/screen` — 涨停预测 Top10\n"
             "`/report <symbol>` — 个股研报（异步推送）\n"
             "`/team <symbol>` — 🤖 多Agent研究（宏观+基本面+技术+风控）\n"
-            "`/football predict Arsenal vs Chelsea pl` — ⚽ 足球比赛预测\n"
-            "`/football standings pl` — 联赛积分榜（pl/bl/ll/sa/cl）\n"
             "`/run <aria命令>` — 执行任意 Aria 命令，如 `/run /corr AAPL TSLA`\n"
-            "`/swarm <事件>` — 🚨 启动企业级跨部门多智能体协作\n"
             "`/alert add <symbol> <cond> <value>` — 添加价格预警\n"
             "　　条件: `price_above` `price_below` `pct_change_above` `pct_change_below`\n"
             "`/alerts` — 查看所有预警\n"
@@ -388,39 +372,19 @@ async def _handle_command(cmd: str, message_id: str, sender_id: str, chat_id: st
             return
         await reply_card(message_id, f"🔄 查询 {symbol}…", "正在获取实时行情，请稍候…", "blue")
         try:
-            price, prev = await _fetch_price_feishu(symbol)
-            if price is None:
-                await reply_card(message_id, f"❌ {symbol}", "获取行情失败，请检查代码是否正确", "red")
-                return
-            pct = f"{(price - prev) / prev * 100:+.2f}%" if prev else "N/A"
-            color = "red" if prev and price > prev else "green" if prev and price < prev else "blue"
-            body = (
-                f"**当前价** ¥{price:.3f}\n"
-                f"**涨跌幅** {pct}\n"
-                f"**昨收**  ¥{prev:.3f}" if prev else f"**当前价** {price:.4f}"
-            )
-            await reply_card(message_id, f"{'📈' if prev and price >= prev else '📉'} {symbol}", body, color)
+            title, body, color = _market.price_card(await _market.quote(symbol))
+            await reply_card(message_id, title, body, color)
         except Exception as exc:
-            await reply_card(message_id, f"❌ {symbol}", f"查询失败: {exc}", "red")
+            await reply_card(message_id, f"❌ {symbol}", f"查询失败: {str(exc)[:300]}", "red")
 
     elif verb == "brief":
         await reply_card(message_id, "⏳ 生成晨报…", "正在获取市场数据，请稍候…", "blue")
         try:
-            from aria_daemon import _run_morning_brief
-            brief = await _run_morning_brief()
-            await reply_card(message_id, "📊 Aria 晨报", brief[:2000], "green",
+            title, brief = await _market.brief("morning-brief")
+            await reply_card(message_id, title, brief[:2000], "green",
                              footer="Aria Code · 实时市场分析")
         except Exception as exc:
             await reply_card(message_id, "❌ 晨报生成失败", str(exc)[:300], "red")
-
-    elif verb == "screen":
-        await reply_card(message_id, "⏳ 筛选中…", "正在扫描 A 股涨停预测，请稍候…", "blue")
-        try:
-            from aria_daemon import _run_screener
-            result = await _run_screener()
-            await reply_card(message_id, "🔍 涨停预测 Top10", result[:2000], "turquoise")
-        except Exception as exc:
-            await reply_card(message_id, "❌ 筛选失败", str(exc)[:300], "red")
 
     elif verb == "report":
         symbol = parts[1].upper() if len(parts) > 1 else ""
@@ -432,106 +396,41 @@ async def _handle_command(cmd: str, message_id: str, sender_id: str, chat_id: st
         asyncio.create_task(_async_report(symbol, message_id))
 
     elif verb == "alert":
-        if len(parts) < 2:
-            await reply_text(message_id, "用法: /alert add <symbol> <cond> <value>")
-            return
-        sub = parts[1].lower()
-        if sub == "add" and len(parts) >= 5:
+        if len(parts) >= 5 and parts[1].lower() == "add":
             sym, cond, val = parts[2].upper(), parts[3], parts[4]
-            valid_conds = {"price_above", "price_below", "pct_change_above", "pct_change_below"}
-            if cond not in valid_conds:
+            if cond not in _market.CONDITIONS:
                 await reply_card(message_id, "❌ 无效条件",
-                                 "支持的条件：\n" + "\n".join(f"• `{c}`" for c in sorted(valid_conds)), "red")
+                                 "支持的条件：\n" + "\n".join(f"• `{c}`" for c in _market.CONDITIONS), "red")
                 return
-            import sqlite3
-            from aria_daemon import _DB_PATH
-            with sqlite3.connect(_DB_PATH) as conn:
-                conn.execute(
-                    "INSERT INTO alerts(id,symbol,condition,value,message,active) VALUES(?,?,?,?,?,1)",
-                    (f"fs_{int(time.time())}_{sym}", sym, cond, float(val),
-                     f"{sym} {cond.replace('_',' ')} {val}", )
-                )
-                conn.commit()
+            try:
+                await _market.add_alert(sym, cond, val)
+            except Exception as exc:
+                await reply_card(message_id, "❌ 预警添加失败", str(exc)[:300], "red")
+                return
             await reply_card(message_id, "✅ 预警已添加",
                              f"**{sym}** 当 {cond.replace('_',' ')} `{val}` 时触发通知", "green")
         else:
             await reply_text(message_id, "用法: /alert add <symbol> <cond> <value>")
 
     elif verb == "alerts":
-        import sqlite3
-        from aria_daemon import _DB_PATH
-        rows = sqlite3.connect(_DB_PATH).execute(
-            "SELECT symbol,condition,value FROM alerts WHERE active=1 ORDER BY created_at DESC LIMIT 20"
-        ).fetchall()
-        if not rows:
-            await reply_card(message_id, "📋 当前预警", "暂无活跃预警", "blue")
-        else:
-            lines = "\n".join(f"• **{r[0]}** {r[1].replace('_',' ')} `{r[2]}`" for r in rows)
-            await reply_card(message_id, f"📋 活跃预警（{len(rows)} 条）", lines, "blue")
+        try:
+            table = await _market.list_alerts()
+        except Exception as exc:
+            await reply_card(message_id, "❌ 预警读取失败", str(exc)[:300], "red")
+            return
+        rows = table.splitlines()[1:]
+        body = "暂无预警" if not rows else "```\n" + table[:1900] + "\n```"
+        await reply_card(message_id, f"📋 预警（{len(rows)} 条）", body, "blue")
 
     elif verb == "status":
-        import sqlite3
-        from aria_daemon import _DB_PATH, _PID_FILE
-        pid_alive = _PID_FILE.exists()
-        conn = sqlite3.connect(_DB_PATH)
-        alert_count = conn.execute("SELECT COUNT(*) FROM alerts WHERE active=1").fetchone()[0]
-        sched_count = conn.execute("SELECT COUNT(*) FROM schedules WHERE active=1").fetchone()[0]
-        job_pending = conn.execute("SELECT COUNT(*) FROM webhook_jobs WHERE status='pending'").fetchone()[0]
-        body = (
-            f"**Daemon** {'🟢 运行中' if pid_alive else '🔴 未运行'}\n"
-            f"**活跃预警** {alert_count} 条\n"
-            f"**定时任务** {sched_count} 条\n"
-            f"**待处理 Jobs** {job_pending} 个"
-        )
-        await reply_card(message_id, "📡 Aria Daemon 状态", body,
-                         "green" if pid_alive else "red")
-    elif verb == "football":
-        sub = parts[1].lower() if len(parts) > 1 else ""
-        rest = " ".join(parts[2:])
-        if sub == "predict" and " vs " in rest.lower():
-            await reply_card(message_id, "⚽ 预测中…", f"> {rest}", "blue")
-            asyncio.create_task(_handle_football_predict(rest, message_id))
-        elif sub == "standings":
-            league = rest.strip() or "pl"
-            await reply_card(message_id, "⚽ 获取积分榜…", f"联赛: {league.upper()}", "blue")
-            asyncio.create_task(_handle_football_standings(league, message_id))
-        else:
-            # Natural language after /football (e.g. "/football 预测加拿大跟波黑")
-            # → treat as NL query with football intent, route to LLM
-            nl_text = f"{sub} {rest}".strip() if rest else sub
-            _is_chinese = any('一' <= c <= '鿿' for c in nl_text)
-            _is_predict_kw = any(k in nl_text.lower() for k in (
-                "predict", "preview", "who wins", "who will", "预测", "谁赢", "比分", "胜率"
-            ))
-            if _is_chinese or _is_predict_kw:
-                asyncio.create_task(_handle_nl_query(nl_text, message_id, chat_id))
-            else:
-                await reply_card(
-                    message_id, "⚽ /football 命令",
-                    f"未识别子命令: `{sub}`\n\n**用法:**\n"
-                    "- `/football predict Arsenal vs Chelsea pl` — 预测比赛\n"
-                    "- `/football standings pl` — 积分榜\n"
-                    "- 或直接用自然语言提问，例如：「预测加拿大跟波黑的比分」",
-                    "yellow"
-                )
-
-    elif verb in ("team", "analyze"):
-        # /team <symbol> [--full]  — multi-agent research team
-        sym_parts = [p for p in parts[1:] if not p.startswith("-")]
-        flags     = [p for p in parts[1:] if p.startswith("-")]
-        symbol    = sym_parts[0].upper() if sym_parts else ""
-        if not symbol:
-            await reply_card(message_id, "❓ 用法",
-                             "`/team <symbol>` — 多Agent研究\n"
-                             "`/team AAPL --full` — 完整7-agent模式\n"
-                             "例: `/team NVDA`  `/team 600519`", "blue")
+        try:
+            text = await _market.status()
+        except Exception as exc:
+            await reply_card(message_id, "📡 Aria Daemon 状态", str(exc)[:300], "red")
             return
-        flag_str = " " + " ".join(flags) if flags else ""
-        cmd = f"/team {symbol}{flag_str}"
-        await reply_card(message_id, f"🤖 多Agent分析 {symbol}…",
-                         "正在启动4-agent并行分析，请稍候（约15-30s）…", "blue")
-        asyncio.create_task(_async_run_aria(cmd, message_id))
-
+        running = "not running" not in text.splitlines()[0] if text else False
+        await reply_card(message_id, "📡 Aria Daemon 状态", text[:2000],
+                         "green" if running else "red")
     elif verb == "run":
         # /run <aria-command>  e.g. /run /price AAPL  /run /corr AAPL TSLA NVDA
         sub_cmd = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
@@ -541,160 +440,23 @@ async def _handle_command(cmd: str, message_id: str, sender_id: str, chat_id: st
         await reply_card(message_id, f"⚙️ 执行: {sub_cmd[:60]}", "正在运行，请稍候…", "blue")
         asyncio.create_task(_async_run_aria(sub_cmd, message_id))
 
-    elif verb == "swarm":
-        # /swarm <事件> e.g. /swarm 俄罗斯仓库丢件
-        event = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
-        if not event:
-            await reply_text(message_id, "用法: /swarm <事件>，例如 `/swarm 莫斯科01仓少件`")
-            return
-        await reply_card(message_id, "🚨 跨部门 Swarm 调度启动", f"事件: {event[:60]}\n\n正在唤醒 物流、财务、法务 Agent，请稍候…", "red")
-        asyncio.create_task(_async_run_swarm(event, message_id))
-
     else:
         await reply_card(message_id, "❓ 未知命令",
                          f"不认识 `/{verb}`，发送 `/help` 查看全部命令", "yellow")
 
 
-async def _handle_football_predict(match_str: str, message_id: str) -> None:
-    """Handle /football predict <home> vs <away> [league] from Feishu."""
-    import re
-    m = re.match(r"(.+?)\s+vs\s+(.+?)(?:\s+(\w+))?$", match_str, re.IGNORECASE)
-    if not m:
-        await reply_card(message_id, "❌ 格式错误", "用法: `/football predict Arsenal vs Chelsea pl`", "red")
-        return
-    home_raw, away_raw, league = m.group(1).strip(), m.group(2).strip(), (m.group(3) or "pl")
-    try:
-        from football_data_client import _CN_TEAM_MAP, _FIFA_RATINGS, predict_match, predict_wc_match
-
-        # Translate Chinese team names → English for model lookup
-        home_en = _CN_TEAM_MAP.get(home_raw, home_raw)
-        away_en = _CN_TEAM_MAP.get(away_raw, away_raw)
-        home_low = home_en.lower().strip()
-        away_low = away_en.lower().strip()
-
-        # Use WC/national team model when both teams are in FIFA ratings table
-        if home_low in _FIFA_RATINGS and away_low in _FIFA_RATINGS:
-            pred = predict_wc_match(home_en, away_en, neutral_venue=True)
-            home_label = pred.get("home_name_cn") or home_raw
-            away_label = pred.get("away_name_cn") or away_raw
-            ranking_note = (
-                f"FIFA 排名: #{pred.get('home_ranking','?')} vs #{pred.get('away_ranking','?')}"
-            )
-            most_likely = pred["top_scorelines"][0]["score"] if pred.get("top_scorelines") else "?"
-        else:
-            pred = predict_match(home_en, away_en, league)
-            home_label, away_label = home_raw, away_raw
-            ranking_note = f"联赛: {league.upper()}"
-            most_likely = pred.get("most_likely_score") or (
-                pred["top_scorelines"][0]["score"] if pred.get("top_scorelines") else "?"
-            )
-
-        top = "\n".join(
-            f"  {s['score']} — {s['prob']}%" for s in (pred.get("top_scorelines") or [])[:3]
-        )
-        body = (
-            f"**{home_label}** vs **{away_label}**\n"
-            f"*{ranking_note}*\n\n"
-            f"---\n"
-            f"🏆 主队胜: **{pred['home_win']:.0%}**  "
-            f"平局: {pred['draw']:.0%}  "
-            f"客队胜: {pred['away_win']:.0%}\n\n"
-            f"⚽ 预期进球: {pred['lambda_home']:.1f} – {pred['lambda_away']:.1f}\n"
-            f"📊 最可能比分: **{most_likely}**\n"
-            f"🎯 高概率比分:\n{top}\n\n"
-            f"双方均进球: {pred['btts']:.0%}\n"
-            f"*泊松模型量化预测，仅供参考*"
-        )
-        color = (
-            "green" if pred["home_win"] > pred["away_win"] + 0.1
-            else "red" if pred["away_win"] > pred["home_win"] + 0.1
-            else "yellow"
-        )
-        await reply_card(message_id, "⚽ 赛事预测", body, color)
-    except Exception as exc:
-        await reply_card(message_id, "❌ 预测失败", str(exc)[:300], "red")
-
-
-async def _handle_football_standings(league: str, message_id: str) -> None:
-    """Handle /football standings from Feishu."""
-    try:
-        from football_data_client import get_standings
-        data = get_standings(league)
-        if not data:
-            await reply_card(message_id, "❌ 无法获取数据",
-                             "请检查联赛代码或设置 FOOTBALL_DATA_API_KEY", "red")
-            return
-        rows = data["table"][:10]
-        lines = [f"**{data['league_name']}**\n"]
-        for r in rows:
-            form = r.get("form", "") or ""
-            lines.append(f"{r['pos']:2}. {r['team'][:18]:18} {r['pts']}分  {r['w']}W{r['d']}D{r['l']}L  {form[:5]}")
-        await reply_card(message_id, "📊 积分榜 TOP10", "\n".join(lines), "blue")
-    except Exception as exc:
-        await reply_card(message_id, "❌ 获取失败", str(exc)[:300], "red")
-
-
-async def _fetch_price_feishu(symbol: str):
-    """Thin wrapper around aria_daemon._fetch_price for use inside bot."""
-    try:
-        from aria_daemon import _fetch_price
-        return await _fetch_price(symbol)
-    except ImportError:
-        # Fallback: inline yfinance
-        import yfinance as yf
-        yfn = (symbol + (".SS" if symbol.startswith(("6", "5")) else ".SZ")
-               if symbol.isdigit() and len(symbol) == 6 else symbol)
-        info = yf.Ticker(yfn).fast_info
-        p = getattr(info, "last_price", None)
-        pc = getattr(info, "previous_close", None)
-        return (float(p) if p else None, float(pc) if pc else None)
-
-
 async def _async_report(symbol: str, message_id: str) -> None:
-    """Background task: generate report and reply when done."""
-    try:
-        from aria_daemon import _run_report
-        result = await _run_report(symbol)
-        await reply_card(message_id, f"📄 {symbol} 研报完成", result[:2000], "turquoise",
-                         footer="Aria Code · 多智能体分析")
-    except Exception as exc:
-        await reply_card(message_id, f"❌ {symbol} 研报失败", str(exc)[:300], "red")
-
-
-async def _async_run_swarm(event: str, message_id: str) -> None:
-    """Background task: run the enterprise swarm orchestrator and reply."""
-    try:
-        orchestrator = _swarm_orchestrator_path()
-        if orchestrator is None:
-            raise RuntimeError(
-                "未配置企业 Swarm 编排器。请设置 ARIA_SWARM_ORCHESTRATOR 为可执行的 Python 脚本路径。"
-            )
-        if not orchestrator.is_file():
-            raise RuntimeError(f"企业 Swarm 编排器不存在：{orchestrator}")
-        proc = await asyncio.create_subprocess_exec(
-            sys.executable, str(orchestrator), event,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
-        out = stdout.decode("utf-8").strip()
-
-        # 提取各个 Agent 的处理日志
-        lines = out.split("\n")
-        body = ""
-        for line in lines:
-            if "SUPERVISOR" in line:
-                body += f"**[主管]** {line.split('SUPERVISOR]')[-1].strip()}\n"
-            elif "Logistics Agent" in line:
-                body += f"📦 **[物流]** {line.split('Logistics Agent]')[-1].strip()}\n"
-            elif "Finance Agent" in line:
-                body += f"💰 **[财务]** {line.split('Finance Agent]')[-1].strip()}\n"
-            elif "Legal Agent" in line:
-                body += f"⚖️ **[法务]** {line.split('Legal Agent]')[-1].strip()}\n"
-
-        await reply_card(message_id, "🎉 Swarm 处理报告", body[:2000] if body else "处理完成。", "turquoise", footer="Enterprise Supervisor Orchestration")
-    except Exception as exc:
-        await reply_card(message_id, "❌ Swarm 调度失败", str(exc)[:300], "red")
+    """Background task: a research note from the engine (financial-service tools)."""
+    runtime = _engine.find_engine()
+    if not runtime:
+        await reply_card(message_id, f"❌ {symbol} 研报失败", "未找到 aria-runtime", "red")
+        return
+    prompt = (f"为 {symbol} 写一份简明研报：最新行情、技术面（趋势、RSI、MACD）、"
+              "基本面要点、主要风险，以及结论。只用工具取到的数据，注明来源与日期。")
+    result = await _engine.run_turn(prompt, engine=runtime, owner=_TURN_OWNER.get(), timeout=240)
+    failed = result.startswith(("❌", "⏱️"))
+    await reply_card(message_id, f"{'❌' if failed else '📄'} {symbol} 研报{'失败' if failed else '完成'}",
+                     result[:2000], "red" if failed else "turquoise", footer="Aria Code · 研报")
 
 
 async def _async_run_aria(cmd: str, message_id: str) -> None:
@@ -1406,10 +1168,6 @@ _MARKET_BRIEF_TRIGGERS = frozenset({
     "market", "market overview", "stock market", "markets today",
 })
 
-_FOOTBALL_PREDICT_TRIGGERS = (
-    "预测", "谁赢", "谁会赢", "比分预测", "胜率", "分析比赛",
-    "predict", "who wins", "match preview",
-)
 
 # ── 常用 A股/港股 中文名 → 股票代码（用于 NL 解析）──────────────────────────
 _CN_COMPANY_TICKER: dict[str, str] = {
@@ -1474,135 +1232,6 @@ _CN_COMPANY_TICKER: dict[str, str] = {
     "嘉能可": "GLEN.L",
 }
 
-# ── 大宗商品关键词 → (商品期货代码, 相关上市公司) ─────────────────────────────
-_COMMODITY_MAP: dict[str, tuple[str, list[str], str]] = {
-    # keyword: (yfinance_symbol, [related_tickers], display_name)
-    "铜":    ("HG=F",  ["FCX", "SCCO", "600362", "601899", "000630"], "铜 COMEX"),
-    "黄金":  ("GC=F",  ["GLD", "NEM", "GOLD", "600547", "600489"],   "黄金 COMEX"),
-    "gold":  ("GC=F",  ["GLD", "NEM", "GOLD", "600547"],              "Gold COMEX"),
-    "白银":  ("SI=F",  ["SLV", "PAAS", "AG"],                        "白银 COMEX"),
-    "原油":  ("CL=F",  ["XOM", "CVX", "601857", "600028"],           "原油 WTI"),
-    "oil":   ("CL=F",  ["XOM", "CVX", "BP", "601857"],               "Crude Oil WTI"),
-    "天然气":("NG=F",  ["UNG", "LNG", "CQP"],                        "天然气 NYMEX"),
-    "铁矿石":("TIO=F", ["BHP", "RIO", "VALE", "601088"],             "铁矿石"),
-    "铝":    ("ALI=F", ["AA", "CENX", "601600"],                     "铝 LME"),
-    "锂":    ("",      ["ALB", "SQM", "LTHM", "300750", "002594"],   "锂矿/电池"),
-    "锂矿":  ("",      ["ALB", "SQM", "LTHM", "300750"],            "锂矿"),
-    "小麦":  ("ZW=F",  ["ADM", "BG", "INGR"],                       "小麦 CBOT"),
-    "大豆":  ("ZS=F",  ["ADM", "BG", "DE"],                         "大豆 CBOT"),
-}
-
-
-async def _fetch_market_snapshot() -> str:
-    """
-    Build a real-time market snapshot for A股 + 港股 + US indices directly via
-    yfinance — bypasses the LLM subprocess so we always get actual data.
-    """
-    import yfinance as yf
-    import asyncio
-
-    _INDICES = [
-        ("^SSEC",  "上证指数"),
-        ("^HSI",   "恒生指数"),
-        ("^GSPC",  "标普500"),
-        ("^IXIC",  "纳斯达克"),
-        ("^N225",  "日经225"),
-        ("GC=F",   "黄金"),
-        ("CL=F",   "原油"),
-    ]
-
-    def _fetch_one(sym: str):
-        try:
-            ti = yf.Ticker(sym)
-            fi = ti.fast_info
-            p  = getattr(fi, "last_price", None)
-            pc = getattr(fi, "previous_close", None)
-            if p and pc and pc > 0:
-                pct = (p - pc) / pc * 100
-                arrow = "▲" if pct >= 0 else "▼"
-                return f"{arrow} {p:,.2f}  ({pct:+.2f}%)"
-            elif p:
-                return f"¥{p:,.2f}"
-        except Exception:
-            pass
-        return "—"
-
-    loop = asyncio.get_event_loop()
-    lines = ["**主要市场行情**\n"]
-    for sym, label in _INDICES:
-        val = await loop.run_in_executor(None, _fetch_one, sym)
-        lines.append(f"**{label}**　{val}")
-
-    from datetime import datetime
-    ts = datetime.now().strftime("%H:%M")
-    lines.append(f"\n_更新时间: {ts}_")
-    return "\n".join(lines)
-
-
-async def _fetch_commodity_with_stocks(keyword: str) -> str:
-    """
-    Fetch commodity futures price + related stock prices for a given commodity keyword.
-    Returns a formatted multi-line string for the Feishu card body.
-    """
-    import yfinance as yf
-    import asyncio
-
-    entry = _COMMODITY_MAP.get(keyword)
-    if not entry:
-        return ""
-    futures_sym, related_tickers, display_name = entry
-
-    def _price_line(sym: str) -> str:
-        try:
-            ti = yf.Ticker(sym)
-            fi = ti.fast_info
-            p  = getattr(fi, "last_price", None)
-            pc = getattr(fi, "previous_close", None)
-            name = sym
-            # Try to get a short name
-            try:
-                info = ti.info
-                name = info.get("shortName", sym)[:12]
-            except Exception:
-                pass
-            if p and pc and pc > 0:
-                pct = (p - pc) / pc * 100
-                arrow = "▲" if pct >= 0 else "▼"
-                currency = "¥" if sym.isdigit() else "$"
-                return f"{arrow} **{name}** ({sym})  {currency}{p:,.2f}  ({pct:+.2f}%)"
-            elif p:
-                currency = "¥" if sym.isdigit() else "$"
-                return f"**{name}** ({sym})  {currency}{p:,.2f}"
-        except Exception:
-            pass
-        return f"**{sym}**  —"
-
-    loop = asyncio.get_event_loop()
-    sections = []
-
-    # Commodity futures
-    if futures_sym:
-        fut_line = await loop.run_in_executor(None, _price_line, futures_sym)
-        sections.append(f"**{display_name} 期货**\n{fut_line}")
-
-    # Related stocks
-    stock_lines = []
-    for sym in related_tickers[:5]:
-        # A-share: append exchange suffix for yfinance
-        yfn = sym
-        if sym.isdigit() and len(sym) == 6:
-            yfn = sym + (".SS" if sym.startswith(("6", "5")) else ".SZ")
-        line = await loop.run_in_executor(None, _price_line, yfn)
-        stock_lines.append(line)
-
-    if stock_lines:
-        sections.append("**相关上市公司**\n" + "\n".join(stock_lines))
-
-    from datetime import datetime
-    ts = datetime.now().strftime("%H:%M")
-    return "\n\n".join(sections) + f"\n\n_数据时间: {ts}_"
-
-
 def _resolve_cn_company(text: str) -> str:
     """
     Replace Chinese company names in text with their ticker symbols.
@@ -1619,67 +1248,28 @@ def _resolve_cn_company(text: str) -> str:
 async def _handle_nl_query(text: str, message_id: str, chat_id: str = "", *,
                            turn: Optional[ChannelTurn] = None, conversation: str = "") -> None:
     """Route free-form natural language to Aria LLM and reply."""
-    import re as _re_nl
     _low = text.strip().lower()
     _orig = text.strip()
 
-    # Fast-path: generic market brief request — call yfinance directly (bypasses LLM)
+    # Fast-path: generic market brief request — the daemon's brief, no model turn
     if _low in _MARKET_BRIEF_TRIGGERS or (
         any(k in _low for k in ("行情查询", "市场行情", "大盘今日", "今日大盘")) and
         not any(c.isalpha() and c.upper() == c for c in text)  # no uppercase ticker
     ):
         await reply_or_send(message_id, chat_id, "📊 获取市场概况…", "正在抓取主要指数数据…", "blue")
         try:
-            snapshot = await _fetch_market_snapshot()
-            await reply_or_send(message_id, chat_id, "📊 市场行情", snapshot, "turquoise",
-                                footer="Aria Code · yfinance 实时数据")
+            title, snapshot = await _market.brief("morning-brief")
+            await reply_or_send(message_id, chat_id, title, snapshot[:2000], "turquoise",
+                                footer="Aria Code · financial-service")
         except Exception as _e:
             await reply_or_send(message_id, chat_id, "❌ 行情获取失败", str(_e)[:200], "red")
         return
-
-    # Fast-path: commodity + related stocks (e.g. "铜的相关公司", "黄金走势")
-    _commodity_kw = None
-    for _ck in _COMMODITY_MAP:
-        if _ck in _low:
-            _commodity_kw = _ck
-            break
-    _needs_stocks = any(k in _low for k in ("相关公司", "相关股票", "产业链", "概念股", "走势", "行情", "估值"))
-    if _commodity_kw and (_needs_stocks or len(_orig) <= 6):
-        await reply_or_send(message_id, chat_id, f"🔍 查询{_commodity_kw}行情…",
-                            "正在获取期货及相关股票数据…", "blue")
-        body = await _fetch_commodity_with_stocks(_commodity_kw)
-        if body:
-            await reply_or_send(message_id, chat_id, f"📦 {_commodity_kw} 市场概况",
-                                body, "turquoise", footer="Aria Code · 大宗商品数据")
-            return
 
     # Chinese company name → ticker resolution before sending to LLM
     resolved = _resolve_cn_company(_orig)
     if resolved != _orig:
         # Found at least one CN name; also annotate so LLM has context
         text = resolved + f"  (原文: {_orig})"
-
-    # Fast-path: football match prediction — extract team names and call Poisson model directly
-    _has_predict_kw = any(k in _low for k in _FOOTBALL_PREDICT_TRIGGERS)
-    _has_football_kw = any(k in _low for k in ("足球", "世界杯", "欧冠", "英超", "比赛", "football", "soccer", "match", "world cup"))
-    if _has_predict_kw or _has_football_kw:
-        # Strip one or more leading context words (handles "预测今天加拿大跟波黑")
-        _stripped = _re_nl.sub(
-            r'^(?:预测|分析|谁赢|谁会赢|今天|明天|比赛|足球|世界杯|结果|比分|\s)+',
-            '', _orig, flags=_re_nl.IGNORECASE
-        )
-        _vs_m = _re_nl.search(
-            r'(.{2,20}?)\s*(?:vs\.?\s*|对阵\s*|对\s+|跟\s*|和\s*|pk\s*|——\s*|—\s*)(.{2,20})',
-            _stripped, _re_nl.IGNORECASE
-        )
-        if _vs_m:
-            home_t = _vs_m.group(1).strip().rstrip("的在")
-            away_t = _vs_m.group(2).strip().rstrip("的在")
-            if home_t and away_t and len(home_t) >= 2 and len(away_t) >= 2:
-                await reply_or_send(message_id, chat_id, "⚽ 预测中…",
-                                    f"> {home_t} vs {away_t}", "blue")
-                await _handle_football_predict(f"{home_t} vs {away_t}", message_id)
-                return
 
     await reply_or_send(message_id, chat_id, "🤔 思考中…", f"> {_orig[:120]}", "blue")
     # Use direct LLM call (no subprocess, no tool execution) for conversational queries.

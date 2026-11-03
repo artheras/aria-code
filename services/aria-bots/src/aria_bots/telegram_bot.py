@@ -1,5 +1,5 @@
 """
-aria_bots.telegram_bot — Lightweight Telegram Bot client for Aria Daemon.
+aria_bots.telegram_bot — Telegram client and the aria-telegram-bot command handler.
 
 Uses the Telegram Bot API directly via httpx (no heavy python-telegram-bot dep).
 Supports long-polling updates and sending messages/documents back to users.
@@ -10,7 +10,6 @@ Commands handled:
   /brief                — morning brief
   /alerts               — list active alerts
   /alert SYMBOL cond v  — add alert (e.g. /alert 600362 price_below 39.5)
-  /screen               — hot A-share screener
   /help                 — command list
 
 Usage:
@@ -206,3 +205,95 @@ class TelegramBot:
 
     async def get_me(self) -> Optional[dict]:
         return await self._call("getMe")
+
+
+# ── Commands (aria-telegram-bot) ─────────────────────────────────────────────
+
+HELP = (
+    "*Aria 命令列表*\n\n"
+    "`/price SYMBOL` — 实时报价\n"
+    "`/report SYMBOL` — 研报\n"
+    "`/brief` — 今日晨报\n"
+    "`/alert SYMBOL cond value` — 添加价格预警\n"
+    "    条件: price\\_above / price\\_below / pct\\_change\\_above / pct\\_change\\_below\n"
+    "`/alerts` — 查看预警列表\n"
+    "`/status` — Daemon 运行状态\n"
+    "\n直接发文字也可对话 Aria。"
+)
+
+
+async def handle_command(cmd: str, args: str, chat_id: int) -> str:
+    """Answer one Telegram command: market commands go to aria-runtime daemon,
+    everything else is a turn on the Go engine."""
+    from . import engine, market
+
+    args = args.strip()
+    try:
+        if cmd in ("help", "start"):
+            return HELP
+        if cmd in ("price", "p"):
+            symbol = args.split()[0].upper() if args else ""
+            if not symbol:
+                return "用法: `/price AAPL` 或 `/price 600519.SS`"
+            title, body, _ = market.price_card(await market.quote(symbol))
+            return f"*{title}*\n" + body.replace("**", "*")
+        if cmd in ("brief", "morning", "briefing"):
+            title, body = await market.brief("morning-brief")
+            return f"*{title}*\n{body}"
+        if cmd == "alert":
+            parts = args.split()
+            if len(parts) != 3:
+                return "用法: `/alert AAPL price_above 200`"
+            symbol, condition, value = parts[0].upper(), parts[1], parts[2]
+            await market.add_alert(symbol, condition, value)
+            return f"✅ 预警已添加：*{symbol}* {condition} `{value}`"
+        if cmd == "alerts":
+            table = await market.list_alerts()
+            return "暂无预警" if len(table.splitlines()) < 2 else f"```\n{table}\n```"
+        if cmd == "status":
+            return await market.status()
+    except market.MarketError as exc:
+        return f"⚠️ {exc}"
+
+    runtime = engine.find_engine()
+    if not runtime:
+        return "⚠️ 未找到 aria-runtime：请安装，或用 ARIA_RUNTIME 指向它。"
+    if cmd == "report":
+        symbol = args.split()[0].upper() if args else ""
+        if not symbol:
+            return "用法: `/report AAPL` 或 `/report 600519.SS`"
+        prompt = (f"为 {symbol} 写一份简明研报：最新行情、技术面、基本面要点、主要风险和结论。"
+                  "只用工具取到的数据，注明来源与日期。")
+        return await engine.run_turn(prompt, engine=runtime, timeout=240)
+    if cmd == "chat":
+        return await engine.run_turn(args, engine=runtime) if args else HELP
+    return f"未知命令 `/{cmd}`。发送 `/help` 查看命令列表。"
+
+
+def allowed_ids(raw: str) -> Set[int]:
+    return {int(x.strip()) for x in raw.split(",") if x.strip().lstrip("-").isdigit()}
+
+
+def main() -> int:
+    """aria-telegram-bot: long-poll Telegram with TELEGRAM_BOT_TOKEN, answering
+    only chats in TELEGRAM_ALLOWED_IDS."""
+    import os
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [telegram] %(levelname)s %(message)s")
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    if not token:
+        logger.error("TELEGRAM_BOT_TOKEN is not set")
+        return 2
+    ids = allowed_ids(os.environ.get("TELEGRAM_ALLOWED_IDS", ""))
+    if not ids:
+        logger.warning("TELEGRAM_ALLOWED_IDS is empty: every chat will be refused")
+    bot = TelegramBot(token=token, allowed_chat_ids=ids)
+    try:
+        asyncio.run(bot.start(handle_command))
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
