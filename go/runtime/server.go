@@ -396,6 +396,7 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 	} else {
 		hooks := s.turnHooks(turn, s.scope, cancel)
 		hooks.instructions += mentionedSkills(s.opts.root, s.scope.workspace, text)
+		hooks.skillTools = skillTools(activeSkills(s.opts.root, s.scope.workspace, text))
 		wasReadOnly := s.scope.readOnly
 		if readOnlyTurn {
 			s.scope.readOnly = true
