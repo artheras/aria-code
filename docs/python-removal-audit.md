@@ -27,7 +27,7 @@ Before anything is deleted: is each part of `src/aria_code` (about 165,000 lines
 | Brokers, trading side: `brokers/trading.py`, `automation.py`, `planning.py` | part of ~4,000 | **Nothing.** financial-service cannot place orders | **No.** Unique; deleting it removes trading |
 | Other finance: `tools/` (finance, macro, realty, logistics), `datasources/`, `agents/financial`, `packs/`, `report_generator.py`, `dashboard_generator.py`, `data_service.py` | ~25,000 | **Nothing.** financial-service has 10 tools | **No.** Move to financial-service first, or the finance commands lose them |
 | Feishu bot and relay client: `aria_feishu_bot.py`, `clients/aria_relay_client.py` | ~2,500 | **Nothing** (only the relay server is Go) | **No.** Running integration |
-| Daemon: `aria_daemon.py` | 1,461 | **Nothing** | **No** |
+| Daemon: `aria_daemon.py` | 1,461 | Alerts and schedules: `aria-runtime daemon` | Its bot and webhook parts go with the bots |
 | MCP server: `aria-code-mcp` (`packages/aria_mcp`) | ~2,300 | `aria-runtime mcp` (core, media, artifacts, transcription), financial-service, `arthera-trading` | Yes, with the worker: `aria-code-mcp` already hands over to `aria-runtime mcp` (`ARIA_MCP_ENGINE=python` keeps it until then) |
 | Review service: `review_service.py`, `Dockerfile.review` | ~500 | **Nothing** | **No.** Deployed service |
 | Evals, training, video workflow | ~6,000 | **Nothing** | Keep (Python ecosystem by design) |
@@ -56,7 +56,7 @@ Before anything is deleted: is each part of `src/aria_code` (about 165,000 lines
      - `aria.artifacts.list` and `aria.video.transcribe` are ported (`go/runtime/mcp_artifacts.go`; `media_transcribe.go` runs a local whisper.cpp instead of faster-whisper); `aria.warehouse.task`, a simulation, is not carried over.
    - `aria-code-mcp` now starts `aria-runtime mcp` wherever it is installed: a platform wheel, next to the frozen native MCP build (`go/buildtools runtime`), or on `PATH`. `ARIA_MCP_ENGINE=python`, or an install without the Go engine, keeps the Python server.
    - **Trading:** a separate `arthera-trading` MCP server next to the read-only financial-service, off by default, paper trading first, every order previewed and confirmed by a person, with per-order and daily limits and a kill switch. A webhook only creates a preview; the daemon's unattended auto-execution is not carried over.
-   - **Daemon:** price alerts and schedules move into the Go runtime; anything that places orders goes through `arthera-trading`.
+   - **Daemon:** price alerts and schedules are in the Go runtime (`aria-runtime daemon`, `go/runtime/daemon.go`): the same `daemon.db`, quotes and history from financial-service, Telegram, Feishu and desktop notifications, the same cron schedules and four built-in briefs, `install` as a macOS LaunchAgent or Linux systemd user unit. While it runs, `aria_daemon.py` leaves alerts and schedules to it and keeps its Telegram command bot, TradingView webhook queue and portfolio watchdog; those go with the bots. APNs push depended on the Arthera backend and is not carried over. Anything that places orders goes through `arthera-trading`.
    - **Feishu and Telegram bots:** stay in Python, moved out of the core into their own service that talks to the runtime over its protocol.
 5. **Then delete** the worker, the Python UI and the command modules, with the parity tests that compare against them.
 
