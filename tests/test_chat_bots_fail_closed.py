@@ -104,7 +104,7 @@ class TestFeishuAllowlist:
         assert commands == ["/run /price AAPL"]
 
     def test_the_relay_client_says_so(self):
-        source = (ROOT / "src" / "aria_code" / "clients" / "aria_relay_client.py").read_text(encoding="utf-8")
+        source = (ROOT / "services" / "aria-bots" / "src" / "aria_bots" / "relay_client.py").read_text(encoding="utf-8")
         assert "dispatch_event(payload, authorized_by_binding=True)" in source
 
 

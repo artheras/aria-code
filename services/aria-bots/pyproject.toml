@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=72", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aria-bots"
+version = "0.1.0"
+description = "Aria's Feishu and Telegram bots, the relay client, and the logistics tools they use"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "httpx>=0.27.0",
+    "aiohttp>=3.9.0",
+    "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+# Reading attachments people send the Feishu bot.
+files = ["pypdf>=4.0", "openpyxl>=3.1", "python-docx>=1.1"]
+# Local speech-to-text when no OPENAI_API_KEY is set.
+voice = ["faster-whisper>=1.0"]
+
+[project.scripts]
+aria-relay-client = "aria_bots.relay_client:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["aria_bots*"]

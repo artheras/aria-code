@@ -25,8 +25,8 @@ Before anything is deleted: is each part of `src/aria_code` (about 165,000 lines
 | `domain/backtest_engine.py` | 354 | financial-service (33 lines differ) and Go `backtest.go` | Same; there are three backtest engines today |
 | Brokers, read side: `brokers/cn`, `brokers/intl` | part of ~4,000 | financial-service has the same 10 adapters, read-only | Same |
 | Brokers, trading side: `brokers/trading.py`, `automation.py`, `planning.py` | part of ~4,000 | **Nothing.** financial-service cannot place orders | **No.** Unique; deleting it removes trading |
-| Other finance: `tools/` (finance, macro, realty, logistics), `datasources/`, `agents/financial`, `packs/`, `report_generator.py`, `dashboard_generator.py`, `data_service.py` | ~25,000 | **Nothing.** financial-service has 10 tools | **No.** Move to financial-service first, or the finance commands lose them |
-| Feishu bot and relay client: `aria_feishu_bot.py`, `clients/aria_relay_client.py` | ~2,500 | **Nothing** (only the relay server is Go) | **No.** Running integration |
+| Other finance: `tools/` (finance, macro, realty), `datasources/`, `agents/financial`, `packs/`, `report_generator.py`, `dashboard_generator.py`, `data_service.py` | ~25,000 | **Nothing.** financial-service has 10 tools | **No.** Move to financial-service first, or the finance commands lose them |
+| Feishu/Telegram bots, relay client, channels, logistics tools | ~4,400 | Moved to `services/aria-bots` (own package and image; old paths are shims) | Moved. Still calls `aria_cli.py -p` for chat and the Python daemon for market commands; those move to `aria-runtime` and financial-service next |
 | Daemon: `aria_daemon.py` | 1,461 | Alerts and schedules: `aria-runtime daemon` | Its bot and webhook parts go with the bots |
 | MCP server: `aria-code-mcp` (`packages/aria_mcp`) | ~2,300 | `aria-runtime mcp` (core, media, artifacts, transcription), financial-service, `arthera-trading` | Yes, with the worker: `aria-code-mcp` already hands over to `aria-runtime mcp` (`ARIA_MCP_ENGINE=python` keeps it until then) |
 | Review service: `review_service.py`, `Dockerfile.review` | ~500 | **Nothing** | **No.** Deployed service |

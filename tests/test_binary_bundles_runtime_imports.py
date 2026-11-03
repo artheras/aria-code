@@ -36,6 +36,7 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "aria_code"
+BOTS = ROOT / "services" / "aria-bots" / "src"
 WORKFLOW = ROOT / ".github" / "workflows" / "build-native-binaries.yml"
 MAC_SCRIPT = ROOT / "scripts" / "build_native_binary.sh"
 
@@ -92,7 +93,7 @@ class EveryRuntimeImportIsListed(unittest.TestCase):
                 parts = module.split(".")
                 if parts[0] == "aria_code":
                     parts = parts[1:]
-                base = SRC.joinpath(*parts)
+                base = (BOTS if parts[0] == "aria_bots" else SRC).joinpath(*parts)
                 with self.subTest(kind=kind, module=module):
                     self.assertTrue(
                         base.with_suffix(".py").is_file() or (base / "__init__.py").is_file(),
