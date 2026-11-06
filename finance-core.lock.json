@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/artheras/financial-service.git",
+  "commit": "951a1a41aefe3a1d07e7b3ec85eb051fa5183538",
+  "files": {
+    "src/aria_code/domain/performance_stats.py": {
+      "source": "src/arthera_finance/performance_stats.py",
+      "sha256": "50b0d7e22c8539ab3fbebdc0cdd46772de85dcb9b92da0ef642eac9ec53f9ad7"
+    },
+    "src/aria_code/datasources/sec_statements.py": {
+      "source": "src/arthera_finance/sec_statements.py",
+      "sha256": "0c91b5f4b29d04e967da3f80570a2216be36ecba6eadd127f62649bf18cf18a8"
+    }
+  }
+}

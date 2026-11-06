@@ -16,7 +16,7 @@ checkout → ~/.arthera/skills → ~/.claude/skills → …）。这里直接复
 工具却找不到它的脚本"。
 
 Arthera SDK 是私有仓库的东西，公开仓库无从假设它在哪，因此只认显式的
-ARTHERA_SDK_PATH，外加一个同级 checkout 的兜底；找不到就安静跳过 —— 这些
+ARTHERA_SDK_PATH，不隐式发现旁边的源码目录；找不到就安静跳过 —— 这些
 工具本来就有 mcp_tool 的 ImportError 兜底分支，SDK 缺失不该是致命错误。
 """
 
@@ -80,7 +80,7 @@ def missing_script_message(skill_name: str, script_name: str) -> str:
 def ensure_arthera_sdk() -> bool:
     """把 Arthera SDK 加进 sys.path。返回是否找到。
 
-    只认显式配置 + 同级 checkout：Arthera 是私有仓库，公开仓库不该假设它
+    只认显式配置：Arthera 是私有仓库，公开仓库不该假设它
     存在于某个固定绝对路径。
     """
     candidates: list[Path] = []
@@ -90,7 +90,6 @@ def ensure_arthera_sdk() -> bool:
     arthera_root = os.getenv("ARTHERA_PATH", "")
     if arthera_root.strip():
         candidates.append(Path(arthera_root).expanduser() / "sdks" / "python")
-    candidates.append(Path(__file__).resolve().parents[3].parent / "Arthera" / "sdks" / "python")
 
     for candidate in candidates:
         try:
@@ -109,21 +108,20 @@ def ensure_arthera_root() -> bool:
 
     跟 ``ensure_arthera_sdk`` 同样的理由：Arthera 是私有仓库，公开仓库不该假设
     它在某个写死的绝对路径上。这里认的是 ``ARTHERA_ROOT``（doctor.py 与
-    backtest_cmds.py 已经在用的同一个变量），外加一个同级 checkout 的兜底。
+    backtest_cmds.py 已经在用的同一个变量），不隐式发现旁边的源码目录。
     """
     candidates: list[Path] = []
     for var in ("ARTHERA_ROOT", "ARTHERA_PATH"):
         configured = os.getenv(var, "")
         if configured.strip():
             candidates.append(Path(configured).expanduser())
-    candidates.append(Path(__file__).resolve().parents[4].parent / "Arthera")
 
     for candidate in candidates:
         try:
             if candidate.is_dir():
                 path_str = str(candidate)
                 if path_str not in sys.path:
-                    sys.path.insert(0, path_str)
+                    sys.path.append(path_str)
                 return True
         except OSError:
             continue

@@ -8,10 +8,30 @@ Before anything is deleted: is each part of `src/aria_code` (about 165,000 lines
 |---|---|---|
 | `pip install aria-code` on Linux (glibc 2.17+, x86_64/arm64), macOS 12+ (arm64/x64) or Windows x64 | Rust `aria-native` from the platform wheel | **Go** `aria-runtime` from the same wheel; the Python worker for `--help`/`run` and `ARIA_ENGINE=python` |
 | `pip install aria-code` elsewhere (pure wheel) | Python (`aria = aria_code.apps.cli.main`); the Rust TUI only if a native binary is on the machine | **Python** worker (`app_server`) |
-| Native release | Rust `aria-native` | **Python** worker, frozen with PyInstaller (`aria-code-worker`) |
-| `scripts/run_native_dev.sh`, CI, evals | Rust | Go `aria-runtime` (only when `ARIA_RUNTIME` points to it) |
+| Native release | Rust `aria-native` | **Go** `aria-runtime`; frozen Python worker for compatibility CLI paths and `ARIA_ENGINE=python` |
+| `scripts/run_native_dev.sh` | Rust from this checkout | Go from this checkout (`ARIA_RUNTIME` is set by the script) |
 
-`rust/cli/src/runtime.rs` looks for `ARIA_RUNTIME`, then `ARIA_PYTHON`, then a bundled `aria-code-worker`, then `python3`. No release ships `aria-runtime`. **Every user still runs the Python engine**, so deleting the worker now would break every install, even though the Go runtime has every core command.
+`rust/cli/src/runtime.rs` selects the Go runtime beside the frontend or frozen
+worker for application, stream and tool-bridge modes. Explicit `ARIA_RUNTIME`
+and `ARIA_PYTHON` overrides remain supported. CLI mode, pure wheels and the
+Python fallback still need the worker. Native releases now ship Go; that alone
+does not make every Python module removable.
+
+## GitHub ownership and first cleanup (2026-11-06)
+
+GitHub `artheras/aria-code` is the source for core changes. Default imports and
+package discovery no longer guess a developer's sibling or Desktop Arthera
+checkout. Private integration requires an explicit `ARTHERA_ROOT` (or the SDK
+helper's documented explicit setting); bundled modules retain precedence.
+
+`performance_stats.py` and `sec_statements.py` are byte-identical to the finance
+service at `951a1a41aefe3a1d07e7b3ec85eb051fa5183538`. That repository is their
+implementation owner. `finance-core.lock.json` pins the source and SHA-256s;
+`scripts/sync_finance_core.py --check` verifies the copies offline in CI.
+Compatibility copies remain because the CLI supports Python 3.10 while the
+service package requires 3.11. This removes independent maintenance, not the
+currently used import paths. See the [ownership and removal gates](operations/github-first-development.md#python-removal-gates)
+before deleting services or compatibility shims.
 
 ## Part by part
 
@@ -20,8 +40,8 @@ Before anything is deleted: is each part of `src/aria_code` (about 165,000 lines
 | Worker and commands: `apps/cli` (`app_server`, `aria_cli.py`, `commands/`) | ~61,000 | Go runtime (all core commands, see the [matrix](command-migration-matrix.md)) | After the Go runtime is the shipped engine |
 | Terminal UI: `ui/`, Python REPL rendering | ~6,400 | Rust TUI | After pip installs get the native binary, or pure-pip is dropped |
 | Agent loop, review, acceptance, checkpoints, risk: `runtime/`, `safety/` | ~13,500 | Go ports; `tests/test_native_go_*.py` compare Go with this Python | Same time as the worker; the Python then stops being the comparison oracle |
-| Providers: `providers/llm` | ~3,000 | Partly. Go has Google, Ollama and declared OpenAI-compatible endpoints | **Gap.** Go has no native Anthropic API, no Arthera gateway provider and no automatic setup from `OPENAI_API_KEY`-style variables |
-| `performance_stats.py`, `sec_statements.py` | 318 | **Identical** copies in financial-service | Yes, once aria-code's finance code goes to the service |
+| Providers: `providers/llm` | ~3,000 | Go provider presets, environment-key discovery and gateway login (see step 1) | Remove with the Python worker only after compatibility paths are retired; native Anthropic Messages is a separate contract |
+| `performance_stats.py`, `sec_statements.py` | 318 | **Identical**, hash-pinned copies owned by financial-service | Managed imports now; delete after all local callers move to the service or a compatible shared package |
 | `domain/backtest_engine.py` | 354 | financial-service (33 lines differ) and Go `backtest.go` | Same; there are three backtest engines today |
 | Brokers, read side: `brokers/cn`, `brokers/intl` | part of ~4,000 | financial-service has the same 10 adapters, read-only | Same |
 | Brokers, trading side: `brokers/trading.py`, `automation.py`, `planning.py` | part of ~4,000 | **Nothing.** financial-service cannot place orders | **No.** Unique; deleting it removes trading |

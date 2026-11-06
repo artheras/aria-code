@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
 from typing import Dict, List, Optional
 
 
 @dataclass(frozen=True)
 class ArtheraPackageMap:
-    root: Path
+    root: Optional[Path]
     available: bool
     packages: Dict[str, Path] = field(default_factory=dict)
     mcp_servers: List[Path] = field(default_factory=list)
@@ -17,7 +18,7 @@ class ArtheraPackageMap:
 
     def to_dict(self) -> dict:
         return {
-            "root": str(self.root),
+            "root": str(self.root) if self.root is not None else "",
             "available": self.available,
             "packages": {name: str(path) for name, path in self.packages.items()},
             "mcp_servers": [str(path) for path in self.mcp_servers],
@@ -28,7 +29,12 @@ class ArtheraPackageMap:
 def discover_arthera_packages(root: Optional[Path] = None) -> ArtheraPackageMap:
     """Discover useful Arthera package entrypoints without importing them."""
 
-    root = (root or Path.home() / "Desktop" / "Arthera" / "packages").expanduser()
+    if root is None:
+        configured = os.getenv("ARTHERA_ROOT", "").strip()
+        if not configured:
+            return ArtheraPackageMap(root=None, available=False)
+        root = Path(configured).expanduser() / "packages"
+    root = root.expanduser()
     if not root.exists():
         return ArtheraPackageMap(root=root, available=False)
 

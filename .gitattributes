@@ -4,3 +4,6 @@
 *.go    text eol=lf
 go.mod  text eol=lf
 go.sum  text eol=lf
+# Managed upstream sources are verified byte-for-byte, including on Windows.
+src/aria_code/domain/performance_stats.py text eol=lf
+src/aria_code/datasources/sec_statements.py text eol=lf
