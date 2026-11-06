@@ -60,10 +60,17 @@ configured MCP entrypoint and will not write a guessed developer path.
 
 ### Managed finance compatibility sources
 
-`finance-core.lock.json` lists exactly two managed Python modules. Their
+`finance-core.lock.json` lists three managed Python modules. Their
 implementation lives in financial-service; the checked-in copies keep existing
 Python imports and Python 3.10 consumers working without installing the
 service's Python 3.11+ package. This is a transitional boundary, not two owners.
+
+The pure backtest engine and statistics live in `domain/_finance_core/` as
+unchanged upstream files. `domain/backtest_engine.py` keeps only public
+compatibility exports, data loading and order-intent conversion. Broker access
+and host data providers are not dependencies of the pure kernel.
+`domain/performance_stats.py` aliases the managed module so old imports and
+monkeypatches refer to the same statistics object.
 
 1. Change and review the implementation in financial-service.
 2. Record the full reviewed commit SHA in a core PR:
@@ -71,10 +78,10 @@ service's Python 3.11+ package. This is a transitional boundary, not two owners.
    ```bash
    python scripts/sync_finance_core.py --update FULL_COMMIT_SHA
    python scripts/sync_finance_core.py --check
-   python -m pytest tests/test_performance_stats.py tests/test_sec_statement_fallback.py -q
+   python -m pytest tests/test_performance_stats.py tests/test_backtest_engine.py tests/test_sec_statement_fallback.py tests/test_finance_core_boundaries.py -q
    ```
 
-The update downloads only the two known files from that immutable GitHub commit
+The update downloads only the three known files from that immutable GitHub commit
 and parses, but does not execute, their source. `--source /path/to/source-clone`
 can read the same committed tree locally; unstaged edits are never imported.
 Review both the code and lock diff. Updates refuse to overwrite a locally
@@ -90,13 +97,20 @@ entrypoints and external consumers.
 | Code | Current decision | Gate before physical deletion |
 | --- | --- | --- |
 | Implicit private source discovery | Removed from core namespace/SDK discovery and the legacy MCP connection default | Explicit integration continues to be tested |
-| Two identical finance modules | One upstream owner, immutable pin and offline check | Replace remaining callers with a compatible shared package or service contract |
+| Finance statistics, SEC parser and pure backtest engine | One upstream owner, immutable pin and offline check; host adapters separated | Replace remaining Python callers with a compatible shared package or service contract before deleting the managed sources |
 | Python CLI/worker/UI and Go ports | Keep compatibility paths | Retire pure-wheel fallback, CLI `run`/help paths and explicit Python engine support, or provide equivalent replacements |
 | Bot legacy imports | Keep thin compatibility shims; implementation is in aria-bots | Migrate external callers and version the import change |
 | Hosted project-review API | Keep deployed service | Match its HTTP/auth/error contracts in the replacement and cut over actual consumers |
 | Unique trading/analyst/finance tools | Keep until ported or deliberately retired | Match data, preview/confirmation and output contracts; verify callers use the replacement |
 | Retired cloud/APNs integrations | Audit remaining callers separately | Move to an explicit service API or remove the feature and its callers together; never return fake success |
 | Evals/training | Keep Python intentionally | No deletion required for native core migration |
+
+The legacy agent skill adapters need contract repair before their import paths
+are redirected: `risk_tools.py` currently invokes `--demo` regardless of the
+requested symbol, and the factor wrapper's symbol/factors arguments do not
+match the installed CSV-based skill interface. Migration must require real
+returns/weights or factor inputs and preserve provenance, rather than activate
+an unrelated demonstration result as an analysis of the requested asset.
 
 Use [the detailed audit](../python-removal-audit.md) and the
 [command migration matrix](../command-migration-matrix.md) for the remaining

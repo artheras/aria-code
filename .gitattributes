@@ -5,5 +5,7 @@
 go.mod  text eol=lf
 go.sum  text eol=lf
 # Managed upstream sources are verified byte-for-byte, including on Windows.
-src/aria_code/domain/performance_stats.py text eol=lf
+src/aria_code/domain/_finance_core/*.py text eol=lf
+# Keep the upstream kernel byte-identical, including its final blank line.
+src/aria_code/domain/_finance_core/backtest_engine.py whitespace=-blank-at-eof
 src/aria_code/datasources/sec_statements.py text eol=lf

@@ -95,7 +95,8 @@ class BuiltWheel(unittest.TestCase):
 
     def test_it_contains_the_modules_the_entry_point_needs(self):
         for needed in ("aria_code/aria_cli.py", "aria_code/apps/cli/main.py",
-                       "aria_code/doctor.py"):
+                       "aria_code/doctor.py", "aria_code/domain/_finance_core/backtest_engine.py",
+                       "aria_code/domain/_finance_core/performance_stats.py"):
             with self.subTest(module=needed):
                 self.assertIn(needed, self.names)
 
@@ -139,6 +140,20 @@ class InstalledWheel(unittest.TestCase):
     def test_the_package_imports(self):
         proc = self._run("-c", "import aria_code; print(aria_code.__file__)")
         self.assertEqual(proc.returncode, 0, proc.stderr[-600:])
+
+    def test_the_managed_backtest_runs_from_the_installed_wheel(self):
+        proc = self._run("-c", """
+from aria_code.domain import backtest_engine as host, performance_stats
+from aria_code.domain._finance_core import backtest_engine as core
+assert host.BacktestEngine is core.BacktestEngine
+assert host.stats is performance_stats is core.stats
+bars = [host.Bar("2026-01-01", 10, 10, 10, 10),
+        host.Bar("2026-01-02", 10, 12, 10, 12)]
+result = host.BacktestEngine(starting_cash=1000, commission=0, slippage=0).run(
+    {"AAA": bars}, host.BuyHoldStrategy())
+assert result.equity_curve[-1]["equity"] == 1200
+""")
+        self.assertEqual(proc.returncode, 0, proc.stderr[-1200:])
 
     def test_the_bare_root_resolves_once_the_package_is_imported(self):
         """399 modules import each other bare, and that has to work installed.

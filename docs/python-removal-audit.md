@@ -27,13 +27,15 @@ package discovery no longer guess a developer's sibling or Desktop Arthera
 checkout. Private integration requires an explicit `ARTHERA_ROOT` (or the SDK
 helper's documented explicit setting); bundled modules retain precedence.
 
-`performance_stats.py` and `sec_statements.py` are byte-identical to the finance
-service at `951a1a41aefe3a1d07e7b3ec85eb051fa5183538`. That repository is their
-implementation owner. `finance-core.lock.json` pins the source and SHA-256s;
+The managed statistics, SEC parser and pure backtest engine are byte-identical
+to the finance service at `951a1a41aefe3a1d07e7b3ec85eb051fa5183538`. That
+repository is their implementation owner. `finance-core.lock.json` pins the source and SHA-256s;
 `scripts/sync_finance_core.py --check` verifies the copies offline in CI.
 Compatibility copies remain because the CLI supports Python 3.10 while the
 service package requires 3.11. This removes independent maintenance, not the
-currently used import paths. See the [ownership and removal gates](operations/github-first-development.md#python-removal-gates)
+currently used import paths. The host backtest module now keeps only data and
+broker adapters plus compatibility exports; the simulation no longer has an
+independently edited CLI implementation. See the [ownership and removal gates](operations/github-first-development.md#python-removal-gates)
 before deleting services or compatibility shims.
 
 ## Part by part
@@ -45,7 +47,7 @@ before deleting services or compatibility shims.
 | Agent loop, review, acceptance, checkpoints, risk: `runtime/`, `safety/` | ~13,500 | Go ports; `tests/test_native_go_*.py` compare Go with this Python | Same time as the worker; the Python then stops being the comparison oracle |
 | Providers: `providers/llm` | ~3,000 | Go provider presets, environment-key discovery and gateway login (see step 1) | Remove with the Python worker only after compatibility paths are retired; native Anthropic Messages is a separate contract |
 | `performance_stats.py`, `sec_statements.py` | 318 | **Identical**, hash-pinned copies owned by financial-service | Managed imports now; delete after all local callers move to the service or a compatible shared package |
-| `domain/backtest_engine.py` | 354 | financial-service (33 lines differ) and Go `backtest.go` | Same; there are three backtest engines today |
+| `domain/backtest_engine.py` | Host adapter over managed kernel | Pure kernel is imported unchanged from financial-service; Go remains the native port | Keep the adapters and Python kernel while compatibility callers use them; verify Go parity on the same fixtures |
 | Brokers, read side: `brokers/cn`, `brokers/intl` | part of ~4,000 | financial-service has the same 10 adapters, read-only | Same |
 | Brokers, trading side: `brokers/trading.py`, `automation.py`, `planning.py` | part of ~4,000 | **Nothing.** financial-service cannot place orders | **No.** Unique; deleting it removes trading |
 | Other finance: `tools/` (finance, macro, realty), `datasources/`, `agents/financial`, `packs/`, `report_generator.py`, `dashboard_generator.py`, `data_service.py` | ~25,000 | Partly migrated to financial-service and Go; see step 3 | Keep the unique capabilities and remaining local consumers until their service cutover is verified |

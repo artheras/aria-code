@@ -43,7 +43,7 @@ jobs:
           ARIA_OFFLINE: "1"
         run: |
           python scripts/sync_finance_core.py --check
-          python -m pytest tests/test_optional_finance.py tests/test_explicit_backend_paths.py tests/test_finance_source_lock.py -q
+          python -m pytest tests/test_optional_finance.py tests/test_explicit_backend_paths.py tests/test_finance_source_lock.py tests/test_finance_core_boundaries.py -q
 
   runtime-integration:
     name: Runtime integration (${{ matrix.os }})

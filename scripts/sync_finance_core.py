@@ -22,7 +22,8 @@ from urllib.request import urlopen
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "https://github.com/artheras/financial-service.git"
 MANAGED = {
-    "src/aria_code/domain/performance_stats.py": "src/arthera_finance/performance_stats.py",
+    "src/aria_code/domain/_finance_core/performance_stats.py": "src/arthera_finance/performance_stats.py",
+    "src/aria_code/domain/_finance_core/backtest_engine.py": "src/arthera_finance/backtest_engine.py",
     "src/aria_code/datasources/sec_statements.py": "src/arthera_finance/sec_statements.py",
 }
 LOCK = ROOT / "finance-core.lock.json"

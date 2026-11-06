@@ -169,7 +169,7 @@ python3 scripts/github_migration_preflight.py
 
 The finance service owns shared financial calculations. Prefer adding a new
 service capability in `artheras/financial-service` and consuming it through
-`/finance setup`. The two managed compatibility modules listed in
+`/finance setup`. The three managed compatibility modules listed in
 `finance-core.lock.json` must be changed upstream and imported with
 `scripts/sync_finance_core.py --update FULL_COMMIT_SHA`; do not edit both copies.
 
