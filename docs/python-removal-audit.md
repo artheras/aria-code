@@ -1,6 +1,9 @@
 # Python removal audit
 
-Before anything is deleted: is each part of `src/aria_code` (about 165,000 lines) really duplicated somewhere else, and is it still on the path an installed `aria` takes?
+Before anything is deleted: is each part of `src/aria_code` really duplicated
+somewhere else, and is it still on the path an installed `aria` takes? Line
+counts below are approximate sizes from the original audit, not deletion
+targets or a current inventory of unreachable code.
 
 ## What an install runs today
 
@@ -37,15 +40,15 @@ before deleting services or compatibility shims.
 
 | Part | Lines | Duplicated by | Can it go? |
 |---|---|---|---|
-| Worker and commands: `apps/cli` (`app_server`, `aria_cli.py`, `commands/`) | ~61,000 | Go runtime (all core commands, see the [matrix](command-migration-matrix.md)) | After the Go runtime is the shipped engine |
-| Terminal UI: `ui/`, Python REPL rendering | ~6,400 | Rust TUI | After pip installs get the native binary, or pure-pip is dropped |
+| Worker and commands: `apps/cli` (`app_server`, `aria_cli.py`, `commands/`) | ~61,000 | Go runtime (all core commands, see the [matrix](command-migration-matrix.md)) | After the remaining Python CLI and fallback contracts are retired or replaced |
+| Terminal UI: `ui/`, Python REPL rendering | ~6,400 | Rust TUI | After the pure-wheel and explicit Python UI paths are retired or replaced |
 | Agent loop, review, acceptance, checkpoints, risk: `runtime/`, `safety/` | ~13,500 | Go ports; `tests/test_native_go_*.py` compare Go with this Python | Same time as the worker; the Python then stops being the comparison oracle |
 | Providers: `providers/llm` | ~3,000 | Go provider presets, environment-key discovery and gateway login (see step 1) | Remove with the Python worker only after compatibility paths are retired; native Anthropic Messages is a separate contract |
 | `performance_stats.py`, `sec_statements.py` | 318 | **Identical**, hash-pinned copies owned by financial-service | Managed imports now; delete after all local callers move to the service or a compatible shared package |
 | `domain/backtest_engine.py` | 354 | financial-service (33 lines differ) and Go `backtest.go` | Same; there are three backtest engines today |
 | Brokers, read side: `brokers/cn`, `brokers/intl` | part of ~4,000 | financial-service has the same 10 adapters, read-only | Same |
 | Brokers, trading side: `brokers/trading.py`, `automation.py`, `planning.py` | part of ~4,000 | **Nothing.** financial-service cannot place orders | **No.** Unique; deleting it removes trading |
-| Other finance: `tools/` (finance, macro, realty), `datasources/`, `agents/financial`, `packs/`, `report_generator.py`, `dashboard_generator.py`, `data_service.py` | ~25,000 | **Nothing.** financial-service has 10 tools | **No.** Move to financial-service first, or the finance commands lose them |
+| Other finance: `tools/` (finance, macro, realty), `datasources/`, `agents/financial`, `packs/`, `report_generator.py`, `dashboard_generator.py`, `data_service.py` | ~25,000 | Partly migrated to financial-service and Go; see step 3 | Keep the unique capabilities and remaining local consumers until their service cutover is verified |
 | Feishu/Telegram bots, relay client, channels, logistics tools | ~4,400 | Moved to `services/aria-bots` (own package and image; old paths are shims) | Moved. Chat runs on `aria-runtime stream`, with the logistics tools as an MCP server scoped per shipper. Market commands run `aria-runtime daemon quote/once/alert/status`. Telegram commands are `aria-telegram-bot` (the Python daemon uses the same handler). `/football`, `/swarm` and `/screen` are removed |
 | Daemon: `aria_daemon.py` | 1,461 | Alerts and schedules: `aria-runtime daemon` | Its bot and webhook parts go with the bots |
 | MCP server: `aria-code-mcp` (`packages/aria_mcp`) | ~2,300 | `aria-runtime mcp` (core, media, artifacts, transcription), financial-service, `arthera-trading` | Yes, with the worker: `aria-code-mcp` already hands over to `aria-runtime mcp` (`ARIA_MCP_ENGINE=python` keeps it until then) |
@@ -80,4 +83,7 @@ before deleting services or compatibility shims.
    - **Feishu and Telegram bots:** stay in Python, moved out of the core into their own service that talks to the runtime over its protocol.
 5. **Then delete** the worker, the Python UI and the command modules, with the parity tests that compare against them.
 
-Steps 1 to 3 are each a PR. Deleting anything before step 2 ships breaks installs. Deleting finance code before step 3 removes features.
+Native shipping is complete, but the remaining compatibility paths still gate
+worker deletion. Migrate and verify finance callers before removing their local
+implementation. Each service cutover and subsequent removal should be a
+reviewable PR.
