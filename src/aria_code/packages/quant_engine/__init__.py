@@ -12,9 +12,15 @@ no caller changes (see tools/build_quant_engine.py, CLOSING_SOURCE.md).
 """
 
 from importlib.util import find_spec
-from ._namespace import extend as _extend_namespace
 
-_extend_namespace(__path__, "")
+# Compiled/private engine distributions may retain only this public stub.
+# Absence of the optional extension helper must not prevent is_available().
+try:
+    from ._namespace import extend as _extend_namespace
+except ImportError:
+    pass
+else:
+    _extend_namespace(__path__, "")
 
 __version__ = "1.0.0"
 
