@@ -86,6 +86,39 @@ func (s *service) workspace(id, owner string) (workspaceManifest, error) {
 	return manifest, nil
 }
 
+func (s *service) cleanupExpired(now time.Time) int {
+	entries, err := os.ReadDir(s.root)
+	if err != nil {
+		return 0
+	}
+	removed := 0
+	for _, entry := range entries {
+		if !entry.IsDir() || !workspaceIDPattern.MatchString(entry.Name()) {
+			continue
+		}
+		dir, err := s.workspaceDir(entry.Name())
+		if err != nil {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, ".aria-workspace.json"))
+		if err != nil {
+			continue
+		}
+		var manifest workspaceManifest
+		if json.Unmarshal(data, &manifest) != nil {
+			continue
+		}
+		expires, err := time.Parse(time.RFC3339Nano, manifest.ExpiresAt)
+		if err != nil || expires.After(now) {
+			continue
+		}
+		if os.RemoveAll(dir) == nil {
+			removed++
+		}
+	}
+	return removed
+}
+
 func (s *service) createWorkspaceFromArchive(payload []byte, filename, owner, run string) (workspaceManifest, error) {
 	if strings.TrimSpace(owner) == "" || strings.TrimSpace(run) == "" {
 		return workspaceManifest{}, errors.New("owner_id and run_id are required.")

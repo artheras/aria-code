@@ -19,7 +19,7 @@ Set `ARIA_CODE_REVIEW_TOKEN` before using any `/v1/*` endpoint. The health
 endpoint is public. `PORT` defaults to `8787`,
 `ARIA_CODE_WORKSPACE_ROOT` defaults to a temporary directory, and
 `ARIA_CODE_WORKSPACE_TTL_HOURS` defaults to 24 hours and is clamped to seven
-days. Uploaded project archives are limited to 25 MiB; archive contents are
+days. Expired workspaces are pruned at startup and every 30 minutes. Uploaded project archives are limited to 25 MiB; archive contents are
 never executed, and sensitive files, links, generated folders, and oversized
 members are excluded.
 

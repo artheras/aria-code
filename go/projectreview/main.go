@@ -66,11 +66,21 @@ func main() {
 	log.Printf("project review service listening on %s", server.Addr)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	s.cleanupExpired(time.Now())
 	go func() {
-		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = server.Shutdown(shutdown)
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				_ = server.Shutdown(shutdown)
+				return
+			case <-ticker.C:
+				s.cleanupExpired(time.Now())
+			}
+		}
 	}()
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal("project review server stopped")
