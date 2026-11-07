@@ -545,7 +545,8 @@ class Server:
             None,
             lambda: auto_update.install_if_newer(
                 self.cli.__version__, _install_channel(), self.terminal.config,
-                check=updater.check_update, install=updater.install_native,
+                check=lambda channel: updater.check_update(channel, prefer_native=True),
+                install=updater.install_native,
                 newer=_newer, app_root=updater._app_root(),
             ),
         )

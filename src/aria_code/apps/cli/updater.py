@@ -19,7 +19,7 @@ import urllib.error
 from aria_code._version import __version__
 from aria_code.apps.cli.update_check import (
     _RELEASE_URL, _NPM_URL, _install_channel, _newer,
-    _parse, _write_cache,
+    _native_check, _parse, _write_cache,
 )
 
 
@@ -32,8 +32,16 @@ def _fetch_json(url: str) -> dict:
         return json.load(response)
 
 
-def check_update(channel: str, *, version: str | None = None) -> tuple[str, dict]:
+def check_update(
+    channel: str, *, version: str | None = None, prefer_native: bool = False,
+) -> tuple[str, dict]:
     import time
+
+    if prefer_native and channel == "native" and not version:
+        metadata = _native_check(__version__, channel)
+        latest = metadata.get("latest") if metadata else None
+        if isinstance(latest, str) and _parse(latest) is not None:
+            return latest.removeprefix("v"), metadata
 
     source = _NPM_URL if channel == "npm" else _RELEASE_URL
     if version:

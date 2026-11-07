@@ -296,7 +296,7 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
             Some("update") => {
                 let action = utf8(
                     args.next(),
-                    "Usage: update check --current VERSION | update rollback",
+                    "Usage: update check --current VERSION | update install --to VERSION | update rollback",
                 )?;
                 if action == "rollback" {
                     if args.next().is_some() {
