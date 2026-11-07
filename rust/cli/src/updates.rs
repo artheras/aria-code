@@ -289,6 +289,7 @@ fn acquire_named_lock(root: &Path, name: &str) -> Result<UpdateLock, String> {
     use std::os::unix::fs::OpenOptionsExt;
     let lock = fs::OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .mode(0o600)

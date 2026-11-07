@@ -536,7 +536,14 @@ class Server:
             pass  # A metadata failure must not interrupt the user's task.
 
     async def install_update_quietly(self):
-        """Native installs update themselves; the header then asks for a restart."""
+        """Managed macOS/Linux installs update in the background.
+
+        Windows presents its PowerShell installer command in the update notice
+        instead: replacing the running executable is blocked by Windows file
+        locks, so installing there must happen after the user closes Aria.
+        """
+        if sys.platform == "win32":
+            return
         from aria_code.apps.cli import auto_update, updater
         from aria_code.apps.cli.update_check import _install_channel, _newer
 

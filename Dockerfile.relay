@@ -6,7 +6,7 @@
 # MESSAGE_TIMEOUT) and SQLite/Firestore layout, so a deploy keeps every binding
 # and machine credential. tests/test_relay_contract.py holds it to the contract.
 
-FROM golang:1.26-bookworm AS build
+FROM golang:1.27.3-bookworm AS build
 WORKDIR /src
 COPY go/relay/go.mod go/relay/go.sum ./
 RUN go mod download
