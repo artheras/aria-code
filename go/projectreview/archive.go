@@ -7,6 +7,9 @@ import (
 	"compress/gzip"
 	"errors"
 	"fmt"
+	"go/parser"
+	"go/scanner"
+	"go/token"
 	"io"
 	"path"
 	"path/filepath"
@@ -319,6 +322,23 @@ func scanReviewFile(file reviewFile) []finding {
 	}
 	lines := splitTextLines(file.Content)
 	var findings []finding
+	if strings.EqualFold(filepath.Ext(file.Path), ".go") {
+		if _, err := parser.ParseFile(token.NewFileSet(), file.Path, file.Content, parser.AllErrors); err != nil {
+			if parseErrors, ok := err.(scanner.ErrorList); ok && len(parseErrors) > 0 {
+				first := parseErrors[0]
+				line := first.Pos.Line
+				evidence := ""
+				if line > 0 && line <= len(lines) {
+					evidence = strings.TrimSpace(lines[line-1])
+				}
+				findings = append(findings, finding{
+					Severity: "critical", Rule: "go-syntax-error",
+					Message: "Go 代码无法解析，编译前会失败。", Line: line,
+					Evidence: truncateRunes(evidence, 240), File: file.Path,
+				})
+			}
+		}
+	}
 	for i, line := range lines {
 		add := func(severity, rule, message, evidence string) {
 			if rule == "hardcoded-secret" {

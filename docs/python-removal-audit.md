@@ -71,6 +71,15 @@ before deleting services or compatibility shims.
 | CLI code review: `review_service.py` | ~500 | Go `aria-runtime code-review` | Keep the Python path with the compatibility worker; remove with that worker after external callers move |
 | Evals, training, video workflow | ~6,000 | **Nothing** | Keep (Python ecosystem by design) |
 
+## Go project-review scanner increment (2026-11-07)
+
+The Go candidate now parses `.go` files with the Go standard-library parser and
+returns a structured `go-syntax-error` finding with the source line and redacted-
+length-bounded evidence. This adds native syntax diagnostics for Go projects; it
+does not close Python AST parity or authorize a production cutover. The active
+Python image remains in place until report and route contracts are compared and
+the backend consumer has exercised the workspace lifecycle.
+
 ## Order that loses nothing
 
 1. ~~**Close the Go provider gaps.**~~ Done (`provider_presets.go`): OpenAI, Anthropic, DeepSeek, SiliconFlow, DashScope, Moonshot, Zhipu, Groq, Together and LM Studio are built in. Each reads the usual API-key variable. The Arthera gateway uses the `/login` session. Anthropic goes through its OpenAI-compatible endpoint, not the native Messages API.
