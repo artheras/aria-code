@@ -36,6 +36,26 @@ MCP/LSP/hooks, client isolation, task worktrees/acceptance checks and packaging
 are not covered merely by the rows above. Their Python implementations remain
 available and must not be removed to make a language count appear complete.
 
+## Language boundary
+
+Migration is capability-based, not a blanket rewrite. Go is the default target
+for long-running services, HTTP/MCP protocols, persistence, scheduling and
+cross-platform operational tooling. Rust is the default for the native CLI,
+desktop-facing state machines, parsers/indexers and components where tight
+resource or platform control matters. Keep Python when the capability depends
+on its scientific/data ecosystem, vendor SDKs, model training/evaluation, or a
+Python-only upstream integration and a native port would add cost without
+removing that dependency. In particular, finance data adapters and numerical
+analysis stay in the separate Python financial-service while Go/Rust own the
+product runtime and deterministic cores.
+
+Every migration slice must name its active callers, data and error contracts,
+and the package/service entrypoints that will switch. Retain Python compatibility
+where callers still need it; remove that implementation only after real callers
+are on the native path and persisted-state and release behavior are covered.
+Never claim migration completion from a matching Go/Rust file or a successful
+compile alone.
+
 ## Local evidence
 
 The 2026-10-14 integration is based on main v0.151.0, including the Go
