@@ -38,7 +38,7 @@ def check_update(
 ) -> tuple[str, dict]:
     import time
 
-    if prefer_native and channel == "native" and not version:
+    if prefer_native and not version:
         metadata = _native_check(__version__, channel, refresh=refresh_native)
         latest = metadata.get("latest") if metadata else None
         if isinstance(latest, str) and _parse(latest) is not None:
@@ -334,8 +334,8 @@ def main(argv: list[str] | None = None) -> int:
         latest, release = check_update(
             channel,
             version=args.to,
-            prefer_native=channel == "native" and not args.to,
-            refresh_native=channel == "native" and not args.to,
+            prefer_native=not args.to,
+            refresh_native=not args.to,
         )
         print(f"Aria Code {__version__} · latest {latest} · {channel}")
         print(f"Running executable: {Path(sys.executable).resolve()}")
