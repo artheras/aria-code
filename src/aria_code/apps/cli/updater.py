@@ -116,6 +116,22 @@ def _app_root() -> Path:
     return Path(os.environ.get("ARIA_CODE_HOME", str(Path.home() / ".local/share/aria-code"))).expanduser().resolve()
 
 
+def _native_update_helper() -> Path | None:
+    """Find the bundled Rust helper without guessing a system installation."""
+    if os.name == "nt":
+        return None  # Windows rollback retains its existing installer path.
+    executable = Path(sys.executable).resolve()
+    package_bin = Path(__file__).resolve().parents[2] / "_bin" / "aria-native"
+    for candidate in (
+        executable.parent / "aria-native",
+        executable.parent / "_internal" / "aria-native",
+        package_bin,
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _switch_native(command: Path, binary: Path, app_root: Path) -> None:
     """Switch atomically and remember the former managed release for rollback."""
     previous = command.resolve() if command.is_symlink() else None
@@ -138,6 +154,16 @@ def _switch_native(command: Path, binary: Path, app_root: Path) -> None:
 
 def rollback_native() -> Path:
     """Restore the previous managed binary; no network and no directory deletion."""
+    helper = _native_update_helper()
+    if helper is not None:
+        try:
+            subprocess.run([str(helper), "update", "rollback"], capture_output=True,
+                           text=True, timeout=100, check=True)
+        except (OSError, subprocess.SubprocessError) as exc:
+            detail = getattr(exc, "stderr", "") or str(exc)
+            raise ValueError(f"Native rollback failed; the installed version was kept: {detail.strip()}") from exc
+        return _install_dir() / "aria-code"
+
     app_root = _app_root().resolve()
     try:
         data = json.loads((app_root / "previous.json").read_text())

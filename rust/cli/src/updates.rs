@@ -1,9 +1,11 @@
-//! Explicit native metadata checks. Never installs, downloads or runs a release.
+//! Native update metadata and managed-release rollback operations.
 use crate::state;
 use serde_json::{json, Value};
 use std::{
+    env, fs,
     io::{Read, Write},
-    path::Path,
+    path::{Path, PathBuf},
+    process::Command,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use ureq::tls::{RootCerts, TlsConfig};
@@ -12,6 +14,7 @@ pub const RELEASE_URL: &str = "https://api.github.com/repos/artheras/aria-code/r
 pub const NPM_URL: &str = "https://registry.npmjs.org/@artheras%2Faria-code/latest";
 const CACHE_TTL: f64 = 86_400.0;
 const MAX_METADATA: u64 = 2 * 1024 * 1024;
+const PRODUCT_PREFIX: &str = "aria-code ";
 const LEGACY: [[u64; 3]; 8] = [
     [4, 1, 3],
     [4, 1, 4],
@@ -184,6 +187,143 @@ fn output(check: &Check, latest: Option<&str>, status: &str, error: Option<Strin
 
 pub fn check(root: &Path, options: &Check) -> Result<Value, String> {
     check_using(root, options, fetch)
+}
+
+fn app_root() -> Result<PathBuf, String> {
+    if let Some(path) = env::var_os("ARIA_CODE_HOME") {
+        return expand_user(PathBuf::from(path));
+    }
+    Ok(home_dir()?.join(".local/share/aria-code"))
+}
+
+fn install_dir() -> Result<PathBuf, String> {
+    if let Some(path) = env::var_os("ARIA_CODE_INSTALL_DIR") {
+        return expand_user(PathBuf::from(path));
+    }
+    Ok(home_dir()?.join(".local/bin"))
+}
+
+fn home_dir() -> Result<PathBuf, String> {
+    env::var_os("HOME")
+        .or_else(|| env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .ok_or_else(|| "Could not locate the user home directory".into())
+}
+
+fn expand_user(path: PathBuf) -> Result<PathBuf, String> {
+    if path == Path::new("~") {
+        return home_dir();
+    }
+    if let Ok(relative) = path.strip_prefix("~") {
+        return Ok(home_dir()?.join(relative));
+    }
+    Ok(path)
+}
+
+fn executable(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(path).is_ok_and(|metadata| metadata.permissions().mode() & 0o111 != 0)
+    }
+    #[cfg(not(unix))]
+    {
+        path.extension().is_some_and(|extension| extension == "exe")
+    }
+}
+
+fn recorded_release(root: &Path, record: &Value) -> Result<PathBuf, String> {
+    let releases = root.join("releases").canonicalize().map_err(|_| {
+        "No previous managed release is recorded; use aria update --to VERSION instead"
+    })?;
+    let relative = record["previous"]
+        .as_str()
+        .ok_or("No previous managed release is recorded; use aria update --to VERSION instead")?;
+    let binary = releases.join(relative).canonicalize().map_err(|_| {
+        "Previous release is missing or not executable; the installed version was kept"
+    })?;
+    binary
+        .strip_prefix(&releases)
+        .map_err(|_| "Previous release is outside the managed releases directory")?;
+    if !executable(&binary) {
+        return Err(
+            "Previous release is missing or not executable; the installed version was kept".into(),
+        );
+    }
+    Ok(binary)
+}
+
+fn write_previous(root: &Path, relative: &Path) -> Result<(), String> {
+    let mut file = tempfile::NamedTempFile::new_in(root).map_err(|e| e.to_string())?;
+    let value = json!({"previous": relative});
+    file.write_all(value.to_string().as_bytes())
+        .map_err(|e| e.to_string())?;
+    file.as_file().sync_all().map_err(|e| e.to_string())?;
+    file.persist(root.join("previous.json"))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Restore the previous managed release without network access. The target is
+/// checked before the command symlink is atomically replaced.
+pub fn rollback() -> Result<PathBuf, String> {
+    #[cfg(not(unix))]
+    return Err("Native rollback is currently supported on macOS and Linux installs".into());
+
+    #[cfg(unix)]
+    {
+        let root = app_root()?.canonicalize().map_err(|_| {
+            "No previous managed release is recorded; use aria update --to VERSION instead"
+        })?;
+        let record_path = root.join("previous.json");
+        let record: Value = serde_json::from_slice(&fs::read(&record_path).map_err(|_| {
+            "No previous managed release is recorded; use aria update --to VERSION instead"
+        })?)
+        .map_err(|_| "Previous release record is invalid; the installed version was kept")?;
+        let binary = recorded_release(&root, &record)?;
+        let output = Command::new(&binary)
+            .arg("--version")
+            .output()
+            .map_err(|_| {
+                "Previous release failed its version check; the installed version was kept"
+            })?;
+        let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let raw_version = version
+            .strip_prefix(PRODUCT_PREFIX)
+            .ok_or("Previous release failed its version check; the installed version was kept")?;
+        if !output.status.success() || parse_version(raw_version).is_none() {
+            return Err(
+                "Previous release failed its version check; the installed version was kept".into(),
+            );
+        }
+
+        let command = install_dir()?.join("aria-code");
+        let current = command.canonicalize().ok().and_then(|path| {
+            path.strip_prefix(root.join("releases").canonicalize().ok()?)
+                .ok()
+                .map(Path::to_path_buf)
+        });
+        let temp_link =
+            command.with_file_name(format!(".aria-code-rollback-{}", std::process::id()));
+        let _ = fs::remove_file(&temp_link);
+        std::os::unix::fs::symlink(&binary, &temp_link).map_err(|e| e.to_string())?;
+        if let Some(current) = current {
+            if let Err(error) = write_previous(&root, &current) {
+                let _ = fs::remove_file(&temp_link);
+                return Err(error);
+            }
+        }
+        if let Err(error) = fs::rename(&temp_link, &command) {
+            let _ = fs::remove_file(&temp_link);
+            return Err(format!(
+                "Could not atomically switch the CLI; installed version was kept: {error}"
+            ));
+        }
+        Ok(command)
+    }
 }
 
 fn check_using(
