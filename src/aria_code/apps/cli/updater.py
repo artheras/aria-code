@@ -18,7 +18,7 @@ import urllib.error
 
 from aria_code._version import __version__
 from aria_code.apps.cli.update_check import (
-    _RELEASE_URL, _NPM_URL, _install_channel, _newer,
+    _RELEASE_URL, _NPM_URL, _install_channel, _newer, _update_command,
     _native_check, _parse, _write_cache,
 )
 
@@ -349,6 +349,13 @@ def main(argv: list[str] | None = None) -> int:
             print("Source checkout: update your Git branch, then run: python3 -m pip install -e .")
             return 0
         if channel == "native":
+            if os.name == "nt":
+                command = _update_command(channel, latest)
+                if args.to:
+                    command = f"$env:ARIA_CODE_VERSION = 'v{latest}'; {command}"
+                print("Close Aria first, then run this in PowerShell to install the update:")
+                print(command)
+                return 0
             command = install_native(latest, release)
             print(f"Installed {latest}: {command}. Restart Aria to use the new version.")
             return 0
