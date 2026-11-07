@@ -158,6 +158,9 @@ func (s *service) createWorkspaceFromArchive(payload []byte, filename, owner, ru
 	}
 	count, total, skipped := 0, 0, 0
 	for _, entry := range entries {
+		if len(entry.Data) > maxSourceBytes {
+			continue
+		}
 		rel, err := safeArchivePath(entry.Path)
 		if err != nil {
 			return workspaceManifest{}, err

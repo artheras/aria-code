@@ -103,13 +103,14 @@ func archiveEntries(payload []byte, filename string) ([]archiveFile, error) {
 				continue
 			}
 			files++
-			size += int64(entry.UncompressedSize64)
-			if files > maxArchiveFiles || size > maxExtractedBytes {
+			declaredSize := entry.UncompressedSize64
+			if files > maxArchiveFiles || declaredSize > uint64(maxExtractedBytes) || size > maxExtractedBytes-int64(declaredSize) {
 				return nil, errors.New("Expanded project exceeds the file-count or size limit.")
 			}
+			size += int64(declaredSize)
 		}
 		for _, entry := range reader.File {
-			if entry.FileInfo().IsDir() || entry.Mode()&0o170000 == 0o120000 || int64(entry.UncompressedSize64) > maxSourceBytes {
+			if entry.FileInfo().IsDir() || entry.Mode()&0o170000 == 0o120000 || entry.UncompressedSize64 > uint64(maxSourceBytes) {
 				continue
 			}
 			file, err := entry.Open()
@@ -149,11 +150,11 @@ func archiveEntries(payload []byte, filename string) ([]archiveFile, error) {
 				continue
 			}
 			files++
-			size += header.Size
-			if files > maxArchiveFiles || size > maxExtractedBytes {
+			if header.Size < 0 || files > maxArchiveFiles || header.Size > maxExtractedBytes || size > maxExtractedBytes-header.Size {
 				return nil, errors.New("Expanded project exceeds the file-count or size limit.")
 			}
-			if header.Size < 0 || header.Size > maxSourceBytes {
+			size += header.Size
+			if header.Size > maxSourceBytes {
 				continue
 			}
 			data, err := io.ReadAll(io.LimitReader(tr, maxSourceBytes+1))
