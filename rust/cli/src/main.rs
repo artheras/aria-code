@@ -30,6 +30,9 @@ Usage:
   aria-native sessions show ID
   aria-native [--python EXE] [-C DIR] resume ID [--] [ARIA ARGUMENTS...]
   aria-native update check --current VERSION [--channel native|npm|pip|source] [--offline|--refresh]
+  aria-native update install --to VERSION
+  aria-native update auto-install --current VERSION
+  aria-native update rollback
   aria-native physical [jsonl|agent-jsonl|mcp|serve --listen 127.0.0.1:8765]
   aria-native index imports|symbols < REQUEST.json
   aria-native completions bash|zsh|fish
@@ -101,6 +104,9 @@ enum Mode {
         args: Vec<OsString>,
     },
     Update(updates::Check),
+    UpdateInstall(String),
+    UpdateAutoInstall(String),
+    UpdateRollback,
     Tool {
         name: String,
         params: Value,
@@ -290,8 +296,38 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                 break Mode::Resume { id, args: rest };
             }
             Some("update") => {
-                if args.next().as_deref() != Some(std::ffi::OsStr::new("check")) {
-                    return Err("Usage: update check --current VERSION".into());
+                let action = utf8(
+                    args.next(),
+                    "Usage: update check --current VERSION | update install --to VERSION | update rollback",
+                )?;
+                if action == "rollback" {
+                    if args.next().is_some() {
+                        return Err("Usage: update rollback".into());
+                    }
+                    break Mode::UpdateRollback;
+                }
+                if action == "install" {
+                    if args.next().as_deref() != Some(std::ffi::OsStr::new("--to")) {
+                        return Err("Usage: update install --to VERSION".into());
+                    }
+                    let version = utf8(args.next(), "--to requires a stable release version")?;
+                    if args.next().is_some() {
+                        return Err("Usage: update install --to VERSION".into());
+                    }
+                    break Mode::UpdateInstall(version);
+                }
+                if action == "auto-install" {
+                    if args.next().as_deref() != Some(std::ffi::OsStr::new("--current")) {
+                        return Err("Usage: update auto-install --current VERSION".into());
+                    }
+                    let version = utf8(args.next(), "--current requires the product version")?;
+                    if args.next().is_some() {
+                        return Err("Usage: update auto-install --current VERSION".into());
+                    }
+                    break Mode::UpdateAutoInstall(version);
+                }
+                if action != "check" {
+                    return Err("Usage: update check | install | auto-install | rollback".into());
                 }
                 let mut check = updates::Check {
                     current: String::new(),
@@ -525,6 +561,26 @@ fn run(options: Options) -> Result<i32, String> {
             };
             println!("{result}");
             Ok(status)
+        }
+        Mode::UpdateRollback => {
+            let command = updates::rollback()?;
+            println!(
+                "Restored previous release: {}. Restart Aria to use it.",
+                command.display()
+            );
+            Ok(0)
+        }
+        Mode::UpdateInstall(version) => {
+            let command = updates::install(&version)?;
+            println!(
+                "Installed {version}: {}. Restart Aria to use it.",
+                command.display()
+            );
+            Ok(0)
+        }
+        Mode::UpdateAutoInstall(version) => {
+            println!("{}", updates::auto_install(&version)?);
+            Ok(0)
         }
         Mode::Tool {
             name,

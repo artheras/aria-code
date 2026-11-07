@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -81,6 +82,28 @@ def install_if_newer(
     """
     if channel != "native" or not enabled(config):
         return None
+    try:
+        # New managed packages let Rust own retry state, update locking and
+        # install orchestration. Keep the Python implementation below for
+        # older bundles and source/wheel installs without the native helper.
+        from aria_code.apps.cli.updater import _native_update_helper
+
+        helper = _native_update_helper()
+        if helper is not None:
+            result = subprocess.run(
+                [str(helper), "update", "auto-install", "--current", current],
+                capture_output=True,
+                text=True,
+                timeout=600,
+                check=False,
+            )
+            if result.returncode == 0:
+                payload = json.loads(result.stdout)
+                if payload.get("status") in {"installed", "skipped", "failed"}:
+                    version = payload.get("version")
+                    return version if payload["status"] == "installed" and isinstance(version, str) else None
+    except Exception:
+        pass
     stamp = time.time() if now is None else now
     try:
         app_root.mkdir(parents=True, exist_ok=True)

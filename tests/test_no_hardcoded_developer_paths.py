@@ -17,8 +17,8 @@ tests/test_data_service_imports.py 早就为 data_service.py 单独锁过同一�
   - 本仓库内的路径 → 相对 __file__ 解析
   - aria-skills 的脚本 → 复用 packages/aria_skills/loader.default_skill_roots()
     的发现顺序（ARIA_SKILLS_PATH 环境变量 → 同级 checkout → …）
-  - Arthera SDK（私有仓库）→ 只认显式 ARTHERA_SDK_PATH / ARTHERA_PATH，
-    外加同级 checkout 兜底，找不到就安静跳过
+  - 私有 Arthera 集成 → 只认显式 ARTHERA_ROOT / ARTHERA_PATH；
+    未使用的 SDK 路径辅助函数和隐式 checkout 兜底已移除
 """
 
 from __future__ import annotations

@@ -1,5 +1,9 @@
 # GitHub Enterprise Migration Runbook
 
+For current team development and service ownership, use
+[GitHub-first development](github-first-development.md). This file records an
+earlier organization migration, not the current source checkout procedure.
+
 > **Historical.** This records the move into the `artherahq` organisation. That organisation has since been renamed to **`artheras`**; the canonical repository is now `https://github.com/artheras/aria-code`. Do not use the `artherahq` URLs below — GitHub only redirects them until someone else registers the old name.
 
 This runbook moves Aria Code from a personal GitHub repository to an Arthera

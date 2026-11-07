@@ -60,7 +60,12 @@ def arthera_quant_engine_server_config(
 ) -> Dict[str, object]:
     """Return a ready-to-write MCP server entry for Arthera QuantEngine."""
 
-    root = (arthera_root or Path.home() / "Desktop" / "Arthera").expanduser()
+    configured = arthera_root or os.getenv("ARTHERA_ROOT", "").strip()
+    if not configured:
+        raise ValueError("The private backend bridge requires an explicit ARTHERA_ROOT; use /finance setup for the standalone financial-service.")
+    root = Path(configured).expanduser()
+    if not root.is_absolute():
+        raise ValueError("ARTHERA_ROOT must be an absolute path.")
     server = root / "packages" / "quant_engine" / "mcp_server.py"
     configured_python = os.getenv("ARTHERA_MCP_PYTHON", "").strip()
     candidates = [

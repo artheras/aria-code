@@ -127,7 +127,10 @@ class WorkspaceCommandsMixin:
         agent_count = len(list_agent_manifests())
         skill_count = len(builtin_skill_specs())
         mcp_exposure_count = len(default_exposures())
-        server_cfg = arthera_quant_engine_server_config()
+        try:
+            server_cfg = arthera_quant_engine_server_config()
+        except ValueError:
+            server_cfg = None
         mcp_config_path = _get_MCP_CONFIG_PATH() if _get__HAS_MCP() else aria_home() / "mcp_servers.json"
 
         if sub.startswith("export-manifest") or sub.startswith("manifest"):
@@ -369,6 +372,13 @@ class WorkspaceCommandsMixin:
             return
 
         if sub.startswith("connect arthera") or sub in ("connect", "connect-quant", "connect quant"):
+            if server_cfg is None:
+                print_error(self.context, "Set an absolute ARTHERA_ROOT for the legacy bridge, or use /finance setup for the standalone financial-service.")
+                return
+            server_path = pathlib.Path(str(server_cfg["args"][0]))
+            if not server_path.is_file():
+                print_error(self.context, "The configured backend has no QuantEngine MCP server. No configuration was written.")
+                return
             existing = load_mcp_config(mcp_config_path)
             updated = merge_server_config(existing, server_cfg)
             write_mcp_config(mcp_config_path, updated)
@@ -443,11 +453,14 @@ class WorkspaceCommandsMixin:
 
             self.context.console.print()
             self.context.console.print("[bold]Recommended MCP bridge[/bold]")
-            self.context.console.print(f"  [dim]name:[/dim] {server_cfg['name']}")
-            self.context.console.print(f"  [dim]command:[/dim] {server_cfg['command']} {' '.join(server_cfg['args'])}")
-            self.context.console.print(f"  [dim]env PYTHONPATH:[/dim] {server_cfg['env']['PYTHONPATH']}")
-            self.context.console.print(f"  [dim]config:[/dim] {mcp_config_path}")
-            self.context.console.print("  [dim]Run /packages connect arthera to write this MCP bridge.[/dim]\n")
+            if server_cfg is not None:
+                self.context.console.print(f"  [dim]name:[/dim] {server_cfg['name']}")
+                self.context.console.print(f"  [dim]command:[/dim] {server_cfg['command']} {' '.join(server_cfg['args'])}")
+                self.context.console.print(f"  [dim]env PYTHONPATH:[/dim] {server_cfg['env']['PYTHONPATH']}")
+                self.context.console.print(f"  [dim]config:[/dim] {mcp_config_path}")
+                self.context.console.print("  [dim]Run /packages connect arthera to write this MCP bridge.[/dim]\n")
+            else:
+                self.context.console.print("  [dim]No private source bridge configured. Use /finance setup for the standalone financial-service.[/dim]\n")
         else:
             print(f"{identity.product} v{identity.version} · {identity.company} product")
             print(f"services={len(services)} tools={len(tool_registry.list())} agents={agent_count} skills={skill_count} mcp={mcp_exposure_count}")

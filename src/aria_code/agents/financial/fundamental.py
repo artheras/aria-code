@@ -4,22 +4,8 @@ agents/financial/fundamental.py — 基本面分析 Agent
 分析：PE/PB/ROE、营收增速、竞争壁垒、估值水位。
 """
 from __future__ import annotations
-import os
-import sys
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 from ..base import BaseAgent, AgentResult
-
-# 动态加载 aria_tools 中的 MCP 工具
-# 相对本文件定位同仓库的 packages/，不写死开发者本机路径
-_PKGS = str(Path(__file__).resolve().parents[2] / "packages")
-if _PKGS not in sys.path:
-    sys.path.append(_PKGS)
-try:
-    from aria_tools.financial.factors import run_factor_research
-except ImportError:
-    async def run_factor_research(*args, **kwargs) -> str:
-        return "Error: run_factor_research tool is not available."
 
 
 class FundamentalAgent(BaseAgent):
@@ -32,19 +18,6 @@ class FundamentalAgent(BaseAgent):
         "balance sheet health, and competitive moat. "
         "Be data-driven. End with: UNDERVALUED / FAIRLY_VALUED / OVERVALUED."
     )
-
-    async def _execute_tool(self, tool_name: str, tool_args: Dict[str, Any]) -> str:
-        """拦截 factor_research 的调用，其他的交给基类"""
-        if tool_name == "run_factor_research":
-            if self.on_tool_start:
-                self.on_tool_start(tool_name, tool_args)
-            res = await run_factor_research(**tool_args)
-            if self.on_tool_end:
-                self.on_tool_end(tool_name, res)
-            import json
-            return json.dumps({"result": res}, ensure_ascii=False)
-
-        return await super()._execute_tool(tool_name, tool_args)
 
     async def fetch_data(self, symbol: str) -> Dict[str, Any]:
         data = await super().fetch_data(symbol)
@@ -100,11 +73,9 @@ class FundamentalAgent(BaseAgent):
             "4. Balance sheet and dividend\n"
             "5. Competitive moat\n"
             "Conclusion: UNDERVALUED / FAIRLY_VALUED / OVERVALUED\n\n"
-            "## Available Tools\n"
-            "You have access to a tool named `run_factor_research` to evaluate factor validity.\n"
-            "If you need to evaluate a factor (like pe, pb, roe), output exactly in this format:\n"
-            "{\"type\": \"tool_call\", \"name\": \"run_factor_research\", \"args\": {\"factor_name\": \"pe\"}}\n"
-            "Wait for the tool result before concluding."
+            "Data limits: use only the financial fields supplied above. No historical series, peer "
+            "panel or factor validation report is connected here; do not claim those comparisons "
+            "or tests were run. If a valuation or financial field is missing, identify it as unavailable."
         )
 
         analysis  = await self._call_llm(self._SYSTEM, prompt, max_tokens=500, quote=quote)
