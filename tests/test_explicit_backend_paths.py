@@ -40,14 +40,13 @@ def test_explicit_backend_is_configurable_without_changing_the_default(monkeypat
 
 
 def test_financial_helpers_do_not_append_implicit_source_directories(monkeypatch):
-    from aria_code.packages.aria_tools.financial._paths import ensure_arthera_root, ensure_arthera_sdk
+    from aria_code.packages.aria_tools.financial._paths import ensure_arthera_root
 
-    for name in ("ARTHERA_ROOT", "ARTHERA_PATH", "ARTHERA_SDK_PATH"):
+    for name in ("ARTHERA_ROOT", "ARTHERA_PATH"):
         monkeypatch.delenv(name, raising=False)
     before = list(sys.path)
     # Even if every historical guessed directory existed, none is consulted.
     monkeypatch.setattr(Path, "is_dir", lambda self: True)
-    assert ensure_arthera_sdk() is False
     assert ensure_arthera_root() is False
     assert sys.path == before
 

@@ -14,22 +14,6 @@ except ImportError:
     _HAS_NP = False
     np = None  # type: ignore[assignment]
 
-import os
-import sys
-from pathlib import Path
-import asyncio
-
-# 动态加载 aria_tools 中的 MCP 工具
-# 相对本文件定位同仓库的 packages/，不写死开发者本机路径
-_PKGS = str(Path(__file__).resolve().parents[2] / "packages")
-if _PKGS not in sys.path:
-    sys.path.append(_PKGS)
-try:
-    from aria_tools.financial.risk_tools import run_risk_profile
-except ImportError:
-    pass
-
-
 class RiskAgent(BaseAgent):
     name        = "risk"
     description = "风险评估：波动率/回撤/相关性/仓位建议"
@@ -40,19 +24,6 @@ class RiskAgent(BaseAgent):
         "Output: risk score 1-10 (1=very low, 10=very high) and "
         "POSITION: <percentage> (e.g. POSITION: 10%)."
     )
-
-    async def _execute_tool(self, tool_name: str, tool_args: Dict[str, Any]) -> str:
-        """拦截 risk_profile 的调用"""
-        if tool_name == "run_risk_profile":
-            if self.on_tool_start:
-                self.on_tool_start(tool_name, tool_args)
-            res = await run_risk_profile(**tool_args)
-            if self.on_tool_end:
-                self.on_tool_end(tool_name, res)
-            import json
-            return json.dumps({"result": res}, ensure_ascii=False)
-
-        return await super()._execute_tool(tool_name, tool_args)
 
     async def fetch_data(self, symbol: str) -> Dict[str, Any]:
         data = await super().fetch_data(symbol)
@@ -66,12 +37,14 @@ class RiskAgent(BaseAgent):
         quote   = data.get("quote", {})
         metrics = data.get("risk_metrics", {})
         price   = quote.get("price", 0)
+        beta = metrics.get("beta")
+        beta_text = f"{beta:.2f}" if isinstance(beta, (int, float)) else "n/a"
 
         risk_str = (
             f"  Ann. Volatility: {metrics.get('ann_vol',0):.1f}%\n"
             f"  Max Drawdown:    {metrics.get('max_dd',0):.1f}%\n"
             f"  Sharpe (1Y):     {metrics.get('sharpe',0):.2f}\n"
-            f"  Beta est.:       {metrics.get('beta',1.0):.2f}\n"
+            f"  Beta est.:       {beta_text}\n"
             f"  Avg Daily Vol:   {metrics.get('avg_vol_usd',0):,.0f}"
         ) if metrics else "  (risk metrics unavailable)"
 
@@ -85,11 +58,9 @@ class RiskAgent(BaseAgent):
             "4. Tail risk and black swan exposure\n"
             "5. Recommended position size for a diversified portfolio\n"
             "Output format: Risk Score: X/10\nPOSITION: Y%\n\n"
-            "## Available Tools\n"
-            "You have access to a tool named `run_risk_profile` to run stress tests.\n"
-            "If you need to evaluate tail risk or run a stress test, output exactly in this format:\n"
-            "{\"type\": \"tool_call\", \"name\": \"run_risk_profile\", \"args\": {\"symbol\": \"AAPL\"}}\n"
-            "Wait for the tool result before concluding."
+            "Data limits: only the historical risk metrics above are available. No portfolio stress "
+            "test, tail-risk decomposition or benchmark return series is connected; do not claim those "
+            "were run or invent a beta. If the history is missing, state that the risk metrics are unavailable."
         )
 
         analysis  = await self._call_llm(self._SYSTEM, prompt, max_tokens=400, quote=quote)
@@ -135,7 +106,6 @@ def _compute_risk(df) -> Dict:
             "ann_ret":    round(ann_ret, 1),
             "sharpe":     round(sharpe, 2),
             "max_dd":     round(max_dd, 1),
-            "beta":       1.0,      # 需要指数数据对比
             "avg_vol_usd": round(avg_vol, 0),
         }
     except Exception:

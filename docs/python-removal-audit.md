@@ -20,12 +20,24 @@ and `ARIA_PYTHON` overrides remain supported. CLI mode, pure wheels and the
 Python fallback still need the worker. Native releases now ship Go; that alone
 does not make every Python module removable.
 
+## GitHub ownership and cleanup follow-up (2026-11-07)
+
+Four old financial skill wrappers (`factors`, `risk_tools`, `compliance`, and
+`strategy`) had no consumers beyond their own facade and two agents. They called
+scripts in demo mode or passed arguments that the script did not accept, so
+they could not produce an analysis of the requested asset. The wrappers and
+their public facade exports are removed. The risk and fundamental agents keep
+their existing market-data inputs and now tell the model when stress-test,
+peer-history, beta or factor-panel evidence is missing. `_paths.py` retains only
+the skill discovery and explicit private-root helpers still used by other
+financial agents; the unused SDK path mutation has been removed.
+
 ## GitHub ownership and first cleanup (2026-11-06)
 
 GitHub `artheras/aria-code` is the source for core changes. Default imports and
 package discovery no longer guess a developer's sibling or Desktop Arthera
-checkout. Private integration requires an explicit `ARTHERA_ROOT` (or the SDK
-helper's documented explicit setting); bundled modules retain precedence.
+checkout. Private integration requires an explicit `ARTHERA_ROOT` or
+`ARTHERA_PATH`; bundled modules retain precedence.
 
 The managed statistics, SEC parser and pure backtest engine are byte-identical
 to the finance service at `951a1a41aefe3a1d07e7b3ec85eb051fa5183538`. That

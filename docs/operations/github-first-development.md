@@ -54,7 +54,7 @@ require review and passing checks for merges.
 No default core import should discover a private backend in `~/Desktop` or by
 walking sibling checkouts. Normal contributors do not need the private backend
 to work on core. `ARTHERA_ROOT` explicitly enables the legacy package bridge;
-`ARTHERA_SDK_PATH` and `ARTHERA_PATH` are explicit financial SDK helper options.
+`ARTHERA_PATH` is an explicit legacy integration option.
 Bundled modules keep precedence. `/packages connect arthera` requires a real
 configured MCP entrypoint and will not write a guessed developer path.
 
@@ -98,6 +98,7 @@ entrypoints and external consumers.
 | --- | --- | --- |
 | Implicit private source discovery | Removed from core namespace/SDK discovery and the legacy MCP connection default | Explicit integration continues to be tested |
 | Finance statistics, SEC parser and pure backtest engine | One upstream owner, immutable pin and offline check; host adapters separated | Replace remaining Python callers with a compatible shared package or service contract before deleting the managed sources |
+| Four unregistered financial skill/demo wrappers | Removed after confirming no product callers; calls used demo mode or incompatible arguments | Reintroduce only with real input, provenance and result contracts |
 | Python CLI/worker/UI and Go ports | Keep compatibility paths | Retire pure-wheel fallback, CLI `run`/help paths and explicit Python engine support, or provide equivalent replacements |
 | Bot legacy imports | Keep thin compatibility shims; implementation is in aria-bots | Migrate external callers and version the import change |
 | Hosted project-review API | Keep deployed service | Match its HTTP/auth/error contracts in the replacement and cut over actual consumers |
@@ -105,12 +106,13 @@ entrypoints and external consumers.
 | Retired cloud/APNs integrations | Audit remaining callers separately | Move to an explicit service API or remove the feature and its callers together; never return fake success |
 | Evals/training | Keep Python intentionally | No deletion required for native core migration |
 
-The legacy agent skill adapters need contract repair before their import paths
-are redirected: `risk_tools.py` currently invokes `--demo` regardless of the
-requested symbol, and the factor wrapper's symbol/factors arguments do not
-match the installed CSV-based skill interface. Migration must require real
-returns/weights or factor inputs and preserve provenance, rather than activate
-an unrelated demonstration result as an analysis of the requested asset.
+Four old local financial-tool wrappers were removed after the source audit
+found no callers outside their own package and two agent adapters. They invoked
+skill scripts in demonstration mode; the risk path could therefore show sample
+portfolio results for an arbitrary ticker. Both financial agents now use only
+the market/fundamental fields already fetched for the requested symbol, and
+state when data or a real stress/factor report is missing. A future factor or
+portfolio-risk service must accept real, timestamped input and return provenance.
 
 Use [the detailed audit](../python-removal-audit.md) and the
 [command migration matrix](../command-migration-matrix.md) for the remaining

@@ -1,13 +1,4 @@
-"""定位 aria-skills 脚本与 Arthera SDK —— 替掉四个工具文件里写死的绝对路径。
-
-2026-08-19：本目录下 factors / risk_tools / strategy / compliance 四个文件
-各自硬编码了开发者本机的绝对路径 —— 指向 aria-skills 的脚本，以及 Arthera
-SDK 的安装位置。aria-code 是公开仓库，这带来两个问题：
-
-  1. 功能上，任何别人 clone 下来这些路径都不存在，工具静默降级成
-     "Error: 脚本不存在"，而错误信息里还打印出一个跟对方毫无关系的路径。
-  2. 信息上，公开仓库里出现开发者本机用户名，以及一个私有仓库
-     (Arthera) 的存在与目录结构。
+"""查找已安装 skills 并桥接显式配置的 Arthera 子包。
 
 skill 那边其实早就有一套正规的发现顺序 —— packages/aria_skills/loader.py
 的 default_skill_roots()（ARIA_SKILLS_PATH 环境变量 → 同级 aria-skills
@@ -15,9 +6,8 @@ checkout → ~/.arthera/skills → ~/.claude/skills → …）。这里直接复
 而不是再写第二套查找逻辑，免得两处顺序不一致时出现"CLI 能发现这个 skill、
 工具却找不到它的脚本"。
 
-Arthera SDK 是私有仓库的东西，公开仓库无从假设它在哪，因此只认显式的
-ARTHERA_SDK_PATH，不隐式发现旁边的源码目录；找不到就安静跳过 —— 这些
-工具本来就有 mcp_tool 的 ImportError 兜底分支，SDK 缺失不该是致命错误。
+Arthera 子包是私有仓库的东西，公开仓库无从假设它在哪；仅支持显式的
+ARTHERA_ROOT / ARTHERA_PATH 设置，不隐式发现相邻源码目录。
 """
 
 from __future__ import annotations
@@ -27,7 +17,7 @@ import sys
 from pathlib import Path
 from aria_code.packages.aria_core.paths import aria_home
 
-__all__ = ["find_skill_script", "missing_script_message", "ensure_arthera_sdk", "ensure_arthera_root"]
+__all__ = ["find_skill_script", "missing_script_message", "ensure_arthera_root"]
 
 
 def _skill_roots() -> list[Path]:
@@ -77,37 +67,11 @@ def missing_script_message(skill_name: str, script_name: str) -> str:
     )
 
 
-def ensure_arthera_sdk() -> bool:
-    """把 Arthera SDK 加进 sys.path。返回是否找到。
-
-    只认显式配置：Arthera 是私有仓库，公开仓库不该假设它
-    存在于某个固定绝对路径。
-    """
-    candidates: list[Path] = []
-    configured = os.getenv("ARTHERA_SDK_PATH", "")
-    if configured.strip():
-        candidates.append(Path(configured).expanduser())
-    arthera_root = os.getenv("ARTHERA_PATH", "")
-    if arthera_root.strip():
-        candidates.append(Path(arthera_root).expanduser() / "sdks" / "python")
-
-    for candidate in candidates:
-        try:
-            if candidate.is_dir():
-                path_str = str(candidate)
-                if path_str not in sys.path:
-                    sys.path.append(path_str)
-                return True
-        except OSError:
-            continue
-    return False
-
-
 def ensure_arthera_root() -> bool:
     """把 Arthera 仓库根目录加进 sys.path，让 ``packages.*`` 可导入。返回是否找到。
 
-    跟 ``ensure_arthera_sdk`` 同样的理由：Arthera 是私有仓库，公开仓库不该假设
-    它在某个写死的绝对路径上。这里认的是 ``ARTHERA_ROOT``（doctor.py 与
+    Arthera 是私有仓库，公开仓库不该假设它
+    在某个写死的绝对路径上。这里认的是 ``ARTHERA_ROOT``（doctor.py 与
     backtest_cmds.py 已经在用的同一个变量），不隐式发现旁边的源码目录。
     """
     candidates: list[Path] = []
