@@ -497,19 +497,41 @@ func globMatch(pattern, name string) bool {
 	if pattern == "." {
 		return name == "."
 	}
-	if !strings.Contains(pattern, "**") {
-		ok, _ := path.Match(pattern, name)
-		return ok
+	patternParts := strings.Split(pattern, "/")
+	nameParts := strings.Split(name, "/")
+	if len(patternParts) > 256 || len(nameParts) > 256 {
+		return false
 	}
-	parts := strings.Split(pattern, "**")
-	if len(parts) == 2 {
-		prefix := strings.TrimSuffix(parts[0], "/")
-		suffix := strings.TrimPrefix(parts[1], "/")
-		prefixMatches := prefix == "" || name == prefix || strings.HasPrefix(name, prefix+"/")
-		return prefixMatches && strings.HasSuffix(name, suffix)
+	seen := make(map[[2]int]bool)
+	results := make(map[[2]int]bool)
+	var match func(int, int) bool
+	match = func(patternIndex, nameIndex int) bool {
+		key := [2]int{patternIndex, nameIndex}
+		if seen[key] {
+			return results[key]
+		}
+		seen[key] = true
+		if patternIndex == len(patternParts) {
+			results[key] = nameIndex == len(nameParts)
+			return results[key]
+		}
+		if patternParts[patternIndex] == "**" {
+			if match(patternIndex+1, nameIndex) {
+				results[key] = true
+				return true
+			}
+			results[key] = nameIndex < len(nameParts) && match(patternIndex, nameIndex+1)
+			return results[key]
+		}
+		if nameIndex >= len(nameParts) {
+			results[key] = false
+			return false
+		}
+		matched, err := path.Match(patternParts[patternIndex], nameParts[nameIndex])
+		results[key] = err == nil && matched && match(patternIndex+1, nameIndex+1)
+		return results[key]
 	}
-	matched, err := path.Match(strings.ReplaceAll(pattern, "**/", ""), name)
-	return err == nil && matched
+	return match(0, 0)
 }
 
 type changeRecord struct {
