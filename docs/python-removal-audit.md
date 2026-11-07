@@ -12,6 +12,7 @@ targets or a current inventory of unreachable code.
 | `pip install aria-code` on Linux (glibc 2.17+, x86_64/arm64), macOS 12+ (arm64/x64) or Windows x64 | Rust `aria-native` from the platform wheel | **Go** `aria-runtime` from the same wheel; the Python worker for `--help`/`run` and `ARIA_ENGINE=python` |
 | `pip install aria-code` elsewhere (pure wheel) | Python (`aria = aria_code.apps.cli.main`); the Rust TUI only if a native binary is on the machine | **Python** worker (`app_server`) |
 | Native release | Rust `aria-native` | **Go** `aria-runtime`; frozen Python worker for compatibility CLI paths and `ARIA_ENGINE=python` |
+| Hosted project-review service | Python FastAPI container from `Dockerfile.review`; Go candidate in `go/projectreview` and `Dockerfile.review-go` | Go candidate image is built in CI; keep the live image unchanged until route-level parity and consumer cutover are confirmed |
 | `scripts/run_native_dev.sh` | Rust from this checkout | Go from this checkout (`ARIA_RUNTIME` is set by the script) |
 
 `rust/cli/src/runtime.rs` selects the Go runtime beside the frontend or frozen
@@ -66,7 +67,8 @@ before deleting services or compatibility shims.
 | Feishu/Telegram bots, relay client, channels, logistics tools | ~4,400 | Moved to `services/aria-bots` (own package and image; old paths are shims) | Moved. Chat runs on `aria-runtime stream`, with the logistics tools as an MCP server scoped per shipper. Market commands run `aria-runtime daemon quote/once/alert/status`. Telegram commands are `aria-telegram-bot` (the Python daemon uses the same handler). `/football`, `/swarm` and `/screen` are removed |
 | Daemon: `aria_daemon.py` | 1,461 | Alerts and schedules: `aria-runtime daemon` | Its bot and webhook parts go with the bots |
 | MCP server: `aria-code-mcp` (`packages/aria_mcp`) | ~2,300 | `aria-runtime mcp` (core, media, artifacts, transcription), financial-service, `arthera-trading` | Yes, with the worker: `aria-code-mcp` already hands over to `aria-runtime mcp` (`ARIA_MCP_ENGINE=python` keeps it until then) |
-| Review service: `review_service.py`, `Dockerfile.review` | ~500 | **Nothing** | **No.** Deployed service |
+| Project-review HTTP API: `project_review_api.py`, `Dockerfile.review` | ~500 | Go `go/projectreview` candidate implements the v1 HTTP surface | Python stays deployed until report fidelity, consumers and the full route/auth/error contract are confirmed against the Go service |
+| CLI code review: `review_service.py` | ~500 | Go `aria-runtime code-review` | Keep the Python path with the compatibility worker; remove with that worker after external callers move |
 | Evals, training, video workflow | ~6,000 | **Nothing** | Keep (Python ecosystem by design) |
 
 ## Order that loses nothing
@@ -85,7 +87,7 @@ before deleting services or compatibility shims.
    - Since then (#13 to #15): futures and treasury yields, Ichimoku and walk-forward backtests, peer comparison, and `arthera-trading` (paper). The equity report moved to Go (`aria.report.generate`).
    - Left: the analyst agents in `agents/financial/` (better as skills); realty, logistics and data-analysis tools; the dashboard generator. The Alibaba Cloud signal, prediction and cloud backtest tools depend on a retired backend and are not planned.
 4. **The standalone services**, decided:
-   - **Review:** the `/review` service is ported to Go (`code_review.go`, `aria-runtime code-review`); `review_service.py` goes with the Python CLI. The project-review HTTP API (`project_review_api.py`, `Dockerfile.review`) is a separate deployment that Arthera calls; it stays a Python service for now.
+   - **Review:** the `/review` command is ported to Go (`code_review.go`, `aria-runtime code-review`); `review_service.py` stays with the Python CLI. The separate project-review HTTP service has a Go migration candidate in `go/projectreview` with `Dockerfile.review-go`. `Dockerfile.review` remains the active Python deployment until consumers are moved and route-level parity is confirmed.
    - **MCP server** (`aria-code-mcp`): the core is ported as `aria-runtime mcp` (`go/runtime/mcp_server.go`): `aria.risk.assess`, `aria.contract.check`, `aria.project.impact`, `aria.project.commands`, `aria.skill.list` and `aria.skill.get`, all read-only. The Python server's other 39 tools go elsewhere:
      - finance (`aria.market.quote`, `aria.agent.team`, `aria.backtest.run`): financial-service, itself an MCP server;
      - broker (`aria.broker.*`): `arthera-trading`;
@@ -101,3 +103,10 @@ Native shipping is complete, but the remaining compatibility paths still gate
 worker deletion. Migrate and verify finance callers before removing their local
 implementation. Each service cutover and subsequent removal should be a
 reviewable PR.
+
+## Toolchain baseline
+
+Rust builds are pinned to stable Rust 1.99.1; Go modules declare Go 1.27 and
+pin the patch toolchain to Go 1.27.3. Keep Rust's declared MSRV separate from
+the pinned build toolchain so the release compiler can be current without
+unnecessarily raising downstream consumer requirements.

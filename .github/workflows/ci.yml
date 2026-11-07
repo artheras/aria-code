@@ -235,10 +235,8 @@ jobs:
           python -m aria_code.evals.runner evals/suites/behavior.yaml --check
 
   # ── The deployable images must build and start ──────────────────────────────
-  # Dockerfile.review installed ".[service]" before pyproject declared that
-  # extra: pip only warns about an unknown extra, so the image built without
-  # fastapi/uvicorn and its CMD could not start. Dockerfile.relay is the
-  # production relay image (cloudbuild.yaml) and was never built here either.
+  # Build both the active Python deployment and the Go migration candidate.
+  # Dockerfile.relay is the production relay image (cloudbuild.yaml).
   container-images:
     name: Container images build and start
     runs-on: ubuntu-latest
@@ -246,10 +244,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Dockerfile.review
+      - name: Build active Python project-review image
         run: docker build -f Dockerfile.review -t aria-review:ci .
 
-      - name: Project-review service answers /health
+      - name: Python project-review service answers /health
         run: |
           docker run -d --name aria-review -p 8787:8787 aria-review:ci
           for _ in $(seq 1 30); do
@@ -261,6 +259,9 @@ jobs:
           done
           docker logs aria-review
           exit 1
+
+      - name: Build Go project-review migration candidate
+        run: docker build -f Dockerfile.review-go -t aria-review-go:ci .
 
       - name: Build Dockerfile.relay
         run: docker build -f Dockerfile.relay -t aria-relay:ci .

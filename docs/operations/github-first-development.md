@@ -48,7 +48,7 @@ require review and passing checks for merges.
 | Core CLI, Rust UI and Go runtime | `artheras/aria-code` | Versioned core releases |
 | Shared finance calculations and read-only market tools | `artheras/financial-service` | MCP via `/finance setup`; managed compatibility copies below |
 | Feishu/Telegram integration and logistics adapters | `services/aria-bots` in aria-code | Separate package/image using the runtime protocol |
-| Hosted project-review HTTP API | `project_review_api.py` / `Dockerfile.review` in aria-code | Deployed HTTP contract; distinct from the Go code-review command |
+| Hosted project-review HTTP API | `project_review_api.py` / `Dockerfile.review` in aria-code | Active Python deployment; Go replacement candidate is `go/projectreview` / `Dockerfile.review-go` |
 | Private application/backend services | Their organization repositories | Published API/package contracts; explicit legacy source opt-in only |
 
 No default core import should discover a private backend in `~/Desktop` or by
@@ -101,7 +101,7 @@ entrypoints and external consumers.
 | Four unregistered financial skill/demo wrappers | Removed after confirming no product callers; calls used demo mode or incompatible arguments | Reintroduce only with real input, provenance and result contracts |
 | Python CLI/worker/UI and Go ports | Keep compatibility paths | Retire pure-wheel fallback, CLI `run`/help paths and explicit Python engine support, or provide equivalent replacements |
 | Bot legacy imports | Keep thin compatibility shims; implementation is in aria-bots | Migrate external callers and version the import change |
-| Hosted project-review API | Keep deployed service | Match its HTTP/auth/error contracts in the replacement and cut over actual consumers |
+| Hosted project-review API | Go replacement candidate added; current deployment stays on Python | Compare report fidelity, route/auth/error and workspace lifecycle contracts before changing the production image; keep both implementations during transition |
 | Unique trading/analyst/finance tools | Keep until ported or deliberately retired | Match data, preview/confirmation and output contracts; verify callers use the replacement |
 | Retired cloud/APNs integrations | Audit remaining callers separately | Move to an explicit service API or remove the feature and its callers together; never return fake success |
 | Evals/training | Keep Python intentionally | No deletion required for native core migration |
