@@ -30,6 +30,7 @@ Usage:
   aria-native sessions show ID
   aria-native [--python EXE] [-C DIR] resume ID [--] [ARIA ARGUMENTS...]
   aria-native update check --current VERSION [--channel native|npm|pip|source] [--offline|--refresh]
+  aria-native update install --to VERSION
   aria-native update rollback
   aria-native physical [jsonl|agent-jsonl|mcp|serve --listen 127.0.0.1:8765]
   aria-native index imports|symbols < REQUEST.json
@@ -102,6 +103,7 @@ enum Mode {
         args: Vec<OsString>,
     },
     Update(updates::Check),
+    UpdateInstall(String),
     UpdateRollback,
     Tool {
         name: String,
@@ -301,6 +303,16 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                         return Err("Usage: update rollback".into());
                     }
                     break Mode::UpdateRollback;
+                }
+                if action == "install" {
+                    if args.next().as_deref() != Some(std::ffi::OsStr::new("--to")) {
+                        return Err("Usage: update install --to VERSION".into());
+                    }
+                    let version = utf8(args.next(), "--to requires a stable release version")?;
+                    if args.next().is_some() {
+                        return Err("Usage: update install --to VERSION".into());
+                    }
+                    break Mode::UpdateInstall(version);
                 }
                 if action != "check" {
                     return Err("Usage: update check --current VERSION | update rollback".into());
@@ -542,6 +554,14 @@ fn run(options: Options) -> Result<i32, String> {
             let command = updates::rollback()?;
             println!(
                 "Restored previous release: {}. Restart Aria to use it.",
+                command.display()
+            );
+            Ok(0)
+        }
+        Mode::UpdateInstall(version) => {
+            let command = updates::install(&version)?;
+            println!(
+                "Installed {version}: {}. Restart Aria to use it.",
                 command.display()
             );
             Ok(0)

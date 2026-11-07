@@ -216,6 +216,16 @@ def _npm_native(latest: str, system: str, arch: str, stage: Path, cache: Path) -
 
 
 def install_native(latest: str, release: dict) -> Path:
+    helper = _native_update_helper()
+    if helper is not None:
+        try:
+            subprocess.run([str(helper), "update", "install", "--to", latest],
+                           capture_output=True, text=True, timeout=600, check=True)
+        except (OSError, subprocess.SubprocessError) as exc:
+            detail = getattr(exc, "stderr", "") or str(exc)
+            raise ValueError(f"Native update failed; the installed version was kept: {detail.strip()}") from exc
+        return _install_dir() / "aria-code"
+
     system = {"Darwin": "macos", "Linux": "linux"}.get(platform.system())
     arch = {"arm64": "arm64", "aarch64": "arm64", "x86_64": "x64", "amd64": "x64"}.get(platform.machine().lower())
     if not system or not arch:
