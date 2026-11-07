@@ -48,6 +48,17 @@ func setOf(values ...string) map[string]bool {
 	return out
 }
 
+func truncateRunes(value string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) > limit {
+		return string(runes[:limit])
+	}
+	return value
+}
+
 type archiveFile struct {
 	Path string
 	Data []byte
@@ -271,9 +282,7 @@ func collectReviewFiles(payload []byte, filename string) ([]reviewFile, map[stri
 		languageRows = languageRows[:8]
 	}
 	archiveName := path.Base(strings.ReplaceAll(filename, "\\", "/"))
-	if len(archiveName) > 180 {
-		archiveName = archiveName[:180]
-	}
+	archiveName = truncateRunes(archiveName, 180)
 	summary := map[string]any{
 		"archive_name": archiveName, "total_files": totalFiles, "reviewed_files": len(files),
 		"total_uncompressed_bytes": totalBytes, "skipped_sensitive_files": skippedSensitive,
@@ -310,9 +319,7 @@ func scanReviewFile(file reviewFile) []finding {
 			if rule == "hardcoded-secret" {
 				evidence = "<credential value redacted>"
 			}
-			if len(evidence) > 240 {
-				evidence = evidence[:240]
-			}
+			evidence = truncateRunes(evidence, 240)
 			findings = append(findings, finding{severity, rule, message, i + 1, strings.TrimSpace(evidence), file.Path})
 		}
 		if secretAssignment.MatchString(line) || tokenLiteral.MatchString(line) {
@@ -442,9 +449,7 @@ func productAssessment(files []reviewFile) map[string]any {
 		names[path.Base(p)] = true
 		if i < 80 {
 			content := f.Content
-			if len(content) > 8000 {
-				content = content[:8000]
-			}
+			content = truncateRunes(content, 8000)
 			joined.WriteString(strings.ToLower(content))
 			joined.WriteByte('\n')
 		}

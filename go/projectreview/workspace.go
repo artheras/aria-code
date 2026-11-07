@@ -298,10 +298,7 @@ func (s *service) workspaceRead(id, owner, relative string, offset, limit int) (
 		return nil, err
 	}
 	text := strings.ToValidUTF8(string(data), "�")
-	lines := strings.Split(text, "\n")
-	if len(lines) == 1 && lines[0] == "" {
-		lines = []string{}
-	}
+	lines := splitTextLines(text)
 	total := len(lines)
 	if offset == 0 && limit == 0 && info.Size() > 500000 {
 		limit = 500
@@ -322,9 +319,7 @@ func (s *service) workspaceRead(id, owner, relative string, offset, limit int) (
 		fmt.Fprintf(&b, "\n... [%d of %d lines shown — use offset/limit to read more]", end-start, total)
 	}
 	content := b.String()
-	if len(content) > 30000 {
-		content = content[:30000]
-	}
+	content = truncateRunes(content, 30000)
 	return map[string]any{"success": true, "path": relative, "lines": end - start, "content": content}, nil
 }
 
@@ -469,12 +464,10 @@ func (s *service) workspaceSearch(id, owner, relative, pattern, fileGlob string)
 		if err != nil {
 			continue
 		}
-		for number, line := range strings.Split(strings.ToValidUTF8(string(data), "�"), "\n") {
+		for number, line := range splitTextLines(strings.ToValidUTF8(string(data), "�")) {
 			if query.MatchString(line) {
 				content := strings.TrimSpace(line)
-				if len(content) > 200 {
-					content = content[:200]
-				}
+				content = truncateRunes(content, 200)
 				matches = append(matches, map[string]any{"file": filepath.ToSlash(strings.TrimPrefix(file, target+string(filepath.Separator))), "line": number + 1, "content": content})
 				if len(matches) >= 50 {
 					break
@@ -483,6 +476,19 @@ func (s *service) workspaceSearch(id, owner, relative, pattern, fileGlob string)
 		}
 	}
 	return map[string]any{"success": true, "pattern": pattern, "path": relative, "count": len(matches), "matches": matches}, nil
+}
+
+func splitTextLines(text string) []string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	if text == "" {
+		return nil
+	}
+	lines := strings.Split(text, "\n")
+	if strings.HasSuffix(text, "\n") {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }
 
 func globMatch(pattern, name string) bool {
