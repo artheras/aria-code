@@ -280,6 +280,11 @@ struct UpdateLock {
 
 #[cfg(unix)]
 fn acquire_update_lock(root: &Path) -> Result<UpdateLock, String> {
+    acquire_named_lock(root, "update.lock")
+}
+
+#[cfg(unix)]
+fn acquire_named_lock(root: &Path, name: &str) -> Result<UpdateLock, String> {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::OpenOptionsExt;
     let lock = fs::OpenOptions::new()
@@ -287,7 +292,7 @@ fn acquire_update_lock(root: &Path) -> Result<UpdateLock, String> {
         .read(true)
         .write(true)
         .mode(0o600)
-        .open(root.join("update.lock"))
+        .open(root.join(name))
         .map_err(|e| e.to_string())?;
     // Keep the inode permanently: unlinking a flock file can let a second
     // process lock a new inode while the first still owns the old one.
@@ -304,6 +309,11 @@ struct UpdateLock;
 #[cfg(not(unix))]
 fn acquire_update_lock(_root: &Path) -> Result<UpdateLock, String> {
     Err("Native managed updates are supported on macOS and Linux".into())
+}
+
+#[cfg(not(unix))]
+fn acquire_named_lock(_root: &Path, _name: &str) -> Result<UpdateLock, String> {
+    Err("Native automatic updates are supported on macOS and Linux".into())
 }
 
 /// Restore the previous managed release without network access. The target is
@@ -1010,6 +1020,83 @@ pub fn install(version: &str) -> Result<PathBuf, String> {
         Err(error) => {
             let _ = fs::remove_dir_all(&active);
             Err(error)
+        }
+    }
+}
+
+fn remember_auto_failure(root: &Path, version: &str, now: u64) -> Result<(), String> {
+    let mut file = tempfile::NamedTempFile::new_in(root).map_err(|e| e.to_string())?;
+    file.write_all(json!({"failed": version, "at": now}).to_string().as_bytes())
+        .map_err(|e| e.to_string())?;
+    file.as_file().sync_all().map_err(|e| e.to_string())?;
+    file.persist(root.join("auto-update.json"))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Check and install one newer stable native release for a startup worker.
+/// The caller keeps UI scheduling and the user's opt-out preference.
+pub fn auto_install(current: &str) -> Result<Value, String> {
+    if parse_version(current).is_none() {
+        return Err("--current must be the installed Aria product version".into());
+    }
+    platform()?;
+    let root = app_root()?;
+    fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    let root = root.canonicalize().map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&root, fs::Permissions::from_mode(0o700));
+    }
+    let _auto_lock = match acquire_named_lock(&root, "auto-update-native.lock") {
+        Ok(lock) => lock,
+        Err(error) if error.contains("already in progress") => {
+            return Ok(json!({"status":"skipped","reason":"another update is active"}));
+        }
+        Err(error) => return Err(error),
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs();
+    let options = Check {
+        current: current.to_string(),
+        channel: "native".into(),
+        offline: false,
+        refresh: false,
+        timeout: Duration::from_secs(4),
+    };
+    let metadata = check(&state::root()?, &options)?;
+    let Some(latest) = metadata["latest"]
+        .as_str()
+        .filter(|v| parse_version(v).is_some())
+    else {
+        return Ok(json!({"status":"skipped","reason":"update metadata unavailable"}));
+    };
+    if !newer(latest, current) {
+        return Ok(json!({"status":"skipped","reason":"already current"}));
+    }
+    if let Ok(bytes) = fs::read(root.join("auto-update.json")) {
+        if let Ok(saved) = serde_json::from_slice::<Value>(&bytes) {
+            let failed = saved["failed"].as_str() == Some(latest);
+            let at = saved["at"].as_u64().unwrap_or_default();
+            if failed && now.saturating_sub(at) < 86_400 {
+                return Ok(json!({"status":"skipped","reason":"recent install failure"}));
+            }
+        }
+    }
+    match install(latest) {
+        Ok(command) => {
+            let _ = fs::remove_file(root.join("auto-update.json"));
+            Ok(json!({"status":"installed","version":latest,"command":command}))
+        }
+        Err(error) if error.contains("Another Aria update is already in progress") => {
+            Ok(json!({"status":"skipped","reason":"another update is active"}))
+        }
+        Err(error) => {
+            let _ = remember_auto_failure(&root, latest, now);
+            Ok(json!({"status":"failed","version":latest,"error":error}))
         }
     }
 }
