@@ -47,6 +47,8 @@ reject stale approvals, and rollback refuses to overwrite subsequent edits.
 The API shape is ported, but this candidate has not yet passed route-level
 parity checks against the Python service. In particular, static-review findings
 and edge-case error responses need comparison with the active implementation
-before changing the deployment image. Keep the Python service available until
-the consuming Arthera backend has exercised the complete workspace lifecycle
-against this service.
+before changing the deployment image. The deterministic scanner now carries
+the Python service's regex rules and bare-except finding; Python AST syntax
+errors still need a compatible parser before report parity can be claimed. Keep
+the Python service available until the consuming Arthera backend has exercised
+the complete workspace lifecycle against this service.

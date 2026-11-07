@@ -301,6 +301,7 @@ var (
 	pickleLoad       = regexp.MustCompile(`\bpickle\.loads?\s*\(`)
 	unsafeYAML       = regexp.MustCompile(`\byaml\.load\s*\(`)
 	tlsDisabled      = regexp.MustCompile(`(?i)\brequests\.[A-Za-z_]+\s*\(.*\bverify\s*=\s*False`)
+	bareExcept       = regexp.MustCompile(`^\s*except\s*:`)
 )
 
 type finding struct {
@@ -313,7 +314,10 @@ type finding struct {
 }
 
 func scanReviewFile(file reviewFile) []finding {
-	lines := strings.Split(file.Content, "\n")
+	if strings.TrimSpace(file.Content) == "" {
+		return []finding{{Severity: "medium", Rule: "empty-input", Message: "没有可审查的代码内容。", File: file.Path}}
+	}
+	lines := splitTextLines(file.Content)
 	var findings []finding
 	for i, line := range lines {
 		add := func(severity, rule, message, evidence string) {
@@ -341,6 +345,9 @@ func scanReviewFile(file reviewFile) []finding {
 		if tlsDisabled.MatchString(line) {
 			add("high", "tls-verification-disabled", "TLS 证书校验被关闭；除受控测试外不得使用 verify=False。", line)
 		}
+		if bareExcept.MatchString(line) {
+			add("medium", "bare-except", "裸 except 会吞掉系统退出和中断；至少捕获 Exception，并记录或处理错误。", "except:")
+		}
 	}
 	return findings
 }
@@ -354,6 +361,17 @@ func reviewArchive(payload []byte, filename string) (map[string]any, error) {
 	for _, file := range files {
 		findings = append(findings, scanReviewFile(file)...)
 	}
+	seenFindings := make(map[string]bool, len(findings))
+	uniqueFindings := findings[:0]
+	for _, row := range findings {
+		key := fmt.Sprintf("%s\x00%d\x00%s\x00%s", row.Rule, row.Line, row.Evidence, row.File)
+		if seenFindings[key] {
+			continue
+		}
+		seenFindings[key] = true
+		uniqueFindings = append(uniqueFindings, row)
+	}
+	findings = uniqueFindings
 	severityRank := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3}
 	sort.Slice(findings, func(i, j int) bool {
 		a, b := findings[i], findings[j]
