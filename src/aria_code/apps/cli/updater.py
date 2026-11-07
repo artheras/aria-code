@@ -34,11 +34,12 @@ def _fetch_json(url: str) -> dict:
 
 def check_update(
     channel: str, *, version: str | None = None, prefer_native: bool = False,
+    refresh_native: bool = False,
 ) -> tuple[str, dict]:
     import time
 
     if prefer_native and channel == "native" and not version:
-        metadata = _native_check(__version__, channel)
+        metadata = _native_check(__version__, channel, refresh=refresh_native)
         latest = metadata.get("latest") if metadata else None
         if isinstance(latest, str) and _parse(latest) is not None:
             return latest.removeprefix("v"), metadata
@@ -330,7 +331,12 @@ def main(argv: list[str] | None = None) -> int:
             command = rollback_native()
             print(f"Restored previous release: {command}. Restart Aria to use it.")
             return 0
-        latest, release = check_update(channel, version=args.to) if args.to else check_update(channel)
+        latest, release = check_update(
+            channel,
+            version=args.to,
+            prefer_native=channel == "native" and not args.to,
+            refresh_native=channel == "native" and not args.to,
+        )
         print(f"Aria Code {__version__} · latest {latest} · {channel}")
         print(f"Running executable: {Path(sys.executable).resolve()}")
         if not args.to and not _newer(latest, __version__):

@@ -241,6 +241,7 @@ fn executable(path: &Path) -> bool {
     }
 }
 
+#[cfg(unix)]
 fn recorded_release(root: &Path, record: &Value) -> Result<PathBuf, String> {
     let releases = root.join("releases").canonicalize().map_err(|_| {
         "No previous managed release is recorded; use aria update --to VERSION instead"
@@ -750,6 +751,7 @@ fn verify_binary(binary: &Path, version: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(unix)]
 fn activate(root: &Path, command_dir: &Path, binary: &Path) -> Result<PathBuf, String> {
     fs::create_dir_all(command_dir).map_err(|e| e.to_string())?;
     let command_dir = command_dir.canonicalize().map_err(|e| e.to_string())?;
@@ -866,6 +868,11 @@ fn activate(root: &Path, command_dir: &Path, binary: &Path) -> Result<PathBuf, S
         ));
     }
     Ok(command)
+}
+
+#[cfg(not(unix))]
+fn activate(_root: &Path, _command_dir: &Path, _binary: &Path) -> Result<PathBuf, String> {
+    Err("Native symlink activation is supported on macOS and Linux".into())
 }
 
 fn npm_fallback(

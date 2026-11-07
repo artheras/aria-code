@@ -186,7 +186,7 @@ def _native_latest(current: str, channel: str) -> str | None:
     return latest.removeprefix("v") if isinstance(latest, str) and _parse(latest) else None
 
 
-def _native_check(current: str, channel: str) -> dict | None:
+def _native_check(current: str, channel: str, *, refresh: bool = False) -> dict | None:
     """Return checked metadata from the bundled Rust updater, if available."""
     try:
         # Lazy import avoids a module cycle: updater imports this module's
@@ -196,8 +196,11 @@ def _native_check(current: str, channel: str) -> dict | None:
         helper = _native_update_helper()
         if helper is None:
             return None
+        command = [str(helper), "update", "check", "--current", current, "--channel", channel]
+        if refresh:
+            command.append("--refresh")
         result = subprocess.run(
-            [str(helper), "update", "check", "--current", current, "--channel", channel],
+            command,
             capture_output=True,
             text=True,
             timeout=_FETCH_TIMEOUT + 2,
