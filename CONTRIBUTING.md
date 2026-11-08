@@ -9,21 +9,41 @@ We welcome contributions of all kinds — bug fixes, new features, documentation
 ```bash
 git clone https://github.com/artheras/aria-code.git
 cd aria-code
-python3 -m venv .venv && source .venv/bin/activate
+git switch -c feature/your-change origin/main
+```
+
+For the native application, install the Go version in `go/runtime/go.mod` and
+the Rust toolchain declared in `rust/Cargo.toml`, then build this checkout:
+
+```bash
+bash scripts/run_native_dev.sh --help
+```
+
+For Python compatibility code or Python services, use Python 3.10–3.13 and an
+independent environment (Python 3.12 is a convenient development default):
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
 
 # Editable install. This is what puts `aria-code` on your PATH and what makes
 # the package importable both ways the tree needs; `pip install -r
 # requirements.txt` alone does neither.
 pip install -e ".[dev]"
 
-# Verify everything works
-aria-code --version
-aria-code -p "hello"
+# Offline checks; no provider account or model request is needed.
+python scripts/sync_finance_core.py --check
+python -m pytest tests/test_optional_finance.py tests/test_finance_source_lock.py -q
 ```
 
-Ollama is optional. The default model is a cloud one (`google/gemini-2.5-pro`),
-and the test suite does not need a model at all — it stubs providers. Install
-Ollama only if you are working on the local-inference path:
+Do not reuse another checkout's virtual environment or copy its ignored local
+configuration. The normal application does not require a sibling private
+Arthera checkout. See [GitHub-first development](docs/operations/github-first-development.md)
+for repository ownership, service setup and the legacy opt-in configuration.
+
+Ollama is optional. Install it only when working on local inference; choose a
+model supported by your machine. Provider tests use stubs rather than a paid
+model request:
 
 ```bash
 ollama pull qwen2.5-coder:7b
@@ -124,8 +144,9 @@ Short-lived branches:
 Do not merge directly into `main`. Open a pull request and wait for CI.
 
 For organization migration and repository ownership, see
-[`docs/operations/github_enterprise_migration.md`](docs/operations/github_enterprise_migration.md).
-Run the migration preflight before pushing to a new Arthera remote:
+[`docs/operations/github-first-development.md`](docs/operations/github-first-development.md).
+The earlier [organization migration runbook](docs/operations/github_enterprise_migration.md)
+is historical. Run the preflight when changing remotes:
 
 ```bash
 python3 scripts/github_migration_preflight.py
@@ -146,7 +167,13 @@ python3 scripts/github_migration_preflight.py
 
 ## Adding a Financial Tool
 
-All local financial calculations live in `local_finance_tools.py`. To add one:
+The finance service owns shared financial calculations. Prefer adding a new
+service capability in `artheras/financial-service` and consuming it through
+`/finance setup`. The three managed compatibility modules listed in
+`finance-core.lock.json` must be changed upstream and imported with
+`scripts/sync_finance_core.py --update FULL_COMMIT_SHA`; do not edit both copies.
+
+For an existing local-only Python compatibility tool, the registry pattern is:
 
 ```python
 def calculate_your_metric(param1: float, param2: float) -> dict:

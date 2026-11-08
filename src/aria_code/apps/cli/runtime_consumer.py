@@ -547,10 +547,8 @@ class TerminalRuntimeEventConsumer:
         self._finish_thinking()
 
         # Cursor/Windsurf 风格的实时加载动画
-        # One spinner at a time. /team's analysts call tools in parallel; the
-        # second spinner replaced the first in this one slot, the first was
-        # never stopped, and after the report the CLI sat on "Running
-        # run_factor_research" with no prompt.
+        # One spinner at a time. /team's analysts can call tools in parallel;
+        # close the previous indicator before starting the next one.
         self.close_tool_spinner()
         if self.has_rich and hasattr(self, 'console'):
             hint = _tool_activity_hint(tool, params)

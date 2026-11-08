@@ -166,9 +166,9 @@ func TestAdmissionIsTrustOnFirstUse(t *testing.T) {
 		{"short", "ABCDEFGHJKLM", "this Aria version is too old for the relay; upgrade aria-code"},
 		{token, "ABC", "bind code missing; upgrade aria-code"},
 		{token, "ABCDEFGHJKLM", ""},
-		{token, "ABCDEFGHJKLM", ""}, // the same machine again
+		{token, "ABCDEFGHJKLM", ""},                                                // the same machine again
 		{other, "ABCDEFGHJKLM", "client_id is registered to another installation"}, // someone else
-		{token, "NPQRSTUVWXYZ", ""}, // a rotated bind code
+		{token, "NPQRSTUVWXYZ", ""},                                                // a rotated bind code
 	}
 	for i, s := range steps {
 		got, err := r.admit(ctx, "aria-a", s.token, s.code)

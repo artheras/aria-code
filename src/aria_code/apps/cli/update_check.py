@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -149,17 +150,19 @@ def _worker(current: str, lang: str, channel: str = "native") -> None:
         return
 
     # 2. Fetch metadata for this installation channel, never a similarly named package.
-    try:
-        import urllib.request
-        req = urllib.request.Request(
-            source_url,
-            headers={"Accept": "application/json", "User-Agent": "aria-code-update-check"},
-        )
-        with urllib.request.urlopen(req, timeout=_FETCH_TIMEOUT) as resp:
-            data   = json.loads(resp.read())
-            latest = data[version_field]
-    except Exception:
-        return   # background checks never interrupt the user's work
+    latest = _native_latest(current, channel)
+    if latest is None:
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                source_url,
+                headers={"Accept": "application/json", "User-Agent": "aria-code-update-check"},
+            )
+            with urllib.request.urlopen(req, timeout=_FETCH_TIMEOUT) as resp:
+                data   = json.loads(resp.read())
+                latest = data[version_field]
+        except Exception:
+            return   # background checks never interrupt the user's work
 
     # 3. Persist to cache
     if _parse(latest) is None:
@@ -170,6 +173,45 @@ def _worker(current: str, lang: str, channel: str = "native") -> None:
     if _newer(latest, current):
         with _lock:
             _notice = _build_notice(latest, current, lang, channel)
+
+
+def _native_latest(current: str, channel: str) -> str | None:
+    """Ask the bundled Rust updater to validate/cache release metadata.
+
+    Return None when the helper is unavailable or incompatible so older
+    packages and Windows keep their established Python check path.
+    """
+    payload = _native_check(current, channel)
+    latest = payload.get("latest") if payload else None
+    return latest.removeprefix("v") if isinstance(latest, str) and _parse(latest) else None
+
+
+def _native_check(current: str, channel: str, *, refresh: bool = False) -> dict | None:
+    """Return checked metadata from the bundled Rust updater, if available."""
+    try:
+        # Lazy import avoids a module cycle: updater imports this module's
+        # release constants and version helpers.
+        from aria_code.apps.cli.updater import _native_update_helper
+
+        helper = _native_update_helper()
+        if helper is None:
+            return None
+        command = [str(helper), "update", "check", "--current", current, "--channel", channel]
+        if refresh:
+            command.append("--refresh")
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=_FETCH_TIMEOUT + 2,
+            check=False,
+        )
+        if result.returncode != 0:
+            return None
+        payload = json.loads(result.stdout)
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
 
 
 # ── Public API ────────────────────────────────────────────────────────────────

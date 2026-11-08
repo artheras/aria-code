@@ -3,7 +3,7 @@
 
 # The Feishu relay is a Go binary; Cloud Run runs it from this image when it
 # sets PORT (scripts/container-entrypoint.sh).
-FROM golang:1.26-bookworm AS relay
+FROM golang:1.27.3-bookworm AS relay
 WORKDIR /src
 COPY go/relay/go.mod go/relay/go.sum ./
 RUN go mod download

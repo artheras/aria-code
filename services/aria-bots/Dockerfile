@@ -6,7 +6,7 @@
 # Built from the repository root: the image carries aria-runtime (go/runtime),
 # which answers chat turns, beside the bots. The relay client connects out to
 # the Go relay (Dockerfile.relay) and needs no inbound port.
-FROM golang:1.26-bookworm AS engine
+FROM golang:1.27.3-bookworm AS engine
 WORKDIR /src
 COPY go/runtime/go.mod go/runtime/go.sum ./
 RUN go mod download

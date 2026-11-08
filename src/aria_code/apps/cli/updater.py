@@ -18,8 +18,8 @@ import urllib.error
 
 from aria_code._version import __version__
 from aria_code.apps.cli.update_check import (
-    _RELEASE_URL, _NPM_URL, _install_channel, _newer,
-    _parse, _write_cache,
+    _RELEASE_URL, _NPM_URL, _install_channel, _newer, _update_command,
+    _native_check, _parse, _write_cache,
 )
 
 
@@ -32,8 +32,17 @@ def _fetch_json(url: str) -> dict:
         return json.load(response)
 
 
-def check_update(channel: str, *, version: str | None = None) -> tuple[str, dict]:
+def check_update(
+    channel: str, *, version: str | None = None, prefer_native: bool = False,
+    refresh_native: bool = False,
+) -> tuple[str, dict]:
     import time
+
+    if prefer_native and not version:
+        metadata = _native_check(__version__, channel, refresh=refresh_native)
+        latest = metadata.get("latest") if metadata else None
+        if isinstance(latest, str) and _parse(latest) is not None:
+            return latest.removeprefix("v"), metadata
 
     source = _NPM_URL if channel == "npm" else _RELEASE_URL
     if version:
@@ -116,6 +125,22 @@ def _app_root() -> Path:
     return Path(os.environ.get("ARIA_CODE_HOME", str(Path.home() / ".local/share/aria-code"))).expanduser().resolve()
 
 
+def _native_update_helper() -> Path | None:
+    """Find the bundled Rust helper without guessing a system installation."""
+    if os.name == "nt":
+        return None  # Windows rollback retains its existing installer path.
+    executable = Path(sys.executable).resolve()
+    package_bin = Path(__file__).resolve().parents[2] / "_bin" / "aria-native"
+    for candidate in (
+        executable.parent / "aria-native",
+        executable.parent / "_internal" / "aria-native",
+        package_bin,
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _switch_native(command: Path, binary: Path, app_root: Path) -> None:
     """Switch atomically and remember the former managed release for rollback."""
     previous = command.resolve() if command.is_symlink() else None
@@ -138,6 +163,16 @@ def _switch_native(command: Path, binary: Path, app_root: Path) -> None:
 
 def rollback_native() -> Path:
     """Restore the previous managed binary; no network and no directory deletion."""
+    helper = _native_update_helper()
+    if helper is not None:
+        try:
+            subprocess.run([str(helper), "update", "rollback"], capture_output=True,
+                           text=True, timeout=100, check=True)
+        except (OSError, subprocess.SubprocessError) as exc:
+            detail = getattr(exc, "stderr", "") or str(exc)
+            raise ValueError(f"Native rollback failed; the installed version was kept: {detail.strip()}") from exc
+        return _install_dir() / "aria-code"
+
     app_root = _app_root().resolve()
     try:
         data = json.loads((app_root / "previous.json").read_text())
@@ -190,6 +225,16 @@ def _npm_native(latest: str, system: str, arch: str, stage: Path, cache: Path) -
 
 
 def install_native(latest: str, release: dict) -> Path:
+    helper = _native_update_helper()
+    if helper is not None:
+        try:
+            subprocess.run([str(helper), "update", "install", "--to", latest],
+                           capture_output=True, text=True, timeout=600, check=True)
+        except (OSError, subprocess.SubprocessError) as exc:
+            detail = getattr(exc, "stderr", "") or str(exc)
+            raise ValueError(f"Native update failed; the installed version was kept: {detail.strip()}") from exc
+        return _install_dir() / "aria-code"
+
     system = {"Darwin": "macos", "Linux": "linux"}.get(platform.system())
     arch = {"arm64": "arm64", "aarch64": "arm64", "x86_64": "x64", "amd64": "x64"}.get(platform.machine().lower())
     if not system or not arch:
@@ -286,7 +331,12 @@ def main(argv: list[str] | None = None) -> int:
             command = rollback_native()
             print(f"Restored previous release: {command}. Restart Aria to use it.")
             return 0
-        latest, release = check_update(channel, version=args.to) if args.to else check_update(channel)
+        latest, release = check_update(
+            channel,
+            version=args.to,
+            prefer_native=not args.to,
+            refresh_native=not args.to,
+        )
         print(f"Aria Code {__version__} · latest {latest} · {channel}")
         print(f"Running executable: {Path(sys.executable).resolve()}")
         if not args.to and not _newer(latest, __version__):
@@ -299,6 +349,13 @@ def main(argv: list[str] | None = None) -> int:
             print("Source checkout: update your Git branch, then run: python3 -m pip install -e .")
             return 0
         if channel == "native":
+            if os.name == "nt":
+                command = _update_command(channel, latest)
+                if args.to:
+                    command = f"$env:ARIA_CODE_VERSION = 'v{latest}'; {command}"
+                print("Close Aria first, then run this in PowerShell to install the update:")
+                print(command)
+                return 0
             command = install_native(latest, release)
             print(f"Installed {latest}: {command}. Restart Aria to use the new version.")
             return 0
