@@ -263,6 +263,7 @@ fn recorded_release(root: &Path, record: &Value) -> Result<PathBuf, String> {
     Ok(binary)
 }
 
+#[cfg(unix)]
 fn write_previous(root: &Path, relative: &Path) -> Result<(), String> {
     let mut file = tempfile::NamedTempFile::new_in(root).map_err(|e| e.to_string())?;
     let value = json!({"previous": relative});

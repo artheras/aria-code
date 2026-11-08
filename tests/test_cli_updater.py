@@ -88,13 +88,15 @@ def test_pip_update_selects_github_version_and_checks_the_pinned_package(monkeyp
 
 
 def test_manual_check_reports_a_network_error(monkeypatch, capsys):
-    monkeypatch.setattr(updater, "check_update", lambda channel: (_ for _ in ()).throw(OSError("offline")))
+    monkeypatch.setattr(
+        updater, "check_update", lambda channel, **_kwargs: (_ for _ in ()).throw(OSError("offline"))
+    )
     assert updater.main(["--check"]) == 1
     assert "offline" in capsys.readouterr().err
 
 
 def test_check_only_never_installs(monkeypatch, capsys):
-    monkeypatch.setattr(updater, "check_update", lambda channel: ("99.0.0", {}))
+    monkeypatch.setattr(updater, "check_update", lambda channel, **_kwargs: ("99.0.0", {}))
     monkeypatch.setattr(updater, "install_native", lambda *args: pytest.fail("must not install"))
     assert updater.main(["--check"]) == 0
     assert "aria update" in capsys.readouterr().out
