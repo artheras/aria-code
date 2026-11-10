@@ -82,6 +82,14 @@ func TestDirectShellShortcutNeedsApprovalAndDoesNotCallTheModel(t *testing.T) {
 	if !strings.Contains(menu["context"].(string), "native-proof") {
 		t.Fatal("approval lost the actual command")
 	}
+	// The assessment is data for the frontend's card, not text in the context.
+	risk, ok := menu["risk"].(map[string]any)
+	if !ok || risk["level"] == nil || risk["score"] == nil || risk["reversible"] == nil {
+		t.Fatal("approval carries no structured risk", menu)
+	}
+	if strings.Contains(menu["context"].(string), "/100") {
+		t.Fatal("the risk card is also in the context text, so it would show twice")
+	}
 	if _, err := os.Stat(filepath.Join(project, "note.txt")); !os.IsNotExist(err) {
 		t.Fatal("shell executed before approval")
 	}

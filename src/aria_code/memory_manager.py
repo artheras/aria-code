@@ -1,7 +1,7 @@
 """
 memory_manager.py — Aria Code 全局用户 memory 系统
 
-存储位置：~/.arthera/memory/
+存储位置：<ARIA_HOME>/accounts/<UID 哈希>/memory/（匿名使用独立目录）
   MEMORY.md                ← 索引（每次启动加载）
   user_profile.md          ← 用户偏好、交易风格
   project_<slug>.md        ← /project load 时自动建档
@@ -48,10 +48,29 @@ def _slugify(name: str) -> str:
 
 
 class MemoryManager:
-    def __init__(self, root: Optional[Path] = None):
-        self.root = root or _MEMORY_DIR
-        self.root.mkdir(parents=True, exist_ok=True)
-        self._index = self.root / "MEMORY.md"
+    def __init__(self, root: Optional[Path] = None, config=None):
+        from aria_code.account_session import read_config
+        from aria_code.account_memory import AccountMemory
+        self._explicit_root = root
+        self._config = config if config is not None else read_config
+        self.account = AccountMemory(self._config)
+
+    @property
+    def root(self):
+        from aria_code.account_session import account_root
+        config = self._config() if callable(self._config) else self._config
+        root = self._explicit_root or account_root(config) / "memory"
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    @property
+    def _index(self):
+        return self.root / "MEMORY.md"
+
+    def _signed_in(self):
+        from aria_code.account_session import account_id
+        config = self._config() if callable(self._config) else self._config
+        return not self._explicit_root and account_id(config) is not None
 
     # ── Index management ──────────────────────────────────────────────────────
 
@@ -86,8 +105,9 @@ class MemoryManager:
 
     def load_context(self, max_chars: int = 500) -> str:
         """Return a compact memory block for injection into the system prompt."""
+        account_context = self.account.context(max_chars) if self._signed_in() else ""
         if not self._index.exists():
-            return ""
+            return account_context
         snippets = []
         for entry in self._read_index():
             fpath = self.root / entry["file"]
@@ -98,18 +118,21 @@ class MemoryManager:
             snippets.extend(lines[:6])
 
         if not snippets:
-            return ""
+            return account_context
 
         block = "\n".join(snippets)
         if len(block) > max_chars:
             block = block[:max_chars] + "…"
-        return f"## User Memory\n{block}\n"
+        return (account_context + f"## User Memory\n{block}\n")[:max_chars + 50]
 
     def append(self, slug: str, content: str, title: Optional[str] = None) -> None:
-        """Append a fact to slug.md, creating the file if needed."""
+        """Queue a signed-in account fact, or append an anonymous local fact."""
         if _SENSITIVE_PATTERN.search(content):
             logger.debug("Memory: skipping sensitive content: %s…", content[:40])
-            return
+            return False
+
+        if self._signed_in():
+            return self.account.add(content)
 
         slug = _slugify(slug)
         fpath = self.root / f"{slug}.md"
@@ -158,7 +181,7 @@ class MemoryManager:
 
     def list_all(self) -> list[dict]:
         """Return all memory entries with their file content."""
-        result = []
+        result = [{"title": "Account memory", "file": f["id"], "content": f["content"], "summary": f["content"][:80]} for f in self.account.facts()] if self._signed_in() else []
         for entry in self._read_index():
             fpath = self.root / entry["file"]
             content = fpath.read_text(encoding="utf-8").strip() if fpath.exists() else ""
@@ -168,6 +191,10 @@ class MemoryManager:
     def clear_all(self) -> int:
         """Delete all memory files and reset the index. Returns count deleted."""
         count = 0
+        if self._signed_in():
+            for fact in self.account.facts(include_disabled=True):
+                self.account.forget(fact["id"])
+                count += 1
         for fpath in self.root.glob("*.md"):
             if fpath.name != "MEMORY.md":
                 fpath.unlink()
@@ -176,7 +203,7 @@ class MemoryManager:
         return count
 
     def fact_count(self) -> int:
-        return len(self._read_index())
+        return len(self.list_all())
 
 
 # ── Preference signal extractor (rule-based, zero LLM cost) ──────────────────

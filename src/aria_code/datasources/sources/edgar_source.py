@@ -104,7 +104,7 @@ class EDGARSource(BaseDataSource):
             "EarningsPerShareBasic": "eps_basic",
             "EarningsPerShareDiluted": "eps_diluted",
             "Assets": "total_assets",
-            "LiabilitiesAndStockholdersEquity": "total_equity",
+            "StockholdersEquity": "total_equity",
             "OperatingIncomeLoss": "operating_income",
             "CommonStockSharesOutstanding": "shares_outstanding",
         }

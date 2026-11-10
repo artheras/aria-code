@@ -19,22 +19,25 @@ from aria_code.apps.cli.model_retirement import migrate_config, retired_replacem
 
 
 @pytest.mark.parametrize("old,new", [
-    ("google/gemini-2.5-pro", "google/gemini-3.5-flash"),
-    ("google/gemini-2.5-flash", "google/gemini-3.5-flash"),
-    ("gemini-2.5-flash", "gemini-3.5-flash"),
+    ("google/gemini-2.5-pro", "google/gemini-3.8-flash"),
+    ("google/gemini-2.5-flash", "google/gemini-3.8-flash"),
+    ("gemini-2.5-flash", "gemini-3.8-flash"),
     ("vertex/gemini-2.5-flash-lite", "vertex/gemini-3.1-flash-lite"),
-    ("google/gemini-2.5-pro-preview-06-05", "google/gemini-3.5-flash"),
-    ("gemini-2.0-flash-001", "gemini-3.5-flash"),
+    ("google/gemini-2.5-pro-preview-06-05", "google/gemini-3.8-flash"),
+    ("gemini-2.0-flash-001", "gemini-3.8-flash"),
     ("gemini-2.0-flash-lite", "gemini-3.1-flash-lite"),
-    ("gemini/gemini-1.5-pro-latest", "gemini/gemini-3.5-flash"),
-    ("GOOGLE/GEMINI-2.5-PRO", "GOOGLE/gemini-3.5-flash"),
+    ("gemini/gemini-1.5-pro-latest", "gemini/gemini-3.8-flash"),
+    ("GOOGLE/GEMINI-2.5-PRO", "GOOGLE/gemini-3.8-flash"),
+    # The previous default: Google deprecated it on 2026-10-08, so it moves with the default.
+    ("google/gemini-3.5-flash", "google/gemini-3.8-flash"),
+    ("gemini-3.5-flash", "gemini-3.8-flash"),
 ])
 def test_retired_ids_are_replaced(old, new):
     assert retired_replacement(old) == new
 
 
 @pytest.mark.parametrize("model", [
-    "google/gemini-3.5-flash", "google/gemini-3.8-flash", "gemini-3.1-flash-lite",
+    "google/gemini-3.8-flash", "google/gemini-4-argon", "gemini-3.1-flash-lite",
     "google/gemma-4-31b-it", "qwen2.5:7b", "qwen2.5-coder:7b", "gpt-4o-mini", "", None,
 ])
 def test_current_models_are_left_alone(model):
@@ -49,8 +52,8 @@ def test_the_default_and_the_catalogue_name_no_retired_model():
 
 def test_migrate_config_reports_what_changed():
     cfg = {"model": "google/gemini-2.5-pro", "ui_lang": "en"}
-    assert migrate_config(cfg) == [("model", "google/gemini-2.5-pro", "google/gemini-3.5-flash")]
-    assert cfg["model"] == "google/gemini-3.5-flash"
+    assert migrate_config(cfg) == [("model", "google/gemini-2.5-pro", "google/gemini-3.8-flash")]
+    assert cfg["model"] == "google/gemini-3.8-flash"
     assert migrate_config(cfg) == []
 
 
@@ -75,10 +78,10 @@ def test_a_saved_retired_model_is_replaced_and_written_back_once(home, capsys):
     paths.config_dir.mkdir(parents=True, exist_ok=True)
     paths.config_file.write_text(json.dumps({"model": "google/gemini-2.5-pro", "ui_lang": "en"}))
     cfg = load_cli_config(paths, {"model": DEFAULT_MODEL})
-    assert cfg["model"] == "google/gemini-3.5-flash"
-    assert json.loads(paths.config_file.read_text())["model"] == "google/gemini-3.5-flash"
+    assert cfg["model"] == "google/gemini-3.8-flash"
+    assert json.loads(paths.config_file.read_text())["model"] == "google/gemini-3.8-flash"
     err = capsys.readouterr().err
-    assert "gemini-2.5-pro" in err and "gemini-3.5-flash" in err
+    assert "gemini-2.5-pro" in err and "gemini-3.8-flash" in err
     load_cli_config(paths, {"model": DEFAULT_MODEL})
     assert capsys.readouterr().err == ""
 
@@ -88,7 +91,7 @@ def test_a_project_pin_is_replaced_in_memory_only(home, capsys):
     (home / ".ariarc").write_text('{"model": "google/gemini-2.5-flash"}')
     before = (home / ".ariarc").read_text()
     cfg = load_cli_config(paths, {"model": DEFAULT_MODEL, "ui_lang": "en"})
-    assert cfg["model"] == "google/gemini-3.5-flash"
+    assert cfg["model"] == "google/gemini-3.8-flash"
     assert (home / ".ariarc").read_text() == before
     assert ".ariarc" in capsys.readouterr().err
 

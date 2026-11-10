@@ -27,7 +27,56 @@ pub fn default_python() -> std::ffi::OsString {
     if cfg!(windows) { "python" } else { "python3" }.into()
 }
 
+/// The engine for `mode`. A native release ships the Go runtime
+/// (`aria-runtime`) next to the frozen Python worker, and a platform wheel
+/// ships it next to this frontend (`aria_code/_bin/`); it serves the
+/// application, stream and tool-bridge modes. The `cli` mode (product
+/// commands such as `--help`) stays on Python, and `ARIA_ENGINE=python`
+/// keeps the Python engine for everything.
+pub fn engine(python: &OsStr, mode: &str, prefer_python: bool) -> std::ffi::OsString {
+    let launcher = env::current_exe().and_then(|exe| exe.canonicalize()).ok();
+    engine_beside(
+        python,
+        mode,
+        prefer_python,
+        launcher.as_deref().and_then(Path::parent),
+    )
+}
+
+fn runtime_in(dir: &Path) -> Option<std::ffi::OsString> {
+    let native = dir.join(if cfg!(windows) {
+        "aria-runtime.exe"
+    } else {
+        "aria-runtime"
+    });
+    native.is_file().then(|| native.into_os_string())
+}
+
+fn engine_beside(
+    python: &OsStr,
+    mode: &str,
+    prefer_python: bool,
+    launcher_dir: Option<&Path>,
+) -> std::ffi::OsString {
+    if prefer_python || mode == "cli" || is_native(python) {
+        return python.to_os_string();
+    }
+    let worker = Path::new(python);
+    if worker.file_stem().is_some_and(|s| s == "aria-code-worker") {
+        if let Some(found) = worker.parent().and_then(runtime_in) {
+            return found;
+        }
+    }
+    if let Some(found) = launcher_dir.and_then(runtime_in) {
+        return found;
+    }
+    python.to_os_string()
+}
+
 pub fn command(python: &OsStr, mode: &str) -> Command {
+    let prefer_python = env::var("ARIA_ENGINE").is_ok_and(|v| v.eq_ignore_ascii_case("python"));
+    let chosen = engine(python, mode, prefer_python);
+    let python = chosen.as_os_str();
     let mut cmd = Command::new(python);
     if is_native(python) {
         cmd.arg(mode);
@@ -70,5 +119,63 @@ mod tests {
         assert_eq!(cmd.get_args().collect::<Vec<_>>(), ["--aria-worker", "app"]);
         let cmd = command(OsStr::new("python3"), "app");
         assert_eq!(cmd.get_args().next(), Some(OsStr::new("-u")));
+    }
+}
+
+#[cfg(test)]
+mod engine_tests {
+    use super::{engine, engine_beside};
+    use std::ffi::OsStr;
+
+    #[test]
+    fn a_native_release_runs_the_go_engine_except_for_cli() {
+        let dir = tempfile::tempdir().unwrap();
+        let ext = if cfg!(windows) { ".exe" } else { "" };
+        let worker = dir.path().join(format!("aria-code-worker{ext}"));
+        let native = dir.path().join(format!("aria-runtime{ext}"));
+        std::fs::write(&worker, b"").unwrap();
+        let w = worker.as_os_str();
+        // Without the Go runtime beside it, the worker stays.
+        assert_eq!(engine(w, "app", false), w);
+        std::fs::write(&native, b"").unwrap();
+        for mode in ["app", "stream", "bridge"] {
+            assert_eq!(engine(w, mode, false), native.as_os_str(), "{mode}");
+        }
+        assert_eq!(engine(w, "cli", false), w);
+        assert_eq!(engine(w, "app", true), w, "ARIA_ENGINE=python");
+        // A plain interpreter keeps the Python engine without a Go runtime beside the frontend.
+        assert_eq!(
+            engine_beside(OsStr::new("python3"), "app", false, None),
+            OsStr::new("python3")
+        );
+    }
+
+    #[test]
+    fn a_platform_wheel_runs_the_go_engine_beside_the_frontend() {
+        let bin = tempfile::tempdir().unwrap();
+        let ext = if cfg!(windows) { ".exe" } else { "" };
+        let python = OsStr::new("/usr/bin/python3");
+        assert_eq!(
+            engine_beside(python, "app", false, Some(bin.path())),
+            python
+        );
+        let native = bin.path().join(format!("aria-runtime{ext}"));
+        std::fs::write(&native, b"").unwrap();
+        for mode in ["app", "stream", "bridge"] {
+            assert_eq!(
+                engine_beside(python, mode, false, Some(bin.path())),
+                native.as_os_str(),
+                "{mode}"
+            );
+        }
+        assert_eq!(
+            engine_beside(python, "cli", false, Some(bin.path())),
+            python
+        );
+        assert_eq!(
+            engine_beside(python, "app", true, Some(bin.path())),
+            python,
+            "ARIA_ENGINE=python"
+        );
     }
 }

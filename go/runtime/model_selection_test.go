@@ -11,7 +11,11 @@ import (
 
 func TestModelSwitchPersistsBothFieldsAndFailurePreservesSelection(t *testing.T) {
 	writeProviders(t, map[string]any{})
-	s := approvalServer(t, config{}, appOptions{})
+	host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"data":[{"id":"qwen-test:local"}]}`)
+	}))
+	defer host.Close()
+	s := approvalServer(t, config{"ollama_base_url": host.URL}, appOptions{})
 	if _, err := s.command(context.Background(), "t", "/model ollama qwen-test:local"); err != nil {
 		t.Fatal(err)
 	}
@@ -77,6 +81,9 @@ func TestModelPickerUsesProtocolAndCanCancel(t *testing.T) {
 	provider := c.until(t, "input.requested")
 	c.send(t, map[string]any{"type": "dialog.respond", "turn_id": "pick", "request_id": provider["request_id"], "choice": 1})
 	models := c.until(t, "input.requested")
+	if models["picker"] != true {
+		t.Fatal("the model list should open as a searchable picker", models)
+	}
 	c.send(t, map[string]any{"type": "dialog.respond", "turn_id": "pick", "request_id": models["request_id"], "choice": 0})
 	if done := c.until(t, "turn.completed"); done["status"] != "ok" {
 		t.Fatal(done)
@@ -97,4 +104,25 @@ func TestModelPickerUsesProtocolAndCanCancel(t *testing.T) {
 	}
 	c.send(t, map[string]any{"type": "shutdown"})
 	c.until(t, "session.closed")
+}
+
+func TestModelsAreListedNewestFirstWithoutNonChatModels(t *testing.T) {
+	names := []string{"gemini-3.5-flash", "gemini-4-argon", "gemini-3.10-flash", "gemini-3.8-flash", "gemini-3.1-pro-preview"}
+	sortNewestFirst(names)
+	want := []string{"gemini-4-argon", "gemini-3.10-flash", "gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-pro-preview"}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("order %v, want %v", names, want)
+		}
+	}
+	for _, id := range []string{"text-embedding-005", "gemini-3.8-flash-tts", "gemini-3.8-live", "gemini-3.1-flash-image", "lyria-3.5", "gemini-robotics-er-2-preview", "gemini-3.5-transcribe"} {
+		if !notChatModel.MatchString(id) {
+			t.Fatalf("%s is not a chat model", id)
+		}
+	}
+	for _, id := range []string{"gemini-4-argon", "gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-pro-preview", "gemma-3-27b-it"} {
+		if notChatModel.MatchString(id) {
+			t.Fatalf("%s is a chat model", id)
+		}
+	}
 }

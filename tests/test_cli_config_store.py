@@ -13,6 +13,9 @@ def _no_project_ariarc(monkeypatch):
 
     monkeypatch.setattr(ariarc, "find_ariarc", lambda *a, **k: None)
     monkeypatch.setattr(ariarc, "_CACHED_RC", None, raising=False)
+    # Isolate the overlay itself too: other CLI tests can load the legacy
+    # bare import alias before this module is collected.
+    monkeypatch.setattr(ariarc, "apply_to_config", lambda cfg: cfg)
 
 
 def test_load_cli_config_merges_saved_values_and_syncs(monkeypatch, tmp_path):

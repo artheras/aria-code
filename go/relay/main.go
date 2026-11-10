@@ -1,5 +1,5 @@
 // Command aria-relay is the Go implementation of Aria's Feishu relay
-// (src/aria_code/aria_relay_server.py). Same endpoints, environment and
+// (the former src/aria_code/aria_relay_server.py). Same endpoints, environment and
 // store layout; tests/test_relay_contract.py runs against both:
 //
 //	ARIA_RELAY_COMMAND=go/relay/aria-relay pytest tests/test_relay_contract.py

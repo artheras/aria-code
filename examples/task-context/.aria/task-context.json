@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "product_brief",
+      "kind": "skill",
+      "path": ".aria/skills/product-brief/SKILL.md",
+      "description": "Turn a supplied product brief into a factual customer-facing draft.",
+      "roles": ["researcher", "writer"],
+      "auto": false
+    },
+    {
+      "id": "voice",
+      "kind": "memory",
+      "path": ".aria/memory/voice.md",
+      "description": "Approved plain-English voice for education-product drafts.",
+      "roles": ["writer"],
+      "auto": true
+    }
+  ]
+}

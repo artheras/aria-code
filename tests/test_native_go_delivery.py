@@ -1,8 +1,8 @@
 """The Go runtime's delivery report must match runtime/delivery.py.
 
-Python also names the definitions a change touched, the tests that reference
-them and the project-graph impact; those modules are not ported, so they are
-switched off on the Python side here and compared as empty.
+Symbol names need the changed file on disk, and tested_by needs a graph cache.
+These scenarios use paths that are not files here and have no cache, so both
+sides leave those fields empty. The impact line is compared the same way.
 """
 import json
 import os
@@ -10,8 +10,7 @@ import subprocess
 
 import pytest
 
-from aria_code.runtime import delivery
-from aria_code.runtime.delivery import report_from_activities
+from aria_code.runtime.delivery import DeliveryLedger, report_from_activities
 
 
 def binary():
@@ -19,13 +18,6 @@ def binary():
     if not value:
         pytest.skip("The native-runtime CI job builds this executable")
     return value
-
-
-@pytest.fixture(autouse=True)
-def without_unported_analysis(monkeypatch):
-    monkeypatch.setattr(delivery.DeliveryLedger, "_symbol_changes", lambda self, path: [])
-    monkeypatch.setattr(delivery.DeliveryLedger, "_tested_by", lambda self, changes: ())
-    monkeypatch.setattr(delivery.DeliveryLedger, "_impact", staticmethod(lambda changed: ""))
 
 
 EDIT = "--- a/src/app.py\n+++ b/src/app.py\n@@ -1,3 +1,4 @@\n a\n-b\n+B\n+c\n d\n"
@@ -102,7 +94,7 @@ def test_go_delivery_matches_python(tmp_path, monkeypatch, name, with_root):
     monkeypatch.chdir(tmp_path)
     root = tmp_path if with_root else None
     scenario = SCENARIOS[name]
-    ledger = delivery.DeliveryLedger(root=str(root) if root else None)
+    ledger = DeliveryLedger(root=str(root) if root else None)
     for tool, params, result in scenario.get("activities", []):
         ledger.record(tool, params, result)
     report = ledger.report(acceptance=scenario.get("acceptance"), contract=scenario.get("contract"),

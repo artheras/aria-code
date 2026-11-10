@@ -10,21 +10,23 @@ jobs:
   relay-startup:
     name: relay listens on Cloud Run PORT
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-go@v5
         with:
-          python-version: "3.11"
-      - name: Install relay runtime
-        run: python -m pip install fastapi uvicorn httpx websockets
-      - name: Start packaged relay and probe HTTP
+          go-version-file: go/relay/go.mod
+          cache-dependency-path: go/relay/go.sum
+      - name: Build the relay
+        working-directory: go/relay
+        run: CGO_ENABLED=0 go build -o aria-relay .
+      - name: Start the relay and probe HTTP
         shell: bash
         env:
-          PYTHONPATH: src
           PORT: "18765"
           DB_PATH: ${{ runner.temp }}/relay-smoke.sqlite
         run: |
-          python -m aria_code.aria_relay_server > "$RUNNER_TEMP/relay.log" 2>&1 &
+          go/relay/aria-relay > "$RUNNER_TEMP/relay.log" 2>&1 &
           pid=$!
           trap 'kill "$pid" 2>/dev/null || true' EXIT
           for attempt in {1..20}; do
@@ -43,6 +45,7 @@ jobs:
   npm-wrapper:
     name: npm wrapper tests (node)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -66,6 +69,7 @@ jobs:
   install-smoke-test:
     name: install smoke test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -115,6 +119,7 @@ jobs:
   pytest:
     name: pytest (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:

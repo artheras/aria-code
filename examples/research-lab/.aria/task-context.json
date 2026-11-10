@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "entries": [{
+    "id": "research_protocol",
+    "kind": "skill",
+    "path": "WORKFLOW.md",
+    "description": "Produce scoped research artifacts with falsifiable hypotheses, reproducible methods and explicit evidence limits.",
+    "roles": ["planner", "researcher", "implementer", "data_analyst", "reviewer", "writer"],
+    "auto": true
+  }]
+}

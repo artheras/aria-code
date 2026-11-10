@@ -41,8 +41,10 @@ class ToolExecutor:
         self, tool_name: str, params: dict, *, approval: ApprovalDecision | None = None
     ) -> dict:
         """Execute a local tool synchronously."""
+        if "_agent_allowed_tools" in self.config and tool_name not in self.config["_agent_allowed_tools"]:
+            return {"success": False, "error": "Tool is outside this agent role’s allowed capabilities."}
         if self.config.get("_conversation_only"):
-            return {"success": False, "error": "This is a standalone social message. Reply directly without tools or file inspection."}
+            return {"success": False, "error": "This is a standalone conversational request. Reply directly without tools or file inspection."}
         if tool_name not in self.local_tools:
             return {"success": False, "error": f"Unknown local tool: {tool_name}"}
         if approval is not None and not approval.approved:
@@ -66,9 +68,15 @@ class ToolExecutor:
 
     async def execute(self, tool_name: str, params: dict) -> dict:
         """Execute a tool asynchronously, using remote executor when needed."""
+        if "_agent_allowed_tools" in self.config and tool_name not in self.config["_agent_allowed_tools"]:
+            return {"success": False, "error": "Tool is outside this agent role’s allowed capabilities."}
         if self.config.get("_conversation_only"):
-            return {"success": False, "error": "This is a standalone social message. Reply directly without tools or file inspection."}
+            return {"success": False, "error": "This is a standalone conversational request. Reply directly without tools or file inspection."}
         if tool_name in self.local_tools:
+            # Scheduler operations must remain on the active event loop. A worker
+            # thread cannot create a durable background coroutine on this loop.
+            if tool_name in {"spawn_task", "task_cancel", "task_status", "task_result", "task_list", "list_agents"}:
+                return self.execute_local(tool_name, params)
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(None, self.execute_local, tool_name, params)
         if self.remote_executor is None:
@@ -81,12 +89,13 @@ class ToolExecutor:
             result = await self.remote_executor(tool_name, params)
         except Exception as exc:
             result = {"success": False, "error": str(exc)}
-        self._run_hook("post_tool", tool_name, params, result)
+        observable = {key: value for key, value in result.items() if key != "_vision_image"}
+        self._run_hook("post_tool", tool_name, params, observable)
         end = time.time()
         self.trace.add_tool_call(ToolCallRecord(
             tool=tool_name,
             params=params,
-            result=result,
+            result=observable,
             elapsed_ms=(end - start) * 1000,
             started_at=start,
             ended_at=end,
@@ -101,12 +110,13 @@ class ToolExecutor:
             result = fn()
         except Exception as exc:
             result = {"success": False, "error": str(exc)}
-        self._run_hook("post_tool", tool_name, params, result)
+        observable = {key: value for key, value in result.items() if key != "_vision_image"}
+        self._run_hook("post_tool", tool_name, params, observable)
         end = time.time()
         self.trace.add_tool_call(ToolCallRecord(
             tool=tool_name,
             params=params,
-            result=result,
+            result=observable,
             elapsed_ms=(end - start) * 1000,
             started_at=start,
             ended_at=end,
@@ -127,6 +137,8 @@ class ToolExecutor:
         for key in tuple(prepared):
             if key.startswith("_"):
                 prepared.pop(key)
+        if tool_name == "analyze_financial_statements":
+            prepared["network_enabled"] = bool(self.config.get("network_enabled", True))
         if tool_name == "run_command":
             # Tool arguments come from the model. Only the host configuration and
             # a typed approval decision may set execution controls.
@@ -137,7 +149,7 @@ class ToolExecutor:
                 prepared.pop(key, None)
         workspace_tools = {"read_file", "write_file", "edit_file", "multi_edit", "list_files",
                            "search_code", "glob", "analyze_file", "notebook_read", "notebook_edit",
-                           "apply_patch", "run_command", "github"}
+                           "apply_patch", "run_command", "github", "spawn_task", "list_task_context"}
         context = {
             "_workspace": self.config.get("_session_workspace_root") or self.config.get("workspace_root") or str(Path.cwd()),
             "_allowed_read_roots": [*(self.config.get("read_roots") or ()), *(self.config.get("_session_read_roots") or ())],
@@ -165,6 +177,16 @@ class ToolExecutor:
             if tool_name in {"write_file", "edit_file", "multi_edit", "notebook_edit"}:
                 if approval is not None and approval.approved:
                     prepared["_skip_confirm"] = True
+        if tool_name in {"spawn_task", "list_task_context"}:
+            prepared["_task_context_enabled"] = bool(self.config.get("task_context_enabled", True))
+            prepared["_session_id"] = str(context.get("_session_id") or self.config.get("last_session_id") or "")
+        if tool_name == "spawn_task":
+            prepared["_parent_permission_mode"] = self.config.get("permission_mode", "workspace-write")
+        if tool_name == "warehouse_task":
+            # Tool arguments cannot select another conversation or permission mode.
+            session = context.get("_session_id") or self.config.get("last_session_id")
+            prepared["_warehouse_scope"] = str(session or "")
+            prepared["_warehouse_read_only"] = self.config.get("permission_mode") in {"read-only", "readonly", "read_only", "plan"}
         if tool_name == "run_command":
             prepared["policy"] = self.config.get("command_policy", "safe")
             prepared["permission_mode"] = self.config.get("permission_mode", "workspace-write")
@@ -304,3 +326,4 @@ def _rebase_command(command: str, origins: tuple[Path, ...], workspace: Path) ->
         pattern = re.escape(str(origin)) + r"(?=[/\s'\"`;:)|&]|$)"
         command = re.sub(pattern, lambda _match: str(workspace), command)
     return command
+

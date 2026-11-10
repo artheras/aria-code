@@ -28,6 +28,23 @@ on:
       - "LICENSE"
 
 jobs:
+  slim-core:
+    name: Coding install without finance dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install only the coding base and test runner
+        run: python -m pip install -e . pytest
+      - name: Check coding startup, local files and optional dependency errors
+        env:
+          ARIA_OFFLINE: "1"
+        run: |
+          python scripts/sync_finance_core.py --check
+          python -m pytest tests/test_optional_finance.py tests/test_explicit_backend_paths.py tests/test_finance_source_lock.py tests/test_finance_core_boundaries.py -q
+
   runtime-integration:
     name: Runtime integration (${{ matrix.os }})
     strategy:
@@ -35,6 +52,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -58,6 +76,7 @@ jobs:
   test:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
       fail-fast: false   # run all Python versions to completion — don't cancel siblings on first failure
       matrix:
@@ -130,6 +149,7 @@ jobs:
   lint:
     name: Lint & Format
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
@@ -151,6 +171,7 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
 
@@ -182,6 +203,7 @@ jobs:
   eval-preflight:
     name: Eval suites still measure something
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # 不需要模型、不需要 API key、几秒钟。它只回答一个问题：套件里的任务
     # 还都是「一开始是红的」吗？
     #
@@ -212,6 +234,67 @@ jobs:
           python -m aria_code.evals.runner evals/suites/projects.yaml --check
           python -m aria_code.evals.runner evals/suites/behavior.yaml --check
 
+  # ── The deployable images must build and start ──────────────────────────────
+  # Build both the active Python deployment and the Go migration candidate.
+  # Dockerfile.relay is the production relay image (cloudbuild.yaml).
+  container-images:
+    name: Container images build and start
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build active Python project-review image
+        run: docker build -f Dockerfile.review -t aria-review:ci .
+
+      - name: Python project-review service answers /health
+        run: |
+          docker run -d --name aria-review -p 8787:8787 aria-review:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/health; then
+              docker rm -f aria-review >/dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs aria-review
+          exit 1
+
+      - name: Build Go project-review migration candidate
+        run: docker build -f Dockerfile.review-go -t aria-review-go:ci .
+
+      - name: Build Dockerfile.relay
+        run: docker build -f Dockerfile.relay -t aria-relay:ci .
+
+      - name: Build services/aria-bots and check what it carries
+        run: |
+          docker build -f services/aria-bots/Dockerfile -t aria-bots:ci .
+          docker run --rm --entrypoint aria-runtime aria-bots:ci --version
+          docker run --rm --entrypoint aria-relay-client aria-bots:ci --help > /dev/null
+          echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            | docker run --rm -i --entrypoint aria-logistics-mcp aria-bots:ci | grep -q score_carriers
+
+      - name: Caddyfile and production compose file parse
+        run: |
+          # adapt runs every directive's Caddyfile parser (it rejected the old
+          # header_up-inside-transport block) without provisioning TLS or logs.
+          docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine \
+            caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile > /dev/null
+          docker compose -f docker-compose.prod.yml config -q
+
+      - name: Relay answers /status
+        run: |
+          docker run -d --name aria-relay -p 8765:8765 aria-relay:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8765/status; then
+              docker rm -f aria-relay >/dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs aria-relay
+          exit 1
+
   # ── The release artifact must actually install and run ──────────────────────
   # Nothing here ever built a wheel and looked inside it, and three defects lived
   # in that gap at once: packages.find pointed at the repo root instead of src/
@@ -226,6 +309,7 @@ jobs:
   packaging:
     name: Wheel installs and runs
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

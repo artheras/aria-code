@@ -82,7 +82,7 @@ class SessionTest(unittest.TestCase):
 class EndpointTest(unittest.TestCase):
     def test_the_gateway_is_the_openai_path_on_the_api(self):
         with mock.patch.dict(os.environ, {"ARIA_API_URL": ""}):
-            self.assertEqual(gw.gateway_base_url(), "https://api.arthera.finance/api/v2/llm/v1")
+            self.assertEqual(gw.gateway_base_url(), "https://api.arthera.xyz/api/v2/llm/v1")
 
     def test_another_deployment_is_configuration_not_a_code_change(self):
         with mock.patch.dict(os.environ, {"ARIA_API_URL": "https://api-staging.example"}):
@@ -103,7 +103,7 @@ class ProviderTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"ARIA_HOME": self.tmp.name, "ARIA_API_URL": ""}):
             provider = gw.ArtheraGatewayProvider(ProviderConfig(name="arthera", model=""))
         self.assertEqual(provider.config.api_key, "t")
-        self.assertEqual(provider.config.base_url, "https://api.arthera.finance/api/v2/llm/v1")
+        self.assertEqual(provider.config.base_url, "https://api.arthera.xyz/api/v2/llm/v1")
 
     def test_an_explicit_base_url_is_respected(self):
         with mock.patch.dict(os.environ, {"ARIA_HOME": self.tmp.name}):

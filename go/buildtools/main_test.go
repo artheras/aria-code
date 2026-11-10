@@ -28,8 +28,19 @@ func TestMain(m *testing.M) {
 			} else {
 				fmt.Println(`{"imports":{},"fallback":[]}`)
 			}
-		case len(os.Args) > 1 && os.Args[1] == "build":
-			// bundle's cargo subprocess: the fixture already wrote its output.
+		case len(os.Args) > 1 && (os.Args[1] == "build" || os.Args[1] == "zigbuild"):
+			if record := os.Getenv("ARIA_BUNDLE_TEST_ARGS"); record != "" && filepath.Base(os.Args[0]) == executable("cargo") {
+				os.WriteFile(record, []byte(strings.Join(os.Args[1:], " ")), 0o644)
+			}
+			// bundle's cargo and go subprocesses: cargo's output is already
+			// in place; go build writes its -o target.
+			for i, arg := range os.Args {
+				if arg == "-o" && i+1 < len(os.Args) {
+					if err := os.WriteFile(os.Args[i+1], []byte("go runtime"), 0o755); err != nil {
+						os.Exit(4)
+					}
+				}
+			}
 		default:
 			os.Exit(3)
 		}
@@ -164,9 +175,40 @@ func TestRelativeCargoTargetDirectory(t *testing.T) {
 	if err := os.Rename(cargo, filepath.Join(cargoDir, executable("cargo"))); err != nil {
 		t.Fatal(err)
 	}
+	goTool, err := copyTemporary(binary, cargoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(goTool, filepath.Join(cargoDir, executable("go"))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte("[project]\nversion = \"1.2.3\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(filepath.Join(root, "go", "runtime"), 0o755)
 	t.Setenv("PATH", cargoDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if err := bundle(root, dir, true, io.Discard); err != nil {
 		t.Fatal(err)
+	}
+	if err := regular(filepath.Join(dir, executable("aria-runtime"))); err != nil {
+		t.Fatal("the Go engine was not bundled", err)
+	}
+}
+
+func TestZigbuildTargetsAnOlderGlibc(t *testing.T) {
+	t.Setenv("ARIA_RUST_TARGET", "")
+	if args, built := rustBuild("/t"); strings.Join(args, " ") != "build --release --locked -p aria-native" || built != filepath.Join("/t", "release", executable("aria-native")) {
+		t.Fatal(args, built)
+	}
+	t.Setenv("ARIA_RUST_TARGET", "aarch64-unknown-linux-gnu.2.17")
+	args, built := rustBuild("/t")
+	if strings.Join(args, " ") != "zigbuild --release --locked -p aria-native --target aarch64-unknown-linux-gnu.2.17" ||
+		built != filepath.Join("/t", "aarch64-unknown-linux-gnu", "release", executable("aria-native")) {
+		t.Fatal(args, built)
+	}
+	t.Setenv("ARIA_RUST_TARGET", "x86_64-apple-darwin")
+	if _, built := rustBuild("/t"); built != filepath.Join("/t", "x86_64-apple-darwin", "release", executable("aria-native")) {
+		t.Fatal("a plain target triple keeps its name", built)
 	}
 }
 

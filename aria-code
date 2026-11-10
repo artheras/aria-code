@@ -67,18 +67,12 @@ import requests
 import rich
 import prompt_toolkit
 import yaml
-import yfinance
+import google.genai
 PY
 
   echo "aria: installing runtime dependencies into $VENV_DIR" >&2
   "$VENV_PY" -m pip install --quiet --upgrade pip
-  "$VENV_PY" -m pip install --quiet \
-    "aiohttp>=3.9.0" \
-    "requests>=2.32.0" \
-    "rich>=13.7.0" \
-    "prompt_toolkit>=3.0.43" \
-    "PyYAML>=6.0.2" \
-    "yfinance>=0.2.55"
+  "$VENV_PY" -m pip install --quiet -e "$SCRIPT_DIR"
 }
 
 [[ -f "$CLI_PY" ]] || die "aria_cli.py not found at $CLI_PY"

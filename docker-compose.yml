@@ -25,12 +25,21 @@ services:
     networks:
     - aria-net
     command: python3 -m aria_code.aria_daemon
+  # The chat bots run from their own image (services/aria-bots), which
+  # carries aria-runtime for chat turns and market commands.
   aria-relay-client:
-    image: aria-code:local
+    build:
+      context: .
+      dockerfile: services/aria-bots/Dockerfile
+    image: aria-bots:local
     restart: unless-stopped
+    # Root, like the image this replaced: it reads the host's ~/.aria
+    # (relay credentials in a 0600 .env, model config, daemon.db).
+    user: "0:0"
     volumes:
     - ${HOME}/.aria:/root/.aria
     environment:
+    - HOME=/root
     - ARIA_RELAY_URL=${ARIA_RELAY_URL:-}
     - ARIA_RELAY_CLIENT_ID=${ARIA_RELAY_CLIENT_ID}
     - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
@@ -39,11 +48,30 @@ services:
     - FEISHU_APP_SECRET=${FEISHU_APP_SECRET:-}
     - OLLAMA_BASE_URL=http://ollama:11434
     depends_on:
-    - aria-local
     - ollama
     networks:
     - aria-net
-    command: python3 -m aria_code.clients.aria_relay_client
+  # Optional: docker compose --profile telegram up. One poller per bot token:
+  # leave TELEGRAM_BOT_TOKEN out of ~/.aria/.env for aria-local if you use this.
+  aria-telegram-bot:
+    image: aria-bots:local
+    profiles: ["telegram"]
+    restart: unless-stopped
+    user: "0:0"
+    volumes:
+    - ${HOME}/.aria:/root/.aria
+    environment:
+    - HOME=/root
+    - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+    - TELEGRAM_ALLOWED_IDS=${TELEGRAM_ALLOWED_IDS:-}
+    - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+    - aria-relay-client
+    networks:
+    - aria-net
+    entrypoint: ["aria-telegram-bot"]
   ollama:
     image: ollama/ollama:latest
     restart: unless-stopped

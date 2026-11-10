@@ -5,13 +5,14 @@ aria-code's market data, multi-agent research team, and generated-artifact
 list. Pattern mirrors Arthera's packages/quant_engine/mcp_server.py (hand-rolled
 stdio JSON-RPC, no `mcp` SDK dependency).
 
-Usage (from repo root)::
+Usage (the entry point is src/aria_code/aria_mcp_server.py)::
 
-    python3 aria_mcp_server.py
+    aria-code-mcp                          # console script from pyproject
+    python3 -m aria_code.aria_mcp_server   # same, without the script
 
 Register with Claude Code::
 
-    claude mcp add aria-code -- python3 /path/to/aria-code/aria_mcp_server.py
+    claude mcp add aria-code -- aria-code-mcp
 
 Scope: ``skill:``-backed exposures (report/backtest skills) are still never
 registered as *executable* tools — a skill is a prompt-time instruction
@@ -65,7 +66,43 @@ MCP_PROTOCOL_VERSION = "2024-11-05"
 # actually consume the arguments).
 # ---------------------------------------------------------------------------
 
+from aria_code.agents.warehouse.task_agent import SCHEMA as WAREHOUSE_SCHEMA, WAREHOUSE_AGENT
+
 _INPUT_SCHEMAS: Dict[str, Dict[str, Any]] = {
+    "aria.warehouse.task": WAREHOUSE_SCHEMA,
+    "aria.risk.assess": {
+        "type": "object",
+        "properties": {
+            "command": {"type": "string", "description": "A shell command to assess, e.g. 'npm install jose'."},
+            "tool": {"type": "string", "description": "Or a tool name (write_file, edit_file, run_command, ...)."},
+            "params": {"type": "object", "description": "The tool's parameters."},
+            "root": {"type": "string", "description": "Project directory (default: the server's working directory)."},
+        },
+    },
+    "aria.contract.check": {
+        "type": "object",
+        "properties": {
+            "tool": {"type": "string", "description": "The tool call to check, e.g. write_file or run_command."},
+            "params": {"type": "object", "description": "The tool's parameters, e.g. {path: 'src/a.py'}."},
+            "root": {"type": "string", "description": "Project directory (default: the server's working directory)."},
+        },
+        "required": ["tool"],
+    },
+    "aria.project.impact": {
+        "type": "object",
+        "properties": {
+            "targets": {"type": "array", "items": {"type": "string"},
+                        "description": "Paths or symbols, e.g. ['src/auth/session.py', 'Session.refresh']."},
+            "root": {"type": "string", "description": "Project directory (default: the server's working directory)."},
+        },
+        "required": ["targets"],
+    },
+    "aria.project.commands": {
+        "type": "object",
+        "properties": {
+            "root": {"type": "string", "description": "Project directory (default: the server's working directory)."},
+        },
+    },
     "aria.market.quote": {
         "type": "object",
         "properties": {
@@ -413,6 +450,7 @@ _INPUT_SCHEMAS: Dict[str, Dict[str, Any]] = {
 # _call_broker_confirm_order and the module docstring). Every other
 # non-read_only exposure stays blocked by default — see _build_tools().
 _WRITE_SAFE = {
+    "aria.warehouse.task",  # simulation state only; native executor has no hardware mode
     "aria.broker.preview_order", "aria.broker.confirm_order",
     "aria.report.chart", "aria.report.indicator_chart", "aria.report.comparison_chart",
     "aria.report.allocation_chart", "aria.report.pdf",
@@ -1363,7 +1401,118 @@ async def _call_canva_upload_asset(args: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+def _project_root(value: Any) -> Path:
+    """The project directory a governance tool reads: an existing directory under the
+    server's working directory or the user's home, never an arbitrary path."""
+    root = Path(str(value) if value else os.getcwd()).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(f"root is not a directory: {root}")
+    allowed = [Path(os.getcwd()).resolve(), Path.home().resolve()]
+    if not any(root == base or base in root.parents for base in allowed):
+        raise ValueError("root must be inside the server's working directory or your home directory")
+    return root
+
+
+def _risk_view(assessment: Any) -> Dict[str, Any]:
+    from aria_code.safety.risk import approval_requirement
+    from aria_code.ui.render.output import format_risk_card
+
+    return {
+        "success": True,
+        "assessment": assessment.as_dict(),
+        "approval": {
+            "manual": approval_requirement(assessment, mode="manual"),
+            "risk_mode": approval_requirement(assessment, mode="risk"),
+        },
+        "card": [line for _style, line in format_risk_card(assessment)],
+    }
+
+
+async def _call_risk_assess(args: Dict[str, Any]) -> Dict[str, Any]:
+    from aria_code.safety.risk import assess_command, assess_tool
+
+    command, tool = args.get("command"), args.get("tool")
+    if isinstance(command, str) and command.strip():
+        return _risk_view(assess_command(command))
+    if isinstance(tool, str) and tool.strip():
+        params = args.get("params") if isinstance(args.get("params"), dict) else {}
+        try:
+            root = _project_root(args.get("root"))
+        except ValueError as exc:
+            return {"success": False, "error": str(exc)}
+        return _risk_view(assess_tool(tool, params, root=root))
+    return {"success": False, "error": "give a `command`, or a `tool` and its `params`"}
+
+
+async def _call_contract_check(args: Dict[str, Any]) -> Dict[str, Any]:
+    from aria_code.runtime.contract import ChangeContract, ContractError
+
+    tool = args.get("tool")
+    if not isinstance(tool, str) or not tool.strip():
+        return {"success": False, "error": "`tool` is required"}
+    params = args.get("params") if isinstance(args.get("params"), dict) else {}
+    try:
+        root = _project_root(args.get("root"))
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
+    try:
+        contract = ChangeContract.load(root)
+    except ContractError as exc:
+        # A policy that cannot be read bounds the project to reads, as it does for Aria itself.
+        contract = ChangeContract.fail_closed(root, str(exc))
+    if contract is None:
+        return {"success": True, "contract": None, "allowed": True,
+                "note": "this project declares no change contract (.aria/policy.yaml)"}
+    verdict = contract.check(tool, params)
+    return {
+        "success": True,
+        "allowed": verdict.allowed,
+        "rule": verdict.rule,
+        "reason": verdict.reason,
+        "level": verdict.assessment.level if verdict.assessment else None,
+        "contract": contract.render(),
+    }
+
+
+async def _call_project_impact(args: Dict[str, Any]) -> Dict[str, Any]:
+    targets = args.get("targets")
+    if not isinstance(targets, list) or not all(isinstance(t, str) and t for t in targets) or not targets:
+        return {"success": False, "error": "`targets` must be a non-empty list of paths or symbols"}
+    try:
+        root = _project_root(args.get("root"))
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
+    from aria_code.runtime.project_graph import load_project_graph
+
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    impact = await loop.run_in_executor(None, lambda: load_project_graph(root).impact(targets[:20]))
+    return {"success": True, "breadth": impact.breadth, "impact": impact.as_dict(), "text": impact.render()}
+
+
+async def _call_project_commands(args: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        root = _project_root(args.get("root"))
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
+    from aria_code.apps.cli.commands.engineering_cmds import detect_commands
+
+    return {"success": True, "root": str(root), "commands": detect_commands(root)}
+
+
+async def _call_warehouse_task(args: Dict[str, Any]) -> Dict[str, Any]:
+    import asyncio
+    public = {k: v for k, v in args.items() if not k.startswith("_")}
+    return await asyncio.to_thread(WAREHOUSE_AGENT.handle, {**public, "_warehouse_scope": "mcp-stdio-connection"})
+
+
 _HANDLERS: Dict[str, Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]] = {
+    "aria.warehouse.task": _call_warehouse_task,
+    "aria.risk.assess": _call_risk_assess,
+    "aria.contract.check": _call_contract_check,
+    "aria.project.impact": _call_project_impact,
+    "aria.project.commands": _call_project_commands,
     "aria.market.quote": _call_market_quote,
     "aria.agent.team": _call_agent_team,
     "aria.artifacts.list": _call_artifacts_list,
@@ -1418,7 +1567,7 @@ def _build_tools() -> List[Dict[str, Any]]:
     _WRITE_SAFE is a deliberate, individually-justified code change, not a
     side effect of editing the exposure list.
     """
-    from packages.aria_mcp.bridge import default_exposures
+    from aria_code.packages.aria_mcp.bridge import default_exposures
 
     tools = []
     for exposure in default_exposures():
@@ -1491,7 +1640,13 @@ async def _handle(req: Dict[str, Any]) -> None:
         except TypeError as exc:
             _error(req_id, -32602, f"Invalid arguments for {name}: {exc}")
         except Exception as exc:
-            _error(req_id, -32603, f"Tool error: {exc}\n{traceback.format_exc()[-300:]}")
+            # Details stay on this side: a traceback carries file paths,
+            # argument values and sometimes credentials from the environment,
+            # and the client is another program's model. Log it to stderr
+            # (stdout is the JSON-RPC channel) and return a generic error.
+            logger.error("Tool %s failed: %s\n%s", name, exc, traceback.format_exc())
+            _error(req_id, -32603, f"Tool error: {name} failed ({type(exc).__name__}); "
+                                   "details are in the server's log")
 
     elif method == "ping":
         _reply(req_id, {})

@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -26,6 +28,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from .task_ledger import TaskLedger
+from .task_context import ContextBundle, ContextError, load_context, tool_list_task_context, validate_refs
+from .task_verification import capture_baseline, validate_checks, verify_checks
+from .agent_profiles import PROFILES, get_profile, tool_list_agents
 
 _TASKS: Dict[str, "SubagentTask"] = {}
 _RUNNER: Optional[Callable] = None  # set by aria_cli.py
@@ -40,6 +45,10 @@ class SubagentTask:
     status: str = "pending"   # pending | running | done | failed | cancelled
     result: str = ""
     error: str = ""
+    agent: str = "general"
+    success_criteria: str = ""
+    max_rounds: int = 30
+    timeout_seconds: int = 300
     mode: str = "read-only"
     isolation: str = "shared"
     backend: str = "aria"    # aria | claude | codex — which agent actually runs the task
@@ -52,6 +61,14 @@ class SubagentTask:
     created_at: float = field(default_factory=time.time)
     completed_at: float = 0.0
     handoff: dict[str, Any] = field(default_factory=dict)
+    context_refs: list[str] = field(default_factory=list)
+    context_sources: list[dict] = field(default_factory=list)
+    _context_block: str = field(default="", repr=False)
+    checks: list[dict] = field(default_factory=list)
+    evidence: list[dict] = field(default_factory=list)
+    evidence_truncated: bool = False
+    verification_baseline: dict = field(default_factory=dict)
+    verification: dict = field(default_factory=dict)
     async_task: Optional[asyncio.Task] = field(default=None, repr=False, compare=False)
     worktree_spec: Optional[Any] = field(default=None, repr=False, compare=False)
 
@@ -65,6 +82,12 @@ class SubagentTask:
 
     def to_dict(self) -> dict:
         return {
+            "agent": self.agent,
+            "context_refs": self.context_refs,
+            "context_sources": self.context_sources,
+            "success_criteria": self.success_criteria,
+            "max_rounds": self.max_rounds,
+            "timeout_seconds": self.timeout_seconds,
             "task_id": self.task_id,
             "status": self.status,
             "prompt": self.prompt[:200] + ("…" if len(self.prompt) > 200 else ""),
@@ -76,11 +99,19 @@ class SubagentTask:
             "branch": self.branch or None,
             "applied": self.applied,
             "handoff": self.handoff or None,
+            "verification": self.verification or None,
+            "verified": self.verification.get("verified"),
         }
 
     def snapshot(self) -> dict[str, Any]:
         """Return the serializable task contract and latest outcome."""
         return {
+            "agent": self.agent,
+            "context_refs": self.context_refs,
+            "context_sources": self.context_sources,
+            "success_criteria": self.success_criteria,
+            "max_rounds": self.max_rounds,
+            "timeout_seconds": self.timeout_seconds,
             "task_id": self.task_id, "prompt": self.prompt, "context": self.context,
             "status": self.status, "result": self.result, "error": self.error,
             "mode": self.mode, "isolation": self.isolation, "backend": self.backend,
@@ -89,6 +120,10 @@ class SubagentTask:
             "applied": self.applied, "applied_paths": list(self.applied_paths),
             "created_at": self.created_at, "completed_at": self.completed_at,
             "handoff": self.handoff,
+            "checks": self.checks, "evidence": self.evidence,
+            "evidence_truncated": self.evidence_truncated,
+            "verification_baseline": self.verification_baseline,
+            "verification": self.verification,
         }
 
 
@@ -133,7 +168,13 @@ def restore_tasks() -> int:
             error = "Queued without a runner and never started; rerun or delegate it again."
         task = SubagentTask(
             task_id=task_id, prompt=str(record.get("prompt") or ""),
+            agent=str(record.get("agent") or "general"),
+            success_criteria=str(record.get("success_criteria") or ""),
+            max_rounds=int(record.get("max_rounds") or 30),
+            timeout_seconds=int(record.get("timeout_seconds") or 300),
             context=str(record.get("context") or ""), status=status,
+            context_refs=list(record.get("context_refs") or []),
+            context_sources=list(record.get("context_sources") or []),
             result=str(record.get("result") or ""), error=error,
             mode=str(record.get("mode") or "read-only"),
             isolation=str(record.get("isolation") or "shared"),
@@ -147,6 +188,11 @@ def restore_tasks() -> int:
             created_at=float(record.get("created_at") or time.time()),
             completed_at=float(record.get("completed_at") or 0.0),
             handoff=dict(record.get("handoff") or {}),
+            checks=list(record.get("checks") or []),
+            evidence=list(record.get("evidence") or [])[:256],
+            evidence_truncated=bool(record.get("evidence_truncated")),
+            verification_baseline=dict(record.get("verification_baseline") or {}),
+            verification={**dict(record.get("verification") or {}), "status": "stale", "verified": None},
         )
         _TASKS[task_id] = task
         if status != saved_status:
@@ -186,6 +232,30 @@ def tool_spawn_task(params: dict) -> dict:
         return {"success": False, "error": "isolation must be auto, worktree, or shared"}
     if backend not in {"aria", "claude", "codex"}:
         return {"success": False, "error": "backend must be aria, claude, or codex"}
+    try:
+        profile = get_profile(str(params.get("agent") or "general"))
+        checks = validate_checks(params.get("checks", []))
+        max_rounds = params.get("max_rounds", profile.max_rounds)
+        timeout_seconds = params.get("timeout_seconds", profile.timeout_seconds)
+        if type(max_rounds) is not int or not 1 <= max_rounds <= profile.max_rounds:
+            raise ValueError(f"max_rounds must be 1–{profile.max_rounds}")
+        if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= profile.timeout_seconds:
+            raise ValueError(f"timeout_seconds must be 1–{profile.timeout_seconds}")
+        if mode == "workspace-write" and not profile.writable:
+            raise ValueError(f"{profile.name} is a read-only role")
+        if mode == "workspace-write" and params.get("_parent_permission_mode") in {"read-only", "readonly", "read_only", "plan"}:
+            raise ValueError("A child cannot exceed the parent's read-only permissions")
+        if profile.name != "general" and backend != "aria":
+            raise ValueError("Restricted profiles currently require the aria backend")
+        if sum(t.status in {"pending", "running"} for t in _TASKS.values()) >= 8:
+            raise ValueError("Active task limit reached (8); wait or cancel a task first")
+        if profile.name != "general" and _RUNNER is None:
+            raise ValueError("No Aria runner is registered; this role cannot start")
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
+    success_criteria = str(params.get("success_criteria") or "")
+    if len(str(prompt)) > 32000 or len(str(context)) > 32000 or len(success_criteria) > 4000:
+        return {"success": False, "error": "Task brief exceeds bounded context limits"}
     if isolation == "auto":
         isolation = "worktree" if mode == "workspace-write" else "shared"
     if mode == "read-only" and isolation == "worktree":
@@ -196,16 +266,35 @@ def tool_spawn_task(params: dict) -> dict:
             "error": "workspace-write tasks require worktree isolation",
         }
 
+    workspace = str(params.get("_workspace") or params.get("_spawn_workspace") or Path.cwd())
+    session_id = str(params.get("_session_id") or "")
+    refs = params.get("context_refs", [])
+    try:
+        refs = validate_refs(refs)
+        if params.get("_task_context_enabled", True) is False:
+            if refs:
+                raise ContextError("Project task context is disabled by the host")
+            bundle = ContextBundle([])
+        else:
+            bundle = load_context(workspace, profile.name, session_id, refs)
+        if bundle.sources and backend != "aria":
+            raise ContextError("Scoped project task context currently requires the aria backend")
+    except ContextError as exc:
+        return {"success": False, "error": str(exc)}
     task_id = uuid.uuid4().hex[:8]
     task = SubagentTask(
         task_id=task_id,
         prompt=prompt,
         context=context,
+        agent=profile.name, success_criteria=success_criteria,
+        context_refs=list(refs), context_sources=bundle.sources, _context_block=bundle.prompt_block,
+        checks=checks, verification={"status": "pending" if checks else "not_requested", "verified": None},
+        max_rounds=max_rounds, timeout_seconds=timeout_seconds,
         mode=mode,
         isolation=isolation,
         backend=backend,
-        workspace=str(params.get("_workspace") or params.get("_spawn_workspace") or Path.cwd()),
-        session_id=str(params.get("_session_id") or ""),
+        workspace=workspace,
+        session_id=session_id,
     )
     _TASKS[task_id] = task
     _persist(task)
@@ -214,11 +303,14 @@ def tool_spawn_task(params: dict) -> dict:
     # the "aria" backend needs one registered via register_runner().
     if backend != "aria" or _RUNNER is not None:
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None and loop.is_running():
                 task.async_task = asyncio.ensure_future(_run_background(task))
             else:
-                loop.run_until_complete(_run_background(task))
+                asyncio.run(_run_background(task))
         except Exception as exc:
             task.status = "failed"
             task.error = str(exc)
@@ -231,18 +323,29 @@ def tool_spawn_task(params: dict) -> dict:
     return {
         "success": True,
         "task_id": task_id,
+        "agent": task.agent,
+        "context_sources": task.context_sources,
+        "success_criteria": task.success_criteria,
         "status": task.status,
         "mode": task.mode,
         "isolation": task.isolation,
         "message": (
-            f"Task {task_id} spawned. Use task_status('{task_id}') to check progress."
-            if task.status == "running" else
-            f"Task {task_id} queued (no runner registered). Check /tasks."
+            f"Task {task_id}: {task.status}. Use task_status/task_result to inspect the outcome."
         ),
     }
 
 
 async def _run_background(task: SubagentTask) -> None:
+    try:
+        await asyncio.wait_for(_run_task(task), timeout=task.timeout_seconds)
+    except asyncio.TimeoutError:
+        task.status = "failed"
+        task.error = "Task execution deadline exceeded; inspect any partial artifacts before retrying."
+        task.completed_at = time.time()
+        _persist(task)
+
+
+async def _run_task(task: SubagentTask) -> None:
     task.status = "running"
     _persist(task)
     try:
@@ -256,7 +359,10 @@ async def _run_background(task: SubagentTask) -> None:
             task.workspace = spec.path
             task.branch = spec.branch
 
+        task.verification_baseline = capture_baseline(task.workspace, task.checks)
         full_prompt = task.prompt
+        if task._context_block:
+            full_prompt = f"{task._context_block}\n\n[Delegated user task]\n{full_prompt}"
         if task.context:
             full_prompt = f"{task.context}\n\n{task.prompt}"
         execution_contract = (
@@ -268,7 +374,10 @@ async def _run_background(task: SubagentTask) -> None:
             "Do not spawn another subagent or push changes. End with a structured "
             "handoff: FINDINGS: ...; CHANGED_FILES: ...; VERIFICATION: ...; BLOCKERS: ..."
         )
-        full_prompt = f"{execution_contract}\n\n{full_prompt}"
+        profile = get_profile(task.agent)
+        full_prompt = (f"{execution_contract}\nRole: {profile.name}\n{profile.instructions}\n"
+                       f"Acceptance criteria: {task.success_criteria or 'Report observable evidence and unresolved blockers.'}\n"
+                       f"Declared predicates (not permission grants): {json.dumps(task.checks, ensure_ascii=False)}\n\n{full_prompt}")
         if task.backend != "aria":
             from external_agent_runner import RUNNERS
 
@@ -282,35 +391,44 @@ async def _run_background(task: SubagentTask) -> None:
         task.result = result_text or ""
         task.handoff = _extract_handoff(task.result)
         task.status = "done"
+        _refresh_verification(task)
         if task.worktree_spec is not None:
             from .worktrees import WorktreeManager
             task.diff_summary = WorktreeManager.diff(task.worktree_spec)
     except asyncio.CancelledError:
         task.status = "cancelled"
+        raise
     except Exception as exc:
         task.error = str(exc)
         task.status = "failed"
     finally:
+        if task.status != "done":
+            task.verification = {"status": "execution_incomplete", "verified": False if task.checks else None}
         task.completed_at = time.time()
         _persist(task)
+
+
+def _refresh_verification(task: SubagentTask) -> None:
+    try:
+        task.verification = verify_checks(task.workspace, task.checks, task.evidence,
+                                          task.verification_baseline, receipts_truncated=task.evidence_truncated)
+    except (ValueError, TypeError, OSError):
+        task.verification = {"status": "unavailable", "verified": False, "checked_at": time.time()}
 
 
 def _extract_handoff(result: str) -> dict[str, str]:
     """Extract a compact handoff when the agent supplied the task contract."""
     text = str(result or "")
-    keys = ("FINDINGS", "CHANGED_FILES", "VERIFICATION", "BLOCKERS")
+    # Models commonly return Markdown headings or title case even when the
+    # contract asks for uppercase labels. Preserve the reported text; parsing
+    # it is not independent verification of the claims.
+    pattern = r"(?im)(?:^|[;\n])[ \t]*(?:\*\*)?(FINDINGS|CHANGED[ _]FILES|VERIFICATION|BLOCKERS)[ \t]*:[ \t]*(?:\*\*)?"
+    matches = list(re.finditer(pattern, text))
     out: dict[str, str] = {}
-    for index, key in enumerate(keys):
-        marker = f"{key}:"
-        start = text.rfind(marker)
-        if start < 0:
-            continue
-        end = len(text)
-        for later_key in keys[index + 1:]:
-            candidate = text.find(f"{later_key}:", start + len(marker))
-            if candidate >= 0:
-                end = min(end, candidate)
-        out[key.lower()] = text[start + len(marker):end].strip().strip(";")
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        key = match.group(1).lower().replace(" ", "_")
+        out[key] = text[match.end():end].strip().strip(";")
     return out
 
 
@@ -325,7 +443,12 @@ def tool_task_status(params: dict) -> dict:
     return {
         "success": True,
         "task_id": task_id,
+        "agent": task.agent,
+        "context_sources": task.context_sources,
+        "success_criteria": task.success_criteria,
         "status": task.status,
+        "verified": task.verification.get("verified"),
+        "verification": task.verification or None,
         "age": task.age_str(),
         "prompt_preview": task.prompt[:100],
         "error": task.error or None,
@@ -350,10 +473,20 @@ def tool_task_result(params: dict) -> dict:
         return {"success": False, "error": task.error, "status": "failed"}
     if task.status in ("pending", "cancelled", "interrupted"):
         return {"success": False, "error": f"Task status is '{task.status}'", "status": task.status}
+    # Re-read declared artifacts on retrieval; a prior green must not survive
+    # deletion or modification of the artifact. Command receipts remain historical.
+    _refresh_verification(task)
+    _persist(task)
     return {
-        "success": True,
+        "success": task.verification.get("verified") is not False,
+        "error": "Declared acceptance checks did not pass" if task.verification.get("verified") is False else None,
         "task_id": task_id,
+        "agent": task.agent,
+        "context_sources": task.context_sources,
+        "success_criteria": task.success_criteria,
         "status": task.status,
+        "verified": task.verification.get("verified"),
+        "verification": task.verification,
         "result": task.result,
         "age": task.age_str(),
         "workspace": task.workspace or None,
@@ -499,6 +632,8 @@ def apply_task_worktree(task_id: str, *, cleanup: bool = True) -> dict:
 # ── Tool registry (added to LOCAL_TOOLS in aria_cli.py) ───────────────────────
 
 SUBAGENT_TOOLS = {
+    "list_task_context": (tool_list_task_context, "Discover eligible project skill/memory metadata for a target role"),
+    "list_agents": (tool_list_agents, "Discover general-purpose task roles, limits and tool policies"),
     "spawn_task":    (tool_spawn_task,   "Spawn a background sub-task; returns task_id"),
     "task_status":   (tool_task_status,  "Check status of a background task by task_id"),
     "task_result":   (tool_task_result,  "Retrieve result of a completed background task"),
@@ -507,18 +642,26 @@ SUBAGENT_TOOLS = {
 }
 
 SUBAGENT_SCHEMAS = [
+    {"name": "list_task_context", "description": "List project-local skill and memory IDs eligible for the planned target agent. Returns descriptions, not source contents; does not scan user/global memory. Select IDs through spawn_task.context_refs.", "parameters": {"type": "object", "properties": {"agent": {"type": "string", "enum": list(PROFILES)}}, "additionalProperties": False}},
+    {"name": "list_agents", "description": "Discover task roles for exploration, planning, research, implementation, review, data inspection and writing. Does not start tasks or connect services.", "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
     {
         "name": "spawn_task",
-        "description": "Spawn an independent background agent task. Useful for parallelising slow operations: research, data fetching, long analysis. Returns a task_id you can poll with task_status.",
+        "description": "Delegate a bounded task to a role. Put executable acceptance predicates in the checks argument, not only in prompt/context. For example checks=[{kind:tool,tool:read_file,path:brief.md},{kind:artifact,path:brief.md,format:text,min_bytes:1}]. Retrieve task_result: verified=true covers these predicates, null means no checks, false means failure. A child saying VERIFIED is not machine evidence.",
         "parameters": {
             "type": "object",
             "properties": {
+                "agent": {"type": "string", "enum": list(PROFILES), "description": "Use explorer for sources, planner for plans, researcher for sourced research, implementer for changes, reviewer for independent review, data_analyst for datasets, writer for documents. general is the fallback. Specialized roles use aria."},
+                "context_refs": {"type": "array", "items": {"type": "string"}, "maxItems": 8, "description": "Project skill/memory IDs from list_task_context for this agent. Do not pass paths, global memories or session IDs. Only project-declared auto entries load without explicit IDs."},
+                "checks": {"type": "array", "maxItems": 16, "items": {"type": "object", "properties": {"kind": {"type": "string", "enum": ["artifact", "tool", "command"]}, "path": {"type": "string"}, "format": {"type": "string", "enum": ["binary", "text", "json", "csv"]}, "min_bytes": {"type": "integer", "minimum": 0, "maximum": 1048576}, "min_rows": {"type": "integer", "minimum": 0, "maximum": 10000}, "required_keys": {"type": "array", "items": {"type": "string"}, "maxItems": 32}, "contains": {"type": "string", "maxLength": 256}, "sha256": {"type": "string"}, "changed": {"type": "boolean"}, "tool": {"type": "string"}, "command": {"type": "string"}, "cwd": {"type": "string"}}, "required": ["kind"], "additionalProperties": False}, "description": "Declared acceptance predicates: artifact(path, optional format/min_bytes/required_keys/min_rows/contains/sha256/changed), tool(tool, optional path), command(command, optional cwd). Paths are workspace-relative. Commands are matched to actual executor receipts, never run by this verifier. Checks verify only their predicates, not every aspect of the user goal."},
+                "success_criteria": {"type": "string", "description": "Observable acceptance conditions; a completion message alone is not evidence."},
+                "max_rounds": {"type": "integer", "minimum": 1, "maximum": 30},
+                "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300},
                 "prompt":  {"type": "string", "description": "The task for the sub-agent to perform"},
                 "context": {"type": "string", "description": "Optional background context to inject into the sub-agent's system prompt"},
                 "mode": {
                     "type": "string",
                     "enum": ["read-only", "workspace-write"],
-                    "description": "Use workspace-write only when the subagent must edit code. Default: read-only.",
+                    "description": "Use workspace-write only for requested file changes or checks requiring writes. A draft returned in chat is read-only. Default: read-only.",
                 },
                 "isolation": {
                     "type": "string",

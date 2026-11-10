@@ -52,7 +52,7 @@ async def test_the_tasks_writes_land_in_its_worktree(tmp_path, monkeypatch):
         return SimpleNamespace(text="done", error=None)
 
     monkeypatch.setattr(bridge, "run_chat_via_runtime", fake_turn)
-    assert await bridge.run_subagent_turn("edit", task, local_tools={}, tool_schemas=[],
+    assert await bridge.run_subagent_turn("edit", task, local_tools={"write_file": (lambda p: {"success": True}, "")}, tool_schemas=[],
                                           config={}, api_url=None) == "done"
     assert written == [str(Path(task.workspace).resolve() / "notes.md"),
                        str(Path(task.workspace).resolve() / "app.py")]

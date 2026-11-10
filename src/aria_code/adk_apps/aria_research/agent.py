@@ -12,7 +12,7 @@ from aria_code.packages.adk_bridge import MarketResearchTools
 _tools = MarketResearchTools()
 
 root_agent = Agent(
-    model=os.getenv("ARIA_ADK_MODEL", "gemini-3.5-flash"),
+    model=os.getenv("ARIA_ADK_MODEL", "gemini-3.8-flash"),
     name="aria_research",
     description="A read-only market-research assistant for Aria Code and Arthera.",
     instruction="""You are Aria Research, a careful financial-research assistant.

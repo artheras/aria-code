@@ -32,8 +32,11 @@ import re
 import tempfile
 import unittest
 
+import yaml
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "aria_code"
+BOTS = ROOT / "services" / "aria-bots" / "src"
 WORKFLOW = ROOT / ".github" / "workflows" / "build-native-binaries.yml"
 MAC_SCRIPT = ROOT / "scripts" / "build_native_binary.sh"
 
@@ -90,7 +93,7 @@ class EveryRuntimeImportIsListed(unittest.TestCase):
                 parts = module.split(".")
                 if parts[0] == "aria_code":
                     parts = parts[1:]
-                base = SRC.joinpath(*parts)
+                base = (BOTS if parts[0] == "aria_bots" else SRC).joinpath(*parts)
                 with self.subTest(kind=kind, module=module):
                     self.assertTrue(
                         base.with_suffix(".py").is_file() or (base / "__init__.py").is_file(),
@@ -149,11 +152,18 @@ class TheNumbaStackStaysOut(unittest.TestCase):
 
 class EveryBuildUsesTheCollector(unittest.TestCase):
     def test_workflow_builds(self) -> None:
-        text = WORKFLOW.read_text(encoding="utf-8")
-        builds = text.count("--distpath dist-native/dist")
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        builds = 0
+        for job_id, job in workflow["jobs"].items():
+            for step in job.get("steps", []):
+                command = str(step.get("run", ""))
+                if "--distpath dist-native/dist" not in command:
+                    continue
+                builds += 1
+                with self.subTest(job=job_id, step=step.get("name")):
+                    self.assertIn("pyinstaller_collect_args.py", command,
+                                  "a PyInstaller build in the workflow does not use the collector")
         self.assertGreater(builds, 0)
-        self.assertEqual(text.count("pyinstaller_collect_args.py"), builds,
-                         "a PyInstaller build in the workflow does not use the collector")
 
     def test_macos_script_builds(self) -> None:
         text = MAC_SCRIPT.read_text(encoding="utf-8")

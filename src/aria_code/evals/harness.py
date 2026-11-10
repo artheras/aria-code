@@ -48,7 +48,18 @@ Tasks run in a copy under a scratch root, never in the fixture and never in
 the repository.  An agent that deletes the workspace, writes outside it, or
 leaves it in a broken state affects nothing but its own run's directory, which
 is what makes it safe to keep destructive tasks in the suite — those are the
-ones worth having.
+ones worth having.  The agent also gets its own HOME / ARIA_HOME / XDG tree
+per attempt (runner.trial_home_env), so nothing one attempt remembers reaches
+the next.
+
+A pass has to be the work
+-------------------------
+Editing a protected test is a FAIL, and so is *adding* a file that changes
+how the check runs (conftest.py, pytest.ini, a .pth, a module named like
+pytest or the stdlib) unless the task lists it in ``allow_new``.  An exit code
+of 125/126/127 is only "the check could not run" when the harness failed to
+start it or a program on the command line really is missing; the agent's code
+exiting 127 from inside the check is a FAIL.
 """
 
 from __future__ import annotations
@@ -57,6 +68,7 @@ import importlib.util
 import json
 import re
 import os
+import secrets
 import shlex
 import shutil
 import subprocess
@@ -142,6 +154,10 @@ class TaskSpec:
     # How the agent should go about it, judged on its tool calls and reported
     # beside the outcome without changing it. See evals/behavior.py.
     behavior: tuple[dict, ...] = ()
+    # New files the task expects the agent to create that would otherwise be
+    # refused as planted: a conftest.py, a pyproject.toml, a module that
+    # shares a stdlib name. See _PLANTED_FILES.
+    allow_new: tuple[str, ...] = ()
 
     @classmethod
     def from_dict(cls, data: dict) -> "TaskSpec":
@@ -165,6 +181,7 @@ class TaskSpec:
             allow_green_start=bool(data.get("allow_green_start", False)),
             hidden=tuple(str(g) for g in (data.get("hidden") or ())),
             behavior=tuple(_validate_behavior(c) for c in (data.get("behavior") or ())),
+            allow_new=tuple(str(g) for g in (data.get("allow_new") or ())),
         )
 
 
@@ -211,6 +228,14 @@ class TaskResult:
     changed: tuple[str, ...] = ()
     # Behaviour checks on the agent's tool calls: ({check, passed, detail}, …).
     behavior: tuple = ()
+    # Tokens the agent reported for this task ({model, provider, input_tokens, …});
+    # empty when the solver reports none, which is not the same as zero.
+    usage: dict = field(default_factory=dict)
+    # The solver ran out of its time budget. Still ERROR (not the model's
+    # score), but reported on its own: a suite where a third of the attempts
+    # time out has a pass rate over the other two thirds only, and a reader
+    # has to be able to see that.
+    timed_out: bool = False
 
     @property
     def counted(self) -> bool:
@@ -230,7 +255,30 @@ class TaskResult:
             # agent did not complete (exit 1)"; the reason was in the job log.
             "log_tail": _log_tail(self.log) if self.outcome != PASS else [],
             **({"behavior": [dict(b) for b in self.behavior]} if self.behavior else {}),
+            **({"usage": dict(self.usage)} if self.usage else {}),
+            **({"timed_out": True} if self.timed_out else {}),
         }
+
+
+_USAGE_TOKEN_KEYS = ("input_tokens", "output_tokens", "thinking_tokens")
+
+
+def usage_reported(usage: Optional[dict]) -> bool:
+    """Whether a usage record actually reports tokens.
+
+    An all-zero record is what an agent that never reached a model writes (or
+    one whose provider returns no counts); counting it as "reported" made a
+    suite's token total look complete while it summed nothing.
+    """
+    if not usage:
+        return False
+    for key in _USAGE_TOKEN_KEYS:
+        try:
+            if int(usage.get(key) or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
 
 
 @dataclass
@@ -255,6 +303,11 @@ class SuiteResult:
         return sum(1 for r in self.results if r.outcome == ERROR)
 
     @property
+    def timed_out(self) -> int:
+        """Errored attempts the solver's time budget cut off (a subset of errored)."""
+        return sum(1 for r in self.results if r.outcome == ERROR and r.timed_out)
+
+    @property
     def scored(self) -> int:
         return sum(1 for r in self.results if r.counted)
 
@@ -267,6 +320,21 @@ class SuiteResult:
         agent regression; counting them up would let it hide one.
         """
         return (self.passed / self.scored) if self.scored else 0.0
+
+    def usage_totals(self) -> dict:
+        """Tokens and seconds summed over tasks whose agent reported usage.
+
+        ``reported`` says how many did: a total over 12 of 30 tasks is not the
+        cost of the suite, and must not be read as one.
+        """
+        with_usage = [r for r in self.results if usage_reported(r.usage)]
+        keys = _USAGE_TOKEN_KEYS
+        return {
+            "reported": len(with_usage),
+            "tasks": len(self.results),
+            **{key: sum(int(r.usage.get(key, 0) or 0) for r in with_usage) for key in keys},
+            "seconds": round(sum(r.seconds for r in self.results), 2),
+        }
 
     def by_tag(self) -> dict:
         """Pass rate per tag — the per-industry scoreboard."""
@@ -294,8 +362,10 @@ class SuiteResult:
             "failed": self.failed,
             "invalid": self.invalid,
             "errored": self.errored,
+            "timed_out": self.timed_out,
             "scored": self.scored,
             "by_tag": self.by_tag(),
+            "usage": self.usage_totals(),
             "per_task": self.per_task(),
             **({"behavior": self.behavior()} if any(r.behavior for r in self.results) else {}),
             "results": [r.to_dict() for r in self.results],
@@ -342,6 +412,8 @@ class SuiteResult:
             parts.append(f"{self.invalid} invalid")
         if self.errored:
             parts.append(f"{self.errored} error")
+        if self.timed_out:
+            parts.append(f"{self.timed_out} timed out (of the errors, unscored)")
         checks = [item for r in self.results for item in r.behavior]
         if checks:
             parts.append(f"behaviour {sum(bool(i['passed']) for i in checks)}/{len(checks)}")
@@ -381,12 +453,60 @@ def _resolve(command: str) -> str:
 _COULD_NOT_RUN = {125: "could not start", 126: "not executable", 127: "command not found",
                   9009: "command not found"}
 
+# The code alone is not evidence: the check runs the agent's code, and that
+# code can `os._exit(127)` to turn a FAIL into an unscored ERROR. Output is
+# not evidence either, since the same code can print "command not found". So:
+#
+# * 125 counts only with _run's own start-failure marker, which carries a
+#   per-process nonce the check cannot know;
+# * 126/127/9009 count only when a program the command line names really
+#   cannot be found or executed from the task's workspace. When every program
+#   resolves, the code came from inside the check, and a red check is a FAIL.
+_START_FAILURE = f"could not run command [{secrets.token_hex(8)}]: "
+_SHELL_BUILTINS = frozenset({
+    "cd", "export", "set", "unset", "true", "false", ":", "test", "[", "echo",
+    "exit", "source", ".", "eval", "exec", "env", "command", "builtin", "!",
+})
+_SEPARATORS = frozenset({"&&", "||", ";", "|", "&"})
 
-def _could_not_run(code: int, log: str) -> str:
+
+def _missing_program(command: str, cwd: Optional[Path]) -> bool:
+    """True when some program the command line runs cannot be found or executed."""
+    try:
+        tokens = shlex.split(_resolve(command), posix=os.name != "nt")
+    except ValueError:
+        return True   # cannot parse it: do not claim it ran
+    starts = [0] + [i + 1 for i, tok in enumerate(tokens) if tok in _SEPARATORS]
+    for i in starts:
+        while i < len(tokens) and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[i]):
+            i += 1   # FOO=bar cmd
+        if i >= len(tokens):
+            continue
+        program = tokens[i].strip("\"'")
+        if not program or program in _SHELL_BUILTINS:
+            continue
+        if "/" in program or (os.name == "nt" and "\\" in program):
+            path = Path(program)
+            if not path.is_absolute() and cwd is not None:
+                path = Path(cwd) / path
+            if not (path.is_file() and os.access(path, os.X_OK)):
+                return True
+        elif shutil.which(program) is None:
+            return True
+    return False
+
+
+def _could_not_run(code: int, log: str, command: str = "", cwd: Optional[Path] = None) -> str:
     reason = _COULD_NOT_RUN.get(code)
     if reason is None:
         return ""
-    last = (log or "").strip().splitlines()[-1:] or [""]
+    text = log or ""
+    if code == 125:
+        if _START_FAILURE not in text:
+            return ""
+    elif not _missing_program(command, cwd):
+        return ""
+    last = text.strip().splitlines()[-1:] or [""]
     return f"the check itself could not run (exit {code}, {reason}): {last[0]}".rstrip(": ")
 
 
@@ -413,6 +533,48 @@ def _violates_protection(changed: Iterable[str], patterns: Iterable[str]) -> tup
     """Protected files the agent modified."""
     globs = tuple(patterns)
     return tuple(rel for rel in changed if _matches(rel, globs))
+
+
+# Files that change how the check itself runs rather than what it checks. A
+# conftest.py can rewrite every test outcome, a pytest.ini/pyproject.toml/
+# setup.cfg/tox.ini can deselect the failing tests or add plugins, a .pth or
+# sitecustomize.py runs at interpreter start-up, and a pytest.py can stand in
+# for pytest. Protection covers only files that were there before the agent's
+# turn, so an agent could pass any task by *adding* one of these. They are
+# refused unless the task lists them in ``allow_new``.
+_PLANTED_FILES = (
+    "conftest.py", "pytest.ini", "pyproject.toml", "setup.cfg", "tox.ini",
+    "sitecustomize.py", "usercustomize.py", "*.pth",
+)
+# Modules the check imports. A new file or package with one of these names
+# shadows the real one; so does any stdlib name.
+_CHECK_MODULES = frozenset({"pytest", "_pytest", "pluggy", "py", "iniconfig", "unittest"})
+
+
+def _shadowed_module(rel: str) -> str:
+    """The importable name *rel* would shadow, or "" when it shadows nothing."""
+    parts = rel.replace("\\", "/").split("/")
+    name = parts[-1]
+    if name in ("__init__.py", "__init__.pyc") and len(parts) > 1:
+        module = parts[-2]
+    elif name.endswith((".py", ".pyc")) and "." not in name.rsplit(".", 1)[0]:
+        module = name.rsplit(".", 1)[0]
+    else:
+        return ""
+    stdlib = getattr(sys, "stdlib_module_names", frozenset())
+    return module if module in _CHECK_MODULES or module in stdlib else ""
+
+
+def _planted(added: Iterable[str], allowed: Iterable[str]) -> tuple[str, ...]:
+    """New files that could change how the check runs, minus what the task allows."""
+    allow = tuple(allowed)
+    out = []
+    for rel in added:
+        if allow and _matches(rel, allow):
+            continue
+        if _matches(rel, _PLANTED_FILES) or _shadowed_module(rel):
+            out.append(rel)
+    return tuple(out)
 
 
 def _hide(workspace: Path, globs: Sequence[str]) -> tuple[str, ...]:
@@ -474,6 +636,24 @@ def _changed_paths(before: dict[str, str], after: dict[str, str]) -> tuple[str, 
     return tuple(touched)
 
 
+# How an agent's turn can end when the agent itself was running: these are about the
+# work, so the task's check decides. Anything else in `stop_reason` is the transport
+# or the provider failing (an HTTP error text, a crash), which is not the model's score.
+_AGENT_STOPS = frozenset({"completed", "checks_failed", "max_rounds", "budget_exhausted", "loop_guard"})
+
+
+def _agent_finished(stdout: str) -> bool:
+    """True when the agent's event stream ends with a turn.completed that ran to an agent-level stop."""
+    last = None
+    for line in stdout.splitlines():
+        if line.startswith("{") and '"turn.completed"' in line:
+            try:
+                last = json.loads(line)
+            except ValueError:
+                continue
+    return bool(last) and str(last.get("stop_reason") or "") in _AGENT_STOPS
+
+
 def _solver_failure(outcome: Any) -> Optional[tuple[int, str]]:
     """``(exit_code, log)`` when the solver reports it did not complete.
 
@@ -485,6 +665,10 @@ def _solver_failure(outcome: Any) -> Optional[tuple[int, str]]:
         return None
     code = getattr(outcome, "returncode", None)
     if not isinstance(code, int) or code == 0:
+        return None
+    if _agent_finished(str(getattr(outcome, "stdout", "") or "")):
+        # The agent ran its turn and said how it ended; the non-zero exit is its verdict on
+        # its own work (its acceptance checks were red), not a crash. The check scores it.
         return None
     log = "\n".join(
         part for part in (
@@ -512,7 +696,7 @@ def _run(command: str, cwd: Path, timeout: int) -> tuple[int, str]:
         # anything else would let an infinite loop score as a pass.
         return 124, f"verification timed out after {timeout}s"
     except Exception as exc:
-        return 125, f"could not run command: {exc}"
+        return 125, f"{_START_FAILURE}{exc}"
     output = "\n".join(part for part in (proc.stdout, proc.stderr) if part.strip())
     return proc.returncode, output
 
@@ -567,11 +751,13 @@ def run_task(
     scratch.mkdir(parents=True, exist_ok=True)
 
     behaviour: list = []   # filled once the agent has had its turn
+    reported: dict = {}    # the agent's own usage report, once it has had its turn
 
     def _result(outcome: str, **kwargs) -> TaskResult:
         return TaskResult(
             task_id=task.id, outcome=outcome,
-            seconds=time.time() - started, tags=task.tags, behavior=tuple(behaviour), **kwargs,
+            seconds=time.time() - started, tags=task.tags, behavior=tuple(behaviour),
+            usage=dict(reported), **kwargs,
         )
 
     # Everything below runs inside this try so the scratch directory is removed
@@ -606,7 +792,7 @@ def run_task(
         # ── the pre-flight ────────────────────────────────────────────────
         # Confirm the task is actually broken before asking anyone to fix it.
         before_code, before_log = _run(task.verify, workspace, task.timeout)
-        broken = _could_not_run(before_code, before_log)
+        broken = _could_not_run(before_code, before_log, task.verify, workspace)
         if broken:
             return _result(ERROR, exit_code=before_code, detail=broken, log=_trim(before_log))
         if before_code == 0 and not task.allow_green_start:
@@ -625,6 +811,8 @@ def run_task(
             # A solver crash is not the agent failing the task; scoring it as
             # a fail would blame the model for a harness or provider outage.
             return _result(ERROR, detail=f"solver raised: {exc}")
+        if isinstance(getattr(outcome, "usage", None), dict):
+            reported.update(outcome.usage)
         # Only when the solver ran an agent: the pre-flight solver returns
         # nothing, and "write_file was never called" would read as a pass.
         if task.behavior and outcome is not None:
@@ -656,11 +844,22 @@ def run_task(
                 detail=f"modified protected file(s): {', '.join(tampered)}",
                 changed=changed,
             )
+        # ...but a file it *adds* can still change how the check runs.
+        added = [rel for rel in changed if rel not in before and rel not in hidden
+                 and (workspace / rel).is_file()]
+        planted = _planted(added, task.allow_new)
+        if planted:
+            return _result(
+                FAIL,
+                detail=(f"added file(s) that change how the check runs: {', '.join(planted)} "
+                        "(declare expected ones in the task's allow_new)"),
+                changed=changed,
+            )
 
         after_code, after_log = _run(task.verify, workspace, task.timeout)
         if after_code == 0:
             return _result(PASS, exit_code=0, changed=changed)
-        broken = _could_not_run(after_code, after_log)
+        broken = _could_not_run(after_code, after_log, task.verify, workspace)
         if broken:
             return _result(ERROR, exit_code=after_code, detail=broken,
                            log=_trim(after_log), changed=changed)
@@ -673,10 +872,12 @@ def run_task(
         failure = _solver_failure(outcome)
         if failure is not None:
             code, log = failure
+            timed_out = bool(getattr(outcome, "timed_out", False))
             return _result(
                 ERROR, exit_code=code,
-                detail=f"the agent did not complete (exit {code}); check still red",
-                log=_trim(log), changed=changed,
+                detail=(f"the agent ran out of time (exit {code}); check still red" if timed_out
+                        else f"the agent did not complete (exit {code}); check still red"),
+                log=_trim(log), changed=changed, timed_out=timed_out,
             )
 
         detail = f"`{task.verify}` exited {after_code}"

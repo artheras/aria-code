@@ -63,7 +63,7 @@ at any time.
 - **Local data** persists until you delete it (`/privacy delete`, or remove the
   files above).
 - **Opt-in shared data**, if any, is retained only as long as needed for the
-  stated purposes; you may request export or deletion at dev@arthera.finance.
+  stated purposes; you may request export or deletion at privacy@arthera.xyz.
 - You can withdraw consent at any time with `/privacy opt-out`.
 
 ## 5. Future changes
@@ -78,7 +78,7 @@ collection will:
 
 ## 6. Contact
 
-Questions or data requests: **dev@arthera.finance**
+Questions or data requests: **privacy@arthera.xyz**
 
 ---
 

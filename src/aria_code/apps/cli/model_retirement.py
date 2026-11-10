@@ -10,7 +10,7 @@ would fail on every request with an error that does not say why.
 So a retired id is replaced when the config is loaded, and the replacement
 is written back so it happens once: a stable model, not a short-term one,
 so an install that is rarely updated does not break again within months.
-The replacements follow Google's recommendations; 2.5 Flash moves to 3.5
+The replacements follow Google's recommendations; 2.5 Flash moves to 3.8
 Flash rather than a Lite model so the user loses nothing in capability.
 """
 
@@ -20,14 +20,16 @@ import re
 
 # bare id -> bare replacement
 RETIRED: dict[str, str] = {
-    "gemini-2.5-pro": "gemini-3.5-flash",
-    "gemini-2.5-flash": "gemini-3.5-flash",
+    "gemini-2.5-pro": "gemini-3.8-flash",
+    "gemini-2.5-flash": "gemini-3.8-flash",
     "gemini-2.5-flash-lite": "gemini-3.1-flash-lite",
-    "gemini-2.0-flash": "gemini-3.5-flash",
+    "gemini-2.0-flash": "gemini-3.8-flash",
     "gemini-2.0-flash-lite": "gemini-3.1-flash-lite",
-    "gemini-1.5-pro": "gemini-3.5-flash",
-    "gemini-1.5-flash": "gemini-3.5-flash",
-    "gemini-1.0-pro": "gemini-3.5-flash",
+    "gemini-1.5-pro": "gemini-3.8-flash",
+    "gemini-1.5-flash": "gemini-3.8-flash",
+    "gemini-1.0-pro": "gemini-3.8-flash",
+    # The previous default. Google deprecated it on 2026-10-08 and routes it to 3.6 Flash.
+    "gemini-3.5-flash": "gemini-3.8-flash",
 }
 
 # Dated, versioned and preview spellings of the same models:

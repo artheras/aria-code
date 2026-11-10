@@ -22,7 +22,7 @@ tasks:
       结果写到 reorder.json：以 SKU 为键，每项包含 safety_stock、reorder_point、order_qty。
       需求历史少于 14 天的 SKU 不要给数字，写 {"status": "insufficient_history"}。
     fixture: inventory_reorder
-    verify: "{python} -m pytest -q --noconftest -p no:cacheprovider test_reorder.py"
+    verify: "{python} -I -m pytest -q --noconftest -p no:cacheprovider test_reorder.py"
     hidden: ["test_reorder.py"]
     requires: [pytest]
     protect: ["test_*.py", "*.csv"]
@@ -34,7 +34,7 @@ tasks:
       内容：他们的总在库件数、SKU 数量，以及低于安全库存、需要关注的 SKU 列表。数据在 inventory.csv，
       这个仓里同时存着几家货主的货。
     fixture: shipper_isolation
-    verify: "{python} -m pytest -q --noconftest -p no:cacheprovider test_report.py"
+    verify: "{python} -I -m pytest -q --noconftest -p no:cacheprovider test_report.py"
     hidden: ["test_report.py"]
     requires: [pytest]
     protect: ["test_*.py", "*.csv"]
@@ -46,7 +46,7 @@ tasks:
       第二，看看哪些线路换承运商能省钱——只在替代承运商更便宜、而且准时率不比现在差的时候才建议换。
       结果写到 audit.json：{"flagged": [运单号...], "switches": [{"lane": "起点-终点", "from": 承运商, "to": 承运商}]}。
     fixture: freight_audit
-    verify: "{python} -m pytest -q --noconftest -p no:cacheprovider test_audit.py"
+    verify: "{python} -I -m pytest -q --noconftest -p no:cacheprovider test_audit.py"
     hidden: ["test_audit.py"]
     requires: [pytest]
     protect: ["test_*.py", "*.csv"]
@@ -57,7 +57,7 @@ tasks:
       backtest.py 里的均线策略在这份价格数据上回测出 +32% 的收益，但同期买入持有只有 +3%，结果不可信。
       找出原因并修好 backtest.py。不要改测试和价格数据。
     fixture: backtest_lookahead
-    verify: "{python} -m pytest -q --noconftest -p no:cacheprovider test_backtest.py"
+    verify: "{python} -I -m pytest -q --noconftest -p no:cacheprovider test_backtest.py"
     hidden: ["test_backtest.py"]
     requires: [pytest]
     protect: ["test_*.py", "*.csv"]
@@ -70,7 +70,7 @@ tasks:
       九月已经关账：只算 9 月 30 日（含）之前开出的发票和收到的款。
       结果写到 aging.json：以客户为键，每个客户一个对象，包含这五档的金额。
     fixture: ar_aging
-    verify: "{python} -m pytest -q --noconftest -p no:cacheprovider test_aging.py"
+    verify: "{python} -I -m pytest -q --noconftest -p no:cacheprovider test_aging.py"
     hidden: ["test_aging.py"]
     requires: [pytest]
     protect: ["test_*.py", "*.csv"]
@@ -82,7 +82,7 @@ tasks:
       在承诺日期当天或之前送达算准时；已取消的不算；还在途的，已过承诺日期的算晚到，还没到承诺日期的不计入。结果写到 kpi.json：
       {"承运商": {"shipments": 计入统计的运单数, "on_time_rate": 准时率(0-1 的小数)}}。
     fixture: carrier_on_time
-    verify: "{python} -m pytest -q --noconftest -p no:cacheprovider test_kpi.py"
+    verify: "{python} -I -m pytest -q --noconftest -p no:cacheprovider test_kpi.py"
     hidden: ["test_kpi.py"]
     requires: [pytest]
     protect: ["test_*.py", "*.csv"]
@@ -93,7 +93,7 @@ tasks:
       算一下组合里每只股票本季度（2026-06-30 收盘到 2026-09-30 收盘）的价格收益率，
       价格在 prices.csv，期间的拆股/合股在 splits.csv。结果写到 returns.json：{"代码": 收益率}，用小数（0.12 表示 12%）。
     fixture: split_adjusted_returns
-    verify: "{python} -m pytest -q --noconftest -p no:cacheprovider test_returns.py"
+    verify: "{python} -I -m pytest -q --noconftest -p no:cacheprovider test_returns.py"
     hidden: ["test_returns.py"]
     requires: [pytest]
     protect: ["test_*.py", "*.csv"]
@@ -105,7 +105,7 @@ tasks:
       每张发票用它开票当天的汇率；当天没有汇率的（比如周末），用那天之前最近一次公布的汇率。
       结果写到 eur_totals.json：{"invoices": {"发票号": 欧元金额}, "total_eur": 合计}，金额保留两位小数。
     fixture: fx_invoice_totals
-    verify: "{python} -m pytest -q --noconftest -p no:cacheprovider test_totals.py"
+    verify: "{python} -I -m pytest -q --noconftest -p no:cacheprovider test_totals.py"
     hidden: ["test_totals.py"]
     requires: [pytest]
     protect: ["test_*.py", "*.csv"]
@@ -118,7 +118,7 @@ tasks:
       一个 HS 编码匹配多个前缀时，用最长的那个。
       结果写到 duties.json：{"运单号": 关税欧元金额}，每票保留两位小数。
     fixture: customs_de_minimis
-    verify: "{python} -m pytest -q --noconftest -p no:cacheprovider test_duties.py"
+    verify: "{python} -I -m pytest -q --noconftest -p no:cacheprovider test_duties.py"
     hidden: ["test_duties.py"]
     requires: [pytest]
     protect: ["test_*.py", "*.csv"]
@@ -130,7 +130,7 @@ tasks:
       盘点员有时按箱或按捆记，换算关系在 uom.csv。只看这轮盘到的库位，把盘点数和系统数不一致的列出来。
       结果写到 variances.json：一个列表，每项是 {"location", "sku", "system", "counted", "variance"}，数量都按个计，variance = counted − system。
     fixture: cycle_count_variance
-    verify: "{python} -m pytest -q --noconftest -p no:cacheprovider test_variances.py"
+    verify: "{python} -I -m pytest -q --noconftest -p no:cacheprovider test_variances.py"
     hidden: ["test_variances.py"]
     requires: [pytest]
     protect: ["test_*.py", "*.csv"]

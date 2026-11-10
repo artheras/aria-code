@@ -75,7 +75,7 @@ func (f *fakeDocuments) Count(_ context.Context, c string) (int, error) {
 	return len(f.data[c]), nil
 }
 
-// The same contract for both stores, as tests/test_relay_store.py does in Python.
+// The same contract for both stores, as tests/test_relay_store.py did for the former Python stores.
 func stores(t *testing.T) map[string]Store {
 	sqlite, err := openSQLite(filepath.Join(t.TempDir(), "relay.db"))
 	if err != nil {

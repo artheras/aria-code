@@ -1,4 +1,5 @@
 mod chat;
+mod completions;
 mod frontend;
 mod render;
 mod runtime;
@@ -29,7 +30,12 @@ Usage:
   aria-native sessions show ID
   aria-native [--python EXE] [-C DIR] resume ID [--] [ARIA ARGUMENTS...]
   aria-native update check --current VERSION [--channel native|npm|pip|source] [--offline|--refresh]
+  aria-native update install --to VERSION
+  aria-native update auto-install --current VERSION
+  aria-native update rollback
+  aria-native physical [jsonl|agent-jsonl|mcp|serve --listen 127.0.0.1:8765]
   aria-native index imports|symbols < REQUEST.json
+  aria-native completions bash|zsh|fish
   aria-native --version
 
 Examples:
@@ -67,11 +73,14 @@ struct Options {
 enum IndexKind {
     Imports,
     Symbols,
+    Changes,
 }
 
 #[derive(Debug)]
 enum Mode {
     Help,
+    Completions(String),
+    Physical(Vec<String>),
     Version,
     Index(IndexKind),
     Run(Vec<OsString>),
@@ -96,6 +105,9 @@ enum Mode {
         args: Vec<OsString>,
     },
     Update(updates::Check),
+    UpdateInstall(String),
+    UpdateAutoInstall(String),
+    UpdateRollback,
     Tool {
         name: String,
         params: Value,
@@ -132,11 +144,25 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                 }
                 timeout = Duration::from_millis(ms);
             }
+            Some("physical") => {
+                let rest = args
+                    .map(|s| {
+                        s.into_string()
+                            .map_err(|_| "Physical arguments must be UTF-8".to_string())
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                break Mode::Physical(rest);
+            }
             Some("index") => {
                 let kind = match args.next().as_ref().and_then(|a| a.to_str()) {
                     Some("imports") => IndexKind::Imports,
                     Some("symbols") => IndexKind::Symbols,
-                    _ => return Err("index requires a subcommand: imports or symbols".into()),
+                    Some("changes") => IndexKind::Changes,
+                    _ => {
+                        return Err(
+                            "index requires a subcommand: imports, symbols or changes".into()
+                        )
+                    }
                 };
                 if args.next().is_some() {
                     return Err("index reads its request from stdin".into());
@@ -228,6 +254,9 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                 }
                 break Mode::Config(paths);
             }
+            Some("completions") => {
+                break Mode::Completions(utf8(args.next(), "Usage: completions bash|zsh|fish")?);
+            }
             Some("sessions") => {
                 let action = utf8(args.next(), "sessions requires list, search or show")?;
                 let argument = match action.as_str() {
@@ -273,8 +302,38 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                 break Mode::Resume { id, args: rest };
             }
             Some("update") => {
-                if args.next().as_deref() != Some(std::ffi::OsStr::new("check")) {
-                    return Err("Usage: update check --current VERSION".into());
+                let action = utf8(
+                    args.next(),
+                    "Usage: update check --current VERSION | update install --to VERSION | update rollback",
+                )?;
+                if action == "rollback" {
+                    if args.next().is_some() {
+                        return Err("Usage: update rollback".into());
+                    }
+                    break Mode::UpdateRollback;
+                }
+                if action == "install" {
+                    if args.next().as_deref() != Some(std::ffi::OsStr::new("--to")) {
+                        return Err("Usage: update install --to VERSION".into());
+                    }
+                    let version = utf8(args.next(), "--to requires a stable release version")?;
+                    if args.next().is_some() {
+                        return Err("Usage: update install --to VERSION".into());
+                    }
+                    break Mode::UpdateInstall(version);
+                }
+                if action == "auto-install" {
+                    if args.next().as_deref() != Some(std::ffi::OsStr::new("--current")) {
+                        return Err("Usage: update auto-install --current VERSION".into());
+                    }
+                    let version = utf8(args.next(), "--current requires the product version")?;
+                    if args.next().is_some() {
+                        return Err("Usage: update auto-install --current VERSION".into());
+                    }
+                    break Mode::UpdateAutoInstall(version);
+                }
+                if action != "check" {
+                    return Err("Usage: update check | install | auto-install | rollback".into());
                 }
                 let mut check = updates::Check {
                     current: String::new(),
@@ -408,10 +467,15 @@ fn run(options: Options) -> Result<i32, String> {
             print!("{HELP}");
             Ok(0)
         }
+        Mode::Completions(shell) => {
+            print!("{}", completions::script(&shell)?);
+            Ok(0)
+        }
         Mode::Version => {
             println!("aria-native {} (experimental)", env!("CARGO_PKG_VERSION"));
             Ok(0)
         }
+        Mode::Physical(args) => aria_physical::entry(&args),
         Mode::Index(kind) => {
             let mut raw = String::new();
             std::io::stdin()
@@ -427,6 +491,9 @@ fn run(options: Options) -> Result<i32, String> {
                     &serde_json::from_str(&raw).map_err(invalid)?,
                 )),
                 IndexKind::Symbols => serde_json::to_string(&aria_graph::symbols::extract(
+                    &serde_json::from_str(&raw).map_err(invalid)?,
+                )),
+                IndexKind::Changes => serde_json::to_string(&aria_graph::semantic::answer(
                     &serde_json::from_str(&raw).map_err(invalid)?,
                 )),
             }
@@ -503,6 +570,26 @@ fn run(options: Options) -> Result<i32, String> {
             };
             println!("{result}");
             Ok(status)
+        }
+        Mode::UpdateRollback => {
+            let command = updates::rollback()?;
+            println!(
+                "Restored previous release: {}. Restart Aria to use it.",
+                command.display()
+            );
+            Ok(0)
+        }
+        Mode::UpdateInstall(version) => {
+            let command = updates::install(&version)?;
+            println!(
+                "Installed {version}: {}. Restart Aria to use it.",
+                command.display()
+            );
+            Ok(0)
+        }
+        Mode::UpdateAutoInstall(version) => {
+            println!("{}", updates::auto_install(&version)?);
+            Ok(0)
         }
         Mode::Tool {
             name,
@@ -621,6 +708,10 @@ mod tests {
         assert!(matches!(
             options(&["index", "symbols"]).unwrap().mode,
             Mode::Index(IndexKind::Symbols)
+        ));
+        assert!(matches!(
+            options(&["index", "changes"]).unwrap().mode,
+            Mode::Index(IndexKind::Changes)
         ));
     }
     #[test]

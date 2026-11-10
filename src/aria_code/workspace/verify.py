@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import pathlib
 import shlex
 import subprocess
@@ -35,7 +36,8 @@ class VerificationPlanner:
             quoted = " ".join(shlex.quote(p) for p in py_files[:20])
             commands.append(f"python3 -m py_compile {quoted}")
             reasons.append("Python files changed")
-            if self._has_any("pytest.ini", "pyproject.toml", "setup.cfg", "tox.ini") or (self.root / "tests").exists():
+            if (self._has_any("pytest.ini", "pyproject.toml", "setup.cfg", "tox.ini")
+                    or (self.root / "tests").exists() or self._has_python_tests()):
                 commands.append(self._python_test_command())
 
         frontend_files = [
@@ -69,6 +71,23 @@ class VerificationPlanner:
         reason = "; ".join(dict.fromkeys(reasons)) if reasons else "No focused check inferred"
         return VerificationPlan(deduped, reason)
 
+    def _has_python_tests(self) -> bool:
+        """Test files beside the code count as a test suite.
+
+        Small projects and scripts keep `test_x.py` next to `x.py`, with no config
+        file and no `tests/` directory. Without this they were "verified" by
+        `py_compile` alone, which only says the syntax is valid; the acceptance
+        gate then reported a fix as verified without ever running its tests.
+        """
+        skip = {".git", "node_modules", ".venv", "venv", "env", "__pycache__", "build", "dist", "site-packages"}
+        for current, dirs, files in os.walk(self.root):
+            depth = len(pathlib.Path(current).relative_to(self.root).parts)
+            dirs[:] = [d for d in dirs if d not in skip and not d.startswith(".")] if depth < 2 else []
+            if any(f.startswith("test_") and f.endswith(".py") or f.endswith("_test.py") or f == "conftest.py"
+                   for f in files):
+                return True
+        return False
+
     def _has_any(self, *names: str) -> bool:
         return any((self.root / name).exists() for name in names)
 
@@ -85,7 +104,8 @@ class VerificationPlanner:
                 if path.name == "pytest.ini" or "[tool.pytest" in text or "[tool:pytest]" in text:
                     return "python3 -m pytest -q"
         tests_root = self.root / "tests" if (self.root / "tests").is_dir() else self.root
-        candidates = list(tests_root.glob("**/test*.py"))[:100] if tests_root != self.root else list(self.root.glob("test*.py"))[:100]
+        candidates = (list(tests_root.glob("**/test*.py"))[:100] if tests_root != self.root
+                      else (list(self.root.glob("test*.py")) + list(self.root.glob("*_test.py")))[:100])
         uses_unittest = False
         for path in candidates:
             try:

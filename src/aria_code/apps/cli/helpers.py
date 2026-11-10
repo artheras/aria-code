@@ -90,8 +90,12 @@ def _load_project_context() -> str:
         current = current.parent
 
     # Global user file — lowest priority; /memory edit global edits it.
-    _global_aria = home / ".arthera" / "ARIA.md"
-    if _global_aria.is_file() and not any(f == _global_aria for f, _ in found):
+    from aria_code.account_session import profile_path, read_config, account_id
+    _global_aria = profile_path()
+    # Signed-in personal facts come from the cloud snapshot/outbox, so a fact
+    # deleted on Web cannot be reintroduced by an old local profile file.
+    _include_personal_file = account_id(read_config()) is None
+    if _include_personal_file and _global_aria.is_file() and not any(f == _global_aria for f, _ in found):
         add(_global_aria)
 
     if not found:

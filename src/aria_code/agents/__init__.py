@@ -21,14 +21,29 @@ agents/ — Aria Code 可组合多智能体系统
             ...
 """
 
-from .base import BaseAgent, AgentResult
-from .registry import AgentRegistry, get_registry
-from .team import AgentTeam, run_team
-from .signal_scheme import SignalScheme, FINANCIAL_SCHEME, REALTY_SCHEME
+# Keep the public analysis-agent API, without eager registration of every domain.
+# Task-agent capabilities must not initialize finance/vendor SDKs on import.
+from importlib import import_module
 
-__all__ = [
-    "BaseAgent", "AgentResult",
-    "AgentRegistry", "get_registry",
-    "AgentTeam", "run_team",
-    "SignalScheme", "FINANCIAL_SCHEME", "REALTY_SCHEME",
-]
+_EXPORTS = {
+    "BaseAgent": (".base", "BaseAgent"), "AgentResult": (".base", "AgentResult"),
+    "AgentRegistry": (".registry", "AgentRegistry"), "get_registry": (".registry", "get_registry"),
+    "AgentTeam": (".team", "AgentTeam"), "run_team": (".team", "run_team"),
+    "SignalScheme": (".signal_scheme", "SignalScheme"),
+    "FINANCIAL_SCHEME": (".signal_scheme", "FINANCIAL_SCHEME"),
+    "REALTY_SCHEME": (".signal_scheme", "REALTY_SCHEME"),
+}
+__all__ = list(_EXPORTS)
+
+
+def __getattr__(name):
+    if name not in _EXPORTS:
+        raise AttributeError(name)
+    module, attribute = _EXPORTS[name]
+    value = getattr(import_module(module, __name__), attribute)
+    globals()[name] = value
+    return value
+
+
+def __dir__():
+    return sorted(set(globals()) | set(__all__))

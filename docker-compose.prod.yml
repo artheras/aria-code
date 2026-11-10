@@ -1,6 +1,17 @@
 version: '3.9'
 services:
+  # The Python relay ran as root, so an existing relay-data volume holds
+  # root-owned files; the Go relay runs as UID 65532. Hand the volume over once
+  # before it starts (a no-op on a new volume).
+  relay-data-owner:
+    image: busybox:1.36
+    command: [chown, -R, "65532:65532", /data]
+    volumes:
+    - relay-data:/data
   relay-server:
+    depends_on:
+      relay-data-owner:
+        condition: service_completed_successfully
     build:
       context: .
       dockerfile: Dockerfile.relay
@@ -14,17 +25,25 @@ services:
     - FEISHU_APP_ID=${FEISHU_APP_ID}
     - FEISHU_APP_SECRET=${FEISHU_APP_SECRET}
     - RELAY_SECRET=${RELAY_SECRET:-}
+    # Both relays reject Feishu events they cannot verify; without one of
+    # these every event is refused.
+    - FEISHU_VERIFICATION_TOKEN=${FEISHU_VERIFICATION_TOKEN:-}
+    - FEISHU_ENCRYPT_KEY=${FEISHU_ENCRYPT_KEY:-}
+    # sqlite on the relay-data volume by default; firestore for multi-instance.
+    - RELAY_STORE=${RELAY_STORE:-sqlite}
+    - RELAY_FIRESTORE_PROJECT=${RELAY_FIRESTORE_PROJECT:-}
+    - RELAY_FIRESTORE_DATABASE=${RELAY_FIRESTORE_DATABASE:-}
     - DB_PATH=/data/relay.db
     - MESSAGE_TIMEOUT=90
     - PORT=8765
     networks:
     - aria-net
     healthcheck:
+      # The Go image is distroless (no curl); the binary checks /status itself.
       test:
       - CMD
-      - curl
-      - -f
-      - http://localhost:8765/status
+      - /aria-relay
+      - --healthcheck
       interval: 30s
       timeout: 5s
       retries: 3

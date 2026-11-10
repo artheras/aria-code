@@ -8,7 +8,7 @@ edges exact in any terminal and font, with no image and no blending.
 The grid is the artwork's own: 18 units wide × 16 tall (ear, body, ear; cap,
 screen, base, feet), each unit one sub-pixel across and half a sub-pixel down
 — which, with terminal cells twice as tall as wide, keeps the units square.
-The eye is two quadrants (a square), the dash a lower-quarter block (2:1),
+Each eye is two quadrants (a square) and the two are identical,
 the cap corners ▛ ▜, the ears ▌ ▐, the four feet ▀. Colours are sampled from
 the artwork (docs/assets/aria-robot.png) on this grid; only the light-theme
 greys and body are deepened, where the artwork's would vanish against a
@@ -57,10 +57,9 @@ def get_robot_state() -> RobotState:
         return _state
 
 
-# Eye symbols per state. IDLE mirrors the mascot art: one light square eye and
-# one copper dash eye.
+# Eye symbols per state. IDLE mirrors the mascot art: two matching square eyes.
 _EYES = {
-    RobotState.IDLE:      ("■", "▬"),
+    RobotState.IDLE:      ("■", "■"),
     RobotState.THINKING:  ("◐", "◑"),
     RobotState.STREAMING: ("▸", "▸"),
     RobotState.ERROR:     ("×", "×"),
@@ -93,7 +92,6 @@ _COLOURS = {
         "body":   "#F4EBE4",   # cream shell
         "screen": "#0E0E0E",   # black screen
         "eye":    "#FFFDF5",   # square eye, brighter than the shell
-        "dash":   "#F9B467",   # orange dash
         "ear":    "#B6ADA4",   # grey ear nub
         "base":   "#B6ADA4",   # grey underside
         "leg":    "#D5CCC3",   # light grey feet
@@ -102,7 +100,6 @@ _COLOURS = {
         "body":   "#E6DDD0",   # deeper cream: the artwork's would vanish on white
         "screen": "#0E0E0E",
         "eye":    "#FFFDF5",
-        "dash":   "#F9B467",
         "ear":    "#9C948B",
         "base":   "#9C948B",
         "leg":    "#B8AFA6",
@@ -117,7 +114,6 @@ def _palette(theme: str) -> dict:
         "body_screen": f"{c['body']} on {c['screen']}",
         "eye":         f"{c['eye']} on {c['screen']}",
         "screen":      f"on {c['screen']}",
-        "dash":        f"{c['dash']} on {c['screen']}",
         "ear_body":    f"{c['ear']} on {c['body']}",
         "base":        c["base"],
         "base_leg":    f"{c['base']} on {c['leg']}",
@@ -170,8 +166,8 @@ def detect_theme() -> str:
 # 9 columns × 4 rows; each cell is (palette-role, glyphs).
 _MASCOT_TEMPLATE = [
     [("body", "▗"), ("body_screen", "▛▀▀▀▀▀▜"), ("body", "▖")],                       # cap, screen top
-    [("ear_body", "▌"), ("body_screen", "▌"), ("eye", "▗▖"), ("screen", " "),          # ears, eye, dash
-     ("dash", "▂"), ("screen", " "), ("body_screen", "▐"), ("ear_body", "▐")],
+    [("ear_body", "▌"), ("body_screen", "▌"), ("eye", "▗▖"), ("screen", " "),          # ears, two matching eyes
+     ("eye", "▗▖"), ("body_screen", "▐"), ("ear_body", "▐")],
     [("body", "▐"), ("body_screen", "▙▄▄▄▄▄▟"), ("body", "▌")],                       # screen bottom, body
     [("base", "▝"), ("base_leg", "▀"), ("base", "▀"), ("base_leg", "▀"), ("base", "▀"),  # base and four feet
      ("base_leg", "▀"), ("base", "▀"), ("base_leg", "▀"), ("base", "▘")],
@@ -196,7 +192,7 @@ def _resolve_eyes(state: RobotState, tick: int) -> tuple[str, str]:
 def get_robot_row(tick: int, row: int) -> list:
     """Return (style, text) fragments for one robot row, themed.
 
-    Rows: cap and screen top; ears, eye and dash; screen bottom and body;
+    Rows: cap and screen top; ears and two eyes; screen bottom and body;
     base and four feet. Roles follow the active light/dark theme
     (see detect_theme()).
     """

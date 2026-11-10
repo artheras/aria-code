@@ -1,0 +1,4 @@
+sku,on_hand,reserved,inbound,reorder_point
+A,10,3,2,10
+B,5,1,10,8
+C,0,0,0,4

@@ -1,28 +1,25 @@
 name: Go relay
 
-# The relay is moving from Python (src/aria_code/aria_relay_server.py) to Go
-# (go/relay). Both must pass the same black-box contract,
-# tests/test_relay_contract.py, and a database written by either must work
-# in the other. Production keeps deploying the Python relay until the switch.
+# The production relay (Dockerfile.relay → Cloud Run) is the Go build in
+# go/relay. It must pass the black-box contract, tests/test_relay_contract.py,
+# which pinned the former Python relay's behaviour before that was removed.
 
 on:
   pull_request:
     paths:
       - 'go/relay/**'
+      - 'Dockerfile.relay'
       - 'cloudbuild.go.yaml'
-      - 'docker-compose.go.yml'
-      - 'src/aria_code/aria_relay_server.py'
-      - 'src/aria_code/relay_store.py'
+      - 'docker-compose.prod.yml'
       - 'tests/test_relay_contract.py'
       - '.github/workflows/go-relay.yml'
   push:
     branches: [main]
     paths:
       - 'go/relay/**'
+      - 'Dockerfile.relay'
       - 'cloudbuild.go.yaml'
-      - 'docker-compose.go.yml'
-      - 'src/aria_code/aria_relay_server.py'
-      - 'src/aria_code/relay_store.py'
+      - 'docker-compose.prod.yml'
       - 'tests/test_relay_contract.py'
       - '.github/workflows/go-relay.yml'
   workflow_dispatch:
@@ -59,11 +56,9 @@ jobs:
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o aria-relay .
           go build -race -o aria-relay-race .
           ls -l aria-relay
-      - name: Install the Python relay and test runner
-        run: python -m pip install -e . pytest pytest-timeout fastapi uvicorn httpx websockets
-      - name: Contract against the Python relay
-        run: python -m pytest tests/test_relay_contract.py -q --timeout=60
-      - name: Contract against the Go relay (race-instrumented), and switching between them
+      - name: Install the test runner
+        run: python -m pip install pytest pytest-timeout httpx websockets
+      - name: Contract against the Go relay (race-instrumented)
         env:
           ARIA_RELAY_COMMAND: ${{ github.workspace }}/go/relay/aria-relay-race
         run: |

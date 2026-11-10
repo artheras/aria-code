@@ -143,6 +143,13 @@ def _safe(fn, params, *args, **kwargs):
     """Wrap a tool handler so it never raises — returns error dict instead."""
     try:
         return fn(params, *args, **kwargs)
+    except ModuleNotFoundError as exc:
+        if (exc.name or "").split(".")[0] in {"numpy", "pandas", "scipy", "pandas_ta", "yfinance"}:
+            return {"success": False, "error_code": "optional_dependency_missing",
+                    "error": "Local finance tools require the optional finance extra. "
+                             "Install with: pip install 'aria-code[finance]<4'"}
+        logger.debug("Local finance tool error: %s", traceback.format_exc())
+        return {"success": False, "error": str(exc), "traceback": traceback.format_exc()[-500:]}
     except Exception as exc:
         logger.debug("Local finance tool error: %s", traceback.format_exc())
         return {"success": False, "error": str(exc), "traceback": traceback.format_exc()[-500:]}

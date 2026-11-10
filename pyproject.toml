@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aria-code"
-version = "0.159.0"
+version = "0.166.0"
 description = "Open-source AI agent for coding, financial analysis and logistics operations: numbers you can check, client data kept apart, actions a person approves"
 readme = "README.md"
 license = { text = "Apache-2.0" }
-# Upper bound is real, not defensive: the core dep pandas_ta pulls numba, and
+# Upper bound is real, not defensive: the finance/full extras include pandas_ta, which pulls numba, and
 # numba hard-refuses to build on 3.14 ("only versions >=3.10,<3.14 are
 # supported"). Without this bound pip happily starts the install on 3.14 and
 # fails deep in the dependency tree on a numba source build — an error that
@@ -45,7 +45,7 @@ classifiers = [
 # parsers, the SQL engine and chart renderer are optional extras below — the
 # code already lazy-imports them and degrades gracefully when absent.
 dependencies = [
-    # The default model's client. DEFAULT_MODEL is google/gemini-3.5-flash, and
+    # The default model's client. DEFAULT_MODEL is google/gemini-3.8-flash, and
     # this used to be the optional `google` extra — so a plain
     # `pip install aria-code` failed on the very first prompt with "Gemini/Vertex
     # AI 需要 google-genai，当前未安装". The comment above that extra said as
@@ -66,12 +66,6 @@ dependencies = [
     "websockets>=12.0",
     "apscheduler>=3.10.0",
     "ddgs>=9.0",            # keyless web_search fallback — tiny, kept in core so search works even on a slim/degraded install
-    # Quant core (used across indicators, risk, formatting)
-    "numpy>=1.26.0",
-    "pandas>=2.2.0",
-    "scipy>=1.13.0",
-    "pandas_ta>=0.4.67b0; python_version >= '3.12'",  # PyPI removed 0.3.x; 0.4.x is 3.12-only. Optional — code has graceful fallback (find_spec/try-except).
-    "yfinance>=0.2.55",
     # macOS native PDF engine for /report --pdf (WKWebView.createPDF; no browser
     # required). Non-darwin platforms use headless Chrome / weasyprint instead.
     "pyobjc-framework-WebKit>=10.0; sys_platform == 'darwin'",
@@ -81,19 +75,29 @@ dependencies = [
 
 [project.optional-dependencies]
 
+# Optional financial data and numerical tools; coding/chat do not require them.
+finance = [
+    "numpy>=1.26.0",
+    "pandas>=2.2.0",
+    "scipy>=1.13.0",
+    "pandas_ta>=0.4.67b0; python_version >= '3.12'",
+    "yfinance>=0.2.55",
+]
+
 # ── Data sources (heavy / region-specific) ────────────────────────────────────
-cn = ["akshare>=1.14.68"]          # China A-share / HK market data (large dep tree)
-crypto = ["ccxt>=4.4.0"]           # crypto exchanges (large dep tree)
+cn = ["akshare>=1.14.68", "pandas>=2.2.0"]          # China A-share / HK market data (large dep tree)
+crypto = ["ccxt>=4.4.0", "pandas>=2.2.0"]           # crypto exchanges (large dep tree)
 
 # ── Feature add-ons ────────────────────────────────────────────────────────────
-charts = ["mplfinance>=0.12.10b0"]    # candlestick charts in /report /chart
+charts = ["mplfinance>=0.12.10b0", "pandas>=2.2.0"]    # candlestick charts in /report /chart
 
 # Gemini / Vertex AI. Now a core dependency (see the top of `dependencies`);
 # the extra is kept so `pip install 'aria-code[google]'` in existing scripts
 # and docs keeps working.
 google = ["google-genai>=1.0.0"]
-data = ["duckdb>=0.10.3"]          # in-process SQL: /data sql "SELECT …"
+data = ["duckdb>=0.10.3", "pandas>=2.2.0"]          # in-process SQL: /data sql "SELECT …"
 files = [                          # /file load + /file analyze document parsing
+    "pandas>=2.2.0",                 # CSV/Excel analysis also needs dataframes
     "pdfplumber>=0.11.0",
     "pypdf>=4.3.0",
     "python-docx>=1.1.2",
@@ -128,7 +132,7 @@ brokers = [
 ]
 
 # ── Enhanced backtesting ───────────────────────────────────────────────────────
-backtest = ["vectorbt>=0.26.2"]
+backtest = ["vectorbt>=0.26.2", "yfinance>=0.2.55"]
 
 # ── Local, self-hosted image generation (no API key, no per-call cost) ─────────
 image_gen = [
@@ -141,14 +145,20 @@ image_gen = [
 # ── Web search / browser / desktop automation ──────────────────────────────────
 web = ["ddgs>=9.0"]                                # zero-config web_search fallback
 browser = ["playwright>=1.44.0"]                   # headless browser (/browser)
-desktop = ["mss>=9.0.1", "pyautogui>=0.9.54"]      # screen capture + GUI automation
-sports = ["understat>=0.1.0"]                       # football xG data
+desktop = ["mss>=9.0.1", "pyautogui>=0.9.54", "pillow>=10.0", "pyperclip>=1.9"]      # screen capture + GUI automation
+sports = ["understat>=0.1.0", "numpy>=1.26.0"]                       # football xG data
 
 # ── Language-server diagnostics (/lsp, lsp_autocheck) ──────────────────────────
 lsp = ["python-lsp-server[all]>=1.10.0"]
 
 # ── Developer tools ────────────────────────────────────────────────────────────
 dev = [
+    # Existing developer suites include finance/quant regression fixtures.
+    "numpy>=1.26.0",
+    "pandas>=2.2.0",
+    "scipy>=1.13.0",
+    "pandas_ta>=0.4.67b0; python_version >= '3.12'",
+    "yfinance>=0.2.55",
     "pytest>=8.2.0",
     "pytest-asyncio>=0.23.7",
     # test.yml's pytest job installs the suite through this extra and passes
@@ -165,10 +175,23 @@ dev = [
     "python-multipart>=0.0.9",
 ]
 
+# ── Project-review HTTP service (Dockerfile.review installs ".[service]") ─────
+# Kept in step with the fastapi/uvicorn/python-multipart pins in `dev` above.
+service = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "python-multipart>=0.0.9",
+]
+
 # ── Full feature set (what the bootstrap installers install by default) ────────
 # Everything a normal user wants — all data sources + files + charts + SQL —
 # but no brokers / dev / backtest extras.
 full = [
+    "numpy>=1.26.0",
+    "pandas>=2.2.0",
+    "scipy>=1.13.0",
+    "pandas_ta>=0.4.67b0; python_version >= '3.12'",
+    "yfinance>=0.2.55",
     "google-genai>=1.0.0",
     "akshare>=1.14.68",
     "ccxt>=4.4.0",
@@ -186,6 +209,11 @@ full = [
 
 # ── Everything (full + brokers + backtest + automation + dev) ─────────────────
 all = [
+    "numpy>=1.26.0",
+    "pandas>=2.2.0",
+    "scipy>=1.13.0",
+    "pandas_ta>=0.4.67b0; python_version >= '3.12'",
+    "yfinance>=0.2.55",
     "google-genai>=1.0.0",
     "akshare>=1.14.68",
     "ccxt>=4.4.0",
@@ -218,6 +246,7 @@ all = [
 aria-code = "aria_code.apps.cli.main:main"
 aria = "aria_code.apps.cli.main:main"
 aria-code-mcp = "aria_code.aria_mcp_server:main"
+aria-computer-use = "aria_code.computer_use_server:main"
 
 [project.urls]
 Homepage = "https://github.com/artheras/aria-code"
@@ -251,7 +280,9 @@ license-files = ["LICENSE", "NOTICE"]
 #
 # tests/test_wheel_is_not_empty.py builds a wheel and asserts it contains the
 # package.
-where = ["src"]
+# services/aria-bots/src: the chat bots moved there; this wheel still ships
+# aria_bots so the shims at their old paths resolve until the Python core goes.
+where = ["src", "services/aria-bots/src"]
 # Real top-level packages (dirs with __init__.py). packages.find only matches
 # package directories — single-file top-level modules are declared in
 # [tool.setuptools].py-modules above, NOT here.
@@ -272,7 +303,7 @@ where = ["src"]
 #   from setuptools.discovery import PEP420PackageFinder as F
 #   print(sorted({p.split('.')[0] for p in F.find(where='.', include=[...])}))"
 # 结果应与 `git ls-files '*/__init__.py'` 里的顶层目录集合一致。
-include = ["aria_code*"]
+include = ["aria_code*", "aria_bots*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml", "*.json", "*.md", "*.txt", "*.sh"]
@@ -360,7 +391,7 @@ exclude = '''
 # and apps/cli/tools/*.py put it on sys.path at import time. Declaring it here
 # makes collection deterministic instead of depending on which test module
 # happened to trigger that side effect first.
-pythonpath = [".", "src", "src/aria_code"]
+pythonpath = [".", "src", "src/aria_code", "services/aria-bots/src"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
@@ -370,3 +401,4 @@ python_files = ["test_*.py"]
 filterwarnings = [
     "ignore:datetime\\.datetime\\.utcfromtimestamp\\(\\) is deprecated:DeprecationWarning:google\\.protobuf\\.internal\\.well_known_types",
 ]
+

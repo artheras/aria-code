@@ -46,6 +46,7 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -63,6 +64,13 @@ MCP_CONFIG_PATH = aria_home() / "mcp_servers.json"
 
 # MCP JSON-RPC protocol version
 MCP_PROTOCOL_VERSION = "2024-11-05"
+
+# Marks a call that failed because the server could not be reached at all
+# (timeout, closed pipe, exited process). Only these, and the explicit
+# server-side "could not produce a result" codes below, count toward the
+# per-server circuit breaker; a tool refusing its input does not.
+TRANSPORT_FAILURE = "transport"
+SERVER_UNAVAILABLE_CODES = frozenset({"source_unavailable", "source_timeout"})
 
 
 def model_safe_tool_name(server_name: str, tool_name: str) -> str:
@@ -159,15 +167,53 @@ class MCPServer:
                         else:
                             fut.set_result(msg.get("result"))
         except asyncio.CancelledError:
-            pass
+            return  # stop() cancelled us; nothing is waiting on an answer
         except Exception as exc:
             logger.debug("[MCP:%s] Reader loop error: %s", self.name, exc)
+        # stdout closed: the server has exited. Nothing can answer a request that
+        # is still waiting, so fail those now. Without this, a server that
+        # refuses to start (a missing environment variable, say) is waited on
+        # for the whole timeout, 30 s at every launch, and the reason it gave on
+        # stderr is never shown.
+        await self._fail_pending()
+
+    async def _fail_pending(self):
+        reason = await self._exit_reason()
+        for rid, fut in list(self._pending.items()):
+            self._pending.pop(rid, None)
+            if not fut.done():
+                fut.set_exception(RuntimeError(f"MCP server {self.name!r} exited before answering{reason}"))
+
+    async def _exit_reason(self) -> str:
+        """Exit code and the server's own last words, for the error message."""
+        proc = self._proc
+        if proc is None:
+            return ""
+        try:
+            code = await asyncio.wait_for(proc.wait(), timeout=2)
+        except Exception:
+            code = None
+        said = ""
+        try:
+            if proc.stderr is not None:
+                said = (await asyncio.wait_for(proc.stderr.read(2000), timeout=1)).decode("utf-8", errors="ignore").strip()
+        except Exception:
+            pass
+        said = " ".join(said.split())[:300]
+        detail = f" (exit {code})" if code is not None else ""
+        return f"{detail}: {said}" if said else detail
 
     async def _request(self, method: str, params: Any = None) -> Any:
+        if self._proc is not None and self._proc.returncode is not None:
+            raise RuntimeError(f"MCP server {self.name!r} has exited (exit {self._proc.returncode})")
         rid = self._next_id()
         fut = asyncio.get_event_loop().create_future()
         self._pending[rid] = fut
-        await self._send(_make_request(method, params, rid))
+        try:
+            await self._send(_make_request(method, params, rid))
+        except (BrokenPipeError, ConnectionResetError) as exc:
+            self._pending.pop(rid, None)
+            raise RuntimeError(f"MCP server {self.name!r} closed its input: {exc}") from exc
         try:
             return await asyncio.wait_for(fut, timeout=self.timeout)
         except asyncio.TimeoutError:
@@ -187,6 +233,8 @@ class MCPServer:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                # PNG MCP content routinely exceeds asyncio's 64 KiB line limit.
+                limit=24 << 20,
                 env=env,
             )
         except FileNotFoundError as exc:
@@ -232,7 +280,8 @@ class MCPServer:
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Call a tool on this server.  Returns {"success": bool, "result": …}."""
         if not self._running:
-            return {"success": False, "error": f"MCP server {self.name!r} not running"}
+            return {"success": False, "error": f"MCP server {self.name!r} not running",
+                    "failure_kind": TRANSPORT_FAILURE}
         # Strip server prefix if present (e.g. "quant_engine/backtest_strategy")
         short_name = tool_name.split("/")[-1]
         try:
@@ -242,19 +291,46 @@ class MCPServer:
             })
             if result is None:
                 return {"success": True, "result": None}
+            if not isinstance(result, dict):
+                return {"success": False, "error": "Invalid MCP tool result"}
+            if "isError" in result and not isinstance(result["isError"], bool):
+                return {"success": False, "error": "Invalid MCP tool error flag"}
+            if result.get("isError"):
+                error_content = result.get("content", [])
+                detail = "\n".join(str(item.get("text", "")) for item in error_content
+                                   if isinstance(item, dict)) if isinstance(error_content, list) else ""
+                return {"success": False, "error_code": "mcp_tool_error",
+                        "error": detail[:4000] or "MCP tool reported an error"}
             # MCP returns {content: [{type, text}]} or plain value
             content = result.get("content", result)
             if isinstance(content, list):
+                vision = {}
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "image" and item.get("mimeType") == "image/png":
+                        data = item.get("data", "")
+                        if isinstance(data, str) and len(data) <= 20_000_000:
+                            try:
+                                base64.b64decode(data, validate=True)
+                                vision = {"_vision_image": data}
+                                break
+                            except ValueError:
+                                pass
                 parts = [c.get("text", "") if isinstance(c, dict) else str(c) for c in content]
                 text  = "\n".join(parts)
                 try:
                     parsed = json.loads(text)
-                    return {"success": True, **parsed} if isinstance(parsed, dict) else {"success": True, "result": parsed}
                 except Exception:
-                    return {"success": True, "result": text}
+                    return {"success": True, "result": text, **vision}
+                if isinstance(parsed, dict):
+                    # Only this client decides what was a transport failure;
+                    # a server cannot claim one (or hide one) via its payload.
+                    parsed.pop("failure_kind", None)
+                    return {"success": True, **parsed, **vision}
+                return {"success": True, "result": parsed, **vision}
             return {"success": True, "result": content}
         except Exception as exc:
-            return {"success": False, "error": str(exc)}
+            # Timeout, closed pipe, exited process: the server itself failed.
+            return {"success": False, "error": str(exc), "failure_kind": TRANSPORT_FAILURE}
 
     @property
     def is_alive(self) -> bool:
@@ -374,7 +450,15 @@ class MCPToolRegistry:
                 return _re.sub(r'\$\{(\w+)\}', lambda m: os.environ.get(m.group(1), m.group(0)), s)
             args = [_expand(a) for a in args]
             env  = {k: _expand(v) for k, v in env.items() if v}
-            srv = MCPServer(name=name, command=command, args=args, env=env, description=desc)
+            try:
+                timeout = float(cfg.get("timeout", 30))
+                if not 1 <= timeout <= 600:
+                    raise ValueError("timeout out of bounds")
+            except (TypeError, ValueError):
+                logger.warning("MCP server %r has an invalid timeout", name)
+                results[name] = False
+                continue
+            srv = MCPServer(name=name, command=command, args=args, env=env, description=desc, timeout=timeout)
             ok  = await srv.start()
             if ok:
                 self._servers[name] = srv
@@ -425,6 +509,12 @@ class MCPToolRegistry:
         if srv is None:
             return {"success": False, "error": f"MCP server {srv_name!r} not found"}
 
+        # ToolExecutor adds its own context to every call (_run_id,
+        # _session_id, _skip_confirm, ...) for local tools to read. An MCP
+        # server only knows the parameters in its schema, and a strict one
+        # rejects the whole call over an extra keyword, so they stop here.
+        arguments = {k: v for k, v in (arguments or {}).items() if not str(k).startswith("_")}
+
         # Per-server failure isolation: a wedged/dead server fails fast instead
         # of costing every call its full request timeout for the whole session.
         circuit = self._circuit_for(srv_name)
@@ -469,9 +559,23 @@ class MCPToolRegistry:
             # 限流是上游数据源配额问题,不是本服务器故障——不计入熔断,
             # 否则一波限流会把整个服务器禁用,殃及无关工具。错误仍如实上抛。
             pass
-        else:
+        elif self._counts_as_server_failure(result):
             circuit.record_failure()
+        else:
+            # A tool-level refusal (invalid_input, network_disabled,
+            # broker_access_disabled, an MCP isError result, ...) means the
+            # server is up and answered. Counting those opened the circuit
+            # after three bad arguments and disabled every tool on the server.
+            # The server answered, so it is healthy as far as the breaker cares.
+            circuit.record_success()
         return result
+
+    @staticmethod
+    def _counts_as_server_failure(result: Dict[str, Any]) -> bool:
+        """True when a failed call says the server, not the request, is broken."""
+        if result.get("failure_kind") == TRANSPORT_FAILURE:
+            return True
+        return str(result.get("error_code") or "") in SERVER_UNAVAILABLE_CODES
 
     @staticmethod
     def _looks_rate_limited(result: Dict[str, Any]) -> bool:
@@ -529,7 +633,7 @@ class MCPToolRegistry:
                 # Route the coroutine back to the event loop that owns the MCP
                 # subprocess streams; asyncio.run() in the worker creates a
                 # different loop and fails with cross-loop Future errors.
-                def _make_sync_handler(qn: str) -> Callable:
+                def _make_sync_handler(qn: str, timeout: float) -> Callable:
                     def _handler(params: dict) -> dict:
                         try:
                             current_loop = _asyncio.get_running_loop()
@@ -545,12 +649,12 @@ class MCPToolRegistry:
                             future = _asyncio.run_coroutine_threadsafe(
                                 self.call_tool(qn, params), owner_loop
                             )
-                            return future.result(timeout=60)
+                            return future.result(timeout=timeout + 5)
                         return _asyncio.run(self.call_tool(qn, params))
                     return _handler
 
                 tool_registry[model_name] = (
-                    _make_sync_handler(qname),
+                    _make_sync_handler(qname, getattr(srv, "timeout", 30)),
                     tool.get("description", f"MCP tool from {srv_name}"),
                 )
                 existing_names.add(model_name)
@@ -637,3 +741,4 @@ async def init_mcp(tool_registry: Dict, schema_registry: List) -> Dict[str, bool
     if n > 0:
         logger.info("MCP: registered %d tools from %d servers", n, len(results))
     return results
+

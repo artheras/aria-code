@@ -65,6 +65,10 @@ CAPABILITIES = frozenset({
     "secret.read",
     "cloud.deploy",
     "system.admin",
+    # Physical: acting on a device or a robot, which cannot be undone with a checkpoint.
+    "hardware.flash", "actuator.command",
+    # The live desktop: reading the screen and driving the mouse and keyboard.
+    "screen.capture", "desktop.control",
 })
 
 
@@ -197,6 +201,35 @@ _MIGRATIONS = (
     re.compile(r"\bprisma (migrate|db push)\b"), re.compile(r"\bdb:(migrate|rollback|drop|reset)\b"),
     re.compile(r"\bknex migrate\b"), re.compile(r"\bflyway migrate\b"),
 )
+# Programmers that write firmware to a device: (command, the words that mean "write").
+_FLASHERS = {
+    "esptool": {"write_flash", "write-flash", "erase_flash", "erase-flash", "erase_region", "erase-region"},
+    "esptool.py": {"write_flash", "write-flash", "erase_flash", "erase-flash", "erase_region", "erase-region"},
+    "dfu-util": {"-D", "--download"},
+    "st-flash": {"write", "erase"},
+    "stm32flash": {"-w"},
+    "nrfjprog": {"--program", "--eraseall", "--recover"},
+    "picotool": {"load", "erase"},
+    "fastboot": {"flash", "flashall", "erase", "update"},
+    "arduino-cli": {"upload"},
+    "pio": {"upload"},
+    "platformio": {"upload"},
+    "idf.py": {"flash", "erase-flash", "erase_flash"},
+    "west": {"flash"},
+}
+def _writes_firmware(head: str, words: list, lowered: str) -> bool:
+    """True for a programmer invoked to write or erase a device, not to read it."""
+    if head == "openocd":
+        return bool(re.search(r"\b(program|flash write_image)\b", lowered))
+    if head == "avrdude":
+        return bool(re.search(r"flash:w", lowered))
+    verbs = _FLASHERS.get(head)
+    return verbs is not None and any(word in verbs for word in words[1:])
+
+
+# `ros2 <noun> <verb>` that send a command to a running robot.
+_ROS_ACTUATION = {("topic", "pub"), ("service", "call"), ("action", "send_goal"),
+                  ("param", "set"), ("lifecycle", "set")}
 _SQL_WRITE = re.compile(r"\b(insert|update|delete|drop|alter|truncate|create)\b", re.IGNORECASE)
 _DB_CLIENTS = {"psql", "mysql", "sqlite3", "mongosh", "mongo", "redis-cli", "cqlsh"}
 _SECRET_PATH = re.compile(
@@ -278,6 +311,19 @@ def _assess_segment(segment: str) -> _Draft:
                                      if head in {"brew", "apt", "apt-get"} else f"{head} environment")
             draft.summary = "Install dependency"
             return draft
+    if _writes_firmware(head, words, lowered):
+        draft.capabilities.add("hardware.flash")
+        draft.raise_to(4, "Writes firmware to a device; a bad image can leave it unusable", reversible=False)
+        draft.systems.append("Device firmware")
+        draft.summary = "Flash firmware"
+        return draft
+    if head == "ros2" and len(words) >= 3 and (words[1], words[2]) in _ROS_ACTUATION:
+        draft.capabilities.add("actuator.command")
+        draft.raise_to(4, f"Sends a command to a running robot (ros2 {words[1]} {words[2]}); it may move hardware",
+                       reversible=False)
+        draft.systems.append("Robot / actuators")
+        draft.summary = "Command a robot"
+        return draft
     for pattern in _DEPLOY:
         if pattern.search(lowered):
             draft.capabilities |= {"cloud.deploy", "network.write"}
@@ -473,7 +519,53 @@ READ_TOOLS = frozenset({
 WRITE_TOOLS = frozenset({
     "write_file", "edit_file", "multi_edit", "apply_change", "apply_patch", "notebook_edit",
 })
-NETWORK_READ_TOOLS = frozenset({"web_fetch", "web_search", "get_market_data", "get_market_history"})
+NETWORK_READ_TOOLS = frozenset({
+    "web_fetch", "web_search", "get_market_data", "get_market_history", "browser_navigate", "browser_screenshot",
+})
+#: Tools that act on, or read, the person's own screen. None is ever approved automatically,
+#: and a blanket "allow all tools" does not cover them (see tool_executor).
+DESKTOP_TOOLS = frozenset({"computer_action", "computer_screenshot"})
+_POINTER_QUIET = frozenset({"move", "scroll"})
+_KEY_ALIASES = {"command": "cmd", "option": "alt", "opt": "alt", "control": "ctrl", "del": "delete",
+                "return": "enter", "escape": "esc"}
+# Combinations that close, quit, delete or reboot whatever has focus.
+_KEY_DESTRUCTIVE = (
+    {"cmd", "q"}, {"cmd", "alt", "q"}, {"cmd", "shift", "q"}, {"alt", "f4"}, {"ctrl", "alt", "delete"},
+    {"cmd", "alt", "esc"}, {"cmd", "delete"}, {"cmd", "backspace"}, {"ctrl", "shift", "delete"},
+    {"cmd", "shift", "delete"}, {"ctrl", "shift", "q"},
+)
+
+
+def _key_parts(key: Any) -> set[str]:
+    parts = [p for p in re.split(r"[\s+]+", str(key or "").lower()) if p]
+    return {_KEY_ALIASES.get(p, p) for p in parts}
+
+
+def _assess_desktop(name: str, params: Mapping[str, Any]) -> RiskAssessment:
+    draft = _Draft()
+    draft.systems.append("This computer's screen")
+    if name == "computer_screenshot":
+        draft.capabilities.add("screen.capture")
+        draft.raise_to(3, "Captures everything visible on screen, which may include private content")
+        draft.summary = "Capture the screen"
+        return draft.freeze()
+    action = str(params.get("action") or "").strip().lower()
+    draft.capabilities.add("desktop.control")
+    if action in _POINTER_QUIET:
+        draft.raise_to(2, "Moves the pointer or scrolls on the live desktop")
+        draft.summary = f"Desktop {action}"
+        return draft.freeze()
+    draft.raise_to(3, "Drives the mouse or keyboard of the live desktop", reversible=False)
+    draft.summary = f"Desktop {action or 'input'}"
+    if action == "type":
+        text = str(params.get("text") or "")
+        if "\n" in text or "\r" in text:
+            draft.raise_to(4, "Types a line break, which submits or runs whatever is focused", reversible=False)
+    elif action == "key":
+        parts = _key_parts(params.get("key"))
+        if any(combo <= parts for combo in _KEY_DESTRUCTIVE):
+            draft.raise_to(4, "Key combination that quits, closes or deletes", reversible=False)
+    return draft.freeze()
 _PATH_KEYS = ("path", "file_path", "filename", "target", "notebook_path")
 
 
@@ -531,6 +623,8 @@ def assess_tool(tool: str, params: Mapping[str, Any] | None = None, *,
             draft.raise_to(4, "Writes a credentials or secrets file")
         draft.summary = "Edit files"
         return draft.freeze()
+    if name in DESKTOP_TOOLS:
+        return _assess_desktop(name, params)
     if name in NETWORK_READ_TOOLS:
         draft.capabilities.add("network.read")
         url = params.get("url")

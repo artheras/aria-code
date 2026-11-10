@@ -38,6 +38,9 @@ class OpenAICompatProvider(BaseLLMProvider):
     supports_tools   = True
     supports_thinking = False
     local            = False
+    # Ask for token usage in the stream (stream_options.include_usage). Only for
+    # endpoints known to accept the field; an unknown one may reject the request.
+    reports_stream_usage = False
 
     DEFAULT_BASE_URL = "https://api.openai.com"
     DEFAULT_MODEL    = "gpt-4o-mini"
@@ -68,11 +71,12 @@ class OpenAICompatProvider(BaseLLMProvider):
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type":  "application/json",
         }
+        from aria_code.providers.openai_params import sampling_params
+
         payload: Dict[str, Any] = {
             "model":       self.model,
             "messages":    [{"role": m.role, "content": m.content} for m in messages],
-            "temperature": temp,
-            "max_tokens":  n_tokens,
+            **sampling_params(self.base_url, self.model, temp, n_tokens),
             "stream":      True,
         }
         if tools:
@@ -80,6 +84,8 @@ class OpenAICompatProvider(BaseLLMProvider):
                 {"type": "function", "function": t} for t in tools
             ]
             payload["tool_choice"] = "auto"
+        if self.reports_stream_usage:
+            payload["stream_options"] = {"include_usage": True}
 
         # Some compatible endpoints already include their API version
         # (Moonshot /v1, ZhiPu /v4). Avoid generating /v1/v1 or /v4/v1.
@@ -102,12 +108,16 @@ class OpenAICompatProvider(BaseLLMProvider):
                         return
 
                     pending_tool: Dict = {}
+                    usage: Dict[str, int] = {}
+                    finished = False
                     async for raw in resp.content:
                         if cancel_event and cancel_event.is_set():
                             return
 
                         line = raw.decode("utf-8", errors="ignore").strip()
-                        if not line or line == "data: [DONE]":
+                        if line == "data: [DONE]":
+                            break
+                        if not line:
                             continue
                         if not line.startswith("data: "):
                             continue
@@ -115,6 +125,13 @@ class OpenAICompatProvider(BaseLLMProvider):
                         try:
                             data = json.loads(line[6:])
                         except json.JSONDecodeError:
+                            continue
+
+                        # With include_usage the totals arrive in a last chunk whose
+                        # choices list is empty, after the finish reason.
+                        if isinstance(data.get("usage"), dict):
+                            usage = _usage(data["usage"])
+                        if finished:
                             continue
 
                         # 处理 thinking tokens（DeepSeek-R1 等）
@@ -165,13 +182,31 @@ class OpenAICompatProvider(BaseLLMProvider):
                                        "name": pending_tool["name"],
                                        "arguments": args}
                                 pending_tool = {}
-                            yield {"type": "done"}
-                            return
+                            finished = True
+                            if not self.reports_stream_usage:
+                                break
+                    if finished:
+                        yield {"type": "done", "usage": usage}
+                        return
 
         except aiohttp.ClientConnectorError as e:
             yield {"type": "error", "message": f"连接 {self.base_url} 失败: {e}"}
         except Exception as e:
             yield {"type": "error", "message": f"Provider 错误: {e}"}
+
+
+def _usage(raw: Dict[str, Any]) -> Dict[str, int]:
+    """The provider's token counts in the names the CLI accumulates."""
+    # completion_tokens already includes the reasoning tokens; split them so the
+    # CLI's completion + thinking adds up to what was billed, not twice that.
+    details = raw.get("completion_tokens_details") or {}
+    thinking = int(details.get("reasoning_tokens") or 0)
+    completion = int(raw.get("completion_tokens") or 0)
+    return {
+        "prompt_tokens": int(raw.get("prompt_tokens") or 0),
+        "completion_tokens": max(completion - thinking, 0),
+        "thinking_tokens": thinking,
+    }
 
 
 # ── 具体 Provider 子类（只需声明几个属性）────────────────────────────────────
@@ -181,6 +216,7 @@ class DeepSeekProvider(OpenAICompatProvider):
     DEFAULT_BASE_URL = "https://api.deepseek.com"
     DEFAULT_MODEL    = "deepseek-chat"
     supports_thinking = True   # deepseek-reasoner 支持
+    reports_stream_usage = True
 
     def __init__(self, config: ProviderConfig):
         if not config.api_key:
@@ -193,6 +229,7 @@ class DeepSeekProvider(OpenAICompatProvider):
 
 class OpenAIProvider(OpenAICompatProvider):
     provider_name    = "openai"
+    reports_stream_usage = True
     DEFAULT_BASE_URL = "https://api.openai.com"
     DEFAULT_MODEL    = "gpt-4o-mini"
 
@@ -225,7 +262,7 @@ class GoogleProvider(OpenAICompatProvider):
 
     provider_name    = "google"
     DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
-    DEFAULT_MODEL    = "gemini-3.5-flash"
+    DEFAULT_MODEL    = "gemini-3.8-flash"
 
     def __init__(self, config: ProviderConfig):
         if not config.api_key:

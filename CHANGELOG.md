@@ -4,6 +4,113 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.166.0] — 2026-11-02
+
+- Add approved local Computer Use and native MCP vision
+- runtime: hooks, /browser, /screenshot (7b); /login (8b); tui: /copy, completions (#281)
+- runtime: token usage + /cost /thinking (2b); project graph + /graph /impact /lsp (5b) (#278)
+- relay: production runs the Go relay; remove the Python relay (#271)
+- runtime: native /providers, /apikey, /whoami, /logout, /doctor, /update, /feedback, /privacy
+- runtime: native MCP client, /mcp, /skills, /vision, /upload-image
+- runtime: native /task, /worktree, /tasks, /delegate, /agents, /workflow, /wf, /consult
+- runtime: native /search, /read, /ls, /write, /edit, /code, /run, /build (#276)
+- runtime: native /git, /commit, /pr, /gh, /review, /test, /verify, /fix, /bug, /trace, /quality (#275)
+- runtime: project instructions + native /init, /memory, /note, /recall, /todo, /project, /plan, /apply-plan, /checkpoint (#274)
+- runtime: native /compact, /btw, /recap, /regen, /history, /rename, /fork, /save, /load (#273)
+- runtime: native /clear, /status, /context, /tools, /diff + command migration matrix (#272)
+- tui: approvals along the bottom with a numbered diff, ruled composer, quieter screens (#270)
+- tui: readable welcome lines (model name, branch, home folder) (#267)
+- relay: contract covers what only the Python relay's unit tests checked (#268)
+- chore: remove three Python modules nothing calls (#269)
+- ci(finance): pin the integration test to the hardened financial service (#266)
+- refactor(packaging): make finance optional and remove unused application prototype (#262)
+- feat(runtime): persist immutable task intent with durable runs (#261)
+- Invalidate stale acceptance evidence and guide reviewable engineering delivery (#260)
+- Add bounded research evidence inventories and reproducible no-hardware experiments (#259)
+- Harden service images, finance MCP launch and breaker, and eval harness integrity (#265)
+- Integrate ten-tool financial service with read-only broker access (#264)
+- Connect the shared Financial Service through MCP
+- Add host-scoped run queries with persisted ownership and bounded event cursors (#258)
+- Expose conservative task acceptance views and fix SDK cancellation success (#257)
+
+## [0.165.0] — 2026-10-30
+
+- Merge pull request #256 from artheras/feat/scoped-task-context
+- Merge pull request #255 from artheras/feat/task-evidence-verification
+- Preserve verified task context tree on resolved task acceptance baseline
+- Resolve stacked integration against main with verified identical source tree
+- Merge pull request #254 from artheras/feat/general-task-agents
+- Merge verified main baseline into feat/general-task-agents
+- Refresh integration checks against main
+- Merge verified main baseline into feat/scoped-task-context
+- Merge verified main baseline into feat/task-evidence-verification
+- Merge pull request #253 from artheras/feat/warehouse-task-agent
+- Pin frozen-resource CI to release refs and inspect actual build commands
+- Bundle warehouse schemas in frozen workers and test real resource imports
+- Supply scoped project skills and memory to delegated tasks
+- Verify delegated task predicates with host receipts and artifact read-back
+- Add domain-neutral task roles and enforce bounded delegation
+- Clarify action-specific task parameters and recoverable errors
+- Add goal-directed warehouse task agent with native execution and conversation isolation
+- Fix task isolation and financial recovery; add Nebius inventory workflow (#251)
+- Add native navigation simulation with guarded actions and migration audit
+- Use generic inventory runtime directory names
+- Keep public Nebius integration focused on service code
+- Fix prompt and Rust CI regressions; add verified Nemotron demo with bounded repair
+- Add period-aligned SEC annual statement fallback and source diagnostics
+- Record native build and capability regression results
+- Route capability questions without financial evidence or file scans
+- Run runtime repair validation
+- Fix financial-source recovery and task completion on 0.164
+- Add Nebius Token Factory configuration and smoke test (#250)
+- Clarify security reporting and safe operation (#249)
+- Update README logo for light and dark themes (#248)
+- Unify browser account sign-in and cross-platform memory (#246)
+
+## [0.164.0] — 2026-10-22
+
+- Changes what Aria may do on your computer: screen, mouse and keyboard actions now need approval, and firmware and robot commands are rated L4. Also fixes MCP calls failing on '_run_id' and Gemini's 'Requests ending with a model turn' error.
+- ci(release): the checklist no longer waits on its own job [skip release] (#247)
+- fix: keep private arguments out of MCP calls; never end a Gemini request on a model turn (#245)
+- chore(prelude): move the locked test sets to aria-evals-holdout (#244)
+- chore: move public contacts to arthera.xyz and drop the GCP project name (#243)
+- feat(training): turn consented Work-run trajectories into a routing dataset
+- feat(evals): record real token usage per task and in the suite report
+- fix(models): recognise DeepSeek's current API models so agent turns get tools
+- ci(release): a release is started by hand and passes a checklist
+- feat(router): opt-in Prelude MLX routing experiment, off by default
+- feat(training): Prelude routing and risk — measure, train on MLX, test on locked sets
+- fix(safety): the screen, mouse and keyboard now need approval
+- fix(write_file): a short file is not a placeholder
+- feat(evals): model scorecard; tests actually run; OpenAI new-model fix
+- feat(collab): cross-model review, /consult, governance tools over MCP
+- feat(physical-ai): L4 for firmware and robot commands, ROS 2 in /test /build, /sim
+- feat(commands): /diff /commit /pr /checkpoint /worktree /graph /agents /test /build /fix
+- feat(tui): phase strip and structured approval card
+- feat(go): searchable /model picker in the Go runtime
+- chore: remove dead files, refresh the Python migration audit
+- feat(model): default to gemini-3.8-flash
+- feat(model): cloud models in the picker, Gemini 4 Argon
+- feat(tui): /model opens a searchable picker
+- feat(tui,go): Go command descriptions, header and empty-state polish
+- feat(tui): / and @ pop-up lists, background self-update
+
+## [0.163.0] — 2026-10-18
+
+- fix: defaults point at arthera.xyz (arthera.finance no longer answers) (#222)
+
+## [0.162.0] — 2026-10-16
+
+- feat(native): document validation, session import/export, diagnostics, Go build tooling (#214)
+
+## [0.161.0] — 2026-10-16
+
+- feat(mascot): two matching eyes (#213)
+
+## [0.160.0] — 2026-10-16
+
+- chore: remove the plugins/ stubs, which no code loads (#212)
+
 ## [0.159.0] — 2026-10-16
 
 - Show a failure once, and stop a greeting offering football (#210)

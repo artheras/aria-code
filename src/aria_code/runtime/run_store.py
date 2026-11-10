@@ -21,6 +21,7 @@ from .run_state import (
     require_transition,
 )
 from aria_code.packages.aria_core.paths import aria_home
+from .task_brief import TaskBrief, brief_digest
 
 
 # Compared with every non-alphanumeric character removed and lowercased, so
@@ -186,6 +187,12 @@ class RunStore:
                     ON runs(status, updated_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_run_events_run_sequence
                     ON run_events(run_id, sequence);
+
+                CREATE TABLE IF NOT EXISTS run_briefs (
+                    run_id TEXT PRIMARY KEY REFERENCES runs(run_id) ON DELETE CASCADE,
+                    brief_json TEXT NOT NULL,
+                    sha256 TEXT NOT NULL
+                );
                 """
             )
 
@@ -273,7 +280,16 @@ class RunStore:
         run_id: str | None = None,
         owner_pid: int | None = None,
         owner_host: str | None = None,
+        task_brief: TaskBrief | None = None,
     ) -> RunRecord:
+        if task_brief is not None and not isinstance(task_brief, TaskBrief):
+            raise TypeError("task_brief must be a validated TaskBrief")
+        # Existing CLI callers automatically retain their initial goal. Preserve
+        # compatibility for empty/oversize legacy prompts without inventing one.
+        if task_brief is None and prompt.strip() and len(prompt.encode()) <= 65536:
+            task_brief = TaskBrief(goal=prompt)
+        brief_json = _json_dumps(task_brief.to_dict()) if task_brief is not None else None
+        digest = brief_digest(json.loads(brief_json)) if brief_json is not None else None
         now = time.time()
         identifier = run_id or uuid.uuid4().hex[:16]
         pid = int(owner_pid if owner_pid is not None else os.getpid())
@@ -301,14 +317,45 @@ class RunStore:
                     _json_dumps(metadata or {}),
                 ),
             )
+            if brief_json is not None:
+                connection.execute("INSERT INTO run_briefs VALUES (?, ?, ?)",
+                                   (identifier, brief_json, digest))
             self._append_event(connection, identifier, "run_created", {
                 "status": RunStatus.QUEUED.value,
                 "provider": provider,
                 "workspace": workspace,
+                "brief_sha256": digest,
             }, timestamp=now)
         record = self.get_run(identifier)
         assert record is not None
         return record
+
+    def get_task_brief(self, run_id: str) -> dict | None:
+        """Read immutable intent; callers must apply their existing run access checks.
+
+        Missing brief means legacy/unrecorded intent, never inferred completion.
+        Hash checking detects corruption, not an adversary with database access.
+        """
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT r.run_id, b.brief_json, b.sha256 FROM runs r
+                   LEFT JOIN run_briefs b ON r.run_id=b.run_id WHERE r.run_id=?""",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            raise RunNotFoundError(run_id)
+        if row["brief_json"] is None:
+            return None
+        try:
+            value = json.loads(row["brief_json"])
+            brief = TaskBrief.from_dict(value)
+            if brief_digest(value) != row["sha256"]:
+                raise ValueError("Digest mismatch")
+        except (TypeError, ValueError, UnicodeError) as exc:
+            raise ValueError("Stored task brief is invalid") from exc
+        return {"brief": brief.to_dict(), "sha256": row["sha256"],
+                "acceptance_defined": bool(brief.acceptance),
+                "verification_state": "unverified"}
 
     def get_run(self, run_id: str) -> Optional[RunRecord]:
         with self._connect() as connection:

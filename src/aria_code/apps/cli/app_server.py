@@ -106,10 +106,21 @@ class Server:
         # an index to it preserves deny lists, L4 ask-every-time, hooks, symbol
         # previews and the exact scope of session grants.
         choices = [[str(label), str(help_text)] for label, help_text in options]
+        extra = {}
+        picker = bool(kwargs.get("picker"))
+        if picker:
+            # A long list to search (models): the frontend draws a picker, not an approval.
+            extra["picker"] = True
+            groups = kwargs.get("groups")
+            if isinstance(groups, list) and len(groups) == len(choices):
+                extra["groups"] = [str(group) for group in groups]
+        if not picker and getattr(self, "approval_risk", None):
+            extra["risk"] = self.approval_risk
         answer = self.ask("approval.requested", title=str(title or "Approval / selection"),
                           choices=choices, selected=selected,
                           shortcuts=kwargs.get("shortcuts", {}),
-                          context=getattr(self, "approval_context", ""))
+                          context="" if picker else getattr(self, "approval_context", ""),
+                          **extra)
         chosen = answer.get("choice", -1)
         if type(chosen) is not int or not -1 <= chosen < len(choices):
             raise ValueError("Invalid menu response")
@@ -158,6 +169,11 @@ class Server:
                         continue
                     if kind == "shutdown":
                         break
+                    if kind == "completion.request":
+                        # Answered here, not queued behind a running turn: it is
+                        # a lookup, and the list it feeds should not wait.
+                        self.complete_reference(value)
+                        continue
                     self.requests.put_nowait(value)
                 except (ValueError, UnicodeError, queue.Full) as error:
                     self.emit("protocol.error", error=str(error))
@@ -171,7 +187,8 @@ class Server:
                 pass
 
     def initialize(self):
-        import aria_cli as cli
+        # Resolve the selected package, not a legacy top-level installation.
+        from aria_code import aria_cli as cli
         from rich.console import Console
         from aria_code.apps.cli.runtime_consumer import TerminalRuntimeEventConsumer
         from aria_code.apps.cli.exec_events import ExecEvents
@@ -237,10 +254,12 @@ class Server:
                     if isinstance(params.get(key), str):
                         context.append((cn if zh else en) + ": " + params[key])
                 server.approval_context = "\n".join(context)
+                server.approval_risk = server.assess_for_approval(tool_name, tool_params)
                 try:
                     return await super().approve(tool_name, tool_params, **kwargs)
                 finally:
                     server.approval_context = ""
+                    server.approval_risk = None
         cli.TerminalApprovalEventConsumer = Approvals
         config = cli.load_config()
         config["_session_workspace_root"] = str(Path.cwd().resolve())
@@ -285,6 +304,9 @@ class Server:
         # The host draws its own turn footer. Keep this presentation flag out
         # of saved user settings and retain normal Python CLI behaviour.
         terminal._native_frontend = True
+        # Commands that need a choice (/model) draw it in the host's own menu.
+        # This process's stdin is a pipe, so the TTY arrow picker can never run.
+        terminal._native_select = self.select
         execute = terminal.tool_executor.execute_local
         def tracked(*args, **kwargs):
             with self.tool_lock:
@@ -347,6 +369,62 @@ class Server:
         config["last_session_id"] = self.terminal.session_id
         self.cli.save_config(config)
 
+    def complete_reference(self, value):
+        """Answer a completion request with candidates for the `@file` being typed."""
+        text = value.get("text")
+        if not isinstance(text, str) or len(text.encode("utf-8")) > MAX_INPUT:
+            raise ValueError("Completion text must be at most 65536 UTF-8 bytes")
+        from aria_code.apps.cli.file_references import reference_candidates
+
+        try:
+            candidates = reference_candidates(text, Path.cwd())
+        except Exception:
+            candidates = []
+        self.emit("completion.result", session_id=value.get("session_id", ""), text=text, candidates=candidates)
+
+    def assess_for_approval(self, tool_name, params):
+        """What the action reaches, for the approval card: level, files, hosts, why.
+
+        The same assessment the terminal's text card is built from, sent as data
+        so the frontend can draw it. None when it cannot be assessed; the dialog
+        then shows only the tool and its target.
+        """
+        try:
+            from aria_code.safety.risk import assess_tool
+            from aria_code.ui.render.output import _file_impact
+
+            assessment = assess_tool(tool_name, dict(params or {}), root=os.getcwd())
+            card = assessment.as_dict()
+            card["impact"] = _file_impact(assessment)
+            for key in ("hosts", "files", "systems", "reasons"):
+                card[key] = [str(x)[:200] for x in card.get(key, [])[:8]]
+            return card
+        except Exception:
+            return None
+
+    def commands_info(self):
+        """Every slash command with what it does, in the order the list shows them.
+
+        The frontend's list opens on a bare `/`, so what comes first matters: the
+        core commands and the entry points, then the rest alphabetically, the same
+        order the terminal completer has always used. Descriptions are localised.
+        """
+        from aria_code.apps.cli.commands.catalog import CORE_SLASH_COMMANDS, ENTRY_SLASH_COMMANDS, describe
+
+        t = self.terminal
+        registry = t.commands.commands
+        lang = t.config.get("ui_lang", "en")
+        first = [n for n in (*CORE_SLASH_COMMANDS, *ENTRY_SLASH_COMMANDS) if n in registry]
+        rest = [n for n in sorted(registry) if n not in set(first)]
+        info = []
+        for name in first + rest:
+            try:
+                detail = describe(name, registry[name][1], lang)
+            except Exception:
+                detail = ""
+            info.append({"name": name, "description": str(detail or "")[:160]})
+        return info
+
     def snapshot(self, kind):
         from aria_code.apps.cli.native_branding import robot_rows
         from aria_code.ui import robot
@@ -363,6 +441,7 @@ class Server:
                   robot=rows, robot_design="cream-block-v2" if rows else "",
                   model=t.config.get("model", ""), provider=t.config.get("local_provider", ""),
                   workspace=str(Path.cwd()), commands=sorted(t.commands.commands),
+                  commands_info=self.commands_info(), reference_completion=True,
                   permission=t.config.get("permission_mode", "workspace-write"),
                   network=bool(t.config.get("network_enabled", True)),
                   ui_lang=t.config.get("ui_lang", "en"),
@@ -450,10 +529,39 @@ class Server:
                 notice = get_update_notice(wait_ms=0)
                 if notice:
                     self.emit("update.available", turn_id=None, text=Text.from_markup(notice).plain)
+                    await self.install_update_quietly()
                     return
                 await asyncio.sleep(0.1)
         except Exception:
             pass  # A metadata failure must not interrupt the user's task.
+
+    async def install_update_quietly(self):
+        """Managed macOS/Linux installs update in the background.
+
+        Windows presents its PowerShell installer command in the update notice
+        instead: replacing the running executable is blocked by Windows file
+        locks, so installing there must happen after the user closes Aria.
+        """
+        if sys.platform == "win32":
+            return
+        from aria_code.apps.cli import auto_update, updater
+        from aria_code.apps.cli.update_check import _install_channel, _newer
+
+        loop = asyncio.get_running_loop()
+        installed = await loop.run_in_executor(
+            None,
+            lambda: auto_update.install_if_newer(
+                self.cli.__version__, _install_channel(), self.terminal.config,
+                check=lambda channel: updater.check_update(channel, prefer_native=True),
+                install=updater.install_native,
+                newer=_newer, app_root=updater._app_root(),
+            ),
+        )
+        if installed:
+            zh = self.terminal.config.get("ui_lang", "en") == "zh"
+            text = (f"已更新到 {installed} · 重启 Aria 后生效" if zh
+                    else f"Updated to {installed} · restart Aria to use it")
+            self.emit("update.available", turn_id=None, text=text)
 
     async def serve(self):
         self.loop = asyncio.get_running_loop()

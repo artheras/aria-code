@@ -136,3 +136,102 @@ func TestStripJSONCommentsKeepsURLs(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+// A successful command is not evidence of a captured content revision.
+func TestAcceptanceDoesNotInventContentFreshness(t *testing.T) {
+	report := acceptanceReport{Checks: []checkResult{{Passed: true}}}
+	summary := report.summary()
+	if summary["revision_status"] != "not_recorded" {
+		t.Fatalf("uncaptured revision reported as current: %v", summary)
+	}
+	paths, ok := summary["revision_paths"].([]any)
+	if !ok || len(paths) != 0 {
+		t.Fatalf("expected an explicit empty revision list: %v", summary)
+	}
+}
+
+func TestOnlyAMissingToolIsUnavailable(t *testing.T) {
+	cases := []struct {
+		code          int
+		output, error string
+		want          string
+	}{
+		{1, "", "/opt/homebrew/opt/python@3.14/bin/python3.14: No module named pytest\n", "pytest is not installed for this python"},
+		{1, "/opt/homebrew/opt/python@3.14/bin/python3.14: No module named pytest\n", "", "pytest is not installed for this python"},
+		{127, "", "zsh: command not found: npm", "npm is not installed"},
+		{1, "bash: npx: command not found", "", "npx is not installed"},
+		{127, "", "", "the command is not installed"},
+		{1, "E   ModuleNotFoundError: No module named 'requests'\nFAILED test_x.py::test_a", "", ""},
+		{1, "3 failed, 2 passed in 0.1s", "", ""},
+		{0, "", "", ""},
+	}
+	for _, c := range cases {
+		if got := unavailableReason(c.code, c.output, c.error); got != c.want {
+			t.Errorf("exit %d %q / %q: got %q, want %q", c.code, c.output, c.error, got, c.want)
+		}
+	}
+}
+
+func TestAMissingToolDoesNotFailTheGateOrTheDelivery(t *testing.T) {
+	answers := [][3]any{{0, "ok", ""}, {1, "", "python3: No module named pytest"}}
+	index := 0
+	gate := &acceptanceGate{root: t.TempDir(), maxAttempts: 2, commands: []string{"cmd0", "cmd1"}}
+	gate.record("a.py")
+	report := gate.run(context.Background(), func(context.Context, string) map[string]any {
+		answer := answers[index]
+		index++
+		return map[string]any{"success": true, "data": map[string]any{
+			"exit_code": answer[0], "stdout": answer[1], "stderr": answer[2],
+		}}
+	})
+	if report == nil || !report.passed() || len(report.failures()) != 0 || len(report.notRun()) != 1 || index != 2 {
+		t.Fatalf("missing tool stopped the gate: passed=%v failures=%d ran=%d", report.passed(), len(report.failures()), index)
+	}
+	if !strings.Contains(report.headline(), "验收部分通过") || !strings.Contains(report.headline(), "pytest is not installed") {
+		t.Fatal(report.headline())
+	}
+	summary := gate.summary()
+	if _, isBool := summary["verified"].(bool); isBool {
+		t.Fatal("part of the plan did not run, so it is not verified")
+	}
+	checks := summary["reports"].([]any)[0].(map[string]any)["checks"].([]any)
+	if checks[1].(map[string]any)["not_run"] != "pytest is not installed for this python" {
+		t.Fatal(checks[1])
+	}
+
+	ledger := newDeliveryLedger(gate.root)
+	ledger.changed["a.py"] = &changedFile{Path: "a.py", Added: 1}
+	ledger.order = []string{"a.py"}
+	delivery := ledger.Report(summary, nil, nil, "completed")
+	if delivery.Status != "done" || delivery.Verified != nil || delivery.Next != "Run the tests yourself — pytest is not installed for this python" {
+		t.Fatalf("%s / %v / %s", delivery.Status, delivery.Verified, delivery.Next)
+	}
+	if len(delivery.Checks) != 1 || delivery.Checks[0]["command"] != "cmd0" {
+		t.Fatal(delivery.Checks)
+	}
+	text := delivery.Render("", gate.root)
+	if !strings.Contains(text, "not run: cmd1 — pytest is not installed for this python") {
+		t.Fatal(text)
+	}
+	if delivery.asDict()["not_run"].([]map[string]any)[0]["command"] != "cmd1" {
+		t.Fatal(delivery.asDict())
+	}
+}
+
+func TestARealFailureStillStopsBeforeLaterChecks(t *testing.T) {
+	index := 0
+	gate := &acceptanceGate{root: t.TempDir(), maxAttempts: 2, commands: []string{"cmd0", "cmd1"}}
+	gate.record("a.py")
+	report := gate.run(context.Background(), func(context.Context, string) map[string]any {
+		index++
+		return map[string]any{"success": true, "data": map[string]any{
+			"exit_code": 1, "stdout": "FAILED test_a.py::test_x", "stderr": "",
+		}}
+	})
+	if report.passed() || len(report.failures()) != 1 || len(report.notRun()) != 0 || index != 1 {
+		t.Fatalf("real failure did not stop the gate: %+v calls=%d", report, index)
+	}
+	if verified := gate.summary()["verified"]; verified != false {
+		t.Fatal(verified)
+	}
+}

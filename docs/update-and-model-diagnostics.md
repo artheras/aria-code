@@ -60,7 +60,7 @@ function calling. Use an explicit probe for the currently selected route:
 ```sh
 aria health --model
 aria health --model --tools --json
-aria health --model-id google/gemini-3.5-flash --model --timeout 45
+aria health --model-id google/gemini-3.8-flash --model --timeout 45
 ```
 
 The model override applies only to the probe. It does not change saved settings.

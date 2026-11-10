@@ -179,6 +179,15 @@ from typing import Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 
+def _installed_catalogue(rich_models):
+    """Keep cloud routes separate; local catalogue entries need a real install."""
+    from aria_code.apps.cli.model_catalog import is_provider_qualified
+    installed = {m["name"] for m in rich_models}
+    return {k: m for k, m in _get_MODELS().items()
+            if (is_provider_qualified(m["id"]) and not m["id"].startswith("ollama/"))
+            or m["id"] in installed}
+
+
 class ModelCommandsMixin:
     """Mixin: Model/config commands: model, apikey, providers, cloud, config, tools, skills."""
 
@@ -190,7 +199,9 @@ class ModelCommandsMixin:
         from the same place. Community models are keyed by name, which is
         their id.
         """
-        ids = [m["id"] for m in _get_MODELS().values()]
+        if hasattr(self, "_last_listed_models"):
+            return list(self._last_listed_models)
+        ids = [m["id"] for m in _get_MODELS().values() if "/" in m["id"]]
         for name in getattr(self, "_last_listed_community", []) or []:
             if name not in ids:
                 ids.append(name)
@@ -255,6 +266,13 @@ class ModelCommandsMixin:
                                f"运行: /apikey set {_prov} <key>")
                     self.context.console.print(f"[yellow]{msg}[/yellow]") if self.context.has_rich else print(msg)
                     return
+            if _prov == "ollama":
+                try:
+                    from aria_code.providers.ollama_models import ollama_base_url, resolve_model_async
+                    _mod = await resolve_model_async(ollama_base_url(self.terminal.config), _mod)
+                except ValueError as exc:
+                    self.context.console.print(str(exc))
+                    return
             self.terminal.config["local_provider"] = _prov
             self.terminal.config["model"] = _mod
             self.terminal.config["local_mode"] = _prov in _local_backends
@@ -293,7 +311,8 @@ class ModelCommandsMixin:
             return
 
         # ── Interactive picker (Codex style: numbered list + descriptions) ────
-        ollama_url  = self.terminal.config.get("ollama_url", "http://localhost:11434")
+        from aria_code.providers.ollama_models import ollama_base_url
+        ollama_url = ollama_base_url(self.terminal.config)
         current_provider = str(
             self.terminal.config.get("local_provider") or "ollama"
         ).lower()
@@ -352,8 +371,18 @@ class ModelCommandsMixin:
             else:
                 rich_models = []
                 ollama_err = f"API key missing · /apikey set {current_provider} <key>"
+        if current_provider != "ollama":
+            # Local catalogue entries are shown only when installed, whatever
+            # the current provider, so a cloud user can still switch to one.
+            try:
+                local_models, _ = detect_ollama_models_rich(ollama_url)
+            except Exception:
+                local_models = []
+            seen = {m["name"] for m in rich_models}
+            rich_models = rich_models + [m for m in local_models or [] if m.get("name") not in seen]
+        display_models = _installed_catalogue(rich_models)
         installed_names = {m["name"] for m in rich_models}
-        aria_ids        = {m["id"] for m in _get_MODELS().values()}
+        aria_ids        = {m["id"] for m in display_models.values()}
         runtime_by_id   = {m["name"]: m for m in rich_models}
 
         # ── Build picker title (one line, shown inside arrow_select header) ──
@@ -387,6 +416,8 @@ class ModelCommandsMixin:
             _term_cols = os.get_terminal_size().columns
         except Exception:
             _term_cols = 80
+        if getattr(self.terminal, "_native_select", None) is not None:
+            _term_cols = 110  # the host's menu is about this wide; not a TTY to measure
 
         def _cjk_width(s: str) -> int:
             """Display-column width (CJK = 2 cols each)."""
@@ -448,6 +479,19 @@ class ModelCommandsMixin:
         options: list = []   # (label_str, desc_str)  for _arrow_select
         all_ids: list = []
 
+        # ── Native frontend: pick in the host's menu, not from a printed list ─
+        # Arrow keys and Enter, the way Claude and ChatGPT do it. The list used
+        # to be printed and the user had to type a number back.
+        native_select = getattr(self.terminal, "_native_select", None)
+        if native_select is not None and not name:
+            await self._pick_model_in_host(
+                native_select, picker_title=_picker_title, current_id=current_id,
+                current_provider=current_provider, rich_models=rich_models,
+                aria_ids=aria_ids, status_tag=_status_tag, short_desc=_short_desc,
+                lang=_lang,
+            )
+            return
+
         # ── Print numbered list only in non-interactive (-p) mode ────────────
         # In interactive TTY mode the arrow picker below already shows all items.
         # Printing twice causes the visual duplication seen in the session log.
@@ -459,7 +503,8 @@ class ModelCommandsMixin:
             community_list = [cm for cm in rich_models if cm["name"] not in aria_ids]
             # What /model <number> will count through, recorded as it is printed.
             self._last_listed_community = [cm["name"] for cm in community_list]
-            for key, m in _get_MODELS().items():
+            self._last_listed_models = [m["id"] for m in display_models.values()] + self._last_listed_community
+            for key, m in display_models.items():
                 mid    = m["id"]
                 is_cur = mid == current_id
                 status = _status_tag(mid, m.get("badge", ""))
@@ -489,7 +534,7 @@ class ModelCommandsMixin:
         # In non-TTY: descriptions already shown in static list, keep labels short.
         num = 1
         picker_models = (
-            list(_get_MODELS().values())
+            list(display_models.values())
             if current_provider == "ollama"
             else [
                 {
@@ -570,6 +615,92 @@ class ModelCommandsMixin:
 
         self._set_model_by_id(all_ids[choice], provider=current_provider)
 
+    async def _pick_model_in_host(self, native_select, *, picker_title, current_id, current_provider,
+                                  rich_models, aria_ids, status_tag, short_desc, lang):
+        """Offer every model in the frontend's menu and apply the choice.
+
+        One row per model: the name (with a mark for the current one and for
+        whether it is installed) and, beneath it, what it is for and its
+        limits. Aria's catalogue comes first, then community Ollama models.
+        """
+        zh = str(lang).lower().startswith("zh")
+        rows: list = []  # (model_id, label, help)
+        groups: list = []
+        catalogue = "Aria 精选" if zh else "Aria catalogue"
+        for m in _installed_catalogue(rich_models).values():
+            mid = m["id"]
+            tags = short_desc(m)
+            current = ("  ✓ 当前" if zh else "  ✓ current") if mid == current_id else ""
+            # The id leads the detail: several catalogue entries share a display name
+            # ("Qwen 2.5"), and the id is what tells them apart.
+            rows.append((mid, f"{status_tag(mid, m.get('badge', ''))} {m['name']}{current}", f"{mid} · {tags}"))
+            groups.append(catalogue)
+        if current_provider == "ollama":
+            community = "社区模型 (Ollama)" if zh else "Community models (Ollama)"
+            for cm in rich_models:
+                if cm["name"] in aria_ids:
+                    continue
+                current = ("  ✓ 当前" if zh else "  ✓ current") if cm["name"] == current_id else ""
+                size = " · ".join(x for x in (cm.get("size_label"), cm.get("family"), cm.get("quant")) if x)
+                rows.append((cm["name"], f"● {cm['name']}{current}", size or community))
+                groups.append(community)
+        # Every provider that has a key lists what it serves today. A hand-kept
+        # catalogue goes stale; the provider's own list does not.
+        await self._add_cloud_models(rows, groups, current_id, zh)
+        if not rows:
+            return
+        start = next((i for i, row in enumerate(rows) if row[0] == current_id), 0)
+        options = [(label, help_text) for _mid, label, help_text in rows]
+        # select() blocks on the user's answer, so keep it off the event loop.
+        import asyncio as _asyncio
+
+        try:
+            choice = await _asyncio.to_thread(native_select, options, start, picker_title, picker=True, groups=groups)
+        except (KeyboardInterrupt, ValueError):
+            choice = -1
+        if not isinstance(choice, int) or not 0 <= choice < len(rows):
+            msg = "已取消，模型未改变。" if zh else "Cancelled; the model is unchanged."
+            self.context.console.print(f"[dim]{msg}[/dim]" if self.context.has_rich else msg)
+            return
+        chosen = rows[choice][0]
+        if current_provider == "ollama" and chosen in {m["name"] for m in rich_models}:
+            self._set_model_by_id(chosen, provider="ollama")
+        elif "/" in chosen:
+            # provider/model: the route that checks credentials and sets the provider.
+            await self.cmd_model(chosen)
+        else:
+            self._set_model_by_id(chosen)
+
+    async def _add_cloud_models(self, rows: list, groups: list, current_id: str, zh: bool) -> None:
+        """Append a section per provider with a key: what its model list endpoint returns now."""
+        import asyncio as _asyncio
+        from aria_code.apps.cli import cloud_models
+
+        def key_for(provider: str) -> str:
+            key = _get_provider_key(provider)
+            if not key and provider == "google":
+                key = os.environ.get("GEMINI_API_KEY", "")
+            return key
+
+        try:
+            found = await _asyncio.to_thread(cloud_models.collect, key_for)
+        except Exception:
+            return
+        listed = {row[0] for row in rows}
+        for provider, models in found.items():
+            heading = cloud_models.PROVIDERS[provider][0]
+            fresh = [x for x in models if f"{provider}/{x['id']}" not in listed]
+            if not fresh:
+                continue
+            group = f"{heading} · {len(fresh)}" + (" 个可用" if zh else " available")
+            for item in fresh:
+                full = f"{provider}/{item['id']}"
+                is_current = current_id in (full, item["id"])
+                tag = ("  ✓ 当前" if zh else "  ✓ current") if is_current else ""
+                detail = " · ".join(x for x in (full, item["detail"]) if x)
+                rows.append((full, f"☁ {item['name']}{tag}", detail))
+                groups.append(group)
+
     def _set_model(self, key: str):
         """Set model by _get_MODELS() key."""
         m = _get_MODELS()[key]
@@ -577,12 +708,17 @@ class ModelCommandsMixin:
 
     def _set_model_by_id(self, model_id: str, provider: str | None = None):
         """Set model by Ollama model ID (works for both built-in and community models)."""
-        self.terminal.config["model"] = model_id
         matched = next((m for m in _get_MODELS().values() if m["id"] == model_id), None)
-        self.terminal.config["local_provider"] = provider or (
-            "ollama" if matched is not None else
-            self.terminal.config.get("local_provider", "ollama")
-        )
+        target_provider = provider or ("ollama" if matched is not None else self.terminal.config.get("local_provider", "ollama"))
+        if target_provider == "ollama":
+            try:
+                from aria_code.providers.ollama_models import ollama_base_url, resolve_model_sync
+                model_id = resolve_model_sync(ollama_base_url(self.terminal.config), model_id)
+            except ValueError as exc:
+                self.context.console.print(str(exc))
+                return
+        self.terminal.config["model"] = model_id
+        self.terminal.config["local_provider"] = target_provider
         self.terminal.config["local_mode"] = (
             self.terminal.config["local_provider"]
             in {"ollama", "lmstudio", "vllm", "llamacpp", "jan", "custom"}
@@ -1463,7 +1599,7 @@ class ModelCommandsMixin:
             ("deepseek",    "DeepSeek",      "deepseek/deepseek-chat"),
             ("anthropic",   "Anthropic",     "anthropic/claude-sonnet-4-6"),
             ("openai",      "OpenAI",        "openai/gpt-4.5"),
-            ("google",      "Google Gemini", "google/gemini-3.5-flash"),
+            ("google",      "Google Gemini", "google/gemini-3.8-flash"),
             ("xai",         "xAI Grok",      "xai/grok-3-fast"),
             ("groq",        "Groq",          "groq/llama-3.3-70b-versatile"),
             ("mistral",     "Mistral",       "mistral/mistral-large-latest"),
@@ -1850,7 +1986,7 @@ class ModelCommandsMixin:
                 for key in ("api_url", "ollama_url", "local_provider", "model",
                             "provider_fallback", "llm_base_url", "thinking_mode",
                             "command_policy", "permission_mode", "network_enabled",
-                            "approval_mode", "auto_approve_level", "review_gate", "delivery_report",
+                            "approval_mode", "auto_approve_level", "review_gate", "review_model", "delivery_report",
                             "write_policy", "lsp_autocheck", "input_style", "input_theme",
                             "response_footer", "auto_compact_context",
                             "auto_compact_threshold", "auto_save_sessions"):
@@ -1898,7 +2034,7 @@ class ModelCommandsMixin:
                 for key in ("api_url", "ollama_url", "local_provider", "model",
                             "provider_fallback", "llm_base_url", "thinking_mode",
                             "command_policy", "permission_mode", "network_enabled",
-                            "approval_mode", "auto_approve_level", "review_gate", "delivery_report",
+                            "approval_mode", "auto_approve_level", "review_gate", "review_model", "delivery_report",
                             "write_policy", "lsp_autocheck", "input_style", "input_theme",
                             "response_footer", "auto_compact_context",
                             "auto_compact_threshold"):
@@ -1940,6 +2076,20 @@ class ModelCommandsMixin:
                         msg = f"{key} must be: true | false"
                         self.context.console.print(f"[red]{msg}[/red]" if self.context.has_rich else msg)
                         return
+                elif key == "review_model":
+                    # Another provider's model reads the diff; "off" (or empty) goes back to the builder.
+                    from aria_code.apps.cli.providers.chat_routing import KNOWN_MODEL_PROVIDERS, normalize_provider_name
+
+                    if val.lower() in {"", "off", "none"}:
+                        val = ""
+                    else:
+                        provider = normalize_provider_name(val.split("/", 1)[0]) if "/" in val else ""
+                        if provider not in KNOWN_MODEL_PROVIDERS:
+                            msg = ("review_model must name a provider and model, e.g. anthropic/claude-sonnet-5-5, "
+                                   "openai/<model> or google/gemini-3.8-flash (or 'off'). "
+                                   "The diff and goal are sent to that provider.")
+                            self.context.console.print(f"[red]{msg}[/red]" if self.context.has_rich else msg)
+                            return
                 elif key == "thinking_mode":
                     if val not in {"auto", "instant", "thinking"}:
                         msg = "thinking_mode must be one of: auto | instant | thinking"

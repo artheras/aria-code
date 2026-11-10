@@ -176,8 +176,8 @@ def build_package_doctor_report(
         checks.append(CheckResult(
             "arthera_packages",
             "warn",
-            f"Not found at {arthera.root}.",
-            "Place Arthera at ~/Desktop/Arthera or configure the MCP server manually.",
+            f"Not found at {arthera.root}." if arthera.root else "Optional private backend is not configured.",
+            "Use /finance setup for the standalone financial-service; set ARTHERA_ROOT only for an explicit legacy backend bridge.",
         ))
 
     if mcp_status.get("configured"):

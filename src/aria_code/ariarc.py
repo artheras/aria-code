@@ -51,7 +51,7 @@ parent directories (walks up to filesystem root, stops at $HOME).
       // Which model this project runs on. Pins the backend for everyone who
       // opens the repo, so it does not depend on each developer's global
       // config. An explicit /model during a session still wins.
-      "model":      "google/gemini-3.5-flash",
+      "model":      "google/gemini-3.8-flash",
       "provider":   "google",
       "max_rounds": 40,
 

@@ -58,6 +58,9 @@ var forbiddenInlineSecrets = set("api_key", "apikey", "token", "bearer_token", "
 var reservedProviderIDs = set("google", "gemini", "vertexai", "vertex-ai", "google-genai")
 
 type providerAuth struct {
+	// source, when set, supplies the token instead of a command (the
+	// Arthera gateway's /login session); it is asked on every request.
+	source    func(ctx context.Context, refresh bool) (string, error)
 	Command   string
 	Args      []string
 	Cwd       string
@@ -228,8 +231,11 @@ func declaredProviderFor(c config) (*declaredProvider, error) {
 	if problem := problems[name]; problem != "" {
 		return nil, fmt.Errorf("model provider %q in %s %s", name, path, problem)
 	}
+	if spec := presetProvider(c, name); spec != nil {
+		return spec, nil
+	}
 	if name == "ollama" {
-		base := first(c.text("ollama_base_url", ""), os.Getenv("OLLAMA_HOST"), "http://127.0.0.1:11434")
+		base := first(c.text("ollama_base_url", ""), c.text("ollama_url", ""), os.Getenv("OLLAMA_HOST"), "http://127.0.0.1:11434")
 		if !strings.Contains(base, "://") {
 			base = "http://" + base
 		}
@@ -309,6 +315,13 @@ func (d *declaredProvider) headers(ctx context.Context, refresh bool) (http.Head
 func (a *providerAuth) get(ctx context.Context, refresh bool) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.source != nil {
+		token, err := a.source(ctx, refresh)
+		if err == nil {
+			a.token = token
+		}
+		return token, err
+	}
 	if a.token != "" && !refresh && (a.Refresh == 0 || time.Since(a.fetchedAt) < a.Refresh) {
 		return a.token, nil
 	}

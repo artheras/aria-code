@@ -33,9 +33,35 @@ const (
 )
 
 var (
-	pyAnchor    = pyRegexp(`File "([^"]+)", line (\d+)`)
-	colonAnchor = pyRegexp(`(?m)^\s*([\w./\\-]+\.[A-Za-z]{1,4}):(\d+)(?::\d+)?`)
+	pyAnchor       = pyRegexp(`File "([^"]+)", line (\d+)`)
+	colonAnchor    = pyRegexp(`(?m)^\s*([\w./\\-]+\.[A-Za-z]{1,4}):(\d+)(?::\d+)?`)
+	runnerMissing  = pyRegexp(`(?m)^\S*python[\d.]*: No module named ['"]?([\w.]+)['"]?\s*$`)
+	programMissing = pyRegexp(`(?m)^(?:\S+: )*(?:([\w.+-]+): (?:command )?not found|command not found: ([\w.+-]+))\s*$`)
 )
+
+// unavailableReason is acceptance.unavailable_reason: why a check could not
+// run at all. Empty when it ran, whatever its verdict. A project's own
+// ModuleNotFoundError stays a failure.
+func unavailableReason(exitCode int, output, errorText string) string {
+	text := output + "\n" + errorText
+	if match := runnerMissing.FindStringSubmatch(text); match != nil {
+		return match[1] + " is not installed for this python"
+	}
+	if match := programMissing.FindStringSubmatch(text); match != nil || exitCode == 127 {
+		name := ""
+		if match != nil {
+			name = match[1]
+			if name == "" {
+				name = match[2]
+			}
+		}
+		if name == "" {
+			name = "the command"
+		}
+		return name + " is not installed"
+	}
+	return ""
+}
 
 // trimOutput is acceptance._trim: head and tail of a failing log.
 func trimOutput(text string) string {
@@ -86,6 +112,10 @@ type checkResult struct {
 	NewFailures  []string
 	OldFailures  []string
 	BaselineNote string
+	// Non-empty when the tool needed to run this check is missing. Not a red
+	// check: nothing was verified, and asking the model to fix it only makes
+	// it install things.
+	Unavailable string
 }
 
 func (c checkResult) anchors() []string {
@@ -98,7 +128,10 @@ func (c checkResult) anchors() []string {
 func (c checkResult) summary() map[string]any {
 	data := map[string]any{"command": c.Command, "exit_code": c.ExitCode, "passed": c.Passed,
 		"duration": float64(int64(c.Duration*1000+0.5)) / 1000, "error": c.Error}
-	if !c.Passed && (c.BaselineNote != "" || len(c.NewFailures) > 0 || len(c.OldFailures) > 0) {
+	if c.Unavailable != "" {
+		data["not_run"] = c.Unavailable
+	}
+	if !c.Passed && c.Unavailable == "" && (c.BaselineNote != "" || len(c.NewFailures) > 0 || len(c.OldFailures) > 0) {
 		data["preexisting"] = c.Preexisting
 		data["new_failures"] = anySlice(orEmpty(c.NewFailures))
 		data["old_failures"] = anySlice(orEmpty(c.OldFailures))
@@ -115,15 +148,34 @@ type acceptanceReport struct {
 	AttemptsRemaining int
 }
 
-func (r acceptanceReport) ran() bool { return len(r.Checks) > 0 }
+func (r acceptanceReport) notRun() []checkResult {
+	var out []checkResult
+	for _, c := range r.Checks {
+		if c.Unavailable != "" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
 
-// passed is true only when a check ran and every check passed.
+// ran is true when at least one check actually executed. A missing tool
+// verified nothing.
+func (r acceptanceReport) ran() bool {
+	for _, c := range r.Checks {
+		if c.Unavailable == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// passed is true only when a check ran and every check that could run passed.
 func (r acceptanceReport) passed() bool {
 	if !r.ran() {
 		return false
 	}
 	for _, c := range r.Checks {
-		if !c.Passed {
+		if c.Unavailable == "" && !c.Passed {
 			return false
 		}
 	}
@@ -133,7 +185,7 @@ func (r acceptanceReport) passed() bool {
 func (r acceptanceReport) failures() []checkResult {
 	var out []checkResult
 	for _, c := range r.Checks {
-		if !c.Passed {
+		if !c.Passed && c.Unavailable == "" {
 			out = append(out, c)
 		}
 	}
@@ -161,12 +213,25 @@ func backticked(items []string) string {
 
 func (r acceptanceReport) headline() string {
 	if !r.ran() {
+		if skipped := r.notRun(); len(skipped) > 0 {
+			first := skipped[0]
+			return fmt.Sprintf("验收未执行：`%s` 无法运行（%s）", first.Command, first.Unavailable)
+		}
 		return "验收未执行：未推断出检查命令"
 	}
 	if r.passed() {
 		var names []string
 		for _, c := range r.Checks {
-			names = append(names, c.Command)
+			if c.Unavailable == "" {
+				names = append(names, c.Command)
+			}
+		}
+		if skipped := r.notRun(); len(skipped) > 0 {
+			parts := make([]string, len(skipped))
+			for i, c := range skipped {
+				parts[i] = fmt.Sprintf("`%s` (%s)", c.Command, c.Unavailable)
+			}
+			return fmt.Sprintf("验收部分通过 (%s)；未能运行：%s", strings.Join(names, ", "), strings.Join(parts, "; "))
 		}
 		return "验收通过 (" + strings.Join(names, ", ") + ")"
 	}
@@ -222,7 +287,10 @@ func (r acceptanceReport) summary() map[string]any {
 		checks[i] = c.summary()
 	}
 	return map[string]any{"attempt": r.Attempt, "passed": r.passed(), "regressed": r.regressed(), "ran": r.ran(),
-		"reason": r.Reason, "paths": anySlice(orEmpty(r.Paths)), "checks": checks}
+		"reason": r.Reason, "paths": anySlice(orEmpty(r.Paths)), "checks": checks,
+		// The Go gate does not capture content fingerprints yet. Never label
+		// its legacy reports as current merely because their checks passed.
+		"revision_status": "not_recorded", "revision_paths": []any{}}
 }
 
 func anySlice(items []string) []any {
@@ -356,7 +424,7 @@ func planVerification(root string, paths []string) verificationPlan {
 		}
 		commands = append(commands, "python3 -m py_compile "+strings.Join(quoted, " "))
 		reasons = append(reasons, "Python files changed")
-		if hasAny(root, "pytest.ini", "pyproject.toml", "setup.cfg", "tox.ini") || exists(filepath.Join(root, "tests")) {
+		if hasAny(root, "pytest.ini", "pyproject.toml", "setup.cfg", "tox.ini") || exists(filepath.Join(root, "tests")) || hasPythonTests(root) {
 			commands = append(commands, pythonTestCommand(root))
 		}
 	}
@@ -398,6 +466,48 @@ func planVerification(root string, paths []string) verificationPlan {
 		reason = strings.Join(appendNew(nil, reasons...), "; ")
 	}
 	return verificationPlan{Commands: orEmpty(appendNew(nil, commands...)), Reason: reason}
+}
+
+var skipTestDirs = map[string]bool{
+	".git": true, "node_modules": true, ".venv": true, "venv": true, "env": true,
+	"__pycache__": true, "build": true, "dist": true, "site-packages": true,
+}
+
+// hasPythonTests is VerificationPlanner._has_python_tests: test files beside the
+// code count as a test suite even with no tests/ directory and no config file.
+// The root and two levels below it are looked at; virtualenvs and hidden
+// directories are not.
+func hasPythonTests(root string) bool {
+	found := false
+	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || found {
+			return filepath.SkipDir
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return filepath.SkipDir
+		}
+		depth := 0
+		if rel != "." {
+			depth = strings.Count(rel, string(filepath.Separator)) + 1
+		}
+		if d.IsDir() {
+			if depth > 0 && (skipTestDirs[d.Name()] || strings.HasPrefix(d.Name(), ".")) {
+				return filepath.SkipDir
+			}
+			if depth > 2 {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name := d.Name()
+		if strings.HasPrefix(name, "test_") && strings.HasSuffix(name, ".py") || strings.HasSuffix(name, "_test.py") || name == "conftest.py" {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 func hasAny(root string, names ...string) bool {
@@ -454,6 +564,8 @@ func pythonTestCommand(root string) string {
 	} else {
 		testsRoot = root
 		matches, _ := filepath.Glob(filepath.Join(root, "test*.py"))
+		suffixed, _ := filepath.Glob(filepath.Join(root, "*_test.py"))
+		matches = append(matches, suffixed...)
 		candidates = matches[:min(100, len(matches))]
 	}
 	usesUnittest := false
@@ -669,14 +781,18 @@ func (g *acceptanceGate) run(ctx context.Context, runner checkRunner) *acceptanc
 		code, output, errText := readRunResult(runner(ctx, command))
 		check := checkResult{Command: command, ExitCode: code, Passed: code == 0 && errText == "", Output: output,
 			Error: errText, Duration: time.Since(started).Seconds()}
-		checks = append(checks, check)
 		if !check.Passed {
+			check.Unavailable = unavailableReason(code, output, errText)
+		}
+		checks = append(checks, check)
+		// A check that could not run says nothing about the code, so the rest still run.
+		if !check.Passed && check.Unavailable == "" {
 			break
 		}
 	}
 	if g.baseline != nil {
 		for i, check := range checks {
-			if check.Passed {
+			if check.Passed || check.Unavailable != "" {
 				continue
 			}
 			comparison := compareBaseline(check.Output, true, g.baseline.result(ctx, check.Command))
@@ -702,7 +818,10 @@ func (g *acceptanceGate) summary() map[string]any {
 	if len(g.reports) > 0 {
 		last := g.reports[len(g.reports)-1]
 		if last.ran() {
-			out["verified"] = last.passed() && !g.armed()
+			// What could run passed, but part of the plan did not run: not verified.
+			if verified := last.passed() && !g.armed(); !verified || len(last.notRun()) == 0 {
+				out["verified"] = verified
+			}
 			if !last.passed() {
 				out["regressions"] = last.regressed()
 			}

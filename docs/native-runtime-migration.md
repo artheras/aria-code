@@ -28,6 +28,7 @@ by this branch.
 | Independent review | `go/runtime/review.go` | With `review_gate` on, a coding turn the model calls done is read by the same model with a fresh context and no tools: goal, contract, checks and diff. Blocking findings go back to the builder up to `review_max_attempts` times and the review lands in the delivery report; a failed reviewer never blocks. Answer parsing, the prompt and the report text are compared with `runtime/review.py` through `aria-runtime review`. |
 | Delivery report | `go/runtime/delivery.go` | Every coding turn that changed files, ran checks or had calls refused ends with the report on `turn.completed` (shown by the Rust chat, always present headless): changed files with line counts, checks, risk, contract refusals, status and next step from evidence, compared with `runtime/delivery.py` through `aria-runtime delivery`. The checks come from the acceptance gate; with `acceptance_gate: false` they are the verification commands the model ran after its last change. Definitions touched, tests that reference them and project-graph impact need `semantic_diff`, `repo_map` and `project_graph`, which remain. |
 | Relay | `go/relay/` | Existing separately validated Go candidate and storage contracts. Production switch/old-entrypoint deletion are still separate deployment work. |
+| Native updater: macOS/Linux | `rust/cli/src/updates.rs` | `aria-native update check` validates and caches stable release metadata for native, npm, pip and source channels; packaged Python startup notices and explicit update checks use it when available. `update auto-install` owns the managed startup install lock and 24-hour failure cooldown. `update install --to VERSION` resumes downloads, verifies the SHA-256 manifest and release archive (with a SHA-512 verified npm fallback), safely unpacks into a versioned directory, probes `--version`/`--help`, then atomically switches the managed CLI symlink. A verified legacy executable is preserved as a rollback target during its first migration. `update rollback` validates and restores the prior managed release. Python retains UI scheduling, user preferences, package-manager/source install commands and compatibility fallback for older packages. Windows keeps its PowerShell installer and displays the command for a user-initiated update after closing Aria. |
 | Release assembly | `go/buildtools/` | Standard-library Go replacement builds and probes Rust, retains the worker, and installs the formal frontend in both PyInstaller contents layouts. All release entrypoints now use it. The old `scripts/bundle_native_indexer.py` is removed; application-worker and business modules remain. |
 
 All source families are in scope. In particular, agents/packs, financial data
@@ -35,6 +36,26 @@ and broker adapters, document/notebook/browser tools, API/daemon services,
 MCP/LSP/hooks, client isolation, task worktrees/acceptance checks and packaging
 are not covered merely by the rows above. Their Python implementations remain
 available and must not be removed to make a language count appear complete.
+
+## Language boundary
+
+Migration is capability-based, not a blanket rewrite. Go is the default target
+for long-running services, HTTP/MCP protocols, persistence, scheduling and
+cross-platform operational tooling. Rust is the default for the native CLI,
+desktop-facing state machines, parsers/indexers and components where tight
+resource or platform control matters. Keep Python when the capability depends
+on its scientific/data ecosystem, vendor SDKs, model training/evaluation, or a
+Python-only upstream integration and a native port would add cost without
+removing that dependency. In particular, finance data adapters and numerical
+analysis stay in the separate Python financial-service while Go/Rust own the
+product runtime and deterministic cores.
+
+Every migration slice must name its active callers, data and error contracts,
+and the package/service entrypoints that will switch. Retain Python compatibility
+where callers still need it; remove that implementation only after real callers
+are on the native path and persisted-state and release behavior are covered.
+Never claim migration completion from a matching Go/Rust file or a successful
+compile alone.
 
 ## Local evidence
 

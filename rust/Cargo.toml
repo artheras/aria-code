@@ -1,5 +1,5 @@
 [workspace]
-members = ["cli", "graph"]
+members = ["cli", "graph", "physical"]
 resolver = "2"
 
 [workspace.package]

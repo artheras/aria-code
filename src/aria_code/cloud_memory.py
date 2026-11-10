@@ -39,8 +39,10 @@ class CloudMemoryClient:
     """
 
     def __init__(self, api_url: str, token: Optional[str]) -> None:
-        self.api_url = (api_url or "").rstrip("/")
+        from aria_code.service_endpoints import current_url
+        self.api_url = current_url(api_url)
         self.token = (token or "").strip()
+        self.last_status = None
 
     @property
     def available(self) -> bool:
@@ -58,6 +60,7 @@ class CloudMemoryClient:
     ) -> Optional[Dict[str, Any]]:
         if not self.available:
             return None
+        self.last_status = None
 
         url = f"{self.api_url}{path}"
         if query:
@@ -78,8 +81,10 @@ class CloudMemoryClient:
         try:
             with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
                 raw = response.read().decode("utf-8")
+            self.last_status = 200
             return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as exc:
+            self.last_status = exc.code
             # 401 is the ordinary case of an ID token older than an hour, not an
             # error worth interrupting the user over. Say so at debug level and
             # let the next /login refresh it.
@@ -154,6 +159,10 @@ class CloudMemoryClient:
         return items if isinstance(items, list) else []
 
     # ── preferences ──────────────────────────────────────────────────────────
+
+    def delete_item(self, item_id: str) -> bool:
+        result = self._request("DELETE", f"/api/v2/memory/items/{urllib.parse.quote(item_id, safe='')}")
+        return result is not None or self.last_status == 404
 
     def get_preferences(self) -> Dict[str, Any]:
         result = self._request("GET", "/api/v2/memory/preferences")

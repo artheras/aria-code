@@ -39,6 +39,11 @@ class SymbolChange:
 
 def reverse_apply(after: str, diff: str) -> Optional[str]:
     """The text *diff* was made from, given the text it produced. None if it does not fit."""
+    from . import native_index
+
+    native = native_index.reverse_apply(after, diff)
+    if native is not native_index.UNAVAILABLE:
+        return native
     lines = after.splitlines(keepends=True)
     hunks = []
     current = None
@@ -114,6 +119,11 @@ def _parent(name: str) -> str:
 
 
 def symbol_changes(before: str, after: str, language: str) -> list[SymbolChange]:
+    from . import native_index
+
+    native = native_index.symbol_changes(before, after, language)
+    if native is not None:
+        return [SymbolChange(kind, name, symbol_kind) for kind, name, symbol_kind in native]
     old, new = _bodies(before, language), _bodies(after, language)
     changes = []
     for name, (kind, text) in new.items():

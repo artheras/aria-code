@@ -66,6 +66,16 @@ def load_cli_config(
     """
     service = build_settings_service(paths, defaults, sync_policy=sync_policy)
     config = service.load()
+    # The old localhost default is replaced once; see endpoint_migration.
+    from aria_code.apps.cli.endpoint_migration import migrate_config as migrate_endpoint
+
+    moved = migrate_endpoint(config)
+    if moved:
+        try:
+            service.save(config)
+        except Exception:
+            pass
+        _announce_endpoint(moved, config)
     # A model Google has retired fails on every request. The user's own saved
     # choice is replaced once and written back; see model_retirement.
     from aria_code.apps.cli.model_retirement import migrate_config
@@ -87,10 +97,38 @@ def load_cli_config(
     pinned = migrate_config(config)
     if pinned:
         _announce(pinned, config, pinned=True)
+    # Legacy callers read ollama_url. Resolve one effective per-user endpoint
+    # without persisting a process environment override back to the user's file.
+    from aria_code.providers.ollama_models import ollama_base_url
+    try:
+        config["ollama_url"] = ollama_base_url(config)
+    except ValueError:
+        pass  # Selection/inference reports an invalid Ollama address explicitly.
     return config
 
 
 _ANNOUNCED: set[tuple[str, str]] = set()
+
+
+def _announce_endpoint(changes, config: dict) -> None:
+    """Say once per process that the old localhost default was replaced."""
+    import sys
+
+    zh = str(config.get("ui_lang", "")).lower().startswith("zh")
+    for _key, old, new in changes:
+        if (old, new) in _ANNOUNCED:
+            continue
+        _ANNOUNCED.add((old, new))
+        if zh:
+            msg = (f"ℹ 服务器地址 {old} 是旧版默认值，已改为 {new}。"
+                   "如需使用本机后端，请设置环境变量 ARTHERA_API_URL，或在配置里加 api_url_pinned: true。")
+        else:
+            msg = (f"ℹ The server address {old} was the old default and is now {new}. "
+                   "For a local backend set ARTHERA_API_URL, or add api_url_pinned: true to the config.")
+        try:
+            print(msg, file=sys.stderr)
+        except Exception:
+            pass
 
 
 def _announce(changes, config: dict, *, pinned: bool) -> None:

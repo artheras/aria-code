@@ -61,7 +61,7 @@ func TestNativeHeadlessPreservesEventContractAndNeverInventsApproval(t *testing.
 				t.Fatal(err)
 			}
 			events := decodeStream(t, out.Bytes())
-			if events[0]["type"] != "turn.started" || events[0]["prompt"] != "write note.txt" || events[0]["model"] != "google/gemini-3.5-flash" {
+			if events[0]["type"] != "turn.started" || events[0]["prompt"] != "write note.txt" || events[0]["model"] != "google/gemini-3.8-flash" {
 				t.Fatal(events[0])
 			}
 			last := events[len(events)-1]

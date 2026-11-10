@@ -2437,10 +2437,11 @@ class BacktestCommandsMixin:
 
         import sys
         import os
-        _arthera_pkgs = os.environ.get("ARTHERA_ROOT") or os.path.expanduser("~/Desktop/Arthera")
-        _arthera_pkgs = os.path.join(_arthera_pkgs, "packages")
-        if os.path.isdir(_arthera_pkgs) and _arthera_pkgs not in sys.path:
-            sys.path.insert(0, _arthera_pkgs)
+        _arthera_root = os.environ.get("ARTHERA_ROOT", "").strip()
+        if _arthera_root:
+            _arthera_pkgs = os.path.join(os.path.expanduser(_arthera_root), "packages")
+            if os.path.isdir(_arthera_pkgs) and _arthera_pkgs not in sys.path:
+                sys.path.append(_arthera_pkgs)
 
         if self.context.has_rich:
             self.context.console.print("\n  [bold cyan]ML 信号组合回测[/bold cyan]  三策略对比\n")

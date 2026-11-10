@@ -63,7 +63,12 @@ class HeadlessMixin:
         """The work of run_prompt: a slash command, a deterministic answer, or an agent turn."""
         model = self.config.get("model", "qwen2.5:7b")
         thinking_mode = self.config.get("thinking_mode", "auto")
-        auth_token = self.config.get("auth_token")
+        from aria_code.account_session import prepare_account
+        from aria_code.apps.cli.config_store import save_cli_config
+        from aria_code.apps.cli.config_paths import resolve_paths
+        save_account = lambda cfg: save_cli_config(resolve_paths(), cfg)
+        auth_token = await prepare_account(self.config, save_account)
+        auth_token = auth_token or self.config.get("auth_token")
         user_context = _build_user_context(self.config)
 
         local_mode = self.config.get("local_mode", False)
@@ -171,6 +176,8 @@ class HeadlessMixin:
                 # This method runs on aria_cli's names; these two live here.
                 from aria_code.apps.cli.headless import _apply_approval_decision, _headless_approval
 
+                import uuid
+                _headless_scope = str(getattr(self, "session_id", "") or uuid.uuid4())
                 _turn = await run_chat_via_runtime(
                     prompt=prompt, history=[],
                     local_tools=LOCAL_TOOLS, tool_schemas=LOCAL_TOOL_SCHEMAS,
@@ -197,6 +204,7 @@ class HeadlessMixin:
                     on_tool_result=events.tool_completed,
                     on_token=events.text_delta if events.streaming else None,
                     on_status=events.status if events.streaming else None,
+                    execution_context=lambda: {"_session_id": _headless_scope},
                     return_result=True,
                 )
                 _tools_used = list(getattr(_turn.final, "tools", []) or [])
@@ -254,6 +262,27 @@ class HeadlessMixin:
             print(f"⚠ {'验收未通过' if _zh else 'Checks failed'}: {_acceptance.get('headline', '')}",
                   file=sys.stderr)
 
+        # What this run cost, as the provider reported it. An evaluation harness
+        # asks for it in ARIA_USAGE_FILE; imports are local because aria_cli
+        # rebinds these methods to its own globals.
+        import json as _json
+        import os as _os
+        _config = getattr(self, "config", {}) or {}
+        result["usage"] = {
+            "model": str(_config.get("model", "") or ""),
+            "provider": str(_config.get("local_provider", "") or ""),
+            "input_tokens": int(getattr(self, "_session_input_tokens", 0) or 0),
+            "output_tokens": int(getattr(self, "_session_output_tokens", 0) or 0),
+            "thinking_tokens": int(getattr(self, "_session_thinking_tokens", 0) or 0),
+            "turns": int(getattr(self, "_session_turns", 0) or 0),
+        }
+        _usage_file = _os.environ.get("ARIA_USAGE_FILE")
+        if _usage_file:
+            try:
+                with open(_usage_file, "w", encoding="utf-8") as _handle:
+                    _json.dump(result["usage"], _handle)
+            except OSError:
+                pass
         events.emit("turn.completed", **json_safe(result))
         out = machine_out or sys.stdout
         if fmt == "jsonl":

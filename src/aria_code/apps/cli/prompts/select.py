@@ -51,8 +51,8 @@ def select_base_prompt(message: str, *, intent: Optional[str] = None) -> str:
     (a live-data lookup, where the finance prompt is assembled with fetched
     data by the caller that has it).
     """
-    from aria_code.apps.cli.conversation_policy import is_social_message
-    if intent is None and is_social_message(message):
+    from aria_code.apps.cli.conversation_policy import is_conversation_only_message
+    if intent is None and is_conversation_only_message(message):
         return _general_prompt()
     resolved = intent or _intent_of(message)
     if resolved == "general" and intent is None and _needs_workspace(message):
@@ -127,10 +127,10 @@ def _general_prompt() -> str:
 
     today = datetime.now().strftime("%Y-%m-%d")
     return (
-        f"You are Aria, Arthera's product and software-engineering assistant. "
+        f"You are Aria, Arthera's general-purpose task assistant. "
         f"Today is {today}.\n"
-        "You review products, understand repositories, find defects and risks, plan "
-        "architecture, and write and verify code. Specialist domains have their own "
+        "You research questions, inspect datasets, draft documents, review products, "
+        "understand repositories, plan and verify software changes. Specialist domains have their own "
         "guidance, which is added to a turn only when the user's request is about "
         "one; never list or offer what you can do unprompted.\n\n"
         "- Read the evidence before proposing a change; never claim to have read a "
@@ -140,6 +140,8 @@ def _general_prompt() -> str:
         "- Answer in the user's language. Be concise and specific."
         "\n- A standalone greeting or thanks needs only a short direct reply, with no tools, "
         "directory inventory, personal-file references or internal role titles."
+        "\n- A standalone question about your capabilities needs a direct explanation in the user\'s language. "
+        "Do not resume an earlier task, scan files, or claim an external connection is active without evidence."
     )
 
 
@@ -160,11 +162,16 @@ def build_turn_system_prompt(
     if override and override.strip():
         return override
 
-    from aria_code.apps.cli.conversation_policy import is_social_message
-    if intent is None and is_social_message(message):
+    from aria_code.apps.cli.conversation_policy import is_conversation_only_message
+    if intent is None and is_conversation_only_message(message):
         return _general_prompt()
 
-    parts = [select_base_prompt(message, intent=intent), OUTPUT_DISCIPLINE]
+    from aria_code.runtime.agent_profiles import DELEGATION_GUIDANCE
+    parts = [select_base_prompt(message, intent=intent), OUTPUT_DISCIPLINE, DELEGATION_GUIDANCE]
+    from aria_code.agents.warehouse.task_agent import is_navigation_task, WORKFLOW_KNOWLEDGE
+    if is_navigation_task(message):
+        parts.append(WORKFLOW_KNOWLEDGE)
+
     if project_context and project_context.strip():
         parts.append(project_context.strip())
 

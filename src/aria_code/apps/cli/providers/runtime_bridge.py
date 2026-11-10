@@ -137,6 +137,7 @@ def build_acceptance_gate(executor, config: Optional[dict] = None, message: str 
         max_attempts=int(cfg.get("acceptance_max_attempts", 2) or 2),
         commands=_declared_acceptance_commands(cfg, message),
         baseline=_build_baseline(executor, cfg, timeout),
+        revision_inputs=cfg.get("acceptance_revision_inputs") or (),
     )
 
 
@@ -198,8 +199,13 @@ def build_review_gate(config: Optional[dict] = None, *, model: str, api_url: Opt
                       ollama_url: str, thinking_mode: str = "auto", auth_token: Optional[str] = None):
     """The independent reviewer for this turn, or None unless review_gate is on.
 
-    Same model, fresh context: no history, no tools, no project context — the
-    reviewer judges the diff it is given, not the conversation that made it.
+    Fresh context: no history, no tools, no project context — the reviewer
+    judges the diff it is given, not the conversation that made it. By default
+    it is the same model; ``review_model`` (``anthropic/claude-sonnet-5-5``,
+    ``openai/...``, ``google/...``) hands the review to a different one, so the
+    model that wrote the change is not also the one that approves it. That sends
+    the diff, the goal and the check results to that provider, which is why it
+    is a setting and never a default.
     """
     cfg = config or {}
     if not cfg.get("review_gate", False):
@@ -208,9 +214,14 @@ def build_review_gate(config: Optional[dict] = None, *, model: str, api_url: Opt
         return None
     from aria_code.runtime.review import REVIEWER_SYSTEM, ReviewGate
 
+    other = str(cfg.get("review_model") or "").strip()
+    separate = bool(other) and other != model
     reviewer_fn = make_provider_fn(
-        model=model, config=cfg, api_url=api_url, ollama_url=ollama_url,
-        tool_schemas=[], thinking_mode=thinking_mode, auth_token=auth_token,
+        model=other if separate else model, config=cfg,
+        # A separate reviewer names its own provider, so it must not go through the
+        # builder's Aria backend (api_url) or its auth token.
+        api_url=None if separate else api_url, ollama_url=ollama_url,
+        tool_schemas=[], thinking_mode=thinking_mode, auth_token=None if separate else auth_token,
         system_override=REVIEWER_SYSTEM,
     )
 
@@ -224,7 +235,7 @@ def build_review_gate(config: Optional[dict] = None, *, model: str, api_url: Opt
         attempts = int(cfg.get("review_max_attempts", 1))
     except (TypeError, ValueError):
         attempts = 1
-    return ReviewGate(reviewer=_review, max_attempts=max(0, attempts))
+    return ReviewGate(reviewer=_review, max_attempts=max(0, attempts), reviewer_name=other if separate else "")
 
 
 async def run_with_fallback(
@@ -298,16 +309,22 @@ def make_provider_fn(
     from aria_code.apps.cli.providers.base import AriaSSEProvider, ConfiguredProvider, OllamaProvider
     from aria_code.packages.aria_sdk.streaming import stream_provider_result
 
+    from aria_code.memory_manager import MemoryManager
+    account_context = MemoryManager(config=config).load_context(max_chars=1000)
     _cloud_uctx = dict(user_context or {})
+    if account_context and not system_override:
+        _cloud_uctx["account_memory"] = account_context
     if system_override:
         _cloud_uctx["system_role_override"] = system_override
+
+    task_prompt: Optional[str] = None
 
     def _scoped_tools(prompt: str) -> List[dict]:
         """Tools this message may use: core always, domain only when claimed."""
         try:
             from aria_code.apps.cli.tool_scope import select_tool_schemas
 
-            return select_tool_schemas(tool_schemas, prompt, allow_social_tools=bool((system_override or "").strip()))
+            return select_tool_schemas(tool_schemas, task_prompt if task_prompt is not None else prompt, allow_social_tools=bool((system_override or "").strip()))
         except Exception:
             return list(tool_schemas)
 
@@ -323,9 +340,9 @@ def make_provider_fn(
             from aria_code.apps.cli.prompts.select import build_turn_system_prompt
 
             return build_turn_system_prompt(
-                prompt,
+                task_prompt if task_prompt is not None else prompt,
                 override=system_override,
-                project_context=str(project_context or ""),
+                project_context="\n\n".join(filter(None, [str(project_context or ""), account_context])),
             )
         except Exception:
             return system_override or ""
@@ -333,6 +350,9 @@ def make_provider_fn(
     async def _provider_fn(prompt, history, *, on_token=None, on_thinking=None,
                            on_tool_call=None, on_tool_result=None, on_status=None,
                            cancel_event=None):
+        nonlocal task_prompt
+        if task_prompt is None:
+            task_prompt = prompt
         route = first_round_route(model, config, api_url)
 
         # ollama_stream does its own intent-based selection; the other
@@ -353,7 +373,7 @@ def make_provider_fn(
                 AriaSSEProvider(
                     api_url, model, thinking_mode=thinking_mode,
                     user_context=_cloud_uctx, auth_token=auth_token,
-                    project_context=project_context,
+                    project_context="\n\n".join(filter(None, [str(project_context or ""), account_context])),
                     use_react_gateway=bool(config.get("arthera_react_gateway")),
                     local_tools=bool(config.get("backend_local_tools")),
                 ),
@@ -379,7 +399,8 @@ def make_provider_fn(
                 import aria_cli  # noqa: F401  (side effect: rebinds stream_ollama)
 
             selected = (
-                OllamaProvider(ollama_url, model, system_override=system_override)
+                OllamaProvider(ollama_url, model, system_override=system_override,
+                               **({"include_ambient_context": False} if config.get("_delegate_context_only") else {}))
                 if route == "ollama" else
                 ConfiguredProvider(config, model, system_override=_system_for(prompt))
             )
@@ -425,6 +446,7 @@ async def run_chat_via_runtime(
     requires_evidence: bool = False,
     grounding_tools=(),
     evidence_already_grounded: bool = False,
+    tool_record_sink: Optional[Callable] = None,
 ):
     """Run one chat turn through the shared runtime Gateway.
 
@@ -438,14 +460,16 @@ async def run_chat_via_runtime(
     """
     from aria_code.runtime.gateway import run_turn
     from aria_code.apps.cli.workspace_route import workspace_config
-    from aria_code.apps.cli.conversation_policy import is_social_message
+    from aria_code.apps.cli.conversation_policy import is_conversation_only_message
 
     config = workspace_config(prompt, model, config, api_url)
-    social_only = not (system_override or "").strip() and is_social_message(prompt)
+    social_only = not (system_override or "").strip() and is_conversation_only_message(prompt)
     if social_only:
         # Host-owned policy, also enforced at execution if a provider returns
         # an unsolicited call despite receiving no schemas. Never save it.
         config = {**config, "_conversation_only": True}
+        requires_evidence = False
+        grounding_tools = ()
         tool_schemas = []
         project_context = None
 
@@ -461,23 +485,28 @@ async def run_chat_via_runtime(
     review = None if social_only else build_review_gate(config, model=model, api_url=api_url, ollama_url=ollama_url,
                                thinking_mode=thinking_mode, auth_token=auth_token)
 
-    result = await run_turn(
-        prompt, history,
-        provider_fn=provider_fn, tool_executor=executor,
-        tool_schemas=list(tool_schemas),
-        on_token=on_token, on_thinking=on_thinking,
-        on_tool_call=on_tool_call, on_tool_result=on_tool_result, on_status=on_status,
-        cancel_event=cancel_event, max_rounds=max_rounds,
-        confirm_tools=confirm_tools,
-        approval_callback=approval_callback,
-        approval_applier=approval_applier,
-        requires_evidence=requires_evidence,
-        grounding_tools=grounding_tools,
-        evidence_already_grounded=evidence_already_grounded,
-        acceptance=gate,
-        contract=contract,
-        review=review,
-    )
+    try:
+        result = await run_turn(
+            prompt, history,
+            provider_fn=provider_fn, tool_executor=executor,
+            tool_schemas=list(tool_schemas),
+            on_token=on_token, on_thinking=on_thinking,
+            on_tool_call=on_tool_call, on_tool_result=on_tool_result, on_status=on_status,
+            cancel_event=cancel_event, max_rounds=max_rounds,
+            confirm_tools=confirm_tools,
+            approval_callback=approval_callback,
+            approval_applier=approval_applier,
+            requires_evidence=requires_evidence,
+            grounding_tools=grounding_tools,
+            evidence_already_grounded=evidence_already_grounded,
+            acceptance=gate,
+            contract=contract,
+            review=review,
+        )
+    finally:
+        if tool_record_sink is not None:
+            for record in executor.trace.tool_calls:
+                tool_record_sink(record)
     return result if return_result else result.text
 
 
@@ -489,7 +518,10 @@ def subagent_run_options(config: dict, task: Any) -> tuple[dict, dict]:
     task's tools to the session's directory, whatever the task said.
     """
     cfg = dict(config or {})
+    cfg["_delegate_context_only"] = True
     mode = str(getattr(task, "mode", "") or "read-only")
+    if mode != "read-only" and cfg.get("permission_mode") in _READ_ONLY_MODES:
+        raise PermissionError("A child cannot exceed the parent permission mode")
     cfg["permission_mode"] = "read-only" if mode == "read-only" else "workspace-write"
     context: dict = {"_session_id": str(getattr(task, "session_id", "") or "")}
     workspace = str(getattr(task, "workspace", "") or "")
@@ -507,12 +539,48 @@ async def run_subagent_turn(prompt: str, task: Any, *, local_tools, tool_schemas
                             config: dict, api_url: Optional[str]) -> str:
     """Run one background task through the same runtime as a chat turn."""
     cfg, context = subagent_run_options(config, task)
+    from aria_code.runtime.agent_profiles import get_profile
+    profile = get_profile(str(getattr(task, "agent", "general")))
+    delegation = {"spawn_task", "task_cancel", "task_status", "task_result", "task_list", "list_agents", "list_task_context"}
+    allowed = set(local_tools) - delegation
+    if profile.tools is not None:
+        allowed.intersection_update(profile.tools)
+    if "_agent_allowed_tools" in cfg:
+        allowed.intersection_update(cfg["_agent_allowed_tools"])
+    cfg["_agent_allowed_tools"] = sorted(allowed)
+    tools = {name: value for name, value in local_tools.items() if name in allowed}
+    schemas = [s for s in tool_schemas if (s.get("function") or s).get("name") in allowed]
+    from aria_code.runtime.task_context import CONTEXT_POLICY
+    from aria_code.runtime.task_verification import MAX_RECEIPTS, receipt_from_record
+
+    def record_evidence(record):
+        if task is None:
+            return
+        if not hasattr(task, "evidence"):
+            task.evidence = []
+        if len(task.evidence) >= MAX_RECEIPTS:
+            task.evidence_truncated = True
+            return
+        task.evidence.append(receipt_from_record(record, str(getattr(task, "workspace", "") or ".")))
+
     result = await run_chat_via_runtime(
-        prompt=prompt, history=[], local_tools=local_tools, tool_schemas=tool_schemas,
+        prompt=prompt, history=[], local_tools=tools, tool_schemas=schemas,
         model=str(cfg.get("model") or ""), config=cfg, api_url=api_url,
         ollama_url=str(cfg.get("ollama_url") or "http://localhost:11434"),
         execution_context=lambda: dict(context), return_result=True,
+        tool_record_sink=record_evidence,
+        max_rounds=min(int(getattr(task, "max_rounds", profile.max_rounds)), profile.max_rounds),
+        system_override=("You are a delegated Aria task agent. Stay within the task goal, available tools and inherited permissions. "
+                         "Never delegate, publish, send messages, deploy or claim unexecuted checks. "
+                         "End with FINDINGS: ...; CHANGED_FILES: ...; VERIFICATION: ...; BLOCKERS: ... . "
+                         "Report actual source locations and executed checks; say when checks were not run.\n"
+                         + CONTEXT_POLICY + profile.instructions),
     )
-    if getattr(result, "error", None) and not str(getattr(result, "text", "") or "").strip():
+    if getattr(result, "error", None):
         raise RuntimeError(str(result.error))
+    final = getattr(result, "final", None)
+    if (getattr(result, "cancelled", False) or (final is not None and
+            (not getattr(final, "success", False) or (getattr(final, "acceptance", None) or {}).get("verified") is False))):
+        raise RuntimeError("The delegated runtime did not complete with accepted execution")
     return str(getattr(result, "text", "") or "")
+

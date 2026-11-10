@@ -353,7 +353,14 @@ class VertexAIProvider(LLMProvider):
                 contents[-1].parts.append(types.Part.from_text(text=content_str))
             else:
                 contents.append(types.Content(role=genai_role, parts=[types.Part.from_text(text=content_str)]))
-                
+
+        # Gemini refuses a request whose last turn is the model's ("Requests
+        # ending with a model turn are not supported"). That happens when the
+        # history ends on a tool call that was never answered, or when the
+        # message that would have followed it was empty and skipped above.
+        answer_leftovers()
+        if contents and contents[-1].role == "model":
+            contents.append(types.Content(role="user", parts=[types.Part.from_text(text="Continue.")]))
         return contents, system_instruction
 
     def _function_call_parts(self, tool_calls: list, types) -> Optional[list]:

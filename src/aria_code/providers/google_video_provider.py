@@ -4,7 +4,7 @@ Generates video clips via Google Cloud Veo 3.1:
 - veo-3.1-fast-generate-001 (default: faster and cheaper per second)
 - veo-3.1-generate-001 (higher quality)
 
-Checked against arthera-prod on 2026-09-15: only the Veo 3.1 GA models are
+Checked against our production project on 2026-09-15: only the Veo 3.1 GA models are
 reachable; veo-3.0-* and veo-2.0-generate-001 return 404. Veo 3.1 accepts
 durations of 4, 6 or 8 seconds and aspect ratios 16:9 / 9:16, is served from a
 region (not "global"), and its long-running operation is read with

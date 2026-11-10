@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import urllib.request
 from typing import Optional
 
@@ -319,7 +320,79 @@ def _prelude_available(ollama_url: str) -> bool:
         return False
 
 
+_MLX_MODE_ENV = "ARIA_PRELUDE_MLX"        # off (default) | shadow | on
+_MLX_URL_ENV = "ARIA_PRELUDE_MLX_URL"     # an mlx_lm.server, e.g. http://127.0.0.1:8099
+_MLX_TIMEOUT = 2.0
+_LABELS = (INTENT_CODING, INTENT_ANALYSIS, INTENT_REALTIME, INTENT_GENERAL, INTENT_FINANCE)
+
+
+def mlx_mode() -> str:
+    """``off`` unless the experiment is switched on; ``shadow`` only compares, ``on`` routes."""
+    import os
+
+    value = os.environ.get(_MLX_MODE_ENV, "off").strip().lower()
+    return value if value in {"shadow", "on"} else "off"
+
+
+def parse_label(raw: str) -> Optional[str]:
+    """The one routing label a reply names, or None when it names none or several."""
+    words = set(re.findall(r"[a-z]+", (raw or "").lower()))
+    found = [label for label in _LABELS if label in words]
+    return found[0] if len(found) == 1 else None
+
+
+async def _classify_mlx(message: str, *, timeout: float = _MLX_TIMEOUT) -> Optional[str]:
+    """Ask a local MLX server running the fine-tuned Prelude; None on any problem."""
+    import os
+
+    try:
+        import aiohttp
+    except ImportError:
+        return None
+    base = os.environ.get(_MLX_URL_ENV, "http://127.0.0.1:8099").rstrip("/")
+    payload = {
+        "model": "default_model", "max_tokens": 6, "temperature": 0.0, "stream": False,
+        "messages": [{"role": "system", "content": _PRELUDE_SYSTEM}, {"role": "user", "content": message}],
+    }
+    try:
+        async with aiohttp.ClientSession(trust_env=True) as sess:
+            async with sess.post(base + "/v1/chat/completions", json=payload,
+                                 timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+        return parse_label(data["choices"][0]["message"]["content"])
+    except Exception:
+        return None
+
+
 async def classify_intent_async(
+    message: str,
+    ollama_url: str = "http://localhost:11434",
+    *,
+    timeout: float = _PRELUDE_TIMEOUT,
+) -> str:
+    """Route a message. The default path is unchanged; ``ARIA_PRELUDE_MLX`` opts into an experiment.
+
+    ``shadow`` asks the fine-tuned model too, returns the default answer, and records only
+    whether the two agreed (never the message). ``on`` returns the model's label when it
+    gives one and otherwise falls back to the default path.
+    """
+    mode = mlx_mode()
+    if mode == "off" or is_visual_market_artifact_request(message):
+        return await _classify_default_async(message, ollama_url, timeout=timeout)
+    candidate = await _classify_mlx(message)
+    if mode == "on" and candidate:
+        return candidate
+    baseline = await _classify_default_async(message, ollama_url, timeout=timeout)
+    if mode == "shadow":
+        from aria_code.apps.cli.intent_shadow import record
+
+        record(message, candidate, baseline)
+    return baseline
+
+
+async def _classify_default_async(
     message: str,
     ollama_url: str = "http://localhost:11434",
     *,

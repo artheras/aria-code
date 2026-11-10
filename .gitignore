@@ -118,3 +118,10 @@ docs/assets/*.gif
 # Go relay builds
 go/relay/aria-relay
 go/relay/aria-relay-race
+
+# Local submission material and generated media (never part of service source)
+/competition-assets/
+/submission-assets/
+/local-media/
+/outputs/hackathon/
+/examples/hackathon/

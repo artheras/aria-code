@@ -13,7 +13,7 @@
 # backend because the backend does not pass Aria's tools to the model, and
 # these tasks need them. Set three repository variables (not secrets; they are
 # identifiers):
-#   GCP_PROJECT                      e.g. arthera-prod
+#   GCP_PROJECT                      e.g. my-gcp-project
 #   GCP_WORKLOAD_IDENTITY_PROVIDER   projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
 #   GCP_EVAL_SERVICE_ACCOUNT         a service account with roles/aiplatform.user
 # Without them the job says so and stops.

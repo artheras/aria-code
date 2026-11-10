@@ -13,12 +13,12 @@ from aria_code.apps.cli.prompts.select import OUTPUT_DISCIPLINE, build_turn_syst
 
 
 def test_tasks_and_general_questions_get_the_output_rules():
-    for message in ("fix the failing test", "AAPL price", "what can you help me do?", "what is a reorder point", "hello there, read README.md"):
+    for message in ("fix the failing test", "AAPL price", "what is a reorder point", "hello there, read README.md"):
         assert OUTPUT_DISCIPLINE in build_turn_system_prompt(message)
 
 
 def test_standalone_social_messages_do_not_request_file_or_computation_work():
-    for message in ("hello there", "你好", "thank you"):
+    for message in ("hello there", "你好", "thank you", "what can you help me do?", "你除了分析股票外还能帮我做什么"):
         assert OUTPUT_DISCIPLINE not in build_turn_system_prompt(message)
 
 

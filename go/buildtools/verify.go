@@ -190,7 +190,8 @@ func verifyFrontend(ctx context.Context, directory string, output io.Writer) err
 	frontend := filepath.Join(root, executable("aria-code-bin"))
 	worker := filepath.Join(root, executable("aria-code-worker"))
 	helper := filepath.Join(contentsDir(root), executable("aria-native"))
-	for _, path := range []string{frontend, worker, helper} {
+	engine := filepath.Join(root, executable("aria-runtime"))
+	for _, path := range []string{frontend, worker, helper, engine} {
 		if err := regular(path); err != nil {
 			return err
 		}
@@ -204,7 +205,7 @@ func verifyFrontend(ctx context.Context, directory string, output io.Writer) err
 	if err := os.Mkdir(state, 0o700); err != nil {
 		return err
 	}
-	config := []byte(`{"model":"gemini-3.5-flash","local_provider":"google","check_for_update_on_startup":false,"auto_save_sessions":true,"task_isolation":"off"}`)
+	config := []byte(`{"model":"gemini-3.8-flash","local_provider":"google","check_for_update_on_startup":false,"auto_save_sessions":true,"task_isolation":"off"}`)
 	if err := os.WriteFile(filepath.Join(state, "config.json"), config, 0o600); err != nil {
 		return err
 	}
@@ -225,6 +226,13 @@ func verifyFrontend(ctx context.Context, directory string, output io.Writer) err
 	}
 	if workerVersion != version {
 		return fmt.Errorf("frontend/worker version mismatch: %q != %q", version, workerVersion)
+	}
+	engineVersion, err := run(engine, "--version")
+	if err != nil {
+		return err
+	}
+	if "aria-code "+strings.TrimPrefix(engineVersion, "aria-runtime ") != version {
+		return fmt.Errorf("frontend/engine version mismatch: %q != %q", version, engineVersion)
 	}
 	if runtime.GOOS != "windows" {
 		aliases := filepath.Join(temp, "bin")
@@ -262,11 +270,14 @@ func verifyFrontend(ctx context.Context, directory string, output io.Writer) err
 		return err
 	}
 	var readyVersion string
-	var robot []json.RawMessage
+	var robot struct {
+		Design string `json:"design"`
+	}
 	_ = json.Unmarshal(ready["version"], &readyVersion)
+	// The Go engine sends the robot as its design; the Rust frontend draws it.
 	_ = json.Unmarshal(ready["robot"], &robot)
-	if "aria-code "+readyVersion != version || len(robot) != 4 {
-		return fmt.Errorf("invalid ready version or robot")
+	if "aria-code "+readyVersion != version || robot.Design != "cream-block-v2" {
+		return fmt.Errorf("invalid ready version or robot: the session did not come from the bundled Go engine")
 	}
 	const marker = "bundled runtime file access"
 	if err := os.WriteFile(filepath.Join(temp, "note.txt"), []byte(marker), 0o600); err != nil {
@@ -288,6 +299,6 @@ func verifyFrontend(ctx context.Context, directory string, output io.Writer) err
 	if !response.Result.Success || !bytes.Contains(response.Result.Data, []byte(marker)) {
 		return fmt.Errorf("bundled file tool did not return the fixture contents")
 	}
-	_, err = fmt.Fprintf(output, "%s: Rust frontend, frozen worker, canonical robot, file tool and shutdown passed\n", version)
+	_, err = fmt.Fprintf(output, "%s: Rust frontend, Go engine, frozen worker, robot, file tool and shutdown passed\n", version)
 	return err
 }

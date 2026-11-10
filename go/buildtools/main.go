@@ -12,7 +12,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -32,6 +34,21 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		if err := verifyFrontend(ctx, os.Args[2], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "runtime" {
+		// The Go engine beside another frozen program, such as the MCP
+		// server, whose Python entry point hands over to it.
+		flags := flag.NewFlagSet("aria-bundle runtime", flag.ContinueOnError)
+		root := flags.String("root", "", "Repository root (required)")
+		if err := flags.Parse(os.Args[2:]); err != nil || *root == "" || flags.NArg() != 1 {
+			fmt.Fprintln(os.Stderr, "usage: aria-bundle runtime --root REPOSITORY ONEDIR")
+			os.Exit(2)
+		}
+		if err := installRuntime(*root, flags.Arg(0), os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -101,12 +118,6 @@ func bundle(root, onedir string, frontend bool, output io.Writer) error {
 			return fmt.Errorf("worker already exists or cannot be inspected: %s", worker)
 		}
 	}
-	build := exec.Command("cargo", "build", "--release", "--locked", "-p", "aria-native")
-	build.Dir = filepath.Join(root, "rust")
-	build.Stdout, build.Stderr = output, output
-	if err := build.Run(); err != nil {
-		return fmt.Errorf("Rust build failed: %w", err)
-	}
 	targetDir := os.Getenv("CARGO_TARGET_DIR")
 	if targetDir == "" {
 		targetDir = "target"
@@ -114,8 +125,70 @@ func bundle(root, onedir string, frontend bool, output io.Writer) error {
 	if !filepath.IsAbs(targetDir) {
 		targetDir = filepath.Join(root, "rust", targetDir)
 	}
-	built := filepath.Join(targetDir, "release", executable("aria-native"))
-	return installNative(built, onedir, frontend, output)
+	args, built := rustBuild(targetDir)
+	build := exec.Command("cargo", args...)
+	build.Dir = filepath.Join(root, "rust")
+	build.Stdout, build.Stderr = output, output
+	if err := build.Run(); err != nil {
+		return fmt.Errorf("Rust build failed: %w", err)
+	}
+	if err := installNative(built, onedir, frontend, output); err != nil {
+		return err
+	}
+	if frontend {
+		return installRuntime(root, onedir, output)
+	}
+	return nil
+}
+
+var glibcSuffix = regexp.MustCompile(`\.\d+\.\d+$`)
+
+// rustBuild is the cargo command for aria-native and where it leaves the
+// binary. ARIA_RUST_TARGET (e.g. x86_64-unknown-linux-gnu.2.17) builds with
+// cargo-zigbuild against that glibc, so the Linux frontend, and the pip
+// platform wheel that carries it, run on older distributions than the
+// build machine.
+func rustBuild(targetDir string) ([]string, string) {
+	target := strings.TrimSpace(os.Getenv("ARIA_RUST_TARGET"))
+	if target == "" {
+		return []string{"build", "--release", "--locked", "-p", "aria-native"}, filepath.Join(targetDir, "release", executable("aria-native"))
+	}
+	triple := glibcSuffix.ReplaceAllString(target, "")
+	return []string{"zigbuild", "--release", "--locked", "-p", "aria-native", "--target", target},
+		filepath.Join(targetDir, triple, "release", executable("aria-native"))
+}
+
+var pyprojectVersion = regexp.MustCompile(`(?m)^version\s*=\s*"([^"]+)"`)
+
+// installRuntime builds the Go engine next to the frozen worker. The Rust
+// frontend runs it for the application, stream and tool-bridge modes, so
+// its version must be the product's.
+func installRuntime(root, onedir string, output io.Writer) error {
+	body, err := os.ReadFile(filepath.Join(root, "pyproject.toml"))
+	if err != nil {
+		return err
+	}
+	m := pyprojectVersion.FindSubmatch(body)
+	if m == nil {
+		return errors.New("pyproject.toml has no version")
+	}
+	target := filepath.Join(onedir, executable("aria-runtime"))
+	if _, err := os.Lstat(target); !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("runtime already exists or cannot be inspected: %s", target)
+	}
+	build := exec.Command("go", "build", "-trimpath", "-ldflags", "-s -w -X main.version="+string(m[1]), "-o", target, ".")
+	build.Dir = filepath.Join(root, "go", "runtime")
+	build.Env = append(os.Environ(), "CGO_ENABLED=0")
+	build.Stdout, build.Stderr = output, output
+	if err := build.Run(); err != nil {
+		os.Remove(target)
+		return fmt.Errorf("Go runtime build failed: %w", err)
+	}
+	if err := regular(target); err != nil {
+		return fmt.Errorf("Go runtime build wrote no binary: %w", err)
+	}
+	fmt.Fprintf(output, "bundled aria-runtime %s at %s\n", m[1], target)
+	return nil
 }
 
 // Copy to a same-filesystem temporary file, execute it there, then commit the

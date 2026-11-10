@@ -6,7 +6,9 @@ Responsibilities:
   1. Price alert watchdog  — checks SQLite alerts every 30 s
   2. APScheduler cron jobs — morning brief, market scan, custom schedules
   3. Telegram bot          — bidirectional command channel
-  4. Webhook job executor  — processes jobs queued by FastAPI /webhook/trigger
+  4. Webhook job executor  — runs pending jobs from the local webhook_jobs table
+     TradingView endpoint   — POST /api/v1/webhook/tradingview (alias
+                              /api/v1/tradingview/webhook) queues alerts
   5. APNs push delivery    — fires on alert trigger or scheduled job completion
 
 Start manually:   python3 aria_daemon.py [--debug]
@@ -21,9 +23,16 @@ Config via env vars (or ~/.aria/.env):
   APNS_BUNDLE_ID            — App bundle ID (default: com.arthera.app)
   APNS_SANDBOX              — "true" for sandbox / TestFlight (default: true)
   APNS_AUTH_KEY_P8          — .p8 key content, or place file at ~/.aria/apns.p8
-  WEBHOOK_TOKEN             — Static token for /api/v1/webhook/trigger
+  WEBHOOK_TOKEN             — Token for /api/v1/webhook/tradingview, sent in the
+                              X-Aria-Token, X-TradingView-Secret or
+                              Authorization: Bearer header (never the query
+                              string). TRADINGVIEW_WEBHOOK_SECRET takes precedence.
+  ARIA_WEBHOOK_SECRET       — Passphrase TradingView puts in the alert body
+                              (TradingView cannot send headers)
   ARIA_WEBHOOK_HOST         — Daemon webhook host (default: 127.0.0.1)
-  ARIA_WEBHOOK_PORT         — Daemon webhook port (default: 8765)
+  ARIA_WEBHOOK_PORT         — Daemon webhook port (default: 8765 — the same
+                              default as the relay server; set this when both
+                              run on one machine)
   (the FastAPI backend URL is the `api_url` config key, not an env var —
    set it with `/config set api_url=...`)
   ARIA_CODE_DIR             — Path to aria-code directory
@@ -31,6 +40,7 @@ Config via env vars (or ~/.aria/.env):
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import os
 import signal
@@ -250,10 +260,27 @@ async def _feishu_push(title: str, body: str) -> None:
 
 # ── Alert watchdog ────────────────────────────────────────────────────────────
 
+def _go_daemon_running() -> bool:
+    """Whether `aria-runtime daemon` runs on this folder. It owns price alerts
+    and schedules then; this daemon keeps its Telegram bot, webhook queue and
+    portfolio watchdog, and skips the rest so nothing fires twice."""
+    try:
+        pid = int((_ARIA_DIR / "daemon-go.pid").read_text().strip())
+        if pid <= 0 or pid == os.getpid():
+            return False
+        os.kill(pid, 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 async def _alert_watchdog() -> None:
     """Check all active alerts against live prices every 30 seconds."""
     logger.info("Alert watchdog started")
     while True:
+        if _go_daemon_running():
+            await asyncio.sleep(30)
+            continue
         try:
             with sqlite3.connect(_DB_PATH) as conn:
                 conn.row_factory = sqlite3.Row
@@ -356,60 +383,6 @@ async def _auto_analyze_alert(symbol: str, price: float, pct_str: str) -> None:
 
 
 # ── Telegram command handler ─────────────────────────────────────────────────
-
-async def _telegram_command(cmd: str, args: str, chat_id: int) -> str:
-    """Route Telegram bot commands to Aria functions."""
-    args = args.strip()
-    logger.info("Telegram cmd=/%s args=%s chat=%d", cmd, args[:40], chat_id)
-
-    if cmd == "help":
-        return (
-            "*Aria 命令列表*\n\n"
-            "`/price SYMBOL` — 实时报价\n"
-            "`/report SYMBOL` — 深度分析研报\n"
-            "`/brief` — 今日晨报\n"
-            "`/screen` — 热门 A 股筛选\n"
-            "`/alert SYMBOL cond value` — 添加价格预警\n"
-            "    条件: price\\_above / price\\_below / pct\\_change\\_above\n"
-            "`/alerts` — 查看预警列表\n"
-            "`/status` — Daemon 运行状态\n"
-            "\n直接发文字也可对话 Aria。"
-        )
-
-    if cmd in ("price", "p"):
-        symbol = args.upper() or "SPY"
-        price, _ = await _fetch_price(symbol)
-        if price:
-            return f"*{symbol}* 当前价格: `¥{price:.4f}`" if len(symbol) == 6 and symbol.isdigit() else f"*{symbol}* ${price:.4f}"
-        return f"⚠️ 无法获取 {symbol} 价格（市场可能已关闭）"
-
-    if cmd == "report":
-        symbol = args.upper()
-        if not symbol:
-            return "用法: `/report AAPL` 或 `/report 600519`"
-        return await _run_report(symbol)
-
-    if cmd in ("brief", "morning", "briefing"):
-        return await _run_morning_brief()
-
-    if cmd == "screen":
-        return await _run_screener()
-
-    if cmd == "alert":
-        return await _handle_alert_add(args, chat_id)
-
-    if cmd == "alerts":
-        return _list_alerts()
-
-    if cmd == "status":
-        return _daemon_status()
-
-    if cmd == "chat":
-        # Natural language fallback
-        return await _run_chat(args)
-
-    return f"未知命令 `/{cmd}`。发送 `/help` 查看命令列表。"
-
 
 async def _run_report(symbol: str) -> str:
     """Generate a quick text summary report."""
@@ -849,69 +822,6 @@ async def _run_screener() -> str:
         return f"⚠️ 筛选器出错: {exc}"
 
 
-async def _handle_alert_add(args: str, chat_id: int) -> str:
-    """Parse and store an alert from Telegram. Format: SYMBOL cond value"""
-    parts = args.split()
-    if len(parts) < 3:
-        return (
-            "用法: `/alert SYMBOL condition value`\n"
-            "示例: `/alert 600362 price_below 39.5`\n"
-            "条件: `price_above` / `price_below`"
-        )
-    symbol, cond, val_str = parts[0].upper(), parts[1].lower(), parts[2]
-    valid_conds = {"price_above", "price_below", "pct_change_above", "pct_change_below"}
-    if cond not in valid_conds:
-        return f"⚠️ 无效条件 `{cond}`。可用: {', '.join(valid_conds)}"
-    try:
-        val = float(val_str)
-    except ValueError:
-        return f"⚠️ 无效数值: `{val_str}`"
-
-    import uuid
-    alert_id = str(uuid.uuid4())[:8]
-    with sqlite3.connect(_DB_PATH) as conn:
-        conn.execute(
-            "INSERT INTO alerts (id, symbol, condition, value, message, notify_push, notify_telegram) "
-            "VALUES (?,?,?,?,?,1,1)",
-            (alert_id, symbol, cond, val, f"{symbol} {cond.replace('_',' ')} {val}"),
-        )
-        conn.commit()
-    return f"✅ 预警已设置 `[{alert_id}]`\n{symbol} {cond.replace('_', ' ')} `{val}`"
-
-
-def _list_alerts() -> str:
-    with sqlite3.connect(_DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT id, symbol, condition, value, active, trigger_count FROM alerts ORDER BY created_at DESC LIMIT 15"
-        ).fetchall()
-    if not rows:
-        return "📭 暂无预警设置"
-    lines = ["*预警列表*\n"]
-    for r in rows:
-        status = "🟢" if r["active"] else "⚫"
-        lines.append(f"{status} `{r['id']}` {r['symbol']} {r['condition'].replace('_',' ')} `{r['value']}` (触发{r['trigger_count']}次)")
-    return "\n".join(lines)
-
-
-def _daemon_status() -> str:
-    pid = os.getpid()
-    with sqlite3.connect(_DB_PATH) as conn:
-        alert_count  = conn.execute("SELECT COUNT(*) FROM alerts WHERE active=1").fetchone()[0]
-        sched_count  = conn.execute("SELECT COUNT(*) FROM schedules WHERE enabled=1").fetchone()[0]
-        device_count = conn.execute("SELECT COUNT(*) FROM device_tokens").fetchone()[0]
-        job_count    = conn.execute("SELECT COUNT(*) FROM webhook_jobs WHERE status='pending'").fetchone()[0]
-    return (
-        f"*🤖 Aria Daemon 状态*\n"
-        f"  PID: `{pid}`\n"
-        f"  活跃预警: `{alert_count}`\n"
-        f"  定时任务: `{sched_count}`\n"
-        f"  推送设备: `{device_count}`\n"
-        f"  待处理 Webhook: `{job_count}`\n"
-        f"  时间: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`"
-    )
-
-
 async def _run_chat(text: str) -> str:
     """Simple chat fallback using aria-code LLM if configured."""
     return f"💬 _收到你的消息: \"{text[:80]}\"_\n\n请在 Terminal 启动 `/aria` 获得完整对话体验。"
@@ -952,14 +862,16 @@ async def _webhook_http_server() -> None:
     def _authorized(request) -> bool:
         if not token:
             return True
+        # Headers only: a token in the query string ends up in proxy and
+        # access logs and in browser history. TradingView, which cannot set
+        # headers, authenticates with the body passphrase (ARIA_WEBHOOK_SECRET).
         supplied = (
             request.headers.get("X-Aria-Token")
             or request.headers.get("X-TradingView-Secret")
             or request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
-            or request.query.get("token")
-            or request.query.get("secret")
+            or ""
         )
-        return supplied == token
+        return hmac.compare_digest(supplied.encode("utf-8"), token.encode("utf-8"))
 
     async def _handle_tradingview(request):
         # Open-mode guard (channels contract): with neither an endpoint token
@@ -967,19 +879,24 @@ async def _webhook_http_server() -> None:
         # an open endpoint reachable off-host would accept injected alerts.
         try:
             from apps.channels.intake import should_refuse_open_intake
-            secret_configured = bool(os.environ.get("ARIA_WEBHOOK_SECRET", "").strip())
-            if should_refuse_open_intake(
-                getattr(request, "remote", None),
-                token_configured=bool(token),
-                secret_configured=secret_configured,
-            ):
-                return web.json_response(
-                    {"success": False,
-                     "error": "open-mode intake refused for non-local client; set ARIA_WEBHOOK_SECRET or WEBHOOK_TOKEN"},
-                    status=403,
-                )
         except ImportError:
-            pass
+            # Without the guard we cannot tell whether this client may use an
+            # open endpoint, so it may not: fail closed rather than skip it.
+            logger.error("open-intake guard unavailable; refusing TradingView webhook")
+            return web.json_response(
+                {"success": False, "error": "webhook intake guard unavailable"}, status=503,
+            )
+        secret_configured = bool(os.environ.get("ARIA_WEBHOOK_SECRET", "").strip())
+        if should_refuse_open_intake(
+            getattr(request, "remote", None),
+            token_configured=bool(token),
+            secret_configured=secret_configured,
+        ):
+            return web.json_response(
+                {"success": False,
+                 "error": "open-mode intake refused for non-local client; set ARIA_WEBHOOK_SECRET or WEBHOOK_TOKEN"},
+                status=403,
+            )
         if not _authorized(request):
             return web.json_response({"success": False, "error": "unauthorized"}, status=401)
         text = await request.text()
@@ -1008,7 +925,15 @@ async def _webhook_http_server() -> None:
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host, port)
-    await site.start()
+    try:
+        await site.start()
+    except OSError as exc:
+        logger.error(
+            "TradingView webhook could not listen on %s:%d (%s). The relay server "
+            "also defaults to 8765; set ARIA_WEBHOOK_PORT to another port.", host, port, exc,
+        )
+        await runner.cleanup()
+        return
     logger.info("TradingView webhook listening on http://%s:%d/api/v1/webhook/tradingview", host, port)
     try:
         while True:
@@ -1199,6 +1124,9 @@ def _start_scheduler() -> None:
 
 
 async def _run_scheduled_job(schedule: dict) -> None:
+    if _go_daemon_running():
+        logger.info("Scheduled job %s left to aria-runtime daemon", schedule.get("name", schedule["id"]))
+        return
     logger.info("Running scheduled job: %s", schedule.get("name", schedule["id"]))
     import json as _j
     channels = _j.loads(schedule.get("channels") or '["ios","telegram"]')
@@ -1244,6 +1172,8 @@ async def _run_scheduled_job(schedule: dict) -> None:
 
 
 async def _run_morning_brief_and_push() -> None:
+    if _go_daemon_running():
+        return
     brief = await _run_morning_brief()
     await _telegram_push(brief)
     await _feishu_push("📊 Aria 晨报", brief[:2000])
@@ -1252,6 +1182,8 @@ async def _run_morning_brief_and_push() -> None:
 
 
 async def _run_evening_brief_and_push() -> None:
+    if _go_daemon_running():
+        return
     brief = await _run_evening_brief()
     await _telegram_push(brief)
     await _feishu_push("🌆 Aria 收盘简报", brief[:2000])
@@ -1260,6 +1192,8 @@ async def _run_evening_brief_and_push() -> None:
 
 
 async def _run_weekly_recap_and_push() -> None:
+    if _go_daemon_running():
+        return
     recap = await _run_weekly_recap()
     await _telegram_push(recap)
     await _feishu_push("📅 Aria 周报", recap[:2000])
@@ -1367,7 +1301,9 @@ async def main() -> None:
     # Start Telegram bot if token configured
     tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     if tg_token:
-        from aria_telegram_bot import TelegramBot
+        # Commands are answered by services/aria-bots (aria-runtime daemon for
+        # market data, the Go engine for everything else).
+        from aria_telegram_bot import TelegramBot, handle_command as _telegram_command
         allowed_raw = os.environ.get("TELEGRAM_ALLOWED_IDS", "")
         allowed_ids = set(
             int(x.strip()) for x in allowed_raw.split(",") if x.strip().isdigit()

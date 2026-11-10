@@ -270,6 +270,9 @@ def classify(message: str) -> str:
     """
     if not (message or "").strip():
         return INTENT_GENERAL
+    from aria_code.apps.cli.conversation_policy import is_capability_question
+    if is_capability_question(message):
+        return INTENT_GENERAL
 
     s = extract_signals(message)
 

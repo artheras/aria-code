@@ -214,11 +214,13 @@ class OllamaProvider:
         *,
         system_override: Optional[str] = None,
         show_market_prefetch_status: bool = True,
+        include_ambient_context: bool = True,
     ) -> None:
         self.ollama_url = ollama_url
         self.model = model
         self.system_override = system_override
         self.show_market_prefetch_status = show_market_prefetch_status
+        self.include_ambient_context = include_ambient_context
 
     async def stream(
         self,
@@ -249,6 +251,7 @@ class OllamaProvider:
                 defer_tool_execution=True,
                 system_override=self.system_override,
                 show_market_prefetch_status=self.show_market_prefetch_status,
+                **({"include_ambient_context": False} if not self.include_ambient_context else {}),
             )
 
         async for event in _stream_callback_provider(_invoke, done_provider="ollama"):

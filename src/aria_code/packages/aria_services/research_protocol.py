@@ -105,6 +105,9 @@ def requires_financial_evidence(query: str) -> bool:
     text = str(query or "").strip()
     if not text:
         return False
+    from aria_code.apps.cli.conversation_policy import is_capability_question
+    if is_capability_question(text):
+        return False
     lowered = text.lower()
     if not any(term in lowered for term in _EVIDENCE_INTENTS):
         return False

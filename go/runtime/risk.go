@@ -112,6 +112,8 @@ var Capabilities = set(
 	"secret.read",
 	"cloud.deploy",
 	"system.admin",
+	// Physical: acting on a device or a robot, which a checkpoint cannot undo.
+	"hardware.flash", "actuator.command",
 )
 
 // RiskAssessment mirrors RiskAssessment.as_dict().
@@ -372,6 +374,56 @@ var (
 	}
 )
 
+// firmwareVerbs are, per programmer, the words that mean "write or erase".
+var firmwareVerbs = map[string][]string{
+	"esptool":     {"write_flash", "write-flash", "erase_flash", "erase-flash", "erase_region", "erase-region"},
+	"esptool.py":  {"write_flash", "write-flash", "erase_flash", "erase-flash", "erase_region", "erase-region"},
+	"dfu-util":    {"-D", "--download"},
+	"st-flash":    {"write", "erase"},
+	"stm32flash":  {"-w"},
+	"nrfjprog":    {"--program", "--eraseall", "--recover"},
+	"picotool":    {"load", "erase"},
+	"fastboot":    {"flash", "flashall", "erase", "update"},
+	"arduino-cli": {"upload"},
+	"pio":         {"upload"},
+	"platformio":  {"upload"},
+	"idf.py":      {"flash", "erase-flash", "erase_flash"},
+	"west":        {"flash"},
+}
+
+var (
+	openocdProgram = pyRegexp(`\b(program|flash write_image)\b`)
+	avrdudeWrite   = pyRegexp(`flash:w`)
+	// `ros2 <noun> <verb>` that send a command to a running robot.
+	rosActuation = map[[2]string]bool{
+		{"topic", "pub"}: true, {"service", "call"}: true, {"action", "send_goal"}: true,
+		{"param", "set"}: true, {"lifecycle", "set"}: true,
+	}
+)
+
+// writesFirmware is true for a programmer invoked to write or erase a device,
+// not to read it.
+func writesFirmware(head string, words []string, lowered string) bool {
+	switch head {
+	case "openocd":
+		return openocdProgram.MatchString(lowered)
+	case "avrdude":
+		return avrdudeWrite.MatchString(lowered)
+	}
+	verbs, ok := firmwareVerbs[head]
+	if !ok {
+		return false
+	}
+	for _, w := range words[1:] {
+		for _, v := range verbs {
+			if w == v {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func set(items ...string) map[string]bool {
 	out := make(map[string]bool, len(items))
 	for _, item := range items {
@@ -595,6 +647,20 @@ func assessSegment(segment string) *riskDraft {
 			}
 		}
 		d.summary = "Install dependency"
+		return d
+	}
+	if writesFirmware(head, words, lowered) {
+		d.add("hardware.flash")
+		d.raiseTo(4, "Writes firmware to a device; a bad image can leave it unusable", true)
+		d.systems = append(d.systems, "Device firmware")
+		d.summary = "Flash firmware"
+		return d
+	}
+	if head == "ros2" && len(words) >= 3 && rosActuation[[2]string{words[1], words[2]}] {
+		d.add("actuator.command")
+		d.raiseTo(4, "Sends a command to a running robot (ros2 "+words[1]+" "+words[2]+"); it may move hardware", true)
+		d.systems = append(d.systems, "Robot / actuators")
+		d.summary = "Command a robot"
 		return d
 	}
 	for _, pattern := range deployPatterns {

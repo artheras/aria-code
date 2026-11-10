@@ -122,7 +122,8 @@ def application(tmp_path):
     (hooks / "sitecustomize.py").write_text(PROVIDER, encoding="utf-8")
     env = dict(os.environ, ARIA_HOME=str(home), ARIA_OFFLINE="1", HOME=str(tmp_path / "home"),
                ARIA_USER_OUTPUT_ROOT=str(tmp_path / "outputs"),
-               PYTHONPATH=str(hooks) + os.pathsep + str(Path(__file__).resolve().parents[1] / "src"))
+               PYTHONPATH=os.pathsep.join((str(hooks), str(Path(__file__).resolve().parents[1] / "src"),
+                                          str(Path(__file__).resolve().parents[1] / "src/aria_code"))))
     clients = []
     def start(*args, native=False):
         if native:
@@ -209,6 +210,10 @@ def test_each_approval_names_its_actual_file_in_a_multi_tool_batch(application):
     for name in ("first-note.txt", "second-note.txt"):
         menu = c.until("approval.requested")
         assert name in menu["context"]
+        # The runtime's assessment travels as data, for the frontend to draw.
+        risk = menu["risk"]
+        assert risk["level"] >= 1 and risk["score"] > 0 and isinstance(risk["reversible"], bool)
+        assert any(name in f for f in risk["files"]), risk
         c.send("dialog.respond", turn_id="two", request_id=menu["request_id"], choice=0)
     assert c.until("turn.completed")["status"] == "ok"
     assert all((project / name).exists() for name in ("first-note.txt", "second-note.txt"))
@@ -405,26 +410,24 @@ def test_real_terminal_paste_approval_resize_cancel_and_restore(application, ent
         raise AssertionError((text, display()))
     try:
         wait("Ready")
-        wait("▄▄▄▄▄▄▄▄▄▄")
-        # Coloured blank cells form the square eye and the solid feet. Text
-        # matching alone cannot verify the actual terminal artwork.
-        for col in (4, 5):
-            assert screen.buffer[2][col].bg == "fffdf5"
-        for col in (8, 9):
-            assert screen.buffer[2][col].data == "▄"
-            assert screen.buffer[2][col].fg == "f9b467"
-            assert screen.buffer[2][col].bg == "0e0e0e"
-        for col in (2, 5, 8, 11):
-            assert screen.buffer[5][col].bg == "cfc4b7"
-        assert screen.buffer[5][3].data == "▌"
-        assert screen.buffer[5][10].data == "▐"
+        wait("▙▄▄▄▄▄▟")
+        # The mascot is 9 columns by 4 rows. Both eyes are the same ivory
+        # quadrant pair on black, and the feet alternate filled and open cells
+        # along the base. Text matching alone cannot verify the terminal artwork.
+        for col in (2, 3, 5, 6):
+            assert screen.buffer[1][col].fg == "fffdf5"
+            assert screen.buffer[1][col].bg == "0e0e0e"
+        assert screen.buffer[1][0].data == "▌"
+        assert screen.buffer[1][8].data == "▐"
+        for col in (1, 3, 5, 7):
+            assert screen.buffer[3][col].bg == "d5ccc3"
         os.write(master, b"\x1b[200~Remember apricot\n\x1b[201~")
         wait("Remember apricot")
         os.write(master, b"\r")
         wait("你好")
         wait("Completed")
         os.write(master, b"Create native-note.txt in this project\r")
-        wait("Your response required")
+        wait("Enter confirms")
         wait("File: native-note.txt")
         wait("Always allow")
         os.write(master, b"n")
@@ -441,8 +444,8 @@ def test_real_terminal_paste_approval_resize_cancel_and_restore(application, ent
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 12, 40, 0, 0))
         screen.resize(12, 40)
         p.send_signal(__import__("signal").SIGWINCH)
-        wait(lambda: screen.buffer[10][0].data == "╰" and screen.cursor.y == 9)
-        assert "Describe a task" in display()
+        wait(lambda: screen.buffer[10][0].data == "─" and screen.cursor.y == 9)
+        assert 'Try "' in display()
         os.write(master, b"\x04")
         # A terminal emulator continues reading while the application exits.
         # Drain the resize/restore frames so a full PTY output buffer cannot
@@ -604,3 +607,364 @@ def test_a_turn_that_succeeds_is_not_marked_as_presented(application, native):
     assert not done.get("error")
     assert done["presented"] is False
     c.close()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix PTY")
+def test_real_terminal_slash_opens_a_command_list_you_can_navigate(application):
+    """Typing / lists commands with what they do; arrows, Tab and Esc work in a real terminal."""
+    import codecs
+    import fcntl
+    import pty
+    import select
+    import struct
+    import termios
+    pyte = pytest.importorskip("pyte")
+    if not os.environ.get("ARIA_NATIVE_BINARY"):
+        pytest.skip("build the Rust prototype first")
+    _, project, _, env = application
+    master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 100, 0, 0))
+    terminal_env = dict(env, TERM="xterm-256color", ARIA_THEME="dark", ARIA_PYTHON=sys.executable)
+    terminal_env.pop("NO_COLOR", None)
+    p = subprocess.Popen([os.environ["ARIA_NATIVE_BINARY"], "--python", sys.executable, "chat"], cwd=project,
+                         env=terminal_env, stdin=slave, stdout=slave, stderr=slave)
+    screen = pyte.Screen(100, 32)
+    stream = pyte.Stream(screen)
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+
+    def pump(seconds=0.2):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            if select.select([master], [], [], 0.05)[0]:
+                stream.feed(decoder.decode(os.read(master, 65_536)))
+
+    def rows():
+        return [row.rstrip() for row in screen.display]
+
+    def wait(predicate, what):
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            pump(0.1)
+            if predicate(rows()):
+                return
+            assert p.poll() is None, "the application exited"
+        raise AssertionError((what, "\n".join(rows())))
+
+    def input_line():
+        # The composer is the lowest ❯ row: the / and @ lists above it mark
+        # their selected row with the same glyph.
+        for row in reversed(rows()):
+            if row.lstrip("│ ").startswith("❯"):
+                return row.strip("│ ").strip()
+        return ""
+
+    try:
+        wait(lambda r: any("Ready" in x for x in r), "ready")
+        os.write(master, b"/")
+        wait(lambda r: any("Commands" in x for x in r) and any("/help" in x for x in r), "the command list")
+        listed = "\n".join(rows())
+        assert "↑↓" in listed and "Tab" in listed, "the list says how to use it"
+        # Rows inside the list's box; the selected one is marked "❯".
+        first_names = [x for x in rows()
+                       if x.strip().startswith("│") and x.strip()[1:].lstrip(" ❯").startswith("/")]
+        assert len(first_names) >= 5, "a bare slash lists several commands"
+        assert "Show commands and examples" in listed, "each row carries a description"
+        assert first_names[0].split()[1] == "/help", "the core commands come first, not an alphabetical dump"
+        os.write(master, b"\x1b[B")  # Down
+        pump(0.4)
+        os.write(master, b"\t")  # Tab fills in the highlighted command
+        pump(0.6)
+        assert input_line().startswith("❯ /"), input_line()
+        assert "Commands" not in "\n".join(rows()), "the list closes once a command is filled in"
+        # Esc closes the list without touching what was typed.
+        os.write(master, b"\x15/mo")  # Ctrl+U to clear, then type /mo
+        wait(lambda r: any("Commands" in x for x in r), "the list again")
+        os.write(master, b"\x1b")
+        pump(0.6)
+        assert "Commands" not in "\n".join(rows())
+        assert input_line().startswith("❯ /mo"), input_line()
+        os.write(master, b"\x15\x04")
+        pump(0.5)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        p.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix PTY")
+def test_real_terminal_at_lists_workspace_files_you_can_pick(application):
+    """Typing @ lists workspace files, narrows by fuzzy match, and Tab fills one in a real terminal."""
+    import codecs
+    import fcntl
+    import pty
+    import select
+    import struct
+    import termios
+    pyte = pytest.importorskip("pyte")
+    if not os.environ.get("ARIA_NATIVE_BINARY"):
+        pytest.skip("build the Rust prototype first")
+    _, project, _, env = application
+    master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 100, 0, 0))
+    terminal_env = dict(env, TERM="xterm-256color", ARIA_THEME="dark", ARIA_PYTHON=sys.executable)
+    terminal_env.pop("NO_COLOR", None)
+    p = subprocess.Popen([os.environ["ARIA_NATIVE_BINARY"], "--python", sys.executable, "chat"], cwd=project,
+                         env=terminal_env, stdin=slave, stdout=slave, stderr=slave)
+    screen = pyte.Screen(100, 32)
+    stream = pyte.Stream(screen)
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+
+    def pump(seconds=0.2):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            if select.select([master], [], [], 0.05)[0]:
+                stream.feed(decoder.decode(os.read(master, 65_536)))
+
+    def rows():
+        return [row.rstrip() for row in screen.display]
+
+    def wait(predicate, what):
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            pump(0.1)
+            if predicate(rows()):
+                return
+            assert p.poll() is None, "the application exited"
+        raise AssertionError((what, "\n".join(rows())))
+
+    def input_line():
+        # The composer is the lowest ❯ row: the / and @ lists above it mark
+        # their selected row with the same glyph.
+        for row in reversed(rows()):
+            if row.lstrip("│ ").startswith("❯"):
+                return row.strip("│ ").strip()
+        return ""
+
+    (project / "docs").mkdir(exist_ok=True)
+    (project / "docs" / "architecture.md").write_text("# notes\n")
+    (project / "setup_notes.txt").write_text("x\n")
+    try:
+        wait(lambda r: any("Ready" in x for x in r), "ready")
+        os.write(master, b"read @")
+        wait(lambda r: any("Files" in x for x in r) and any("docs/" in x for x in r), "the file list")
+        listed = "\n".join(rows())
+        assert "↑↓" in listed and "Tab" in listed, "the list says how to use it"
+        # A fuzzy fragment finds a file in a folder without typing the path.
+        os.write(master, b"archi")
+        wait(lambda r: any("@docs/architecture.md" in x for x in r), "the nested file by fuzzy match")
+        os.write(master, b"\t")  # Tab fills it in
+        pump(0.6)
+        assert input_line().startswith("❯ read @docs/architecture.md"), input_line()
+        assert "Files" not in "\n".join(rows()), "the list closes once a file is filled in"
+        # Esc closes the list and leaves the text alone.
+        os.write(master, b"\x15read @setup")
+        wait(lambda r: any("Files" in x for x in r), "the list again")
+        os.write(master, b"\x1b")
+        pump(0.6)
+        assert "Files" not in "\n".join(rows())
+        assert input_line().startswith("❯ read @setup"), input_line()
+        os.write(master, b"\x15\x04")
+        pump(0.5)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        p.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix PTY")
+def test_real_terminal_model_picker_searches_and_selects(application):
+    """/model opens a searchable picker, not an approval prompt: typing narrows, Esc clears then closes."""
+    import codecs
+    import fcntl
+    import pty
+    import select
+    import struct
+    import termios
+    pyte = pytest.importorskip("pyte")
+    if not os.environ.get("ARIA_NATIVE_BINARY"):
+        pytest.skip("build the Rust prototype first")
+    import http.server
+    import socketserver
+    import threading
+    _, project, _, env = application
+    # The picker lists local models only when Ollama reports them installed,
+    # so a stand-in Ollama lists the one this test searches for.
+    tags = json.dumps({"models": [{"name": "deepseek-r1:14b", "model": "deepseek-r1:14b", "size": 9_000_000_000,
+                                   "modified_at": "2026-10-01T00:00:00Z",
+                                   "details": {"family": "qwen2", "parameter_size": "14.8B", "quantization_level": "Q4_K_M"}}]}).encode()
+
+    class Ollama(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200 if self.path == "/api/tags" else 404)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            if self.path == "/api/tags":
+                self.wfile.write(tags)
+
+        def log_message(self, *args):
+            pass
+
+    # socketserver, not http.server.HTTPServer: its bind looks the host name
+    # up (getfqdn), which hangs past the test timeout on macOS runners.
+    ollama = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Ollama)
+    ollama.daemon_threads = True
+    threading.Thread(target=ollama.serve_forever, daemon=True).start()
+    ollama_url = "http://127.0.0.1:%d" % ollama.server_address[1]
+    master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 100, 0, 0))
+    terminal_env = dict(env, TERM="xterm-256color", ARIA_THEME="dark", ARIA_PYTHON=sys.executable,
+                        OLLAMA_HOST=ollama_url, OLLAMA_URL=ollama_url,
+                        NO_PROXY="127.0.0.1,localhost", no_proxy="127.0.0.1,localhost")
+    terminal_env.pop("NO_COLOR", None)
+    p = subprocess.Popen([os.environ["ARIA_NATIVE_BINARY"], "--python", sys.executable, "chat"], cwd=project,
+                         env=terminal_env, stdin=slave, stdout=slave, stderr=slave)
+    screen = pyte.Screen(100, 32)
+    stream = pyte.Stream(screen)
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+
+    def pump(seconds=0.2):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            if select.select([master], [], [], 0.05)[0]:
+                stream.feed(decoder.decode(os.read(master, 65_536)))
+
+    def rows():
+        # pyte's display() raises on some wide characters (the models' Chinese
+        # descriptions); read the buffer cell by cell instead.
+        return ["".join((screen.buffer[y][x].data or " ") for x in range(screen.columns)).rstrip()
+                for y in range(screen.lines)]
+
+    def wait(predicate, what):
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            pump(0.1)
+            if predicate(rows()):
+                return
+            assert p.poll() is None, "the application exited"
+        raise AssertionError((what, "\n".join(rows())))
+
+    def input_line():
+        # The composer is the lowest ❯ row: the / and @ lists above it mark
+        # their selected row with the same glyph.
+        for row in reversed(rows()):
+            if row.lstrip("│ ").startswith("❯"):
+                return row.strip("│ ").strip()
+        return ""
+
+    try:
+        wait(lambda r: any("Ready" in x for x in r), "ready")
+        os.write(master, b"/model\r")
+        wait(lambda r: any("Select Model" in x for x in r) and any("Search:" in x for x in r), "the model picker")
+        shown = "\n".join(rows())
+        assert "Enter confirms" not in shown, "a model list is not an approval prompt"
+        assert "Aria catalogue" in shown, "models are grouped under a heading"
+        total = [x for x in rows() if "/" in x and "Search:" in x][0].split()[-2]
+        os.write(master, b"deepseek 14")
+        wait(lambda r: any("1/" in x and "Search:" in x for x in r), "the search narrows to one model")
+        assert "deepseek-r1:14b" in "\n".join(rows())
+        os.write(master, b"\x1b")  # the first Esc clears the search
+        wait(lambda r: not any("deepseek 14" in x for x in r) and any("Search:" in x for x in r), "search cleared")
+        os.write(master, b"\x1b")  # the second closes the picker
+        wait(lambda r: not any("Search:" in x for x in r), "the picker closes")
+        os.write(master, b"\x04")
+        pump(0.5)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        p.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
+        ollama.shutdown()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix PTY")
+def test_real_terminal_shows_the_phase_and_a_risk_card_on_approval(application):
+    """A write shows Edit in the header and an approval card saying what it reaches."""
+    import codecs
+    import fcntl
+    import pty
+    import select
+    import struct
+    import termios
+    pyte = pytest.importorskip("pyte")
+    if not os.environ.get("ARIA_NATIVE_BINARY"):
+        pytest.skip("build the Rust prototype first")
+    _, project, _, env = application
+    master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 44, 100, 0, 0))
+    terminal_env = dict(env, TERM="xterm-256color", ARIA_THEME="dark", ARIA_PYTHON=sys.executable)
+    terminal_env.pop("NO_COLOR", None)
+    p = subprocess.Popen([os.environ["ARIA_NATIVE_BINARY"], "--python", sys.executable, "chat"], cwd=project,
+                         env=terminal_env, stdin=slave, stdout=slave, stderr=slave)
+    screen = pyte.Screen(100, 44)
+    stream = pyte.Stream(screen)
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+
+    def pump(seconds=0.2):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            if select.select([master], [], [], 0.05)[0]:
+                stream.feed(decoder.decode(os.read(master, 65_536)))
+
+    def rows():
+        # pyte's display() raises on some wide characters (the models' Chinese
+        # descriptions); read the buffer cell by cell instead.
+        return ["".join((screen.buffer[y][x].data or " ") for x in range(screen.columns)).rstrip()
+                for y in range(screen.lines)]
+
+    def wait(predicate, what):
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            pump(0.1)
+            if predicate(rows()):
+                return
+            assert p.poll() is None, "the application exited"
+        raise AssertionError((what, "\n".join(rows())))
+
+    def input_line():
+        # The composer is the lowest ❯ row: the / and @ lists above it mark
+        # their selected row with the same glyph.
+        for row in reversed(rows()):
+            if row.lstrip("│ ").startswith("❯"):
+                return row.strip("│ ").strip()
+        return ""
+
+    try:
+        wait(lambda r: any("Ready" in x for x in r), "ready")
+        os.write(master, b"Create native-note.txt in this project\r")
+        wait(lambda r: any("Risk" in x for x in r) and any("L1" in x or "L2" in x for x in r), "the risk card")
+        shown = "\n".join(rows())
+        assert "native-note.txt" in shown, "the card names the file"
+        assert "reversible" in shown
+        # Tall terminal: the approval dialog (up to 25 rows, centred) must not cover the header.
+        assert "Edit" in shown, "the header says the turn is editing"
+        os.write(master, b"\r")  # the first choice: allow
+        wait(lambda r: not any("Risk" in x for x in r), "the card closes after the answer")
+        wait(lambda r: any("Completed" in x for x in r), "the turn finishes")
+        assert not any("Verify ○" in x for x in rows()), "the phase strip goes away when the turn ends"
+        os.write(master, b"\x04")
+        pump(0.5)
+    finally:
+        if p.poll() is None:
+            p.kill()
+        p.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_capability_question_after_finance_has_no_evidence_gate_or_file_scan(application, native):
+    start, _, _, _ = application
+    client = start(native=native)
+    client.send("turn.submit", turn_id="finance-first", text="分析苹果股票走势和成交量")
+    client.until("turn.completed")
+    client.send("turn.submit", turn_id="capabilities", text="你除了分析股票外还能帮我做什么")
+    done = client.until("turn.completed")
+    assert done["status"] == "ok", done
+    assert not done.get("error")
+    assert not any(e["type"].startswith("tool.") for e in client.seen if e.get("turn_id") == "capabilities")
+    client.close()
