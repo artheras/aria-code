@@ -46,23 +46,8 @@ func main() {
 	}
 	_ = os.Chmod(root, 0700)
 	s := &service{root: root, ttl: time.Duration(ttlHours) * time.Hour}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "aria-code-project-review"})
-	})
-	mux.HandleFunc("POST /v1/project-reviews", s.createReview)
-	mux.HandleFunc("POST /v1/workspaces", s.createWorkspace)
-	mux.HandleFunc("GET /v1/workspaces/{workspaceID}", s.getWorkspace)
-	mux.HandleFunc("DELETE /v1/workspaces/{workspaceID}", s.deleteWorkspace)
-	mux.HandleFunc("POST /v1/workspaces/{workspaceID}/files/read", s.readFile)
-	mux.HandleFunc("POST /v1/workspaces/{workspaceID}/files/list", s.listFiles)
-	mux.HandleFunc("POST /v1/workspaces/{workspaceID}/search", s.searchFiles)
-	mux.HandleFunc("POST /v1/workspaces/{workspaceID}/changes", s.proposeChange)
-	mux.HandleFunc("GET /v1/workspaces/{workspaceID}/changes/{changeID}", s.getChange)
-	mux.HandleFunc("POST /v1/workspaces/{workspaceID}/changes/{changeID}/apply", s.applyChange)
-	mux.HandleFunc("POST /v1/workspaces/{workspaceID}/changes/{changeID}/rollback", s.rollbackChange)
 	port := strings.TrimPrefix(envOr("PORT", "8787"), ":")
-	server := &http.Server{Addr: ":" + port, Handler: limitBody(mux), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	server := &http.Server{Addr: ":" + port, Handler: s.routes(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	log.Printf("project review service listening on %s", server.Addr)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -85,6 +70,25 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal("project review server stopped")
 	}
+}
+
+func (s *service) routes() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "aria-code-project-review"})
+	})
+	mux.HandleFunc("POST /v1/project-reviews", s.createReview)
+	mux.HandleFunc("POST /v1/workspaces", s.createWorkspace)
+	mux.HandleFunc("GET /v1/workspaces/{workspaceID}", s.getWorkspace)
+	mux.HandleFunc("DELETE /v1/workspaces/{workspaceID}", s.deleteWorkspace)
+	mux.HandleFunc("POST /v1/workspaces/{workspaceID}/files/read", s.readFile)
+	mux.HandleFunc("POST /v1/workspaces/{workspaceID}/files/list", s.listFiles)
+	mux.HandleFunc("POST /v1/workspaces/{workspaceID}/search", s.searchFiles)
+	mux.HandleFunc("POST /v1/workspaces/{workspaceID}/changes", s.proposeChange)
+	mux.HandleFunc("GET /v1/workspaces/{workspaceID}/changes/{changeID}", s.getChange)
+	mux.HandleFunc("POST /v1/workspaces/{workspaceID}/changes/{changeID}/apply", s.applyChange)
+	mux.HandleFunc("POST /v1/workspaces/{workspaceID}/changes/{changeID}/rollback", s.rollbackChange)
+	return limitBody(mux)
 }
 
 func envOr(key, fallback string) string {

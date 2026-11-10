@@ -95,6 +95,12 @@ type outbox struct {
 	desktop  []string
 }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
 // daemonFixture is a daemon on a temporary folder with stand-in channels.
 func daemonFixture(t *testing.T) (*daemon, *fakeMarket, *outbox, *sql.DB) {
 	t.Helper()
@@ -103,7 +109,7 @@ func daemonFixture(t *testing.T) (*daemon, *fakeMarket, *outbox, *sql.DB) {
 	t.Setenv("ARIA_DAEMON_TZ", "Asia/Shanghai")
 	t.Setenv("ARIA_DAEMON_DEFAULT_JOBS", "0")
 	box := &outbox{}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		box.mu.Lock()
@@ -113,10 +119,10 @@ func daemonFixture(t *testing.T) (*daemon, *fakeMarket, *outbox, *sql.DB) {
 		} else {
 			box.feishu = append(box.feishu, body)
 		}
-	}))
-	t.Cleanup(srv.Close)
+		w.WriteHeader(http.StatusOK)
+	})
 	savedAPI, savedNotify := telegramAPI, desktopNotify
-	telegramAPI = srv.URL
+	telegramAPI = "http://daemon.fixture"
 	desktopNotify = func(title, body string) {
 		box.mu.Lock()
 		box.desktop = append(box.desktop, title+"|"+body)
@@ -125,7 +131,7 @@ func daemonFixture(t *testing.T) (*daemon, *fakeMarket, *outbox, *sql.DB) {
 	t.Cleanup(func() { telegramAPI, desktopNotify = savedAPI, savedNotify })
 	t.Setenv("TELEGRAM_BOT_TOKEN", "tok")
 	t.Setenv("TELEGRAM_ALLOWED_IDS", "101, 202,x")
-	t.Setenv("FEISHU_WEBHOOK_URL", srv.URL+"/feishu")
+	t.Setenv("FEISHU_WEBHOOK_URL", "http://daemon.fixture/feishu")
 	db, err := openDaemonDB(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -136,6 +142,11 @@ func daemonFixture(t *testing.T) (*daemon, *fakeMarket, *outbox, *sql.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	d.notify.client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec.Result(), nil
+	})
 	return d, market, box, db
 }
 

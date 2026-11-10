@@ -29,15 +29,18 @@ logger = logging.getLogger("aria.relay_client")
 # ── 加载 ~/.aria/.env ──────────────────────────────────────────────────────
 
 def _load_env() -> None:
-    env_file = Path.home() / ".aria" / ".env"
-    if env_file.exists():
-        for line in env_file.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, _, v = line.partition("=")
-                k = k.strip()
-                if k not in os.environ:
-                    os.environ[k] = v.strip()
+    try:
+        env_file = Path.home() / ".aria" / ".env"
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, _, v = line.partition("=")
+                    k = k.strip()
+                    if k not in os.environ:
+                        os.environ[k] = v.strip()
+    except (OSError, PermissionError):
+        pass
 
 
 _load_env()
@@ -70,8 +73,10 @@ def format_bind_code(code: str) -> str:
     return "ARIA-BIND-" + "-".join(code[i:i + 4] for i in range(0, len(code), 4))
 
 
-def ensure_credentials(env_file: Path = Path.home() / ".aria" / ".env") -> tuple[str, str]:
+def ensure_credentials(env_file: Path | None = None) -> tuple[str, str]:
     """This machine's (token, bind code), created and saved on first use."""
+    if env_file is None:
+        env_file = Path.home() / ".aria" / ".env"
     token = os.environ.get("ARIA_RELAY_CLIENT_TOKEN", "").strip()
     code = os.environ.get("ARIA_RELAY_BIND_CODE", "").strip()
     fresh = {}

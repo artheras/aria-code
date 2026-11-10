@@ -11,7 +11,13 @@ import (
 // Probe the real storage-backed status endpoint. Works in distroless without
 // curl or a shell, and bounds startup checks even if Firestore is unavailable.
 func healthcheck(url string) error {
-	client := &http.Client{Timeout: 3 * time.Second}
+	return healthcheckWithClient(&http.Client{Timeout: 3 * time.Second}, url)
+}
+
+func healthcheckWithClient(client *http.Client, url string) error {
+	if client == nil {
+		client = &http.Client{Timeout: 3 * time.Second}
+	}
 	response, err := client.Get(url)
 	if err != nil {
 		return err

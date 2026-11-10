@@ -6,6 +6,12 @@ import (
 	"testing"
 )
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
 func TestHealthcheckRequiresHealthyStatus(t *testing.T) {
 	for _, test := range []struct {
 		body    string
@@ -17,15 +23,21 @@ func TestHealthcheckRequiresHealthyStatus(t *testing.T) {
 		{`{"detail":"database unavailable"}`, 500, false},
 		{`invalid JSON`, 200, false},
 	} {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/status" {
 				t.Errorf("path %s", r.URL.Path)
 			}
 			w.WriteHeader(test.code)
 			w.Write([]byte(test.body))
-		}))
-		err := healthcheck(server.URL + "/status")
-		server.Close()
+		})
+		client := &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				rec := httptest.NewRecorder()
+				handler.ServeHTTP(rec, req)
+				return rec.Result(), nil
+			}),
+		}
+		err := healthcheckWithClient(client, "http://relay.internal/status")
 		if (err == nil) != test.healthy {
 			t.Errorf("%s: %v", test.body, err)
 		}
