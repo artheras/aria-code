@@ -406,6 +406,7 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 		if readOnlyTurn {
 			s.scope.readOnly = true
 		}
+		s.maybeAutoCompact(turn, text)
 		s.contents, answer, err = nativeTurn(ctx, s.provider, s.scope, s.cfg, s.contents, text, hooks)
 		s.scope.readOnly = wasReadOnly
 		evidence = hooks.evidence
@@ -456,6 +457,10 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 			stop = "cancelled"
 		case err != nil && strings.Contains(err.Error(), "tool round limit reached"):
 			stop = "max_rounds"
+		case err != nil && strings.Contains(err.Error(), "tool calls as text"):
+			stop = "text_tool_calls"
+		case err != nil && strings.Contains(err.Error(), "instruction instead of an answer"):
+			stop = "prompt_echo"
 		case err != nil:
 			stop = "error"
 		}
