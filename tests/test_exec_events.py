@@ -41,6 +41,22 @@ def test_a_file_body_is_reported_by_size():
     assert json.loads(out.getvalue())["params"] == {"path": "a.py", "content": "<5000 chars>"}
 
 
+def test_a_diff_and_a_quote_and_a_backtest_become_a_brief():
+    out = io.StringIO()
+    events = ExecEvents(out)
+    events.tool_completed("edit_file", {"success": True, "data": {
+        "path": "a.py", "diff": "--- a/a.py\n+++ b/a.py\n@@ -1 +1,2 @@\n-old\n+new\n+extra\n"}})
+    events.tool_completed("mcp__arthera-finance__financial_quote", {"success": True, "data": {
+        "content": '{"data":{"name":"宁德时代","price":182.4,"change_pct":1.2,"stale":false}}'}})
+    events.tool_completed("backtest_strategy", {"success": True, "data": {
+        "total_return": 0.084, "max_drawdown": -0.031}})
+    briefs = [json.loads(line)["brief"] for line in out.getvalue().splitlines()]
+    assert briefs[0] == {"kind": "edit", "added": 2, "removed": 1}
+    assert briefs[1]["kind"] == "quote" and briefs[1]["name"] == "宁德时代"
+    assert briefs[1]["price"] == 182.4 and briefs[1]["change_pct"] == 1.2 and briefs[1]["stale"] is False
+    assert briefs[2]["return_pct"] == 8.4 and briefs[2]["drawdown_pct"] == 3.1
+
+
 def test_list_summary_reports_actual_returned_count_without_file_contents():
     out = io.StringIO()
     ExecEvents(out).tool_completed("list_files", {"success": True, "reused": True,

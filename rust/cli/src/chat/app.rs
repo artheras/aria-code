@@ -53,6 +53,15 @@ pub struct Action {
     /// How the host approved the call when it did not ask, e.g.
     /// "auto-approved · L1 low · Edit files" under approval_mode=risk.
     pub approval: String,
+    /// Lines added and removed, when the tool returned a diff.
+    pub added: Option<u32>,
+    pub removed: Option<u32>,
+    /// The service result in one line: a price, or a backtest's return.
+    pub service_line: String,
+    /// Signed percent for a quote, already in percent units.
+    pub service_change: Option<f64>,
+    /// Some(true) when the service said the figure is current.
+    pub fresh: Option<bool>,
 }
 /// What an action reaches, as the runtime assessed it before asking.
 #[derive(Debug, Clone, Default)]
@@ -297,6 +306,61 @@ fn service_notice(line: &str, zh: bool) -> Option<String> {
         None
     } else {
         Some(message.chars().take(80).collect())
+    }
+}
+
+fn format_price(price: f64) -> String {
+    if price.abs() >= 1.0 {
+        format!("{price:.2}")
+    } else {
+        format!("{price:.4}")
+    }
+}
+
+/// Copy the brief the runtime attached. Numbers stay the ones the service returned.
+fn apply_brief(action: &mut Action, event: &Value, zh: bool) {
+    let brief = &event["brief"];
+    let Some(kind) = brief["kind"].as_str() else {
+        return;
+    };
+    match kind {
+        "edit" => {
+            action.added = brief["added"].as_u64().map(|n| n.min(1_000_000) as u32);
+            action.removed = brief["removed"].as_u64().map(|n| n.min(1_000_000) as u32);
+        }
+        "quote" => {
+            let Some(price) = brief["price"].as_f64().filter(|n| n.is_finite()) else {
+                return;
+            };
+            let name = brief["name"].as_str().unwrap_or("").trim();
+            let price_text = format_price(price);
+            action.service_line = if name.is_empty() {
+                price_text
+            } else {
+                format!("{name} {price_text}")
+            };
+            action.service_change = brief["change_pct"].as_f64().filter(|n| n.is_finite());
+            action.fresh = brief["stale"].as_bool().map(|stale| !stale);
+        }
+        "backtest" => {
+            let Some(ret) = brief["return_pct"].as_f64().filter(|n| n.is_finite()) else {
+                return;
+            };
+            let mut line = if zh {
+                format!("收益 {ret:+.1}%")
+            } else {
+                format!("return {ret:+.1}%")
+            };
+            if let Some(drawdown) = brief["drawdown_pct"].as_f64().filter(|n| n.is_finite()) {
+                if zh {
+                    line.push_str(&format!(" · 回撤 {drawdown:.1}%"));
+                } else {
+                    line.push_str(&format!(" · drawdown {drawdown:.1}%"));
+                }
+            }
+            action.service_line = line;
+        }
+        _ => {}
     }
 }
 
@@ -602,6 +666,11 @@ impl App {
                     cancelled: false,
                     error: String::new(),
                     approval: String::new(),
+                    added: None,
+                    removed: None,
+                    service_line: String::new(),
+                    service_change: None,
+                    fresh: None,
                 });
             }
             "tool.completed" => {
@@ -638,9 +707,15 @@ impl App {
                         cancelled: false,
                         error: String::new(),
                         approval: String::new(),
+                        added: None,
+                        removed: None,
+                        service_line: String::new(),
+                        service_change: None,
+                        fresh: None,
                     });
                     self.entries.len() - 1
                 };
+                let zh = self.zh();
                 let action = self.entries[index].action.as_mut().unwrap();
                 action.done = true;
                 action.success = ok;
@@ -658,6 +733,7 @@ impl App {
                     .chars()
                     .take(200)
                     .collect();
+                apply_brief(action, &v, zh);
                 if !text("output").is_empty() {
                     let output = format!(
                         "\n{}\n{}",

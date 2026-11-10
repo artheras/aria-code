@@ -131,7 +131,8 @@ const HELP: &str = "Aria interactive interface\n\nEnter  send · Alt+Enter / Ctr
 const HELP_ZH: &str = "Aria 交互界面\n\nEnter 发送 · Alt+Enter / Ctrl+J 换行\n方向键编辑 / 浏览输入历史 · 输入 / 列出命令 · @ 选择文件 · Tab 补全\nCtrl+U / K / W 删除行首 / 行尾 / 前一个词\nPgUp / PgDn 或鼠标滚轮查看对话历史\nCtrl+O 展开工具详情 · F1 打开帮助\nEsc / Ctrl+C 取消当前任务或关闭对话框\nCtrl+D 退出（输入非空时删除字符）\n\n/new 新会话 · /resume ID 恢复会话\n/sessions 会话列表 · /help 所有命令\n/model 选择模型 · /health 服务检查\n@file:path 引用文件 · !command 执行命令\naria -C <项目目录> 在指定项目中启动\n/config set ui_lang=zh 设置中文界面\n\n运行时管理文件权限、任务隔离与验证。\n审批需要你明确选择；秘密输入与隐藏推理不会写入界面记录。";
 
 fn tool_label<'a>(tool: &'a str, app: &App) -> &'a str {
-    match tool {
+    let name = tool.rsplit("__").next().unwrap_or(tool);
+    match name {
         "list_files" | "glob" => app.tr("List files", "查看目录"),
         "read_file" => app.tr("Read file", "读取文件"),
         "search_code" | "find_symbol" => app.tr("Search code", "搜索代码"),
@@ -139,6 +140,13 @@ fn tool_label<'a>(tool: &'a str, app: &App) -> &'a str {
         "write_file" => app.tr("Write file", "写入文件"),
         "edit_file" | "multi_edit" | "apply_patch" => app.tr("Edit file", "修改文件"),
         "repo_map" => app.tr("Map project", "查看项目结构"),
+        "get_market_data" | "get_crypto_data" | "get_forex_data" | "financial_quote" => {
+            app.tr("Quote", "行情")
+        }
+        "backtest_strategy"
+        | "cloud_backtest"
+        | "run_portfolio_backtest"
+        | "financial_backtest" => app.tr("Backtest", "回测"),
         _ => tool,
     }
 }
@@ -352,10 +360,48 @@ pub fn draw(frame: &mut Frame, app: &App) {
                     label.width() + count.width() + exit_code.width() + reused.width() + 4,
                 ),
             );
-            lines.push(Line::from(vec![
+            let mut spans = vec![
                 Span::styled(format!("{symbol} {label}"), Style::new().fg(color)),
                 Span::raw(format!(" {target}{count}{exit_code}{reused}")),
-            ]));
+            ];
+            if let (Some(added), Some(removed)) = (action.added, action.removed) {
+                if added == 0 && removed == 0 {
+                    spans.push(Span::styled(
+                        app.tr(" · unchanged", " · 无改动").to_owned(),
+                        Style::new().fg(p.muted),
+                    ));
+                } else {
+                    spans.push(Span::styled(
+                        format!(" +{added}"),
+                        Style::new().fg(p.success),
+                    ));
+                    spans.push(Span::styled(
+                        format!(" −{removed}"),
+                        Style::new().fg(p.error),
+                    ));
+                }
+            }
+            if !action.service_line.is_empty() {
+                spans.push(Span::raw(format!(" {}", action.service_line)));
+            }
+            if let Some(change) = action.service_change {
+                let change_color = if change < 0.0 { p.error } else { p.success };
+                spans.push(Span::styled(
+                    format!(" {change:+.1}%"),
+                    Style::new().fg(change_color),
+                ));
+            }
+            if let Some(fresh) = action.fresh {
+                spans.push(Span::styled(
+                    if fresh {
+                        app.tr(" · current", " · 未过期").to_owned()
+                    } else {
+                        app.tr(" · stale", " · 过期").to_owned()
+                    },
+                    Style::new().fg(p.muted),
+                ));
+            }
+            lines.push(Line::from(spans));
             if !action.approval.is_empty() {
                 lines.push(Line::styled(
                     format!("  └ {}", action.approval),
@@ -1770,6 +1816,35 @@ mod tests {
         terminal.draw(|f| draw(f, &app)).unwrap();
         let text = display(&terminal);
         assert!(text.contains("staged only") && text.contains("review-id"));
+    }
+    #[test]
+    fn an_edit_shows_its_size_and_a_service_result_is_one_line() {
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        let mut app = App {
+            ready: true,
+            lang: "zh".into(),
+            ..App::default()
+        };
+        app.editor.insert("改一下并看行情");
+        app.submit();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":"edit_file","params":{"path":"src/auth.py"}})).unwrap();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"edit_file","success":true,"brief":{"kind":"edit","added":12,"removed":3}})).unwrap();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":"mcp__arthera-finance__financial_quote","params":{}})).unwrap();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"mcp__arthera-finance__financial_quote","success":true,"brief":{"kind":"quote","name":"宁德时代","price":182.4,"change_pct":1.2,"stale":false}})).unwrap();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":"backtest_strategy","params":{}})).unwrap();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"backtest_strategy","success":true,"brief":{"kind":"backtest","return_pct":8.4,"drawdown_pct":3.1}})).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let shown = display(&terminal);
+        assert!(shown.contains("修改文件"), "{shown}");
+        assert!(shown.contains("+12"), "{shown}");
+        assert!(shown.contains("−3"), "{shown}");
+        assert!(shown.contains("行情"), "{shown}");
+        assert!(shown.contains("宁德时代 182.40"), "{shown}");
+        assert!(shown.contains("+1.2%"), "{shown}");
+        assert!(shown.contains("未过期"), "{shown}");
+        assert!(shown.contains("回测"), "{shown}");
+        assert!(shown.contains("收益 +8.4% · 回撤 3.1%"), "{shown}");
+        assert!(!shown.contains("financial_quote"), "{shown}");
     }
     #[test]
     fn reading_history_stays_anchored_when_new_output_arrives() {
