@@ -146,6 +146,10 @@ type acceptanceReport struct {
 	Reason            string
 	Paths             []string
 	AttemptsRemaining int
+	// current, changed_during_checks, unavailable, or empty when this report
+	// was built without a snapshot. Empty stays not_recorded in the summary.
+	RevisionStatus string
+	RevisionPaths  []revisionEntry
 }
 
 func (r acceptanceReport) notRun() []checkResult {
@@ -170,8 +174,9 @@ func (r acceptanceReport) ran() bool {
 }
 
 // passed is true only when a check ran and every check that could run passed.
+// A snapshot that moved or could not be read is not a pass.
 func (r acceptanceReport) passed() bool {
-	if !r.ran() {
+	if r.RevisionStatus == "changed_during_checks" || r.RevisionStatus == "unavailable" || !r.ran() {
 		return false
 	}
 	for _, c := range r.Checks {
@@ -212,6 +217,9 @@ func backticked(items []string) string {
 }
 
 func (r acceptanceReport) headline() string {
+	if (r.RevisionStatus == "changed_during_checks" || r.RevisionStatus == "unavailable") && len(r.failures()) == 0 {
+		return "验收未确认：检查期间文件版本变化或无法取得安全的文件指纹"
+	}
 	if !r.ran() {
 		if skipped := r.notRun(); len(skipped) > 0 {
 			first := skipped[0]
@@ -244,6 +252,9 @@ func (r acceptanceReport) headline() string {
 
 // repairDirective is what the model is told when the check came back red.
 func (r acceptanceReport) repairDirective() string {
+	if r.RevisionStatus == "changed_during_checks" || r.RevisionStatus == "unavailable" {
+		return "文件内容在检查期间变化，或无法取得安全指纹；当前结果未验证。先重新读取工作区并确认变更，不要覆盖用户修改。保留原有权限与审批，通过正常验收流程重新检查。"
+	}
 	blocks := []string{
 		"## 验收未通过 (Acceptance check failed)",
 		"",
@@ -286,11 +297,21 @@ func (r acceptanceReport) summary() map[string]any {
 	for i, c := range r.Checks {
 		checks[i] = c.summary()
 	}
+	status := r.RevisionStatus
+	if status == "" {
+		status = "not_recorded"
+	}
+	revisions := make([]any, len(r.RevisionPaths))
+	for i, entry := range r.RevisionPaths {
+		var digest any
+		if entry.State == "file" && entry.SHA256 != "" {
+			digest = entry.SHA256
+		}
+		revisions[i] = map[string]any{"path": entry.Path, "state": entry.State, "sha256": digest}
+	}
 	return map[string]any{"attempt": r.Attempt, "passed": r.passed(), "regressed": r.regressed(), "ran": r.ran(),
 		"reason": r.Reason, "paths": anySlice(orEmpty(r.Paths)), "checks": checks,
-		// The Go gate does not capture content fingerprints yet. Never label
-		// its legacy reports as current merely because their checks passed.
-		"revision_status": "not_recorded", "revision_paths": []any{}}
+		"revision_status": status, "revision_paths": revisions}
 }
 
 func anySlice(items []string) []any {
@@ -729,7 +750,9 @@ type acceptanceGate struct {
 	allPaths    []string
 	// baseline reruns a red check on the code before the change, so a
 	// pre-existing failure is not sent back to be repaired; nil when off.
-	baseline *testBaseline
+	baseline       *testBaseline
+	revisionInputs []string
+	revisionBroken bool
 }
 
 // newAcceptanceGate is runtime_bridge.build_acceptance_gate: on unless
@@ -742,7 +765,9 @@ func newAcceptanceGate(cfg config, workspace string) *acceptanceGate {
 	if !ok || attempts == 0 {
 		attempts = 2
 	}
-	return &acceptanceGate{root: workspace, maxAttempts: max(0, attempts), commands: declaredAcceptanceCommands(cfg, workspace)}
+	inputs, okInputs := revisionInputList(cfg["acceptance_revision_inputs"])
+	return &acceptanceGate{root: workspace, maxAttempts: max(0, attempts), commands: declaredAcceptanceCommands(cfg, workspace),
+		revisionInputs: inputs, revisionBroken: !okInputs}
 }
 
 func (g *acceptanceGate) record(paths ...string) {
@@ -775,6 +800,8 @@ func (g *acceptanceGate) run(ctx context.Context, runner checkRunner) *acceptanc
 	g.pending = nil
 	g.attempts++
 	commands, reason := g.plan(paths)
+	bound := boundRevisionPaths(paths, g.revisionInputs)
+	before, beforeOK := g.fingerprint(bound)
 	var checks []checkResult
 	for _, command := range commands {
 		started := time.Now()
@@ -800,8 +827,18 @@ func (g *acceptanceGate) run(ctx context.Context, runner checkRunner) *acceptanc
 			checks[i].OldFailures, checks[i].BaselineNote = comparison.OldFailures, comparison.Note
 		}
 	}
+	after, afterOK := g.fingerprint(bound)
+	status := "unavailable"
+	var recorded []revisionEntry
+	if beforeOK && afterOK {
+		recorded = after
+		status = "changed_during_checks"
+		if sameRevision(before, after) {
+			status = "current"
+		}
+	}
 	report := acceptanceReport{Attempt: g.attempts, Checks: checks, Reason: reason, Paths: paths,
-		AttemptsRemaining: max(0, g.maxAttempts-g.attempts)}
+		AttemptsRemaining: max(0, g.maxAttempts-g.attempts), RevisionStatus: status, RevisionPaths: recorded}
 	g.reports = append(g.reports, report)
 	return &report
 }
@@ -814,22 +851,51 @@ func (g *acceptanceGate) summary() map[string]any {
 		reports[i] = r.summary()
 	}
 	out := map[string]any{"verified": nil, "regressions": nil, "attempts": g.attempts, "paths": anySlice(orEmpty(g.allPaths)),
-		"reports": reports, "pending_paths": anySlice(orEmpty(g.pending)), "headline": ""}
-	if len(g.reports) > 0 {
-		last := g.reports[len(g.reports)-1]
-		if last.ran() {
-			// What could run passed, but part of the plan did not run: not verified.
-			if verified := last.passed() && !g.armed(); !verified || len(last.notRun()) == 0 {
-				out["verified"] = verified
-			}
-			if !last.passed() {
-				out["regressions"] = last.regressed()
-			}
-		}
-		out["headline"] = last.headline()
+		"reports": reports, "pending_paths": anySlice(orEmpty(g.pending)), "headline": "",
+		"revision_freshness": "not_checked", "revision_scope": "latest_check_paths_and_host_inputs_content_only"}
+	if len(g.reports) == 0 {
+		return out
 	}
+	last := g.reports[len(g.reports)-1]
+	freshness := last.RevisionStatus
+	if freshness == "" {
+		freshness = "not_recorded"
+	}
+	if last.RevisionStatus == "current" {
+		names := make([]string, len(last.RevisionPaths))
+		for i, entry := range last.RevisionPaths {
+			names[i] = entry.Path
+		}
+		current, ok := g.fingerprint(names)
+		switch {
+		case !ok:
+			freshness = "unavailable"
+		case sameRevision(current, last.RevisionPaths):
+			freshness = "current"
+		default:
+			freshness = "stale"
+		}
+	}
+	out["revision_freshness"] = freshness
+	if last.ran() {
+		// What could run passed, but part of the plan did not run: not verified.
+		// A later edit, or a fingerprint that is not current, is not verified either.
+		verified := last.passed() && !g.armed()
+		if (verified && len(last.notRun()) > 0) || (freshness != "current" && len(last.failures()) == 0) {
+			verified = false
+			out["verified"] = nil
+		} else {
+			out["verified"] = verified
+		}
+		if !last.passed() {
+			out["regressions"] = last.regressed()
+		}
+	}
+	out["headline"] = last.headline()
 	if g.armed() {
 		out["headline"] = "改动后尚未重新验收"
+	} else if freshness != "current" && freshness != "not_checked" && len(last.failures()) == 0 {
+		out["headline"] = "文件内容变化或指纹不可用，需重新验收"
 	}
 	return out
 }

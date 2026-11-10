@@ -850,7 +850,8 @@ func (e *turnEvidence) verify(ctx context.Context, emit func(string, map[string]
 		state = "acceptance_passed"
 	}
 	emit("turn.status", map[string]any{"state": state, "message": report.headline()})
-	if report.ran() && !report.passed() && report.regressed() && ctx.Err() == nil {
+	unstable := report.RevisionStatus == "changed_during_checks" || report.RevisionStatus == "unavailable"
+	if report.ran() && !report.passed() && (report.regressed() || unstable) && ctx.Err() == nil {
 		return report.repairDirective()
 	}
 	return ""
