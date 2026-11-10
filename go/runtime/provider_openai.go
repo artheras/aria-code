@@ -253,9 +253,6 @@ func parseCompletions(r io.Reader, streaming bool, emit func(string), usage ...*
 				delta = choice.Message
 				finished = true
 			}
-			if reasoning := first(delta.ReasoningContent, delta.Reasoning); reasoning != "" {
-				content.Parts = append(content.Parts, &genai.Part{Text: reasoning, Thought: true})
-			}
 			if delta.Content != "" {
 				content.Parts = append(content.Parts, &genai.Part{Text: delta.Content})
 				emit(delta.Content)

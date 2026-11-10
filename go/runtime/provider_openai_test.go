@@ -170,14 +170,14 @@ func TestParseCompletionsZeroArgsAndReasoningTokens(t *testing.T) {
 	if streamed.String() != "" {
 		t.Fatalf("reasoning_content should not be streamed as visible output: %q", streamed.String())
 	}
-	if len(content.Parts) != 3 || !content.Parts[0].Thought || content.Parts[0].Text != "step 1" {
-		t.Fatalf("expected thought part + 2 tool calls, got %+v", content.Parts)
+	if len(content.Parts) != 2 {
+		t.Fatalf("expected 2 tool call parts without private reasoning part, got %+v", content.Parts)
 	}
-	if content.Parts[1].FunctionCall == nil || content.Parts[1].FunctionCall.Name != "git_status" || len(content.Parts[1].FunctionCall.Args) != 0 {
-		t.Fatalf("expected zero-arg git_status call, got %+v", content.Parts[1].FunctionCall)
+	if content.Parts[0].FunctionCall == nil || content.Parts[0].FunctionCall.Name != "git_status" || len(content.Parts[0].FunctionCall.Args) != 0 {
+		t.Fatalf("expected zero-arg git_status call, got %+v", content.Parts[0].FunctionCall)
 	}
-	if content.Parts[2].FunctionCall == nil || content.Parts[2].FunctionCall.Name != "pwd" || len(content.Parts[2].FunctionCall.Args) != 0 {
-		t.Fatalf("expected zero-arg pwd call, got %+v", content.Parts[2].FunctionCall)
+	if content.Parts[1].FunctionCall == nil || content.Parts[1].FunctionCall.Name != "pwd" || len(content.Parts[1].FunctionCall.Args) != 0 {
+		t.Fatalf("expected zero-arg pwd call, got %+v", content.Parts[1].FunctionCall)
 	}
 	if u.PromptTokens != 50 || u.CompletionTokens != 20 || u.Details == nil || u.Details.ReasoningTokens != 8 {
 		t.Fatalf("unexpected usage counts: %+v", u)

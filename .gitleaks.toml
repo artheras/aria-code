@@ -106,3 +106,10 @@ condition = "AND"
 paths = ['''(^|/)go/runtime/provider_presets\.go$''']
 regexes = ['''llama-3\.3-70b-versatile''']
 
+[[allowlists]]
+description = "Synthetic secret-detection fixture in project-review parity test."
+condition = "AND"
+paths = ['''(^|/)tests/test_native_go_project_review\.py$''']
+regexes = ['''sk-1234567890abcdefghijklmnop''']
+
+
