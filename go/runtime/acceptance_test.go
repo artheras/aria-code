@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"google.golang.org/genai"
 )
@@ -215,6 +217,115 @@ func TestAMissingToolDoesNotFailTheGateOrTheDelivery(t *testing.T) {
 	}
 	if delivery.asDict()["not_run"].([]map[string]any)[0]["command"] != "cmd1" {
 		t.Fatal(delivery.asDict())
+	}
+}
+
+func TestAPassingCheckIsTiedToTheFileBytes(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "app.py")
+	if err := os.WriteFile(path, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	gate := &acceptanceGate{root: root, maxAttempts: 2, commands: []string{"check"}}
+	gate.record("app.py")
+	report := gate.run(context.Background(), func(context.Context, string) map[string]any {
+		calls++
+		return map[string]any{"success": true, "data": map[string]any{"exit_code": 0}}
+	})
+	if report == nil || !report.passed() || report.RevisionStatus != "current" || calls != 1 {
+		t.Fatalf("pass not bound to the bytes: %+v", report)
+	}
+	if gate.summary()["verified"] != true {
+		t.Fatal(gate.summary())
+	}
+	if err := os.Chtimes(path, time.Unix(1, 0), time.Unix(1, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if gate.summary()["verified"] != true {
+		t.Fatal("mtime is not the fingerprint")
+	}
+	if err := os.WriteFile(path, []byte("external edit"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	view := gate.summary()
+	if view["verified"] != nil || view["revision_freshness"] != "stale" || calls != 1 {
+		t.Fatalf("external edit reran or stayed verified: %v calls=%d", view, calls)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if gate.summary()["revision_freshness"] != "stale" {
+		t.Fatal(gate.summary()["revision_freshness"])
+	}
+}
+
+func TestAChangeDuringTheCheckIsNotAPass(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "app.py")
+	if err := os.WriteFile(path, []byte("before"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gate := &acceptanceGate{root: root, maxAttempts: 2, commands: []string{"check"}}
+	gate.record("app.py")
+	report := gate.run(context.Background(), func(context.Context, string) map[string]any {
+		if err := os.WriteFile(path, []byte("after"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return map[string]any{"success": true, "data": map[string]any{"exit_code": 0}}
+	})
+	if report.passed() || report.RevisionStatus != "changed_during_checks" || len(report.failures()) != 0 {
+		t.Fatalf("%+v", report)
+	}
+	if gate.summary()["verified"] != nil || !strings.Contains(report.repairDirective(), "不要覆盖用户修改") {
+		t.Fatal(gate.summary(), report.repairDirective())
+	}
+}
+
+func TestASymlinkIsNotFingerprinted(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "private.txt")
+	if err := os.WriteFile(outside, []byte("private bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "app.py")); err != nil {
+		t.Skip(err)
+	}
+	gate := &acceptanceGate{root: root, maxAttempts: 2, commands: []string{"check"}}
+	gate.record("app.py")
+	report := gate.run(context.Background(), func(context.Context, string) map[string]any {
+		return map[string]any{"success": true, "data": map[string]any{"exit_code": 0}}
+	})
+	view := gate.summary()
+	if report.RevisionStatus != "unavailable" || view["verified"] != nil || view["revision_freshness"] != "unavailable" {
+		t.Fatal(report.RevisionStatus, view)
+	}
+	if strings.Contains(fmt.Sprint(view), "private bytes") {
+		t.Fatal(view)
+	}
+}
+
+func TestAHostInputChangeDropsVerification(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "app.py"), []byte("code"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	settings := filepath.Join(root, "settings.json")
+	if err := os.WriteFile(settings, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gate := &acceptanceGate{root: root, maxAttempts: 2, commands: []string{"check"}, revisionInputs: []string{"settings.json"}}
+	gate.record("app.py")
+	if report := gate.run(context.Background(), func(context.Context, string) map[string]any {
+		return map[string]any{"success": true, "data": map[string]any{"exit_code": 0}}
+	}); report == nil || gate.summary()["verified"] != true {
+		t.Fatal(gate.summary())
+	}
+	if err := os.WriteFile(settings, []byte(`{"changed":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if gate.summary()["verified"] != nil {
+		t.Fatal(gate.summary())
 	}
 }
 
