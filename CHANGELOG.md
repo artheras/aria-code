@@ -4,6 +4,47 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.167.0] — 2026-11-10
+
+- The terminal shows the robot, each service, an edit's size, and a one-line quote or backtest.
+- Merge pull request #312 from artheras/feat/service-status
+- Show an edit's size and a service result on one line.
+- Show each service on its own and color the turn by where it is.
+- Merge pull request #311 from artheras/feat/quiet-terminal
+- Let the CLI build and recognize the three-row robot.
+- Draw the robot at Claude Code's size beside the title.
+- Quiet the idle terminal and draw the supplied mark.
+- Merge pull request #310 from artheras/feat/supplied-aria-mark
+- Show the supplied mark on the repository page.
+- Keep a turn answer inside the record of what it did (#309)
+- Bind a passing check to the bytes it ran against (#308)
+- Remove the football model nothing imports (#307)
+- Native python migration rebased (#305)
+- Unified account memory (#306)
+- Keep plan, checks and delivery evidence on the native path (#304)
+- Make GitHub canonical and migrate project review toward Go (#303)
+- aria-bots: market commands on aria-runtime daemon, Telegram bot, drop football/swarm, compose (#302)
+- aria-bots: chat turns run on the Go engine, logistics tools over MCP (#301)
+- aria-bots: move the chat bots, channels and logistics tools to services/aria-bots (#300)
+- runtime: skills bring their tools into the Go agent (#299)
+- runtime: web_fetch and web_search in the Go agent (#298)
+- build: the Linux frontend runs on glibc 2.17 (#297)
+- runtime: aria-runtime daemon runs price alerts and schedules (#296)
+- mcp: aria-code-mcp serves with the Go engine (#295)
+- Reject unavailable Ollama models instead of silently switching (#279)
+- runtime: Canva sign-in, asset upload and autofill in aria-runtime mcp (#293)
+- release: platform wheels run the Rust frontend and the Go engine (#294)
+- runtime: image, Figma and video-generation clients in aria-runtime mcp (#292)
+- runtime: charts and the equity report in aria-runtime mcp (#290)
+- runtime: document tools in aria-runtime mcp (#289)
+- runtime: video tools in aria-runtime mcp (#288)
+- runtime: a person approves every call to an MCP tool marked destructive (#287)
+- runtime: aria-runtime mcp serves Aria's core tools over MCP (#286)
+- runtime: port the review service to /review and aria-runtime code-review (#285)
+- Add public biomedical literature research pack (#284)
+- runtime: built-in providers and gateway; release: Go runtime as the native engine (#283)
+- runtime: route finance commands to the financial-service; Python removal audit (#282)
+
 ## [0.166.0] — 2026-11-02
 
 - Add approved local Computer Use and native MCP vision
