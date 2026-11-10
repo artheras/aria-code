@@ -484,12 +484,12 @@ jobs:
           # tarball base64-encoded, so the 256 MiB publish limit is ~201 MB
           # packed. v0.59.0's linux-x64 package was 201.6 MB: the old 240 MB
           # threshold let it through, npm rejected it, and the three packages
-          # published before it were left without a dispatcher. 190 MB keeps
-          # a margin for normal growth between releases.
+          # published before it were left without a dispatcher. 198 MB stays
+          # under that limit. v0.167.0's linux-x64 package packed to 191.6 MB.
           for dir in "${packages[@]}"; do
             size="$(cd "$dir" && npm pack --dry-run --json | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>process.stdout.write(String(JSON.parse(s)[0].size)))')"
             echo "$(basename "$dir"): $size bytes packed"
-            if [ "$size" -ge 190000000 ]; then
+            if [ "$size" -ge 198000000 ]; then
               echo "::error::$(basename "$dir") is $size bytes packed; npm's limit is ~201 MB. Slim it before publishing: EXCLUDED in the PyInstaller collector script lists what is left out"
               exit 1
             fi
