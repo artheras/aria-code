@@ -192,10 +192,12 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let input_height = (input_rows.len().min(6) as u16)
         .saturating_add(2)
         .min(area.height / 2);
+    let roomy = area.height >= 10 && area.width >= 48;
     let text_rows = if area.height < 8 {
         1
     } else {
-        1 + u16::from(!app.update_notice.is_empty())
+        u16::from(roomy).saturating_mul(2).saturating_add(1)
+            + u16::from(!app.update_notice.is_empty())
             + u16::from(!app.service_notice.is_empty())
             + u16::from(app.details)
             + u16::from(app.turn.is_some() && !app.phase.is_empty())
@@ -214,13 +216,14 @@ pub fn draw(frame: &mut Frame, app: &App) {
         ])
         .split(area);
     let header = if parts[0].height > 1 {
-        // One line: model, where the work is, and what the next action may do.
-        // The product name and version wait in the details row.
-        let mut lines = vec![session_line(
-            app,
-            p,
-            usize::from(area.width.saturating_sub(left_padding)),
-        )];
+        // Roomy terminals match Claude Code: the mascot sits beside the name,
+        // the model, and the directory. Narrow terminals keep one status line.
+        let width = usize::from(area.width.saturating_sub(left_padding));
+        let mut lines = if roomy {
+            identity_lines(app, p, width)
+        } else {
+            vec![session_line(app, p, width)]
+        };
         if !app.service_notice.is_empty() {
             lines.push(Line::styled(
                 app.service_notice.clone(),
@@ -645,6 +648,12 @@ pub fn draw(frame: &mut Frame, app: &App) {
             .map(|start| start.elapsed().as_secs())
             .unwrap_or(0) as usize;
         status_line.extend(super::mark::prefix(Some(second)));
+    }
+    let mode = permission_phrase(app);
+    if !mode.is_empty() {
+        status_line.push(Span::styled("▸ ", Style::new().fg(p.muted)));
+        status_line.push(Span::styled(mode, Style::new().fg(p.accent)));
+        status_line.push(Span::raw(" · "));
     }
     status_line.push(Span::styled(
         format!(
@@ -1212,6 +1221,54 @@ fn example_prompt(app: &App) -> String {
     }
 }
 
+/// Name, model, and directory: the three lines beside Claude Code's mascot.
+fn identity_lines(app: &App, p: Palette, width: usize) -> Vec<Line<'static>> {
+    let mut model = display_model(&app.model);
+    if !app.provider.is_empty() {
+        let provider = display_provider(&app.provider);
+        model = if model.is_empty() {
+            provider
+        } else {
+            format!("{model} · {provider}")
+        };
+    }
+    let home = if app.home_workspace {
+        format!(" · {}", app.tr("home folder", "主目录"))
+    } else {
+        String::new()
+    };
+    let branch = if app.home_workspace || app.branch.is_empty() {
+        String::new()
+    } else {
+        format!(" · {}", app.branch)
+    };
+    let place = workspace_tail(
+        &home_short(&app.workspace),
+        width.saturating_sub(home.width() + branch.width()),
+    );
+    let mut place_line = vec![Span::styled(
+        place,
+        if app.home_workspace {
+            Style::new().fg(p.warn)
+        } else {
+            Style::new().fg(p.muted)
+        },
+    )];
+    if app.home_workspace {
+        place_line.push(Span::styled(home, Style::new().fg(p.warn)));
+    } else if !branch.is_empty() {
+        place_line.push(Span::styled(branch, Style::new().fg(p.muted)));
+    }
+    vec![
+        Line::from(vec![
+            Span::styled("Aria Code", Style::new().bold()),
+            Span::styled(format!(" v{}", app.version), Style::new().fg(p.muted)),
+        ]),
+        Line::raw(model),
+        Line::from(place_line),
+    ]
+}
+
 /// Model, place, and what a later action is allowed to do, fitted to one row.
 fn session_line(app: &App, p: Palette, width: usize) -> Line<'static> {
     let mut model = display_model(&app.model);
@@ -1376,10 +1433,10 @@ mod tests {
         };
         terminal.draw(|f| draw(f, &app)).unwrap();
         let shown = display(&terminal);
+        assert!(shown.contains("Aria Code"), "{shown}");
         assert!(shown.contains("qwen2.5:7b"), "{shown}");
         assert!(shown.contains("商家令牌"), "{shown}");
         assert!(!shown.contains("WARNING:"), "{shown}");
-        assert!(!shown.contains("Aria Code"), "{shown}");
     }
 
     #[test]
@@ -1584,10 +1641,13 @@ mod tests {
         };
         terminal.draw(|f| draw(f, &app)).unwrap();
         let rendered = display(&terminal);
-        let header = rendered.lines().next().unwrap();
+        let header = rendered
+            .lines()
+            .find(|line| line.contains('…') || line.contains("我的项目"))
+            .unwrap();
         assert!(
-            header.contains("writes need approval · network on"),
-            "{header}"
+            rendered.contains("writes need approval · network on"),
+            "{rendered}"
         );
         assert!(header.contains('…'));
         assert!(header.contains("我的项目"));
@@ -2000,12 +2060,11 @@ mod tests {
             };
             terminal.draw(|f| draw(f, &app)).unwrap();
             let buffer = terminal.backend().buffer();
-            // Eight columns, two rows: the roof, then the window and the slit.
-            assert_eq!(buffer[(0, 0)].symbol(), "▄");
-            assert_eq!(buffer[(2, 0)].symbol(), "▀");
-            assert_eq!(buffer[(1, 1)].symbol(), "▄");
-            assert_eq!(buffer[(4, 1)].symbol(), "▄");
-            assert!(!display(&terminal).contains("Aria Code"));
+            // Nine columns, three rows. The name starts two columns past the mascot.
+            assert_eq!(buffer[(2, 1)].symbol(), "▀");
+            assert_eq!(buffer[(5, 1)].symbol(), "▀");
+            assert_eq!(buffer[(11, 0)].symbol(), "A");
+            assert!(display(&terminal).contains("Aria Code"));
         }
     }
     #[test]

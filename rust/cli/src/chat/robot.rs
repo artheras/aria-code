@@ -133,36 +133,51 @@ impl Robot {
         Self(rows)
     }
 
-    /// Two rows by eight columns: the supplied isometric mark, not a face.
-    /// Each cell is one terminal row of half-blocks, so the picture is four
-    /// pixels tall. The top row is the roof with the opening; the bottom row
-    /// is the left window and the right slit. Cream on a dark terminal, ink
-    /// on a light one. No eyes, ears, or feet.
+    /// Three rows by nine columns, the same budget as Claude Code's mascot.
+    /// Half blocks make six pixel rows: cream cap, black screen, a square eye
+    /// and an orange dash, an orange stripe, then four gray feet.
     fn compact_cream(theme: &str) -> Self {
-        let ink = if theme == "light" {
-            Color::Rgb(37, 39, 34)
+        let cream = if theme == "light" {
+            Color::Rgb(230, 221, 208)
         } else {
-            Color::Rgb(247, 246, 240)
+            Color::Rgb(244, 235, 228)
         };
-        // Four pixel rows. `true` is the mark, `false` is the opening.
-        let pixels: [[bool; 8]; 4] = [
-            [false, true, true, true, true, true, true, false],
-            [true, true, false, true, true, false, true, true],
-            [true, false, true, true, false, false, true, true],
-            [false, true, true, true, true, true, true, false],
+        let screen = Color::Rgb(14, 14, 14);
+        let eye = Color::Rgb(255, 253, 245);
+        let dash = Color::Rgb(249, 180, 103);
+        let gray = if theme == "light" {
+            Color::Rgb(156, 148, 139)
+        } else {
+            Color::Rgb(182, 173, 164)
+        };
+        // 0 empty, 1 cream, 2 screen, 3 white eye, 4 orange, 5 gray.
+        let pixels: [[u8; 9]; 6] = [
+            [0, 1, 1, 1, 1, 1, 1, 1, 0],
+            [5, 2, 2, 2, 2, 2, 2, 2, 5],
+            [5, 2, 3, 2, 2, 4, 2, 2, 5],
+            [5, 2, 2, 2, 2, 2, 2, 2, 5],
+            [0, 4, 4, 4, 4, 4, 4, 4, 0],
+            [0, 5, 0, 5, 0, 5, 0, 5, 0],
         ];
-        let solid = Span::styled("▀", Style::new().fg(ink).bg(ink));
+        let paint = |code: u8| match code {
+            1 => Some(cream),
+            2 => Some(screen),
+            3 => Some(eye),
+            4 => Some(dash),
+            5 => Some(gray),
+            _ => None,
+        };
         let mut rows = Vec::new();
         for pair in pixels.chunks(2) {
             let mut spans = Vec::new();
-            for col in 0..8 {
-                let upper = pair[0][col];
-                let lower = pair[1][col];
+            for col in 0..9 {
+                let upper = paint(pair[0][col]);
+                let lower = paint(pair[1][col]);
                 spans.push(match (upper, lower) {
-                    (true, true) => solid.clone(),
-                    (true, false) => Span::styled("▀", Style::new().fg(ink)),
-                    (false, true) => Span::styled("▄", Style::new().fg(ink)),
-                    (false, false) => Span::raw(" "),
+                    (None, None) => Span::raw(" "),
+                    (Some(color), None) => Span::styled("▀", Style::new().fg(color)),
+                    (None, Some(color)) => Span::styled("▄", Style::new().fg(color)),
+                    (Some(top), Some(bottom)) => Span::styled("▀", Style::new().fg(top).bg(bottom)),
                 });
             }
             rows.push(Line::from(spans));
@@ -201,32 +216,40 @@ mod tests {
                 robot.0[3].spans[7].style.bg,
                 Some(Color::Rgb(255, 253, 245))
             );
-            assert_eq!(Robot::cream(theme, true).0.len(), 2);
+            let mark = Robot::cream(theme, true);
+            assert_eq!(mark.0.len(), 3);
+            assert!(mark.0.iter().all(|row| row.width() == 9));
         }
     }
     #[test]
-    fn compact_mark_is_the_isometric_silhouette() {
-        for (theme, ink) in [
-            ("light", Color::Rgb(37, 39, 34)),
-            ("dark", Color::Rgb(247, 246, 240)),
-        ] {
+    fn compact_robot_has_a_square_eye_an_orange_dash_and_four_feet() {
+        let eye = Some(Color::Rgb(255, 253, 245));
+        let dash = Some(Color::Rgb(249, 180, 103));
+        let screen = Some(Color::Rgb(14, 14, 14));
+        for theme in ["light", "dark"] {
             let robot = Robot::from_event(&serde_json::json!({
                 "design": "cream-block-v2", "theme": theme
             }));
-            assert_eq!(robot.0.len(), 2);
-            assert!(robot.0.iter().all(|row| row.width() == 8));
-            // Roof opening on the left of the first row, window on the second.
-            assert_eq!(robot.0[0].spans[0].content, "▄");
-            assert_eq!(robot.0[0].spans[2].content, "▀");
-            assert_eq!(robot.0[1].spans[1].content, "▄");
-            assert_eq!(robot.0[1].spans[4].content, "▄");
-            assert_eq!(robot.0[0].spans[1].style.fg, Some(ink));
-            let drawn: String = robot
-                .0
+            assert_eq!(robot.0.len(), 3);
+            assert!(robot.0.iter().all(|row| row.width() == 9));
+            let face = &robot.0[1].spans;
+            assert_eq!(face[2].style.fg, eye);
+            assert_eq!(face[2].style.bg, screen);
+            assert_eq!(face[5].style.fg, dash);
+            assert_eq!(face[5].style.bg, screen);
+            let feet = robot.0[2]
+                .spans
                 .iter()
-                .flat_map(|row| row.spans.iter().map(|span| span.content.as_ref()))
-                .collect();
-            assert!(!drawn.contains('▗') && !drawn.contains('▖'));
+                .filter(|span| {
+                    span.style.bg
+                        == Some(if theme == "light" {
+                            Color::Rgb(156, 148, 139)
+                        } else {
+                            Color::Rgb(182, 173, 164)
+                        })
+                })
+                .count();
+            assert_eq!(feet, 4);
         }
     }
     #[test]
