@@ -103,7 +103,7 @@ entrypoints and external consumers.
 | Bot legacy imports | Keep thin compatibility shims; implementation is in aria-bots | Migrate external callers and version the import change |
 | Hosted project-review API | Go replacement candidate added; current deployment stays on Python | Compare report fidelity, route/auth/error and workspace lifecycle contracts before changing the production image; keep both implementations during transition |
 | Unique trading/analyst/finance tools | Keep until ported or deliberately retired | Match data, preview/confirmation and output contracts; verify callers use the replacement |
-| Retired cloud/APNs integrations | Audit remaining callers separately | Move to an explicit service API or remove the feature and its callers together; never return fake success |
+| Retired cloud/APNs integrations | APNs push removed from `aria_daemon.py` and `.env.daemon.template`; audit remaining cloud callers separately | Move to an explicit service API or remove the feature and its callers together; never return fake success |
 | Evals/training | Keep Python intentionally | No deletion required for native core migration |
 
 Four old local financial-tool wrappers were removed after the source audit

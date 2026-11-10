@@ -317,13 +317,16 @@ type finding struct {
 }
 
 func scanReviewFile(file reviewFile) []finding {
-	if strings.TrimSpace(file.Content) == "" {
+	content := truncateRunes(file.Content, 48000)
+	if strings.TrimSpace(content) == "" {
 		return []finding{{Severity: "medium", Rule: "empty-input", Message: "没有可审查的代码内容。", File: file.Path}}
 	}
-	lines := splitTextLines(file.Content)
+	lines := splitTextLines(content)
 	var findings []finding
+	pySyntaxBad := false
 	if file.Language == "Python" {
-		if line, evidence, bad := pythonSyntaxError(file.Content); bad {
+		if line, evidence, bad := pythonSyntaxError(content); bad {
+			pySyntaxBad = true
 			findings = append(findings, finding{
 				Severity: "critical", Rule: "python-syntax-error",
 				Message: "Python 代码无法解析，运行前会失败。", Line: line,
@@ -332,7 +335,7 @@ func scanReviewFile(file reviewFile) []finding {
 		}
 	}
 	if strings.EqualFold(filepath.Ext(file.Path), ".go") {
-		if _, err := parser.ParseFile(token.NewFileSet(), file.Path, file.Content, parser.AllErrors); err != nil {
+		if _, err := parser.ParseFile(token.NewFileSet(), file.Path, content, parser.AllErrors); err != nil {
 			if parseErrors, ok := err.(scanner.ErrorList); ok && len(parseErrors) > 0 {
 				first := parseErrors[0]
 				line := first.Pos.Line
@@ -374,7 +377,7 @@ func scanReviewFile(file reviewFile) []finding {
 		if tlsDisabled.MatchString(line) {
 			add("high", "tls-verification-disabled", "TLS 证书校验被关闭；除受控测试外不得使用 verify=False。", line)
 		}
-		if bareExcept.MatchString(line) {
+		if file.Language == "Python" && !pySyntaxBad && bareExcept.MatchString(line) {
 			add("medium", "bare-except", "裸 except 会吞掉系统退出和中断；至少捕获 Exception，并记录或处理错误。", "except:")
 		}
 	}
@@ -441,18 +444,34 @@ func projectRecommendations(files []reviewFile, summary map[string]any) []map[st
 		paths = append(paths, p)
 		names[strings.ToLower(path.Base(p))] = true
 	}
-	hasMarker := func(markers ...string) bool {
-		for _, p := range paths {
-			for _, m := range markers {
-				if strings.Contains(p, m) {
-					return true
+	testMarkers := []string{"test", "tests", "spec", "__tests__"}
+	hasTests := false
+	for _, p := range paths {
+		parts := strings.Split(p, "/")
+		base := path.Base(p)
+		for _, m := range testMarkers {
+			if strings.Contains(base, m) {
+				hasTests = true
+				break
+			}
+			for _, part := range parts {
+				if part == m {
+					hasTests = true
+					break
 				}
 			}
 		}
-		return false
+		if hasTests {
+			break
+		}
 	}
-	hasTests := hasMarker("test", "tests", "spec", "__tests__")
-	hasCI := hasMarker(".github/workflows/", ".gitlab-ci")
+	hasCI := false
+	for _, p := range paths {
+		if strings.HasPrefix(p, ".github/workflows/") || strings.HasPrefix(p, ".gitlab-ci") {
+			hasCI = true
+			break
+		}
+	}
 	hasReadme := false
 	for n := range names {
 		if strings.HasPrefix(n, "readme") {
@@ -560,14 +579,34 @@ func productAssessment(files []reviewFile) map[string]any {
 			frameworks = append(frameworks, item.name)
 		}
 	}
+	hasUX := false
+	hasCD := false
+	hasDocs := false
+	hasContainers := false
+	for _, p := range paths {
+		switch path.Ext(p) {
+		case ".tsx", ".jsx", ".swift", ".html", ".vue":
+			hasUX = true
+		}
+		if strings.HasPrefix(p, ".github/workflows/") || strings.Contains(p, ".gitlab-ci") {
+			hasCD = true
+		}
+		base := path.Base(p)
+		if strings.HasPrefix(base, "readme") {
+			hasDocs = true
+		}
+		if base == "dockerfile" || base == "docker-compose.yml" || base == "compose.yaml" {
+			hasContainers = true
+		}
+	}
 	dimensions := map[string]bool{
-		"user_experience":     hasPath(".tsx", ".jsx", ".swift", ".html", ".vue"),
+		"user_experience":     hasUX,
 		"api_and_data":        contains("fastapi", "express", "router", "@app.", "@router.", "graphql"),
 		"authentication":      contains("oauth", "jwt", "firebaseauth", "authentication", "authorization"),
 		"testing":             hasPath("test", "tests", "spec", "__tests__"),
-		"continuous_delivery": hasPath(".github/workflows/", ".gitlab-ci"),
-		"documentation":       hasPath("readme"),
-		"containerization":    hasPath("dockerfile", "docker-compose.yml", "compose.yaml"),
+		"continuous_delivery": hasCD,
+		"documentation":       hasDocs,
+		"containerization":    hasContainers,
 	}
 	return map[string]any{"product_types": types, "frameworks": frameworks, "review_dimensions": dimensions, "evidence_basis": "manifest names, source imports, and repository paths"}
 }

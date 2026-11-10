@@ -9,7 +9,6 @@ Responsibilities:
   4. Webhook job executor  — runs pending jobs from the local webhook_jobs table
      TradingView endpoint   — POST /api/v1/webhook/tradingview (alias
                               /api/v1/tradingview/webhook) queues alerts
-  5. APNs push delivery    — fires on alert trigger or scheduled job completion
 
 Start manually:   python3 aria_daemon.py [--debug]
 Install daemon:   python3 aria_daemon.py --install   (macOS LaunchAgent)
@@ -18,11 +17,6 @@ Uninstall:        python3 aria_daemon.py --uninstall
 Config via env vars (or ~/.aria/.env):
   TELEGRAM_BOT_TOKEN        — Telegram bot token from @BotFather
   TELEGRAM_ALLOWED_IDS      — comma-separated chat IDs (e.g. "123456,789012")
-  APNS_KEY_ID               — Apple Developer key ID (10-char string)
-  APNS_TEAM_ID              — Apple Developer team ID
-  APNS_BUNDLE_ID            — App bundle ID (default: com.arthera.app)
-  APNS_SANDBOX              — "true" for sandbox / TestFlight (default: true)
-  APNS_AUTH_KEY_P8          — .p8 key content, or place file at ~/.aria/apns.p8
   WEBHOOK_TOKEN             — Token for /api/v1/webhook/tradingview, sent in the
                               X-Aria-Token, X-TradingView-Secret or
                               Authorization: Bearer header (never the query
@@ -189,19 +183,6 @@ async def _fetch_price(symbol: str) -> tuple[Optional[float], Optional[float]]:
         return (None, None)
 
 
-# ── Push notifications ────────────────────────────────────────────────────────
-
-async def _push_alert(title: str, body: str, extra: Optional[dict] = None, alert_id: Optional[str] = None) -> None:
-    """Try to push via APNs; log any failure but never raise."""
-    try:
-        sys.path.insert(0, str(Path(__file__).parent.parent / "Arthera" / "apps" / "api" / "src"))
-        from services.apns_service import push_to_all
-        sent = await push_to_all(title, body, extra, alert_id)
-        logger.info("APNs push: %d device(s) notified for alert_id=%s", sent, alert_id)
-    except ImportError:
-        logger.debug("apns_service not reachable — skipping push")
-
-
 # ── Telegram push (one-shot, no polling) ─────────────────────────────────────
 
 async def _telegram_push(text: str) -> None:
@@ -343,11 +324,6 @@ async def _check_alert(alert: dict, price: float, prev_close: Optional[float] = 
             (alert["id"],),
         )
         conn.commit()
-
-    extra = {"symbol": symbol, "price": price, "signal": "ALERT"}
-
-    if alert.get("notify_push", 1):
-        await _push_alert(title, body, extra, alert["id"])
 
     if alert.get("notify_telegram", 1):
         await _telegram_push(f"*{title}*\n{body}")
@@ -766,7 +742,6 @@ async def _portfolio_loss_watchdog() -> None:
                             f"持仓损益 {day_loss:+.2f} 元"
                         )
                         logger.info("Portfolio loss alert: %s %.2f%%", sym, pct)
-                        await _push_alert(title, body)
                         await _telegram_push(f"*{title}*\n{body}")
                         await _feishu_push(title, body)
         except Exception as exc:
@@ -1156,12 +1131,6 @@ async def _run_scheduled_job(schedule: dict) -> None:
         await _telegram_push(f"⏰ *定时任务完成*\n{result}")
     if "feishu" in channels:
         await _feishu_push(f"⏰ 定时任务：{cmd}", result[:2000])
-    if "ios" in channels:
-        await _push_alert(
-            "Aria 定时任务",
-            result[:150],
-            {"command": cmd},
-        )
 
     with sqlite3.connect(_DB_PATH) as conn:
         conn.execute(
@@ -1177,7 +1146,6 @@ async def _run_morning_brief_and_push() -> None:
     brief = await _run_morning_brief()
     await _telegram_push(brief)
     await _feishu_push("📊 Aria 晨报", brief[:2000])
-    await _push_alert("Aria 晨报", brief[:150])
     _system_notify("Aria 晨报", brief[:120])
 
 
@@ -1187,7 +1155,6 @@ async def _run_evening_brief_and_push() -> None:
     brief = await _run_evening_brief()
     await _telegram_push(brief)
     await _feishu_push("🌆 Aria 收盘简报", brief[:2000])
-    await _push_alert("Aria 收盘", brief[:150])
     _system_notify("Aria 收盘简报", brief[:120])
 
 
@@ -1197,7 +1164,6 @@ async def _run_weekly_recap_and_push() -> None:
     recap = await _run_weekly_recap()
     await _telegram_push(recap)
     await _feishu_push("📅 Aria 周报", recap[:2000])
-    await _push_alert("Aria 周报", recap[:150])
     _system_notify("Aria 周报", recap[:120])
 
 

@@ -263,6 +263,19 @@ jobs:
       - name: Build Go project-review migration candidate
         run: docker build -f Dockerfile.review-go -t aria-review-go:ci .
 
+      - name: Go project-review migration candidate answers /health
+        run: |
+          docker run -d --name aria-review-go -p 8788:8787 aria-review-go:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8788/health; then
+              docker rm -f aria-review-go >/dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs aria-review-go
+          exit 1
+
       - name: Build Dockerfile.relay
         run: docker build -f Dockerfile.relay -t aria-relay:ci .
 

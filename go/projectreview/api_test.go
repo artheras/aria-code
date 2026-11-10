@@ -102,9 +102,9 @@ func TestProjectReviewReporting(t *testing.T) {
 	handler, _ := setupTestHandler(t, token)
 
 	zipBytes := makeZip(t, map[string]string{
-		"sample/app.py": "from fastapi import FastAPI\nAPI_KEY = 'super-secret-value'\ntry:\n    run()\nexcept:\n    pass\n",
+		"sample/app.py":         "from fastapi import FastAPI\nAPI_KEY = 'super-secret-value'\ntry:\n    run()\nexcept:\n    pass\n",
 		"sample/pyproject.toml": "[project]\nname='sample'\n",
-		"sample/.env": "SECRET=leak",
+		"sample/.env":           "SECRET=leak",
 	})
 
 	var body bytes.Buffer

@@ -22,7 +22,7 @@ from aria_code.apps.cli.commands.market import (
 )
 from aria_code.apps.cli.commands.market_cmds import _is_probable_football_query, _parse_nl_team_pair, _rss_items_from_xml
 from aria_code.apps.cli.handlers.strategy_advice import handle_strategy_advice, is_strategy_advice_request
-from aria_code.apps.cli.commands.market_render import compact_quote_market_cap, render_quote_plain, render_ta_plain
+from aria_code.ui.render.market import compact_quote_market_cap, render_quote_plain, render_ta_plain
 from aria_code.apps.cli.utils.market_detect import (
     _detect_broker_type,
     _extract_market_symbols,
@@ -56,7 +56,7 @@ from aria_code.apps.cli.commands.team import (
     team_quote_snapshot,
     team_agent_names,
 )
-from aria_code.apps.cli.commands.team_render import build_team_table_rows, render_team_rows_plain, team_mode_label, truncate_cell
+from aria_code.ui.render.team import build_team_table_rows, render_team_rows_plain, team_mode_label, truncate_cell
 from aria_code.apps.cli.direct import dispatch_direct_command, is_watchable_direct_command
 
 

@@ -2960,19 +2960,19 @@ def _null_ctx():
 
 # ── Verdict banner ─────────────────────────────────────────────────────────────
 
-# Alias kept for any internal references that pre-date the move to team_render.
+# Alias kept for any internal references that pre-date the move to ui.render.team.
 _VERDICT_STYLE: dict = VERDICT_STYLE
 
 
 def _print_verdict_banner(verdict: str, subtitle: str = "", confidence: float = None,
                           lang: str = "zh") -> None:
-    """Thin wrapper — rendering logic lives in team_render.render_verdict_banner."""
+    """Thin wrapper — rendering logic lives in ui.render.team.render_verdict_banner."""
     render_verdict_banner(verdict, subtitle, confidence,
                           console=console, has_rich=HAS_RICH, lang=lang)
 
 
 def _print_agent_table(sym: str, results: list, use_full: bool = False) -> None:
-    """Thin wrapper — rendering logic lives in team_render.render_team_table."""
+    """Thin wrapper — rendering logic lives in ui.render.team.render_team_table."""
     import shutil as _shutil
     rows = build_team_table_rows(results)
     tw   = getattr(console, "width", None) or _shutil.get_terminal_size().columns

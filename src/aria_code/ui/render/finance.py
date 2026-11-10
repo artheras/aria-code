@@ -1,8 +1,8 @@
 """
-apps/cli/commands/finance_render.py — Finance tool result renderers
-===================================================================
+ui/render/finance.py — Finance tool result renderers
+====================================================
 All public functions accept ``console`` and ``has_rich`` as keyword-only
-arguments following the same contract as team_render.py:
+arguments following the same contract as ui/render/team.py:
 
     render_finance_result(tool_name, result, console=console, has_rich=HAS_RICH)
 

@@ -26,6 +26,31 @@ type service struct {
 }
 
 func main() {
+	if len(os.Args) >= 3 && os.Args[1] == "--review-archive" {
+		archivePath := os.Args[2]
+		filename := filepath.Base(archivePath)
+		if len(os.Args) >= 4 && strings.TrimSpace(os.Args[3]) != "" {
+			filename = os.Args[3]
+		}
+		payload, err := os.ReadFile(archivePath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
+		report, err := reviewArchive(payload, filename)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetEscapeHTML(false)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(report); err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
+		return
+	}
 	root := strings.TrimSpace(os.Getenv("ARIA_CODE_WORKSPACE_ROOT"))
 	if root == "" {
 		root = filepath.Join(os.TempDir(), "aria-code-workspaces")
