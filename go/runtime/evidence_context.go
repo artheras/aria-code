@@ -163,7 +163,7 @@ var (
 
 // claimFindings lists hard claims in answer that the delivery report does not
 // support. Ordinary prose without those claims produces none.
-func claimFindings(answer string, report DeliveryReport) []string {
+func claimFindings(answer string, report DeliveryReport, figures map[string]bool) []string {
 	var out []string
 	if passClaim.MatchString(answer) && !checksSupportPass(report) {
 		out = append(out, "回答说检查已通过，这次没有完整通过的验收。")
@@ -181,6 +181,15 @@ func claimFindings(answer string, report DeliveryReport) []string {
 				return out
 			}
 		}
+	}
+	for _, figure := range financeClaimNumbers(answer, len(figures) > 0) {
+		if len(out) >= 8 {
+			break
+		}
+		if financeFigureKnown(figures, figure) {
+			continue
+		}
+		out = append(out, "回答里的 "+figure+" 不是这次金融工具返回的数字。")
 	}
 	return out
 }
@@ -221,7 +230,7 @@ func annotateClaims(answer string, evidence *turnEvidence) string {
 	if evidence == nil || strings.Contains(answer, claimNoteHeader) {
 		return answer
 	}
-	findings := claimFindings(answer, evidence.report("completed"))
+	findings := claimFindings(answer, evidence.report("completed"), evidence.financeFigures)
 	if len(findings) == 0 {
 		return answer
 	}

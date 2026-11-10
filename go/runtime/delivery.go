@@ -767,6 +767,8 @@ type turnEvidence struct {
 	// A later read of the same bytes is not sent again.
 	readPaths  []string
 	readDigest map[string]string
+	// Numbers returned by financial-service during this turn.
+	financeFigures map[string]bool
 }
 
 func newTurnEvidence(root string) *turnEvidence {
@@ -813,6 +815,9 @@ func (e *turnEvidence) finished(tool string, params map[string]any, result toolR
 		if path, _ := result.Data["path"].(string); path != "" {
 			e.readPaths = appendNew(e.readPaths, path)
 		}
+	}
+	if success {
+		e.rememberFinance(tool, result)
 	}
 }
 

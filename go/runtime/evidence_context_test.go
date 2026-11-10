@@ -62,18 +62,18 @@ func TestPrepareContextStopsAtThePathCap(t *testing.T) {
 func TestClaimsNeedARecord(t *testing.T) {
 	yes := true
 	supported := DeliveryReport{Verified: &yes, Checks: []map[string]any{{"passed": true}}, Changed: []*changedFile{{Path: "app.py"}}}
-	if findings := claimFindings("All tests passed.\nI updated app.py.", supported); len(findings) != 0 {
+	if findings := claimFindings("All tests passed.\nI updated app.py.", supported, nil); len(findings) != 0 {
 		t.Fatal(findings)
 	}
 	unsupported := DeliveryReport{}
-	findings := claimFindings("All tests passed. I updated app.py.", unsupported)
+	findings := claimFindings("All tests passed. I updated app.py.", unsupported, nil)
 	if len(findings) != 2 || !strings.Contains(findings[0], "检查已通过") || !strings.Contains(findings[1], "app.py") {
 		t.Fatal(findings)
 	}
-	if findings := claimFindings("Done.", unsupported); len(findings) != 0 {
+	if findings := claimFindings("Done.", unsupported, nil); len(findings) != 0 {
 		t.Fatal(findings)
 	}
-	if findings := claimFindings("If the suite is green, ship.", unsupported); len(findings) != 0 {
+	if findings := claimFindings("If the suite is green, ship.", unsupported, nil); len(findings) != 0 {
 		t.Fatal(findings)
 	}
 }
