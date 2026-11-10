@@ -396,6 +396,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "slow_packaging: builds and installs a real wheel; tens of seconds",
+    "timeout: per-test timeout duration in seconds",
 ]
 python_files = ["test_*.py"]
 filterwarnings = [
