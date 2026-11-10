@@ -406,6 +406,7 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 		if readOnlyTurn {
 			s.scope.readOnly = true
 		}
+		s.maybeAutoCompact(turn, text)
 		s.contents, answer, err = nativeTurn(ctx, s.provider, s.scope, s.cfg, s.contents, text, hooks)
 		s.scope.readOnly = wasReadOnly
 		evidence = hooks.evidence
