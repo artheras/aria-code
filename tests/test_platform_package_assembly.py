@@ -32,8 +32,14 @@ import subprocess
 import tempfile
 import unittest
 
+import pytest
 import yaml
+
 from native_packaging_support import fixture_archive, build_tool
+
+# The first call compiles go/buildtools. A cold toolchain download does not
+# finish inside the suite's 60s cap; the compile itself is bounded at 120s.
+pytestmark = pytest.mark.timeout(300)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "build-native-binaries.yml"

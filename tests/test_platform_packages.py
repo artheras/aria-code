@@ -18,7 +18,12 @@ import tempfile
 import unittest
 import shutil
 
+import pytest
+
 from native_packaging_support import fixture_archive, run_tool
+
+# run_tool compiles go/buildtools on first use. See test_platform_package_assembly.
+pytestmark = pytest.mark.timeout(300)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 JS_MODULE = ROOT / "npm" / "lib" / "platform.js"

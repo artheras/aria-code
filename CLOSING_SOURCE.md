@@ -97,8 +97,7 @@ python tools/build_quant_engine.py --build     # 产出 dist_compiled/*.so
 | `sports/tracker` | `football_data_client` |
 | `stochastic/options_pricing` | `analysis_cmds`(只用 `black_scholes`) |
 
-其余全部只被引擎内部调用,`sports/ml_model.py` 连内部都没人调(它自己的
-docstring 写明了「未接入预测路径,这是有意的」)。
+其余全部只被引擎内部调用。`sports/ml_model.py` 已删除:没有任何模块、测试或入口导入它。它曾在 25 条样本上对 Dixon-Coles 做 A/B,交叉验证 Brier 1.0446,基线 0.3251,更差约 3.2 倍,所以没有接入预测路径。样本量上来之前不要把它加回去。
 
 再看这些模块**是什么**。它们的 docstring 自己交代得很清楚:
 
@@ -119,11 +118,10 @@ risk / analysis / strategies)已经在私有仓,阶段 3(授权)和阶段 4(服�
 
 ### 如果以后还是要拆,先知道这一点
 
-`sports/` **不是自包含的**。五个文件反向依赖公开侧:
+`sports/` **不是自包含的**。四个文件反向依赖公开侧:
 
 ```
 sports/predictor.py   ┐
-sports/ml_model.py    │
 sports/elo.py         ├─→ from aria_code.packages.aria_core.paths import aria_home
 sports/calibrator.py  │
 sports/tracker.py     ┘
