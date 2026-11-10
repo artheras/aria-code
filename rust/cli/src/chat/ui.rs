@@ -131,7 +131,8 @@ const HELP: &str = "Aria interactive interface\n\nEnter  send · Alt+Enter / Ctr
 const HELP_ZH: &str = "Aria 交互界面\n\nEnter 发送 · Alt+Enter / Ctrl+J 换行\n方向键编辑 / 浏览输入历史 · 输入 / 列出命令 · @ 选择文件 · Tab 补全\nCtrl+U / K / W 删除行首 / 行尾 / 前一个词\nPgUp / PgDn 或鼠标滚轮查看对话历史\nCtrl+O 展开工具详情 · F1 打开帮助\nEsc / Ctrl+C 取消当前任务或关闭对话框\nCtrl+D 退出（输入非空时删除字符）\n\n/new 新会话 · /resume ID 恢复会话\n/sessions 会话列表 · /help 所有命令\n/model 选择模型 · /health 服务检查\n@file:path 引用文件 · !command 执行命令\naria -C <项目目录> 在指定项目中启动\n/config set ui_lang=zh 设置中文界面\n\n运行时管理文件权限、任务隔离与验证。\n审批需要你明确选择；秘密输入与隐藏推理不会写入界面记录。";
 
 fn tool_label<'a>(tool: &'a str, app: &App) -> &'a str {
-    match tool {
+    let name = tool.rsplit("__").next().unwrap_or(tool);
+    match name {
         "list_files" | "glob" => app.tr("List files", "查看目录"),
         "read_file" => app.tr("Read file", "读取文件"),
         "search_code" | "find_symbol" => app.tr("Search code", "搜索代码"),
@@ -139,6 +140,13 @@ fn tool_label<'a>(tool: &'a str, app: &App) -> &'a str {
         "write_file" => app.tr("Write file", "写入文件"),
         "edit_file" | "multi_edit" | "apply_patch" => app.tr("Edit file", "修改文件"),
         "repo_map" => app.tr("Map project", "查看项目结构"),
+        "get_market_data" | "get_crypto_data" | "get_forex_data" | "financial_quote" => {
+            app.tr("Quote", "行情")
+        }
+        "backtest_strategy"
+        | "cloud_backtest"
+        | "run_portfolio_backtest"
+        | "financial_backtest" => app.tr("Backtest", "回测"),
         _ => tool,
     }
 }
@@ -198,7 +206,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     } else {
         u16::from(roomy).saturating_mul(2).saturating_add(1)
             + u16::from(!app.update_notice.is_empty())
-            + u16::from(!app.service_notice.is_empty())
+            + u16::from(!app.service_notices.is_empty())
             + u16::from(app.details)
             + u16::from(app.turn.is_some() && !app.phase.is_empty())
     };
@@ -224,9 +232,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
         } else {
             vec![session_line(app, p, width)]
         };
-        if !app.service_notice.is_empty() {
+        if !app.service_notices.is_empty() {
             lines.push(Line::styled(
-                app.service_notice.clone(),
+                fit(&app.service_notices.join(" · "), width),
                 Style::new().fg(p.warn),
             ));
         }
@@ -239,13 +247,23 @@ pub fn draw(frame: &mut Frame, app: &App) {
         // Where the turn is: Inspect ✓ · Edit ● · Verify ○ — what the work is,
         // not which tools the model happens to call.
         if app.turn.is_some() && !app.phase.is_empty() {
-            lines.push(Line::from(vec![
-                Span::styled(app.phase.strip(app.zh()), Style::new().fg(p.accent)),
-                Span::styled(
-                    format!("  {}", fit(&app.phase.doing(app.zh()), 60)),
-                    Style::new().fg(p.muted),
-                ),
-            ]));
+            let mut spans = Vec::new();
+            for (index, (text, state)) in app.phase.pieces(app.zh()).into_iter().enumerate() {
+                if index > 0 {
+                    spans.push(Span::styled(" · ", Style::new().fg(p.muted)));
+                }
+                let color = match state {
+                    0 => p.accent,
+                    -1 => p.success,
+                    _ => p.muted,
+                };
+                spans.push(Span::styled(text, Style::new().fg(color)));
+            }
+            spans.push(Span::styled(
+                format!("  {}", fit(&app.phase.doing(app.zh()), 60)),
+                Style::new().fg(p.muted),
+            ));
+            lines.push(Line::from(spans));
         }
         if app.details {
             lines.push(Line::styled(
@@ -342,10 +360,48 @@ pub fn draw(frame: &mut Frame, app: &App) {
                     label.width() + count.width() + exit_code.width() + reused.width() + 4,
                 ),
             );
-            lines.push(Line::from(vec![
+            let mut spans = vec![
                 Span::styled(format!("{symbol} {label}"), Style::new().fg(color)),
                 Span::raw(format!(" {target}{count}{exit_code}{reused}")),
-            ]));
+            ];
+            if let (Some(added), Some(removed)) = (action.added, action.removed) {
+                if added == 0 && removed == 0 {
+                    spans.push(Span::styled(
+                        app.tr(" · unchanged", " · 无改动").to_owned(),
+                        Style::new().fg(p.muted),
+                    ));
+                } else {
+                    spans.push(Span::styled(
+                        format!(" +{added}"),
+                        Style::new().fg(p.success),
+                    ));
+                    spans.push(Span::styled(
+                        format!(" −{removed}"),
+                        Style::new().fg(p.error),
+                    ));
+                }
+            }
+            if !action.service_line.is_empty() {
+                spans.push(Span::raw(format!(" {}", action.service_line)));
+            }
+            if let Some(change) = action.service_change {
+                let change_color = if change < 0.0 { p.error } else { p.success };
+                spans.push(Span::styled(
+                    format!(" {change:+.1}%"),
+                    Style::new().fg(change_color),
+                ));
+            }
+            if let Some(fresh) = action.fresh {
+                spans.push(Span::styled(
+                    if fresh {
+                        app.tr(" · current", " · 未过期").to_owned()
+                    } else {
+                        app.tr(" · stale", " · 过期").to_owned()
+                    },
+                    Style::new().fg(p.muted),
+                ));
+            }
+            lines.push(Line::from(spans));
             if !action.approval.is_empty() {
                 lines.push(Line::styled(
                     format!("  └ {}", action.approval),
@@ -1264,7 +1320,7 @@ fn identity_lines(app: &App, p: Palette, width: usize) -> Vec<Line<'static>> {
             Span::styled("Aria Code", Style::new().bold()),
             Span::styled(format!(" v{}", app.version), Style::new().fg(p.muted)),
         ]),
-        Line::raw(model),
+        Line::styled(model, Style::new().fg(p.muted)),
         Line::from(place_line),
     ]
 }
@@ -1378,6 +1434,32 @@ mod tests {
         let shown = display(&terminal);
         assert!(shown.contains("Inspect ✓ · Edit ● · Verify ○"), "{shown}");
         assert!(shown.contains("Editing src/auth.py"), "{shown}");
+        let palette = Palette::for_theme("dark");
+        let buffer = terminal.backend().buffer();
+        let mut saw_done = false;
+        let mut saw_now = false;
+        let mut saw_wait = false;
+        for y in 0..buffer.area.height {
+            for x in 0..buffer.area.width {
+                let cell = &buffer[(x, y)];
+                match cell.symbol() {
+                    "✓" => {
+                        assert_eq!(cell.fg, palette.success);
+                        saw_done = true;
+                    }
+                    "●" => {
+                        assert_eq!(cell.fg, palette.accent);
+                        saw_now = true;
+                    }
+                    "○" => {
+                        assert_eq!(cell.fg, palette.muted);
+                        saw_wait = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        assert!(saw_done && saw_now && saw_wait);
         // Once the turn ends the strip goes away; the header returns to its usual rows.
         app.event(serde_json::json!({"protocol":1,"type":"turn.completed","turn_id":"turn-1","status":"completed"})).unwrap();
         terminal.draw(|f| draw(f, &app)).unwrap();
@@ -1427,8 +1509,7 @@ mod tests {
         let app = App {
             ready: true,
             model: "qwen2.5:7b".into(),
-            service_notice: "商业服务没连上：本机没有商家令牌。先登录 gcloud，这次可以不用它。"
-                .into(),
+            service_notices: vec!["商业 · 未连接，没有商家令牌".into(), "检索 · 未连接".into()],
             ..App::default()
         };
         terminal.draw(|f| draw(f, &app)).unwrap();
@@ -1436,6 +1517,7 @@ mod tests {
         assert!(shown.contains("Aria Code"), "{shown}");
         assert!(shown.contains("qwen2.5:7b"), "{shown}");
         assert!(shown.contains("商家令牌"), "{shown}");
+        assert!(shown.contains("检索 · 未连接"), "{shown}");
         assert!(!shown.contains("WARNING:"), "{shown}");
     }
 
@@ -1734,6 +1816,35 @@ mod tests {
         terminal.draw(|f| draw(f, &app)).unwrap();
         let text = display(&terminal);
         assert!(text.contains("staged only") && text.contains("review-id"));
+    }
+    #[test]
+    fn an_edit_shows_its_size_and_a_service_result_is_one_line() {
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        let mut app = App {
+            ready: true,
+            lang: "zh".into(),
+            ..App::default()
+        };
+        app.editor.insert("改一下并看行情");
+        app.submit();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":"edit_file","params":{"path":"src/auth.py"}})).unwrap();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"edit_file","success":true,"brief":{"kind":"edit","added":12,"removed":3}})).unwrap();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":"mcp__arthera-finance__financial_quote","params":{}})).unwrap();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"mcp__arthera-finance__financial_quote","success":true,"brief":{"kind":"quote","name":"宁德时代","price":182.4,"change_pct":1.2,"stale":false}})).unwrap();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":"backtest_strategy","params":{}})).unwrap();
+        app.event(serde_json::json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"backtest_strategy","success":true,"brief":{"kind":"backtest","return_pct":8.4,"drawdown_pct":3.1}})).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let shown = display(&terminal);
+        assert!(shown.contains("修改文件"), "{shown}");
+        assert!(shown.contains("+12"), "{shown}");
+        assert!(shown.contains("−3"), "{shown}");
+        assert!(shown.contains("行情"), "{shown}");
+        assert!(shown.contains("宁德时代 182.40"), "{shown}");
+        assert!(shown.contains("+1.2%"), "{shown}");
+        assert!(shown.contains("未过期"), "{shown}");
+        assert!(shown.contains("回测"), "{shown}");
+        assert!(shown.contains("收益 +8.4% · 回撤 3.1%"), "{shown}");
+        assert!(!shown.contains("financial_quote"), "{shown}");
     }
     #[test]
     fn reading_history_stays_anchored_when_new_output_arrives() {

@@ -297,6 +297,8 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 			started := time.Now()
 			result := toolResult{}
 			approval := ""
+			var addedLines, removedLines int
+			counted := false
 			d, known := definitionFor(call.Name)
 			isMCP := false
 			if !known && hooks.mcp != nil {
@@ -395,6 +397,10 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 				if result.Success && result.Data["staged"] != true {
 					hooks.evidence.applied(call.Name, call.Args, change)
 				}
+				if result.Success {
+					addedLines, removedLines, _ = diffStats(lineDiff(change.path, change.before, change.after, change.existed))
+					counted = true
+				}
 			default:
 				allowed, reason, err := hooks.approve(ctx, call.Name, call.Args, fileChange{})
 				if err != nil {
@@ -462,6 +468,11 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 				fields["item_count"] = len(items)
 			} else if items, ok := result.Data["items"].([]any); ok {
 				fields["item_count"] = len(items)
+			}
+			if counted {
+				fields["brief"] = map[string]any{"kind": "edit", "added": addedLines, "removed": removedLines}
+			} else if brief := serviceBrief(call.Name, result.Data); brief != nil {
+				fields["brief"] = brief
 			}
 			if fullEvents() {
 				fields["result"] = fullResult(result)

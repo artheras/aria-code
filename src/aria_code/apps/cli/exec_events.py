@@ -147,7 +147,109 @@ class ExecEvents:
             masked = _mask_value(json_safe(result))
             body = json.dumps(masked, ensure_ascii=False)
             fields["result"] = masked if len(body) <= RESULT_CHARS else body[:RESULT_CHARS] + "…"
+        brief = _brief(tool, data)
+        if brief:
+            fields["brief"] = brief
         self.emit("tool.completed", **fields)
+
+
+def _tool_name(tool: str) -> str:
+    return str(tool or "").rsplit("__", 1)[-1]
+
+
+def _brief_bodies(data: dict) -> list[dict]:
+    bodies = [data]
+    nested = data.get("data")
+    if isinstance(nested, dict):
+        bodies.append(nested)
+    metrics = data.get("metrics")
+    if isinstance(metrics, dict):
+        bodies.append(metrics)
+    content = data.get("content")
+    if isinstance(content, str) and content.lstrip().startswith("{"):
+        try:
+            inner = json.loads(content)
+        except json.JSONDecodeError:
+            inner = None
+        if isinstance(inner, dict):
+            bodies.append(inner)
+            if isinstance(inner.get("data"), dict):
+                bodies.append(inner["data"])
+            if isinstance(inner.get("metrics"), dict):
+                bodies.append(inner["metrics"])
+    return bodies
+
+
+def _brief_num(body: dict, *keys: str) -> float | None:
+    for key in keys:
+        value = body.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        if value != value or value in (float("inf"), float("-inf")):
+            continue
+        return float(value)
+    return None
+
+
+def _brief_text(body: dict, *keys: str) -> str:
+    for key in keys:
+        value = body.get(key)
+        if not isinstance(value, str):
+            continue
+        text = " ".join(value.split())
+        if text:
+            return text[:24]
+    return ""
+
+
+def _brief_percent(body: dict, fraction_key: str, pct_key: str) -> float | None:
+    direct = _brief_num(body, pct_key)
+    if direct is not None:
+        return round(direct, 2)
+    fraction = _brief_num(body, fraction_key)
+    if fraction is None:
+        return None
+    return round(fraction * 100, 2)
+
+
+def _brief(tool: str, data: dict) -> dict | None:
+    """One terminal line of numbers the tool returned. Missing fields stay out."""
+    if not isinstance(data, dict) or not data:
+        return None
+    bodies = _brief_bodies(data)
+    for body in bodies:
+        diff = body.get("diff")
+        if isinstance(diff, str) and diff:
+            added = sum(1 for line in diff.splitlines() if line.startswith("+") and not line.startswith("+++"))
+            removed = sum(1 for line in diff.splitlines() if line.startswith("-") and not line.startswith("---"))
+            return {"kind": "edit", "added": added, "removed": removed}
+    name = _tool_name(tool)
+    if name in {"get_market_data", "get_crypto_data", "get_forex_data", "financial_quote"}:
+        for body in bodies:
+            price = _brief_num(body, "price", "latest_close", "current_price")
+            if price is None:
+                continue
+            brief: dict[str, Any] = {"kind": "quote", "price": price}
+            label = _brief_text(body, "name", "symbol")
+            if label:
+                brief["name"] = label
+            change = _brief_num(body, "change_pct", "change_pct_24h", "changePercent")
+            if change is not None:
+                brief["change_pct"] = change
+            if isinstance(body.get("stale"), bool):
+                brief["stale"] = body["stale"]
+            return brief
+    if name in {"backtest_strategy", "cloud_backtest", "run_portfolio_backtest", "financial_backtest"}:
+        for body in bodies:
+            returned = _brief_percent(body, "total_return", "total_return_pct")
+            if returned is None:
+                continue
+            brief = {"kind": "backtest", "return_pct": returned}
+            drawdown = _brief_percent(body, "max_drawdown", "max_drawdown_pct")
+            if drawdown is not None:
+                brief["drawdown_pct"] = round(abs(drawdown), 2)
+            return brief
+    return None
 
 
 __all__ = ["ExecEvents", "json_safe"]
