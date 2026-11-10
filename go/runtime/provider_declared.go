@@ -226,6 +226,11 @@ func declaredProviderFor(c config) (*declaredProvider, error) {
 	cfg, path := loadProviderConfig()
 	specs, problems := parseDeclaredProviders(cfg)
 	if spec := specs[name]; spec != nil {
+		if override := c.text("endpoint_url", ""); override != "" {
+			copySpec := *spec
+			copySpec.BaseURL = strings.TrimRight(override, "/")
+			return &copySpec, nil
+		}
 		return spec, nil
 	}
 	if problem := problems[name]; problem != "" {

@@ -180,9 +180,42 @@ func sortNewestFirst(names []string) {
 	sort.SliceStable(names, func(i, j int) bool { return naturalLess(names[j], names[i]) })
 }
 
+func presetSuggestedModels(name string) []string {
+	switch name {
+	case "google", "vertexai", "gemini":
+		return []string{"gemini-3.8-flash", "gemini-3.8-pro", "gemini-3.5-flash"}
+	case "openai":
+		return []string{"gpt-4o", "gpt-4o-mini", "o3-mini"}
+	case "anthropic":
+		return []string{"claude-sonnet-4-5", "claude-haiku-4-5"}
+	case "deepseek":
+		return []string{"deepseek-chat", "deepseek-reasoner"}
+	}
+	if p, ok := findPreset(name); ok && p.model != "" {
+		return []string{p.model}
+	}
+	return nil
+}
+
 func (s *server) modelPicker(ctx context.Context, turn string) (string, error) {
 	ids := []string{"vertexai", "ollama", "google"}
-	choices := [][]string{{"Google Cloud / Vertex AI", "Use configured Cloud identity, project and region"}, {"Ollama", "Local service and installed models"}, {"Google (current authentication settings)", "Gemini API or configured Cloud route"}}
+	choices := [][]string{
+		{"Google Cloud / Vertex AI", "Use configured Cloud identity, project and region"},
+		{"Ollama", "Local service and installed models"},
+		{"Google (current authentication settings)", "Gemini API or configured Cloud route"},
+	}
+	for _, p := range providerPresets {
+		if !contains(ids, p.id) {
+			ids = append(ids, p.id)
+			desc := p.name
+			if p.envKey != "" {
+				desc += " (" + p.envKey + ")"
+			} else if p.baseURL != "" {
+				desc += " · " + p.baseURL
+			}
+			choices = append(choices, []string{p.id, desc})
+		}
+	}
 	data, _ := loadProviderConfig()
 	declared, _ := parseDeclaredProviders(data)
 	var extra []string
@@ -205,6 +238,13 @@ func (s *server) modelPicker(ctx context.Context, turn string) (string, error) {
 	}
 	name := ids[*r.Choice]
 	names, more, listErr := s.availableModels(ctx, name)
+	usedFallback := false
+	if len(names) == 0 && name != "ollama" {
+		if fallback := presetSuggestedModels(name); len(fallback) > 0 {
+			names = fallback
+			usedFallback = true
+		}
+	}
 	if len(names) > 98 {
 		names, more = names[:98], true
 	}
@@ -227,6 +267,11 @@ func (s *server) modelPicker(ctx context.Context, turn string) (string, error) {
 		pickerTitle += " — first 100 shown"
 	}
 	choices = nil
+	var groups []string
+	modelGroup := "Available / 可用模型"
+	if usedFallback {
+		modelGroup = "Suggested / 推荐模型"
+	}
 	current := s.cfg.text("model", "")
 	selected := 0
 	for i, model := range names {
@@ -238,9 +283,11 @@ func (s *server) modelPicker(ctx context.Context, turn string) (string, error) {
 		// No detail text: the provider is in the title, and repeating it on every
 		// row would make a search for "llama" match every Ollama model.
 		choices = append(choices, []string{label, ""})
+		groups = append(groups, modelGroup)
 	}
 	choices = append(choices, []string{"Enter model ID / 输入模型名称", "Use an exact ID if discovery is unavailable"}, []string{"Cancel / 取消", "Keep the current model"})
-	r, err = s.dialogRequest(ctx, "input.requested", turn, map[string]any{"title": pickerTitle, "context": contextText, "choices": choices, "selected": selected, "picker": true})
+	groups = append(groups, "Actions / 其他操作", "Actions / 其他操作")
+	r, err = s.dialogRequest(ctx, "input.requested", turn, map[string]any{"title": pickerTitle, "context": contextText, "choices": choices, "groups": groups, "selected": selected, "picker": true})
 	if err != nil {
 		return "", err
 	}

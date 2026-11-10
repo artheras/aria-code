@@ -154,6 +154,36 @@ func TestCompletionResponseChoiceFilteringAndEmptyErrors(t *testing.T) {
 	}
 }
 
+func TestParseCompletionsZeroArgsAndReasoningTokens(t *testing.T) {
+	body := strings.Join([]string{
+		`data: {"choices":[{"index":0,"delta":{"reasoning_content":"step 1","tool_calls":[{"index":0,"id":"c1","function":{"name":"git_status","arguments":""}},{"index":1,"id":"c2","function":{"name":"pwd","arguments":"null"}}]}}]}`,
+		`data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":50,"completion_tokens":20,"completion_tokens_details":{"reasoning_tokens":8}}}`,
+		`data: [DONE]`,
+		"",
+	}, "\n\n")
+	var u tokenCounts
+	var streamed strings.Builder
+	content, err := parseCompletions(strings.NewReader(body), true, func(s string) { streamed.WriteString(s) }, &u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if streamed.String() != "" {
+		t.Fatalf("reasoning_content should not be streamed as visible output: %q", streamed.String())
+	}
+	if len(content.Parts) != 3 || !content.Parts[0].Thought || content.Parts[0].Text != "step 1" {
+		t.Fatalf("expected thought part + 2 tool calls, got %+v", content.Parts)
+	}
+	if content.Parts[1].FunctionCall == nil || content.Parts[1].FunctionCall.Name != "git_status" || len(content.Parts[1].FunctionCall.Args) != 0 {
+		t.Fatalf("expected zero-arg git_status call, got %+v", content.Parts[1].FunctionCall)
+	}
+	if content.Parts[2].FunctionCall == nil || content.Parts[2].FunctionCall.Name != "pwd" || len(content.Parts[2].FunctionCall.Args) != 0 {
+		t.Fatalf("expected zero-arg pwd call, got %+v", content.Parts[2].FunctionCall)
+	}
+	if u.PromptTokens != 50 || u.CompletionTokens != 20 || u.Details == nil || u.Details.ReasoningTokens != 8 {
+		t.Fatalf("unexpected usage counts: %+v", u)
+	}
+}
+
 func TestCompatibleHTTPFailuresNeverExposeReflectedCredentials(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(403)

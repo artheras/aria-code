@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -40,6 +41,8 @@ var providerPresets = []providerPreset{
 	{"groq", "Groq", "https://api.groq.com/openai", "GROQ_API_KEY", "llama-3.3-70b-versatile", "https://console.groq.com/keys"},
 	{"together", "Together", "https://api.together.xyz", "TOGETHER_API_KEY", "meta-llama/Llama-3.3-70B-Instruct-Turbo", "https://api.together.xyz/settings/api-keys"},
 	{"lmstudio", "LM Studio (local)", "http://localhost:1234", "", "", ""},
+	{"vllm", "vLLM (local)", "http://localhost:8000", "", "", ""},
+	{"llamacpp", "llama.cpp (local)", "http://localhost:8080", "", "", ""},
 }
 
 const (
@@ -73,15 +76,77 @@ func presetProvider(c config, name string) *declaredProvider {
 		return nil
 	}
 	base := p.baseURL
-	if name == "lmstudio" {
-		base = first(c.text("lmstudio_base_url", ""), base)
+	switch name {
+	case "lmstudio", "vllm", "llamacpp":
+		base = first(c.text("endpoint_url", ""), c.text(name+"_base_url", ""), os.Getenv(strings.ToUpper(name)+"_BASE_URL"), base)
+	default:
+		base = first(c.text("endpoint_url", ""), base)
 	}
+	model := first(c.text(name+"_model", ""), os.Getenv(strings.ToUpper(name)+"_MODEL"), p.model)
 	instructions := ""
 	if p.keyURL != "" {
 		instructions = "Get one at " + p.keyURL + " and export " + p.envKey + " in your shell profile."
 	}
 	return &declaredProvider{ID: p.id, Name: p.name, BaseURL: strings.TrimRight(base, "/"), EnvKey: p.envKey,
-		Model: p.model, Instructions: instructions, Timeout: 120 * time.Second}
+		Model: model, Instructions: instructions, Timeout: 120 * time.Second}
+}
+
+func applyRuntimeOptionOverrides(cfg config, options appOptions) error {
+	if options.provider != "" {
+		p := strings.ToLower(strings.TrimSpace(options.provider))
+		if p == "gcp" {
+			p = "vertexai"
+		}
+		cfg["local_provider"] = p
+		if p == "vertexai" {
+			cfg["use_vertexai"] = true
+		}
+	}
+	if options.local {
+		current := strings.ToLower(strings.TrimSpace(cfg.text("local_provider", "")))
+		if options.provider == "" && (current == "" || supportedGoogleProvider(current)) {
+			cfg["local_provider"] = "ollama"
+		}
+	}
+	if options.model != "" {
+		raw := strings.TrimSpace(options.model)
+		if prefix, rest, ok := strings.Cut(raw, "/"); ok && rest != "" {
+			p := strings.ToLower(strings.TrimSpace(prefix))
+			if p == "google" {
+				cfg["model"] = rest
+			} else if options.provider == "" {
+				if _, preset := findPreset(p); preset || p == "ollama" {
+					cfg["local_provider"] = p
+					cfg["model"] = rest
+				} else {
+					cfg["model"] = raw
+				}
+			} else if strings.EqualFold(cfg.text("local_provider", ""), p) {
+				cfg["model"] = rest
+			} else {
+				cfg["model"] = raw
+			}
+		} else {
+			cfg["model"] = raw
+		}
+	}
+	if options.thinking {
+		cfg["thinking"] = "high"
+	}
+	if strings.TrimSpace(options.url) != "" {
+		base := strings.TrimSpace(options.url)
+		if !strings.Contains(base, "://") {
+			base = "http://" + base
+		}
+		u, err := url.Parse(base)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return errors.New("endpoint URL override must be an http(s) URL without credentials, query or fragment")
+		}
+		clean := strings.TrimRight(base, "/")
+		cfg["endpoint_url"] = clean
+		cfg["ollama_base_url"] = clean
+	}
+	return nil
 }
 
 // tokenExpiry is the exp claim of a JWT, zero when unreadable.

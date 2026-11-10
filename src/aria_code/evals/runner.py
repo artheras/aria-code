@@ -102,7 +102,8 @@ def check_only_solver(prompt: str, workspace: Path) -> None:
     return None
 
 
-def native_command(prompt: str, workspace: Path, *, model: str = "", native: str = "") -> list:
+def native_command(prompt: str, workspace: Path, *, model: str = "", native: str = "",
+                   local: bool = False, provider: str = "", url: str = "") -> list:
     """The native agent (Rust frontend, Go runtime) over one task, headless.
 
     The tuned model is served by the native runtime, so its training
@@ -114,12 +115,19 @@ def native_command(prompt: str, workspace: Path, *, model: str = "", native: str
 
     binary = native or os.environ.get("ARIA_NATIVE_BINARY") or shutil.which("aria-native") or "aria-native"
     command = [binary, "-C", str(workspace), "exec", "--jsonl", prompt, "--", "--dangerously-skip-permissions"]
-    if model:
+    if provider and model and "/" not in model:
+        command.extend(["--model", f"{provider}/{model}"])
+    elif model:
         command.extend(["--model", model])
+    if local:
+        command.append("--local")
+    if url:
+        command.extend(["--url", url])
     return command
 
 
 def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = False,
+                       provider: str = "", url: str = "",
                        trajectories: "Trajectories | None" = None, events: bool = False,
                        runtime: str = "python", native: str = "", go_runtime: str = ""):
     """Drive the real Aria agent over one task, in the task's own workspace.
@@ -139,7 +147,11 @@ def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = Fal
 
     def _solve(prompt: str, workspace: Path):
         if runtime == "native":
-            return _run(native_command(prompt, workspace, model=model, native=native), prompt, workspace)
+            return _run(
+                native_command(prompt, workspace, model=model, native=native,
+                               local=local, provider=provider, url=url),
+                prompt, workspace,
+            )
         command = [
             sys.executable, "-m", "aria_code.aria_cli",
             "-p", prompt,
@@ -155,6 +167,8 @@ def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = Fal
             command.extend(["--model", model])
         if local:
             command.append("--local")
+        if url:
+            command.extend(["--url", url])
         return _run(command, prompt, workspace)
 
     def _run(command: list, prompt: str, workspace: Path):
@@ -169,7 +183,10 @@ def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = Fal
             env = {**os.environ, "PATH": os.pathsep.join([str(Path(sys.executable).parent), os.environ.get("PATH", "")])}
             # Each attempt gets its own home, so global memory, sessions and
             # learned preferences one attempt writes cannot reach the next one.
-            env.update(trial_home_env(workspace.parent / f".home-{workspace.name}"))
+            env.update(trial_home_env(
+                workspace.parent / f".home-{workspace.name}",
+                local=local, provider=provider, model=model, url=url,
+            ))
             # The agent reports the tokens it used here, outside the workspace so the
             # file is never mistaken for a change the agent made.
             usage_file = workspace.parent / f".usage-{workspace.name}.json"
@@ -227,7 +244,8 @@ def build_agent_solver(*, model: str = "", timeout: int = 900, local: bool = Fal
 _TRIAL_HOME_SEED = ("config.json", "providers.json", ".env", "license.json")
 
 
-def trial_home_env(home: Path) -> dict:
+def trial_home_env(home: Path, *, local: bool = False, provider: str = "",
+                   model: str = "", url: str = "") -> dict:
     """Environment for one attempt: a fresh HOME / ARIA_HOME / XDG tree under *home*.
 
     Provider keys and PATH stay as they are (they come from the inherited
@@ -248,6 +266,27 @@ def trial_home_env(home: Path) -> dict:
     for name in _TRIAL_HOME_SEED:
         if (source_aria / name).is_file():
             shutil.copy2(source_aria / name, aria / name)
+    if local or provider or model or url:
+        cfg_path = aria / "config.json"
+        try:
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.is_file() else {}
+            if not isinstance(cfg, dict):
+                cfg = {}
+        except (OSError, ValueError):
+            cfg = {}
+        if provider:
+            cfg["local_provider"] = provider.strip().lower()
+        elif local and str(cfg.get("local_provider", "")).lower() in ("", "google", "gemini", "vertexai", "vertex-ai", "google-genai"):
+            cfg["local_provider"] = "ollama"
+        if model:
+            cfg["model"] = model
+        if url:
+            cfg["endpoint_url"] = url
+            cfg["ollama_base_url"] = url
+            active_prov = str(cfg.get("local_provider", "")).strip().lower()
+            if active_prov:
+                cfg[f"{active_prov}_base_url"] = url
+        cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     if (real_home / ".gitconfig").is_file():
         shutil.copy2(real_home / ".gitconfig", home / ".gitconfig")
     xdg = {key: home / sub for key, sub in (
@@ -301,6 +340,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true",
                         help="run only the pre-flight: verify every task still starts red")
     parser.add_argument("--model", default="", help="model to pass to the agent")
+    parser.add_argument("--provider", default="", help="model provider (e.g. ollama, lmstudio, vllm, llamacpp, google, openai)")
+    parser.add_argument("--url", default="", help="override provider base URL (e.g. http://127.0.0.1:11434)")
     parser.add_argument("--local", action="store_true",
                         help="run the agent local-only (Ollama), skipping the cloud backend")
     parser.add_argument("--runtime", choices=("python", "native"), default="python",
@@ -338,7 +379,8 @@ def main(argv: list[str] | None = None) -> int:
     trajectories = (Trajectories(Path(args.trajectories), name, args.model)
                     if args.trajectories and not args.check else None)
     solver = check_only_solver if args.check else build_agent_solver(
-        model=args.model, timeout=args.solve_timeout, local=args.local, trajectories=trajectories,
+        model=args.model, timeout=args.solve_timeout, local=args.local,
+        provider=args.provider, url=args.url, trajectories=trajectories,
         events=any(task.behavior for task in tasks), runtime=args.runtime,
         native=args.native_binary, go_runtime=args.go_runtime,
     )

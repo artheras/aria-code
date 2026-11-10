@@ -18,11 +18,12 @@ import (
 const maxMessage = 1 << 20
 
 type appOptions struct {
-	root, workspace, model, resume, banner string
-	readRoots, writeRoots, allowedTools    []string
-	resumeLast, noBanner, skipPermissions  bool
-	hostContained                          bool
-	noninteractive                         bool
+	root, workspace, model, provider, url, resume, banner string
+	readRoots, writeRoots, allowedTools                   []string
+	resumeLast, noBanner, skipPermissions                 bool
+	local, thinking                                       bool
+	hostContained                                         bool
+	noninteractive                                        bool
 }
 type request struct {
 	Type      string `json:"type"`
@@ -85,8 +86,8 @@ func newServer(options appOptions, out io.Writer) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
-	if options.model != "" {
-		cfg["model"] = strings.TrimPrefix(options.model, "google/")
+	if err := applyRuntimeOptionOverrides(cfg, options); err != nil {
+		return nil, err
 	}
 	// Google and the Ollama shortcut are built in; others are user-declared
 	// (provider_declared.go). Checked before any state is touched.

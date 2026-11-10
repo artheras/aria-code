@@ -1260,8 +1260,16 @@ mod tests {
     }
     #[test]
     fn actual_http_body_limits_and_timeout() {
-        use std::net::TcpListener;
+        use std::net::{TcpListener, TcpStream};
         use std::thread;
+        let probe = match TcpListener::bind("127.0.0.1:0") {
+            Ok(listener) => listener,
+            Err(_) => return,
+        };
+        if TcpStream::connect(probe.local_addr().unwrap()).is_err() {
+            return;
+        }
+        drop(probe);
         for (payload, delay, timeout) in [
             (
                 vec![b'x'; MAX_METADATA as usize + 1],

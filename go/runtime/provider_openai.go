@@ -189,8 +189,10 @@ type completionCall struct {
 	} `json:"extra_content"`
 }
 type completionDelta struct {
-	Content string           `json:"content"`
-	Calls   []completionCall `json:"tool_calls"`
+	Content          string           `json:"content"`
+	ReasoningContent string           `json:"reasoning_content"`
+	Reasoning        string           `json:"reasoning"`
+	Calls            []completionCall `json:"tool_calls"`
 }
 type completionEvent struct {
 	Choices []struct {
@@ -210,6 +212,9 @@ type completionEvent struct {
 type tokenCounts struct {
 	PromptTokens     int64 `json:"prompt_tokens"`
 	CompletionTokens int64 `json:"completion_tokens"`
+	Details          *struct {
+		ReasoningTokens int64 `json:"reasoning_tokens"`
+	} `json:"completion_tokens_details"`
 }
 
 // A stream is not executable until every call's arguments have been parsed and
@@ -247,6 +252,9 @@ func parseCompletions(r io.Reader, streaming bool, emit func(string), usage ...*
 			if !streaming {
 				delta = choice.Message
 				finished = true
+			}
+			if reasoning := first(delta.ReasoningContent, delta.Reasoning); reasoning != "" {
+				content.Parts = append(content.Parts, &genai.Part{Text: reasoning, Thought: true})
 			}
 			if delta.Content != "" {
 				content.Parts = append(content.Parts, &genai.Part{Text: delta.Content})
@@ -354,8 +362,11 @@ func parseCompletions(r io.Reader, streaming bool, emit func(string), usage ...*
 		if call.Function.Name == "" {
 			return content, errors.New("tool call is missing its name")
 		}
-		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil || args == nil {
-			return content, errors.New("tool call arguments are not a complete JSON object")
+		rawArgs := strings.TrimSpace(call.Function.Arguments)
+		if rawArgs != "" && rawArgs != "null" {
+			if err := json.Unmarshal([]byte(rawArgs), &args); err != nil || args == nil {
+				return content, errors.New("tool call arguments are not a complete JSON object")
+			}
 		}
 		if call.ID == "" {
 			id, err := newID()
@@ -436,6 +447,7 @@ func (p *openAIProvider) Generate(ctx context.Context, contents []*genai.Content
 		return nil, err
 	}
 	reauthorized := false
+	strippedStreamOptions := false
 	for attempt := 0; attempt < 4; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 		if err != nil {
@@ -465,6 +477,18 @@ func (p *openAIProvider) Generate(ctx context.Context, contents []*genai.Content
 			attempt--
 			continue
 		}
+		if response.StatusCode == http.StatusBadRequest && p.declared != nil && payload["stream_options"] != nil && !strippedStreamOptions {
+			// Local servers (llama.cpp, older vLLM/LM Studio) may reject stream_options.
+			io.Copy(io.Discard, io.LimitReader(response.Body, 65536))
+			response.Body.Close()
+			delete(payload, "stream_options")
+			if nextBody, marshalErr := json.Marshal(payload); marshalErr == nil {
+				body = nextBody
+				strippedStreamOptions = true
+				attempt--
+				continue
+			}
+		}
 		if response.StatusCode != http.StatusOK {
 			// Do not expose reflected bodies or credentials in public events.
 			io.Copy(io.Discard, io.LimitReader(response.Body, 65536))
@@ -474,7 +498,15 @@ func (p *openAIProvider) Generate(ctx context.Context, contents []*genai.Content
 			streaming := !strings.Contains(response.Header.Get("Content-Type"), "application/json")
 			var counts tokenCounts
 			content, err = parseCompletions(response.Body, streaming, func(text string) { visible = true; emit(text) }, &counts)
-			recordUsage(ctx, counts.PromptTokens, counts.CompletionTokens, 0)
+			var reasoningTokens int64
+			if counts.Details != nil && counts.Details.ReasoningTokens > 0 {
+				reasoningTokens = counts.Details.ReasoningTokens
+			}
+			outTokens := counts.CompletionTokens
+			if reasoningTokens > 0 && outTokens >= reasoningTokens {
+				outTokens -= reasoningTokens
+			}
+			recordUsage(ctx, counts.PromptTokens, outTokens, reasoningTokens)
 			retry = errors.Is(err, errNoVisibleCompletion)
 		}
 		response.Body.Close()

@@ -23,9 +23,12 @@ func TestPresetsNeedNoDeclaration(t *testing.T) {
 		{"zhipu", "https://open.bigmodel.cn/api/paas/v4/chat/completions"},
 		{"groq", "https://api.groq.com/openai/v1/chat/completions"},
 		{"lmstudio", "http://localhost:1234/v1/chat/completions"},
+		{"vllm", "http://localhost:8000/v1/chat/completions"},
+		{"llamacpp", "http://localhost:8080/v1/chat/completions"},
 	} {
 		spec, err := declaredProviderFor(config{"local_provider": tc.id})
-		if err != nil || spec.endpoint() != tc.endpoint || spec.Model == "" && tc.id != "lmstudio" {
+		localServer := tc.id == "lmstudio" || tc.id == "vllm" || tc.id == "llamacpp"
+		if err != nil || spec.endpoint() != tc.endpoint || (spec.Model == "" && !localServer) {
 			t.Fatal(tc.id, spec, err)
 		}
 	}
@@ -133,5 +136,38 @@ func TestProvidersListsThePresets(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("lacks %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestRuntimeOptionOverridesAndSaveUsage(t *testing.T) {
+	cfg := config{"local_provider": "google", "model": "gemini-2.5-pro"}
+	applyRuntimeOptionOverrides(cfg, appOptions{
+		local:    true,
+		model:    "ollama/qwen2.5-coder:7b",
+		thinking: true,
+		url:      "http://127.0.0.1:11434",
+	})
+	if cfg.text("local_provider", "") != "ollama" || cfg.text("model", "") != "qwen2.5-coder:7b" {
+		t.Fatalf("unexpected provider/model: %v", cfg)
+	}
+	if cfg.text("ollama_base_url", "") != "http://127.0.0.1:11434" || cfg.text("thinking", "") != "high" {
+		t.Fatalf("unexpected url/thinking: %v", cfg)
+	}
+
+	usagePath := filepath.Join(t.TempDir(), "usage.json")
+	t.Setenv("ARIA_USAGE_FILE", usagePath)
+	s := approvalServer(t, cfg, appOptions{})
+	s.usage = &usageMeter{input: 42, output: 18, thinks: 7, calls: 2}
+	s.saveUsage()
+	raw, err := os.ReadFile(usagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["provider"] != "ollama" || payload["model"] != "qwen2.5-coder:7b" || payload["input_tokens"] != float64(42) || payload["thinking_tokens"] != float64(7) {
+		t.Fatalf("unexpected usage file payload: %v", payload)
 	}
 }

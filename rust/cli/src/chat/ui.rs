@@ -110,10 +110,20 @@ fn display_model(id: &str) -> String {
 fn display_provider(id: &str) -> String {
     match id {
         "google" => "Google".into(),
+        "vertexai" | "vertex-ai" => "Vertex AI".into(),
         "openai" => "OpenAI".into(),
         "anthropic" => "Anthropic".into(),
         "ollama" => "Ollama".into(),
+        "lmstudio" => "LM Studio".into(),
+        "vllm" => "vLLM".into(),
+        "llamacpp" => "llama.cpp".into(),
         "deepseek" => "DeepSeek".into(),
+        "groq" => "Groq".into(),
+        "zhipu" => "Zhipu".into(),
+        "moonshot" => "Moonshot".into(),
+        "dashscope" => "DashScope".into(),
+        "siliconflow" => "SiliconFlow".into(),
+        "together" => "Together".into(),
         "xai" => "xAI".into(),
         "openrouter" => "OpenRouter".into(),
         other => {
@@ -135,11 +145,13 @@ fn tool_label<'a>(tool: &'a str, app: &App) -> &'a str {
     match name {
         "list_files" | "glob" => app.tr("List files", "查看目录"),
         "read_file" => app.tr("Read file", "读取文件"),
-        "search_code" | "find_symbol" => app.tr("Search code", "搜索代码"),
+        "search_code" | "find_symbol" | "grep" => app.tr("Search code", "搜索代码"),
         "run_command" => app.tr("Run command", "执行命令"),
         "write_file" => app.tr("Write file", "写入文件"),
         "edit_file" | "multi_edit" | "apply_patch" => app.tr("Edit file", "修改文件"),
         "repo_map" => app.tr("Map project", "查看项目结构"),
+        "web_search" => app.tr("Search web", "网页搜索"),
+        "fetch_url" => app.tr("Fetch URL", "读取网页"),
         "get_market_data" | "get_crypto_data" | "get_forex_data" | "financial_quote" => {
             app.tr("Quote", "行情")
         }
@@ -1261,13 +1273,13 @@ fn example_prompt(app: &App) -> String {
         "Add tests for utils.py",
         "Explain how this project is structured",
         "Fix the failing test",
-        "How's NVDA this week?",
+        "Review recent changes and check for edge cases",
     ];
     const ZH: [&str; 4] = [
         "给 utils.py 补上测试",
         "讲讲这个项目的结构",
         "修好失败的测试",
-        "宁德时代今天怎么样？",
+        "审查最近的改动并检查边界情况",
     ];
     let pick = app.session.bytes().map(usize::from).sum::<usize>() % EN.len();
     if app.zh() {

@@ -9,6 +9,15 @@ func TestTextToolCallsIgnoreQuotedExamples(t *testing.T) {
 	if !looksLikeTextToolCalls("default_api.read_file") {
 		t.Fatal("default_api call syntax should be recovered")
 	}
+	for _, snippet := range []string{
+		"Let me inspect.\n<function=read_file>{\"path\":\"main.go\"}</function>",
+		"[TOOL_CALLS] [{\"name\":\"read_file\"}]",
+		"<|python_tag|>read_file(path=\"main.go\")",
+	} {
+		if !looksLikeTextToolCalls(snippet) {
+			t.Fatalf("expected text tool call detection for %q", snippet)
+		}
+	}
 	if looksLikeTextToolCalls("The repo contains ```\n<tool_call>\n``` in a fixture.") {
 		t.Fatal("a tool call inside a code span is an example, not a call")
 	}

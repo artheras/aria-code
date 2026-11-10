@@ -100,12 +100,12 @@ func mainCode() int {
 	options := appOptions{}
 	var reads, writes stringsFlag
 	var allowed string
-	var ignoredLocal, ignoredThinking bool
-	var prompt, format, urlOverride string
+	var prompt, format string
 	var quiet bool
 	flags := flag.NewFlagSet(mode, flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	flags.StringVar(&options.model, "model", "", "model name")
+	flags.StringVar(&options.provider, "provider", "", "model provider")
 	flags.StringVar(&options.resume, "resume", "", "saved session ID")
 	flags.BoolVar(&options.resumeLast, "resume-last", false, "resume most recent session")
 	flags.StringVar(&options.banner, "banner", "", "banner preference")
@@ -114,9 +114,9 @@ func mainCode() int {
 	flags.StringVar(&allowed, "allow-tools", "", "explicit host session tool grants")
 	flags.Var(&reads, "read-dir", "additional read-only root")
 	flags.Var(&writes, "add-dir", "additional writable root")
-	flags.BoolVar(&ignoredLocal, "local", false, "use configured local provider")
-	flags.BoolVar(&ignoredThinking, "thinking", false, "thinking mode")
-	flags.StringVar(&urlOverride, "url", "", "provider endpoint override")
+	flags.BoolVar(&options.local, "local", false, "use configured local provider")
+	flags.BoolVar(&options.thinking, "thinking", false, "thinking mode")
+	flags.StringVar(&options.url, "url", "", "provider endpoint override")
 	if mode == "stream" {
 		flags.StringVar(&prompt, "prompt", "", "one task to execute")
 		flags.StringVar(&format, "format", "jsonl", "output protocol")
@@ -148,15 +148,6 @@ func mainCode() int {
 	}
 	options.hostContained = true
 	options.noninteractive = mode == "stream"
-	if ignoredLocal || ignoredThinking || urlOverride != "" {
-		if mode == "stream" {
-			fmt.Fprintln(os.Stderr, "native adapter has not verified local/thinking/endpoint overrides; existing application remains available")
-			return 1
-		}
-		json.NewEncoder(os.Stdout).Encode(map[string]any{"protocol": 1, "type": "session.failed", "error": "this native adapter has not verified the requested local/thinking override; existing application remains available"})
-		json.NewEncoder(os.Stdout).Encode(map[string]any{"protocol": 1, "type": "session.closed"})
-		return 1
-	}
 	s, err := newServer(options, os.Stdout)
 	if err != nil {
 		if mode == "stream" {

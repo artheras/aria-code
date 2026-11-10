@@ -142,3 +142,43 @@ def test_the_runner_reads_and_removes_the_usage_file(tmp_path):
     path.write_text(json.dumps({"input_tokens": 3}))
     assert _read_usage(path) == {"input_tokens": 3} and not path.exists()
     assert _read_usage(path) == {}
+
+
+def test_native_command_and_trial_home_env_support_local_models(tmp_path, monkeypatch):
+    from aria_code.evals.runner import native_command, trial_home_env
+
+    binary = tmp_path / "aria-native"
+    binary.write_text("#!/bin/sh\n")
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    cmd = native_command(
+        "fix bug",
+        workspace,
+        model="qwen2.5-coder:7b",
+        provider="ollama",
+        local=True,
+        url="http://127.0.0.1:11434",
+        native=str(binary),
+    )
+    assert cmd[:4] == [str(binary), "-C", str(workspace), "exec"]
+    assert "--local" in cmd
+    assert cmd[cmd.index("--model") + 1] == "ollama/qwen2.5-coder:7b"
+    assert cmd[cmd.index("--url") + 1] == "http://127.0.0.1:11434"
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    trial_dir = tmp_path / "trial-home"
+    env = trial_home_env(
+        trial_dir,
+        local=True,
+        provider="vllm",
+        model="Qwen/Qwen2.5-Coder-7B-Instruct",
+        url="http://127.0.0.1:8000/v1",
+    )
+    cfg_path = Path(env["ARIA_HOME"]) / "config.json"
+    assert cfg_path.exists()
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    assert cfg["local_provider"] == "vllm"
+    assert cfg["model"] == "Qwen/Qwen2.5-Coder-7B-Instruct"
+    assert cfg["vllm_base_url"] == "http://127.0.0.1:8000/v1"
+
+

@@ -20,7 +20,7 @@ const (
 
 var (
 	codeSpan     = regexp.MustCompile("(?s)```.*?(?:```|\\z)|`[^`\n]*`")
-	textToolCall = regexp.MustCompile("(?m)<tool_call>|\\bdefault_api[:.]\\w|^#{2,3} ?Tool Results\\b|^### \\[\\w+\\] (?:✓ Success|❌ Error)")
+	textToolCall = regexp.MustCompile("(?m)<tool_call>|<function=\\w+>|\\[TOOL_CALLS\\]|<\\|python_tag\\|>|<｜tool▁calls▁begin｜>|\\bdefault_api[:.]\\w|^#{2,3} ?Tool Results\\b|^### \\[\\w+\\] (?:✓ Success|❌ Error)")
 	promptEcho   = regexp.MustCompile(`(?i)^(?:do not stop|don't stop|if you are (?:finished|done)|if the task is|continue (?:using|with|the task)|use (?:the )?tools|you (?:must|should) (?:continue|now)|make sure (?:to|you)|remember to)\b|\b(?:necessary actions|your final (?:response|answer)|describe your findings|continue using tools|\d+-\d+ sentences)\b`)
 )
 

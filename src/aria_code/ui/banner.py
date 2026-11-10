@@ -27,7 +27,7 @@ from .startup_dashboard import StartupDashboardViewModel
 def _t(key: str, lang: str) -> str:
     """Thin wrapper around i18n.t() — tolerates import failure."""
     try:
-        from apps.cli.i18n import t as _translate
+        from aria_code.apps.cli.i18n import t as _translate
         return _translate(key, lang=lang)
     except Exception:
         _fallback = {

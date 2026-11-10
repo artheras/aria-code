@@ -6,8 +6,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 )
@@ -59,6 +61,20 @@ func (s *server) saveUsage() {
 		return
 	}
 	input, output, thinking, calls := s.usage.totals()
+	if usageFile := strings.TrimSpace(os.Getenv("ARIA_USAGE_FILE")); usageFile != "" {
+		report := map[string]any{
+			"model":           s.cfg.text("model", ""),
+			"provider":        providerName(s.cfg),
+			"input_tokens":    input,
+			"output_tokens":   output,
+			"thinking_tokens": thinking,
+			"model_calls":     calls,
+			"turns":           calls,
+		}
+		if data, err := json.Marshal(report); err == nil {
+			_ = os.WriteFile(usageFile, data, 0600)
+		}
+	}
 	if calls == 0 {
 		return
 	}
