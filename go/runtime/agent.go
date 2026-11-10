@@ -267,7 +267,7 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 				answer.Reset()
 				continue
 			}
-			return contents, answer.String(), nil
+			return contents, annotateClaims(answer.String(), hooks.evidence), nil
 		}
 		if len(calls) > 32 {
 			return contents, answer.String(), errors.New("model exceeded 32 calls in one batch")
@@ -467,7 +467,19 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 				fields["result"] = fullResult(result)
 			}
 			hooks.emit("tool.completed", fields)
-			bytes, _ := json.Marshal(result)
+			outbound := result
+			if call.Name == "read_file" && result.Success {
+				if note, unchanged := hooks.evidence.collapseUnchangedRead(call.Args, result); unchanged {
+					data := make(map[string]any, len(result.Data))
+					for key, value := range result.Data {
+						data[key] = value
+					}
+					data["content"] = note
+					data["unchanged"] = true
+					outbound.Data = data
+				}
+			}
+			bytes, _ := json.Marshal(outbound)
 			var response map[string]any
 			json.Unmarshal(bytes, &response)
 			responses = append(responses, &genai.Part{FunctionResponse: &genai.FunctionResponse{Name: call.Name, ID: call.ID, Response: response}})
