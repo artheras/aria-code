@@ -169,17 +169,16 @@ impl Robot {
         };
         let mut rows = Vec::new();
         for pair in pixels.chunks(2) {
-            let mut spans = Vec::new();
-            for col in 0..9 {
-                let upper = paint(pair[0][col]);
-                let lower = paint(pair[1][col]);
-                spans.push(match (upper, lower) {
+            let spans: Vec<Span> = pair[0]
+                .iter()
+                .zip(pair[1])
+                .map(|(&upper, lower)| match (paint(upper), paint(lower)) {
                     (None, None) => Span::raw(" "),
                     (Some(color), None) => Span::styled("▀", Style::new().fg(color)),
                     (None, Some(color)) => Span::styled("▄", Style::new().fg(color)),
                     (Some(top), Some(bottom)) => Span::styled("▀", Style::new().fg(top).bg(bottom)),
-                });
-            }
+                })
+                .collect();
             rows.push(Line::from(spans));
         }
         Self(rows)
