@@ -260,6 +260,25 @@ func TestAPassingCheckIsTiedToTheFileBytes(t *testing.T) {
 	}
 }
 
+func TestAnAbsoluteRecordedPathStaysInsideTheWorkspace(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "nested", "app.py")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gate := &acceptanceGate{root: root, maxAttempts: 2, commands: []string{"check"}}
+	gate.record(path)
+	report := gate.run(context.Background(), func(context.Context, string) map[string]any {
+		return map[string]any{"success": true, "data": map[string]any{"exit_code": 0}}
+	})
+	if report == nil || !report.passed() || report.RevisionStatus != "current" || len(report.RevisionPaths) != 1 || report.RevisionPaths[0].Path != "nested/app.py" {
+		t.Fatalf("absolute path was not a workspace fingerprint: %+v", report)
+	}
+}
+
 func TestAChangeDuringTheCheckIsNotAPass(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "app.py")

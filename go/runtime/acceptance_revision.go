@@ -73,13 +73,8 @@ func (g *acceptanceGate) fingerprint(paths []string) ([]revisionEntry, bool) {
 	if g.revisionBroken || len(paths) == 0 || len(paths) > revisionMaxPaths {
 		return nil, false
 	}
-	root, err := filepath.Abs(g.root)
+	root, err := canonical(g.root)
 	if err != nil {
-		return nil, false
-	}
-	if resolved, err := filepath.EvalSymlinks(root); err == nil {
-		root = resolved
-	} else {
 		return nil, false
 	}
 	out := make([]revisionEntry, 0, len(paths))
@@ -98,11 +93,14 @@ func (g *acceptanceGate) fingerprint(paths []string) ([]revisionEntry, bool) {
 }
 
 func workspaceRelative(root, value string) (string, bool) {
-	if value == "" || len(value) > 512 || strings.Contains(value, "\\") {
+	if value == "" || len(value) > 512 {
 		return "", false
 	}
+	// A tool records the absolute OS path. Convert that to a slash-separated
+	// workspace path before rejecting separators, so a Windows path is not
+	// an unavailable fingerprint.
 	if filepath.IsAbs(value) {
-		abs, err := filepath.Abs(value)
+		abs, err := canonical(value)
 		if err != nil {
 			return "", false
 		}
@@ -112,7 +110,7 @@ func workspaceRelative(root, value string) (string, bool) {
 		}
 		value = filepath.ToSlash(rel)
 	}
-	if strings.Contains(value, ":") {
+	if strings.Contains(value, `\`) || strings.Contains(value, ":") {
 		return "", false
 	}
 	parts := strings.Split(value, "/")
