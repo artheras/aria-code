@@ -182,6 +182,9 @@ pub struct App {
     pub model: String,
     pub version: String,
     pub update_notice: String,
+    /// One human sentence for a worker warning. Logger text stays out of the transcript.
+    pub service_notice: String,
+    pub log_buf: String,
     /// Where the running turn is: inspecting, editing, verifying…
     pub phase: PhaseTrack,
     pub provider: String,
@@ -229,6 +232,61 @@ pub struct App {
     pub viewport_scroll: Cell<usize>,
 }
 
+fn looks_like_log(text: &str) -> bool {
+    text.contains("WARNING:")
+        || text.contains("ERROR:")
+        || text.contains("INFO:")
+        || text.contains("DEBUG:")
+        || text.contains("CRITICAL:")
+        || text.contains("[MCP:")
+}
+
+fn is_log_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    ["WARNING:", "ERROR:", "INFO:", "DEBUG:", "CRITICAL:"]
+        .iter()
+        .any(|prefix| trimmed.starts_with(prefix))
+}
+
+fn service_notice(line: &str, zh: bool) -> Option<String> {
+    let trimmed = line.trim();
+    if !is_log_line(trimmed) || trimmed.starts_with("INFO:") || trimmed.starts_with("DEBUG:") {
+        return None;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.contains("[mcp:") || lower.contains("handshake failed") {
+        let name = trimmed
+            .split("[MCP:")
+            .nth(1)
+            .and_then(|rest| rest.split(']').next())
+            .unwrap_or("MCP");
+        if lower.contains("merchant token")
+            || lower.contains("secret manager")
+            || lower.contains("gcloud")
+        {
+            return Some(
+                if zh {
+                    "商业服务没连上：本机没有商家令牌。先登录 gcloud，这次可以不用它。"
+                } else {
+                    "Commerce is offline: no merchant token on this machine. Sign in with gcloud, or continue without it."
+                }
+                .to_owned(),
+            );
+        }
+        return Some(if zh {
+            format!("{name} 没连上，这次先不用它。")
+        } else {
+            format!("{name} did not connect. This session continues without it.")
+        });
+    }
+    let message = trimmed.splitn(3, ':').nth(2).unwrap_or(trimmed).trim();
+    if message.is_empty() {
+        None
+    } else {
+        Some(message.chars().take(160).collect())
+    }
+}
+
 impl App {
     pub fn zh(&self) -> bool {
         self.lang.starts_with("zh")
@@ -263,6 +321,23 @@ impl App {
             || self.entries.iter().map(|e| e.text.len()).sum::<usize>() > MAX_TRANSCRIPT
         {
             self.entries.pop_front();
+        }
+    }
+    fn absorb_output(&mut self, text: &str) {
+        let pending = looks_like_log(&self.log_buf);
+        let chunk = looks_like_log(text);
+        if !pending && !chunk {
+            self.delta("output", text);
+            return;
+        }
+        self.log_buf.push_str(text);
+        while let Some(index) = self.log_buf.find('\n') {
+            let line: String = self.log_buf.drain(..=index).collect();
+            if let Some(notice) = service_notice(&line, self.zh()) {
+                self.service_notice = notice;
+            } else if !is_log_line(&line) {
+                self.delta("output", &line);
+            }
         }
     }
     fn delta(&mut self, role: &str, text: &str) {
@@ -459,7 +534,7 @@ impl App {
                 }
                 self.trim();
             }
-            "output.delta" => self.delta("output", text("text")),
+            "output.delta" => self.absorb_output(text("text")),
             "tool.started" => {
                 let params = &v["params"];
                 self.approval_context =
@@ -1263,7 +1338,7 @@ mod tests {
         go.event(packet(json!({"design": "cream-block-v2"}), ""))
             .unwrap();
         assert_eq!(python.robot.0, go.robot.0);
-        assert_eq!(python.robot.0.len(), 4);
+        assert_eq!(python.robot.0.len(), 3);
         python.event(packet(json!([]), "cream-block-v2")).unwrap();
         assert!(python.robot.0.is_empty());
         go.event(packet(json!([]), "")).unwrap();
@@ -1523,6 +1598,29 @@ mod tests {
         assert_eq!(a.entries[0].text, "Undone.");
         assert_eq!(a.editor.text(), "Retained draft");
     }
+    #[test]
+    fn a_worker_warning_stays_out_of_the_transcript() {
+        let mut app = App {
+            lang: "zh".into(),
+            ..App::default()
+        };
+        let raw = "WARNING:aria_code.mcp_client:[MCP:aria-commerce] Handshake failed: MCP server 'aria-commerce' exited before answering (exit 1): could not read the merchant token from Secret Manager (is gcloud signed in?)\n";
+        app.event(json!({"protocol":1,"type":"output.delta","text":raw}))
+            .unwrap();
+        assert!(app.entries.is_empty());
+        assert!(
+            app.service_notice.contains("商家令牌"),
+            "{}",
+            app.service_notice
+        );
+        app.event(json!({"protocol":1,"type":"output.delta","text":"INFO:aria_code.mcp_client:started\n"}))
+            .unwrap();
+        assert!(app.entries.is_empty());
+        app.event(json!({"protocol":1,"type":"output.delta","text":"the file has 3 lines\n"}))
+            .unwrap();
+        assert!(app.entries.back().unwrap().text.contains("3 lines"));
+    }
+
     #[test]
     fn update_notice_does_not_change_the_active_turn_or_permissions() {
         let mut a = app();

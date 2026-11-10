@@ -410,17 +410,15 @@ def test_real_terminal_paste_approval_resize_cancel_and_restore(application, ent
         raise AssertionError((text, display()))
     try:
         wait("Ready")
-        wait("▙▄▄▄▄▄▟")
-        # The mascot is 9 columns by 4 rows. Both eyes are the same ivory
-        # quadrant pair on black, and the feet alternate filled and open cells
-        # along the base. Text matching alone cannot verify the terminal artwork.
-        for col in (2, 3, 5, 6):
-            assert screen.buffer[1][col].fg == "fffdf5"
-            assert screen.buffer[1][col].bg == "0e0e0e"
-        assert screen.buffer[1][0].data == "▌"
-        assert screen.buffer[1][8].data == "▐"
+        wait("▄▀▀▀▀▀▀▀▄")
+        # Three rows by nine columns. The square eye is ivory on black, the
+        # dash is orange on black, and four gray feet sit under the stripe.
+        assert screen.buffer[1][2].fg == "fffdf5"
+        assert screen.buffer[1][2].bg == "0e0e0e"
+        assert screen.buffer[1][5].fg == "f9b467"
+        assert screen.buffer[1][5].bg == "0e0e0e"
         for col in (1, 3, 5, 7):
-            assert screen.buffer[3][col].bg == "d5ccc3"
+            assert screen.buffer[2][col].bg == "b6ada4"
         os.write(master, b"\x1b[200~Remember apricot\n\x1b[201~")
         wait("Remember apricot")
         os.write(master, b"\r")

@@ -133,56 +133,55 @@ impl Robot {
         Self(rows)
     }
 
-    /// The compact mascot: 9 columns by 4 rows, the height of the four lines of
-    /// text beside it on the welcome screen. Quadrant and half blocks keep the
-    /// edges exact in any font; the two eyes are identical ivory squares. The
-    /// larger 14x6 form this replaces stood taller than the text and read as
-    /// chunky, with a half-row of empty space above it.
+    /// Three rows by nine columns, the same budget as Claude Code's mascot.
+    /// Half blocks make six pixel rows: cream cap, black screen, a square eye
+    /// and an orange dash, an orange stripe, then four gray feet.
     fn compact_cream(theme: &str) -> Self {
-        let (body, ear, leg) = if theme == "light" {
-            (
-                Color::Rgb(230, 221, 208),
-                Color::Rgb(156, 148, 139),
-                Color::Rgb(184, 175, 166),
-            )
+        let cream = if theme == "light" {
+            Color::Rgb(230, 221, 208)
         } else {
-            (
-                Color::Rgb(244, 235, 228),
-                Color::Rgb(182, 173, 164),
-                Color::Rgb(213, 204, 195),
-            )
+            Color::Rgb(244, 235, 228)
         };
         let screen = Color::Rgb(14, 14, 14);
         let eye = Color::Rgb(255, 253, 245);
-        let fg = |text: &'static str, color: Color| Span::styled(text, Style::new().fg(color));
-        let on =
-            |text: &'static str, f: Color, b: Color| Span::styled(text, Style::new().fg(f).bg(b));
-        let dark = |text: &'static str| Span::styled(text, Style::new().bg(screen));
-        let rows = vec![
-            vec![fg("▗", body), on("▛▀▀▀▀▀▜", body, screen), fg("▖", body)],
-            vec![
-                on("▌", ear, body),
-                on("▌", body, screen),
-                on("▗▖", eye, screen),
-                dark(" "),
-                on("▗▖", eye, screen),
-                on("▐", body, screen),
-                on("▐", ear, body),
-            ],
-            vec![fg("▐", body), on("▙▄▄▄▄▄▟", body, screen), fg("▌", body)],
-            vec![
-                fg("▝", ear),
-                on("▀", ear, leg),
-                fg("▀", ear),
-                on("▀", ear, leg),
-                fg("▀", ear),
-                on("▀", ear, leg),
-                fg("▀", ear),
-                on("▀", ear, leg),
-                fg("▘", ear),
-            ],
+        let dash = Color::Rgb(249, 180, 103);
+        let gray = if theme == "light" {
+            Color::Rgb(156, 148, 139)
+        } else {
+            Color::Rgb(182, 173, 164)
+        };
+        // 0 empty, 1 cream, 2 screen, 3 white eye, 4 orange, 5 gray.
+        let pixels: [[u8; 9]; 6] = [
+            [0, 1, 1, 1, 1, 1, 1, 1, 0],
+            [5, 2, 2, 2, 2, 2, 2, 2, 5],
+            [5, 2, 3, 2, 2, 4, 2, 2, 5],
+            [5, 2, 2, 2, 2, 2, 2, 2, 5],
+            [0, 4, 4, 4, 4, 4, 4, 4, 0],
+            [0, 5, 0, 5, 0, 5, 0, 5, 0],
         ];
-        Self(rows.into_iter().map(Line::from).collect())
+        let paint = |code: u8| match code {
+            1 => Some(cream),
+            2 => Some(screen),
+            3 => Some(eye),
+            4 => Some(dash),
+            5 => Some(gray),
+            _ => None,
+        };
+        let mut rows = Vec::new();
+        for pair in pixels.chunks(2) {
+            let spans: Vec<Span> = pair[0]
+                .iter()
+                .zip(pair[1])
+                .map(|(&upper, lower)| match (paint(upper), paint(lower)) {
+                    (None, None) => Span::raw(" "),
+                    (Some(color), None) => Span::styled("▀", Style::new().fg(color)),
+                    (None, Some(color)) => Span::styled("▄", Style::new().fg(color)),
+                    (Some(top), Some(bottom)) => Span::styled("▀", Style::new().fg(top).bg(bottom)),
+                })
+                .collect();
+            rows.push(Line::from(spans));
+        }
+        Self(rows)
     }
 }
 
@@ -216,46 +215,40 @@ mod tests {
                 robot.0[3].spans[7].style.bg,
                 Some(Color::Rgb(255, 253, 245))
             );
-            assert_eq!(Robot::cream(theme, true).0.len(), 4);
+            let mark = Robot::cream(theme, true);
+            assert_eq!(mark.0.len(), 3);
+            assert!(mark.0.iter().all(|row| row.width() == 9));
         }
     }
     #[test]
-    fn compact_mascot_is_nine_by_four_with_two_identical_eyes() {
-        let ivory = Some(Color::Rgb(255, 253, 245));
-        let black = Some(Color::Rgb(14, 14, 14));
+    fn compact_robot_has_a_square_eye_an_orange_dash_and_four_feet() {
+        let eye = Some(Color::Rgb(255, 253, 245));
+        let dash = Some(Color::Rgb(249, 180, 103));
+        let screen = Some(Color::Rgb(14, 14, 14));
         for theme in ["light", "dark"] {
             let robot = Robot::from_event(&serde_json::json!({
                 "design": "cream-block-v2", "theme": theme
             }));
-            // As tall as the four lines of text beside it, and 9 columns wide.
-            assert_eq!(robot.0.len(), 4);
+            assert_eq!(robot.0.len(), 3);
             assert!(robot.0.iter().all(|row| row.width() == 9));
-            // Row 1: ear, frame, eye, gap, eye, frame, ear. The eyes are the
-            // same glyph in the same colours, one cell either side of the gap.
             let face = &robot.0[1].spans;
-            assert_eq!(face.len(), 7);
-            assert_eq!(face[2].content, "▗▖");
-            assert_eq!(face[4].content, "▗▖");
-            assert_eq!(face[2].style, face[4].style);
-            assert_eq!(face[2].style.fg, ivory);
-            assert_eq!(face[2].style.bg, black);
-            assert_eq!(face[3].style.bg, black);
-            // Four feet: alternating filled and open cells along the base.
-            let base: Vec<_> = robot.0[3]
+            assert_eq!(face[2].style.fg, eye);
+            assert_eq!(face[2].style.bg, screen);
+            assert_eq!(face[5].style.fg, dash);
+            assert_eq!(face[5].style.bg, screen);
+            let feet = robot.0[2]
                 .spans
                 .iter()
-                .map(|s| s.content.as_ref())
-                .collect();
-            assert_eq!(base.concat(), "▝▀▀▀▀▀▀▀▘");
-            let feet: Vec<bool> = robot.0[3]
-                .spans
-                .iter()
-                .map(|s| s.style.bg.is_some())
-                .collect();
-            assert_eq!(
-                feet,
-                [false, true, false, true, false, true, false, true, false]
-            );
+                .filter(|span| {
+                    span.style.bg
+                        == Some(if theme == "light" {
+                            Color::Rgb(156, 148, 139)
+                        } else {
+                            Color::Rgb(182, 173, 164)
+                        })
+                })
+                .count();
+            assert_eq!(feet, 4);
         }
     }
     #[test]
