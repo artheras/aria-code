@@ -95,7 +95,7 @@ class DeliveryReport:
         return sum(item.removed for item in self.changed)
 
     def as_dict(self) -> dict:
-        extra = {"not_run": [dict(item) for item in self.not_run]} if self.not_run else {}  # absent unless used: the Go report has no such field
+        extra = {"not_run": [dict(item) for item in self.not_run]} if self.not_run else {}  # absent when empty, so the two reports stay comparable
         return {
             **extra,
             "status": self.status,

@@ -30,7 +30,7 @@ fn nested(command: &str) -> &'static [&'static str] {
         "config" => &["paths", "show"],
         "sessions" => &["list", "search", "show"],
         "update" => &["check"],
-        "index" => &["imports", "symbols"],
+        "index" => &["imports", "symbols", "changes"],
         "physical" => &["jsonl", "agent-jsonl", "mcp", "serve"],
         "completions" => &["bash", "zsh", "fish"],
         "chat" | "exec" | "render" => &["--jsonl"],

@@ -105,3 +105,49 @@ def python_symbols(root: Path, parse: Sequence[str], *, minimum: Optional[int] =
                  for path, found in symbols.items()}, fallback)
     except (TypeError, ValueError):
         return None
+
+
+UNAVAILABLE = object()
+
+
+def _raw(command: str, payload: dict) -> Optional[dict]:
+    """JSON from ``aria-native index <command>``, or None when it cannot answer."""
+    if not enabled():
+        return None
+    binary = native_binary()
+    if not binary:
+        return None
+    try:
+        done = subprocess.run(
+            [binary, "index", command], input=json.dumps(payload), capture_output=True,
+            text=True, encoding="utf-8", timeout=_TIMEOUT, check=False,
+        )
+        if done.returncode != 0:
+            return None
+        data = json.loads(done.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def reverse_apply(after: str, diff: str):
+    """The text *diff* was made from, None when it does not fit, or UNAVAILABLE."""
+    data = _raw("changes", {"op": "reverse", "after": after, "diff": diff})
+    if data is None or "applied" not in data:
+        return UNAVAILABLE
+    if not data.get("applied"):
+        return None
+    text = data.get("text")
+    return text if isinstance(text, str) else UNAVAILABLE
+
+
+def symbol_changes(before: str, after: str, language: str) -> Optional[list[tuple[str, str, str]]]:
+    """``(kind, qualified name, symbol kind)`` rows, or None to decide in Python."""
+    data = _raw("changes", {"op": "changes", "before": before, "after": after, "language": language})
+    rows = data.get("changes") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return None
+    try:
+        return [(str(row["kind"]), str(row["name"]), str(row["symbol_kind"])) for row in rows]
+    except (KeyError, TypeError):
+        return None

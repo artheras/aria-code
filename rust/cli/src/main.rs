@@ -73,6 +73,7 @@ struct Options {
 enum IndexKind {
     Imports,
     Symbols,
+    Changes,
 }
 
 #[derive(Debug)]
@@ -156,7 +157,12 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                 let kind = match args.next().as_ref().and_then(|a| a.to_str()) {
                     Some("imports") => IndexKind::Imports,
                     Some("symbols") => IndexKind::Symbols,
-                    _ => return Err("index requires a subcommand: imports or symbols".into()),
+                    Some("changes") => IndexKind::Changes,
+                    _ => {
+                        return Err(
+                            "index requires a subcommand: imports, symbols or changes".into()
+                        )
+                    }
                 };
                 if args.next().is_some() {
                     return Err("index reads its request from stdin".into());
@@ -487,6 +493,9 @@ fn run(options: Options) -> Result<i32, String> {
                 IndexKind::Symbols => serde_json::to_string(&aria_graph::symbols::extract(
                     &serde_json::from_str(&raw).map_err(invalid)?,
                 )),
+                IndexKind::Changes => serde_json::to_string(&aria_graph::semantic::answer(
+                    &serde_json::from_str(&raw).map_err(invalid)?,
+                )),
             }
             .map_err(|e| e.to_string())?;
             println!("{out}");
@@ -699,6 +708,10 @@ mod tests {
         assert!(matches!(
             options(&["index", "symbols"]).unwrap().mode,
             Mode::Index(IndexKind::Symbols)
+        ));
+        assert!(matches!(
+            options(&["index", "changes"]).unwrap().mode,
+            Mode::Index(IndexKind::Changes)
         ));
     }
     #[test]

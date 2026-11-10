@@ -198,6 +198,7 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 	userContent.Parts = append(userContent.Parts, referenceImages...)
 	contents = append(contents, userContent)
 	var answer strings.Builder
+	textToolRetries, promptEchoRetries := 0, 0
 	budget := c.number("max_tool_rounds", 20)
 	if budget < 1 {
 		budget = 1
@@ -228,6 +229,30 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 		if len(calls) == 0 {
 			if strings.TrimSpace(answer.String()) == "" {
 				return contents, "", errors.New("model returned no visible response")
+			}
+			// A local model can write the call instead of making it. Nothing
+			// ran, so this is not a finished plan. Ask once, then stop.
+			if looksLikeTextToolCalls(answer.String()) {
+				textToolRetries++
+				if textToolRetries > maxTextToolCallRetries {
+					answer.WriteString("\n\nThe model kept writing tool calls as text instead of calling the tools; none of them were executed.")
+					return contents, answer.String(), errors.New("model kept writing tool calls as text")
+				}
+				hooks.emit("turn.status", map[string]any{"state": "text_tool_calls", "message": "Model wrote tool calls as text; asking it to call them"})
+				contents = append(contents, genai.NewContentFromText(textToolCallDirective, genai.RoleUser))
+				answer.Reset()
+				continue
+			}
+			if round > 0 && looksLikePromptEcho(answer.String()) {
+				promptEchoRetries++
+				if promptEchoRetries > maxPromptEchoRetries {
+					answer.WriteString("\n\nThe model replied with an instruction instead of an answer and did not continue the task.")
+					return contents, answer.String(), errors.New("model replied with an instruction instead of an answer")
+				}
+				hooks.emit("turn.status", map[string]any{"state": "prompt_echo", "message": "Model replied with an instruction instead of an answer; asking it to continue"})
+				contents = append(contents, genai.NewContentFromText(promptEchoDirective, genai.RoleUser))
+				answer.Reset()
+				continue
 			}
 			// The model says it is done: with review_gate on, an independent
 			// reviewer reads the change first, and blocking findings go back

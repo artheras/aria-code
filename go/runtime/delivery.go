@@ -7,12 +7,14 @@ package main
 // status comes from evidence; a turn that stopped early or whose checks are
 // red is INCOMPLETE however its last message reads.
 //
-// The Python report also names the definitions each change touched, the tests
-// that reference them and the project-graph impact (semantic_diff, repo_map,
-// project_graph). Those modules are not ported yet, so the native report
-// leaves them empty. The acceptance gate is not ported either: natively, the
-// checks are the verification commands the model ran (see checkLedger).
-// tests/test_native_go_delivery.py compares the rest with Python.
+// Definitions come from the current file and this turn's diffs. Tests that
+// reference them come from a graph cache already on disk. A missing file, a
+// diff that does not apply, or no cache leaves those fields empty. The impact
+// line uses that same cache and does not scan the tree. The acceptance gate
+// is separate: natively, the checks are the verification commands the model
+// ran (see checkLedger). tests/test_native_go_delivery.py compares the report
+// with Python. Python still parses with its own syntax tree when this answer
+// is empty.
 
 import (
 	"context"
@@ -48,6 +50,7 @@ type DeliveryReport struct {
 	Status      string
 	Changed     []*changedFile
 	Checks      []map[string]any
+	NotRun      []map[string]any
 	Verified    *bool
 	Review      string
 	ReviewLines []string
@@ -93,12 +96,18 @@ func (r DeliveryReport) asDict() map[string]any {
 		copied.Symbols, copied.TestedBy = orEmpty(c.Symbols), orEmpty(c.TestedBy)
 		changed = append(changed, &copied)
 	}
-	return map[string]any{
+	out := map[string]any{
 		"status": r.Status, "changed": changed, "checks": orEmptyMaps(r.Checks), "verified": verified,
 		"review": r.Review, "review_lines": orEmpty(r.ReviewLines), "behaviour": behaviour, "risk": risk,
 		"checkpoints": orEmpty(r.Checkpoints), "refused": orEmptyMaps(r.Refused), "stop_reason": r.StopReason,
 		"next": r.Next, "impact": r.Impact,
 	}
+	// Omitted when empty so a report with no missing tool stays field-for-field
+	// comparable with one that never recorded the case.
+	if len(r.NotRun) > 0 {
+		out["not_run"] = r.NotRun
+	}
+	return out
 }
 
 func orEmptyMaps(list []map[string]any) []map[string]any {
@@ -218,10 +227,13 @@ func (r DeliveryReport) Render(rewindHint, root string) string {
 		if r.Verified == nil && len(r.Changed) > 0 {
 			lines = append(lines, "  ⚠ changed again after the last check")
 		}
-	} else if len(r.Changed) > 0 {
+	} else if len(r.NotRun) == 0 && len(r.Changed) > 0 {
 		lines = append(lines, "  — no check ran (none could be inferred)")
-	} else {
+	} else if len(r.NotRun) == 0 {
 		lines = append(lines, "  — no check ran")
+	}
+	for _, item := range r.NotRun {
+		lines = append(lines, fmt.Sprintf("  · not run: %s — %s", pyStr(item["command"]), pyStr(item["reason"])))
 	}
 	if len(r.Behaviour) > 0 {
 		lines = append(lines, "", "Behaviour")
@@ -373,6 +385,7 @@ type DeliveryLedger struct {
 	changed     map[string]*changedFile
 	checkpoints []string
 	diffs       []string
+	fileDiffs   map[string][]string
 	risk        *RiskAssessment
 }
 
@@ -422,6 +435,12 @@ func (l *DeliveryLedger) Record(tool string, params, result map[string]any) {
 		if i == 0 { // one diff per call; attribute it to the first path
 			entry.Added += added
 			entry.Removed += removed
+			if strings.TrimSpace(diff) != "" {
+				if l.fileDiffs == nil {
+					l.fileDiffs = map[string][]string{}
+				}
+				l.fileDiffs[path] = append(l.fileDiffs[path], diff)
+			}
 		}
 	}
 	if checkpoint := data["checkpoint_id"]; truthy(checkpoint) {
@@ -445,11 +464,15 @@ var stopReasons = map[string]string{
 // mappings Python passes: {"reports": [{"checks": […]}], "verified": …},
 // {"refused": […]} and the reviewer's {"verdict", "headline", "lines", "behaviour"}.
 func (l *DeliveryLedger) Report(acceptance, contract, review map[string]any, stopReason string) DeliveryReport {
-	var checks []map[string]any
+	var checks, notRun []map[string]any
 	if reports, _ := acceptance["reports"].([]any); len(reports) > 0 {
 		last := asMap(reports[len(reports)-1])
 		for _, raw := range asSlice(last["checks"]) {
 			c := asMap(raw)
+			if truthy(c["not_run"]) {
+				notRun = append(notRun, map[string]any{"command": orNone(c["command"]), "reason": pyStr(c["not_run"])})
+				continue
+			}
 			check := map[string]any{"command": orNone(c["command"]), "passed": truthy(c["passed"]), "exit_code": c["exit_code"]}
 			if truthy(c["preexisting"]) {
 				check["preexisting"] = true
@@ -470,7 +493,11 @@ func (l *DeliveryLedger) Report(acceptance, contract, review map[string]any, sto
 	}
 	var changed []*changedFile
 	for _, path := range l.order {
-		changed = append(changed, l.changed[path])
+		item := l.changed[path]
+		changes := l.symbolChanges(path)
+		item.Symbols = symbolLabels(changes)
+		item.TestedBy = l.testedBy(changes)
+		changed = append(changed, item)
 	}
 	allPassed := func(allowPreexisting bool) bool {
 		for _, c := range checks {
@@ -493,6 +520,8 @@ func (l *DeliveryLedger) Report(acceptance, contract, review map[string]any, sto
 		status, next = "done", "Ready to commit — the failing checks already failed before this change"
 	case verified != nil && !*verified || !allPassed(false):
 		status, next = "incomplete", "Fix the failing checks"
+	case len(notRun) > 0 && len(changed) > 0 && verified == nil:
+		status, next = "done", "Run the tests yourself — "+pyStr(notRun[0]["reason"])
 	case len(changed) > 0:
 		status = "done"
 		switch {
@@ -517,7 +546,7 @@ func (l *DeliveryLedger) Report(acceptance, contract, review map[string]any, sto
 		}
 	}
 	r := DeliveryReport{
-		Status: status, Changed: changed, Checks: checks, Verified: verified, Review: "Not reviewed",
+		Status: status, Changed: changed, Checks: checks, NotRun: notRun, Verified: verified, Review: "Not reviewed",
 		Checkpoints: l.checkpoints, Refused: refused, StopReason: stopReason, Next: next,
 	}
 	if truthy(review["headline"]) {
@@ -531,6 +560,13 @@ func (l *DeliveryLedger) Report(acceptance, contract, review map[string]any, sto
 		level := l.risk.Level
 		r.RiskLevel, r.RiskSummary = &level, l.risk.Summary
 	}
+	var sources []string
+	for _, item := range changed {
+		if item != nil && !isTestPath(item.Path) {
+			sources = append(sources, item.Path)
+		}
+	}
+	r.Impact = cachedImpactLine(sources)
 	return r
 }
 

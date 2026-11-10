@@ -322,6 +322,15 @@ func scanReviewFile(file reviewFile) []finding {
 	}
 	lines := splitTextLines(file.Content)
 	var findings []finding
+	if file.Language == "Python" {
+		if line, evidence, bad := pythonSyntaxError(file.Content); bad {
+			findings = append(findings, finding{
+				Severity: "critical", Rule: "python-syntax-error",
+				Message: "Python 代码无法解析，运行前会失败。", Line: line,
+				Evidence: truncateRunes(evidence, 240), File: file.Path,
+			})
+		}
+	}
 	if strings.EqualFold(filepath.Ext(file.Path), ".go") {
 		if _, err := parser.ParseFile(token.NewFileSet(), file.Path, file.Content, parser.AllErrors); err != nil {
 			if parseErrors, ok := err.(scanner.ErrorList); ok && len(parseErrors) > 0 {

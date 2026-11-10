@@ -9,6 +9,7 @@
 //! for the caller to parse itself, so a grammar gap here never becomes a
 //! missing edge.
 
+pub mod semantic;
 pub mod symbols;
 
 use rayon::prelude::*;

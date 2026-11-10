@@ -33,9 +33,35 @@ const (
 )
 
 var (
-	pyAnchor    = pyRegexp(`File "([^"]+)", line (\d+)`)
-	colonAnchor = pyRegexp(`(?m)^\s*([\w./\\-]+\.[A-Za-z]{1,4}):(\d+)(?::\d+)?`)
+	pyAnchor       = pyRegexp(`File "([^"]+)", line (\d+)`)
+	colonAnchor    = pyRegexp(`(?m)^\s*([\w./\\-]+\.[A-Za-z]{1,4}):(\d+)(?::\d+)?`)
+	runnerMissing  = pyRegexp(`(?m)^\S*python[\d.]*: No module named ['"]?([\w.]+)['"]?\s*$`)
+	programMissing = pyRegexp(`(?m)^(?:\S+: )*(?:([\w.+-]+): (?:command )?not found|command not found: ([\w.+-]+))\s*$`)
 )
+
+// unavailableReason is acceptance.unavailable_reason: why a check could not
+// run at all. Empty when it ran, whatever its verdict. A project's own
+// ModuleNotFoundError stays a failure.
+func unavailableReason(exitCode int, output, errorText string) string {
+	text := output + "\n" + errorText
+	if match := runnerMissing.FindStringSubmatch(text); match != nil {
+		return match[1] + " is not installed for this python"
+	}
+	if match := programMissing.FindStringSubmatch(text); match != nil || exitCode == 127 {
+		name := ""
+		if match != nil {
+			name = match[1]
+			if name == "" {
+				name = match[2]
+			}
+		}
+		if name == "" {
+			name = "the command"
+		}
+		return name + " is not installed"
+	}
+	return ""
+}
 
 // trimOutput is acceptance._trim: head and tail of a failing log.
 func trimOutput(text string) string {
@@ -86,6 +112,10 @@ type checkResult struct {
 	NewFailures  []string
 	OldFailures  []string
 	BaselineNote string
+	// Non-empty when the tool needed to run this check is missing. Not a red
+	// check: nothing was verified, and asking the model to fix it only makes
+	// it install things.
+	Unavailable string
 }
 
 func (c checkResult) anchors() []string {
@@ -98,7 +128,10 @@ func (c checkResult) anchors() []string {
 func (c checkResult) summary() map[string]any {
 	data := map[string]any{"command": c.Command, "exit_code": c.ExitCode, "passed": c.Passed,
 		"duration": float64(int64(c.Duration*1000+0.5)) / 1000, "error": c.Error}
-	if !c.Passed && (c.BaselineNote != "" || len(c.NewFailures) > 0 || len(c.OldFailures) > 0) {
+	if c.Unavailable != "" {
+		data["not_run"] = c.Unavailable
+	}
+	if !c.Passed && c.Unavailable == "" && (c.BaselineNote != "" || len(c.NewFailures) > 0 || len(c.OldFailures) > 0) {
 		data["preexisting"] = c.Preexisting
 		data["new_failures"] = anySlice(orEmpty(c.NewFailures))
 		data["old_failures"] = anySlice(orEmpty(c.OldFailures))
@@ -115,15 +148,34 @@ type acceptanceReport struct {
 	AttemptsRemaining int
 }
 
-func (r acceptanceReport) ran() bool { return len(r.Checks) > 0 }
+func (r acceptanceReport) notRun() []checkResult {
+	var out []checkResult
+	for _, c := range r.Checks {
+		if c.Unavailable != "" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
 
-// passed is true only when a check ran and every check passed.
+// ran is true when at least one check actually executed. A missing tool
+// verified nothing.
+func (r acceptanceReport) ran() bool {
+	for _, c := range r.Checks {
+		if c.Unavailable == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// passed is true only when a check ran and every check that could run passed.
 func (r acceptanceReport) passed() bool {
 	if !r.ran() {
 		return false
 	}
 	for _, c := range r.Checks {
-		if !c.Passed {
+		if c.Unavailable == "" && !c.Passed {
 			return false
 		}
 	}
@@ -133,7 +185,7 @@ func (r acceptanceReport) passed() bool {
 func (r acceptanceReport) failures() []checkResult {
 	var out []checkResult
 	for _, c := range r.Checks {
-		if !c.Passed {
+		if !c.Passed && c.Unavailable == "" {
 			out = append(out, c)
 		}
 	}
@@ -161,12 +213,25 @@ func backticked(items []string) string {
 
 func (r acceptanceReport) headline() string {
 	if !r.ran() {
+		if skipped := r.notRun(); len(skipped) > 0 {
+			first := skipped[0]
+			return fmt.Sprintf("验收未执行：`%s` 无法运行（%s）", first.Command, first.Unavailable)
+		}
 		return "验收未执行：未推断出检查命令"
 	}
 	if r.passed() {
 		var names []string
 		for _, c := range r.Checks {
-			names = append(names, c.Command)
+			if c.Unavailable == "" {
+				names = append(names, c.Command)
+			}
+		}
+		if skipped := r.notRun(); len(skipped) > 0 {
+			parts := make([]string, len(skipped))
+			for i, c := range skipped {
+				parts[i] = fmt.Sprintf("`%s` (%s)", c.Command, c.Unavailable)
+			}
+			return fmt.Sprintf("验收部分通过 (%s)；未能运行：%s", strings.Join(names, ", "), strings.Join(parts, "; "))
 		}
 		return "验收通过 (" + strings.Join(names, ", ") + ")"
 	}
@@ -716,14 +781,18 @@ func (g *acceptanceGate) run(ctx context.Context, runner checkRunner) *acceptanc
 		code, output, errText := readRunResult(runner(ctx, command))
 		check := checkResult{Command: command, ExitCode: code, Passed: code == 0 && errText == "", Output: output,
 			Error: errText, Duration: time.Since(started).Seconds()}
-		checks = append(checks, check)
 		if !check.Passed {
+			check.Unavailable = unavailableReason(code, output, errText)
+		}
+		checks = append(checks, check)
+		// A check that could not run says nothing about the code, so the rest still run.
+		if !check.Passed && check.Unavailable == "" {
 			break
 		}
 	}
 	if g.baseline != nil {
 		for i, check := range checks {
-			if check.Passed {
+			if check.Passed || check.Unavailable != "" {
 				continue
 			}
 			comparison := compareBaseline(check.Output, true, g.baseline.result(ctx, check.Command))
@@ -749,7 +818,10 @@ func (g *acceptanceGate) summary() map[string]any {
 	if len(g.reports) > 0 {
 		last := g.reports[len(g.reports)-1]
 		if last.ran() {
-			out["verified"] = last.passed() && !g.armed()
+			// What could run passed, but part of the plan did not run: not verified.
+			if verified := last.passed() && !g.armed(); !verified || len(last.notRun()) == 0 {
+				out["verified"] = verified
+			}
 			if !last.passed() {
 				out["regressions"] = last.regressed()
 			}
