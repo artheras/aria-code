@@ -187,82 +187,50 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let (input_rows, cursor) = app.editor.layout(area.width.saturating_sub(6));
     let robot = &app.robot;
     let robot_width = robot.0.first().map(|line| line.width()).unwrap_or(0) as u16;
-    let show_robot = !robot.0.is_empty() && area.width >= robot_width + 36 && area.height >= 14;
+    let show_robot = !robot.0.is_empty() && area.width >= robot_width + 36 && area.height >= 10;
     let left_padding = if show_robot { robot_width + 2 } else { 0 };
     let input_height = (input_rows.len().min(6) as u16)
         .saturating_add(2)
         .min(area.height / 2);
+    let text_rows = if area.height < 8 {
+        1
+    } else {
+        1 + u16::from(!app.update_notice.is_empty())
+            + u16::from(!app.service_notice.is_empty())
+            + u16::from(app.details)
+            + u16::from(app.turn.is_some() && !app.phase.is_empty())
+    };
     let parts = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(if area.height >= 14 {
-                (4 + u16::from(!app.update_notice.is_empty())
-                    + u16::from(app.details)
-                    + u16::from(app.turn.is_some() && !app.phase.is_empty()))
-                .max(if show_robot { robot.0.len() as u16 } else { 0 })
-            } else {
+            Constraint::Length(if area.height < 8 {
                 1
+            } else {
+                text_rows.max(if show_robot { robot.0.len() as u16 } else { 0 })
             }),
             Constraint::Min(1),
             Constraint::Length(input_height),
             Constraint::Length(1),
         ])
         .split(area);
-    let runtime = format!(
-        "{} · {} {}",
-        app.permission,
-        app.tr("network", "网络"),
-        if app.network {
-            app.tr("on", "开启")
-        } else {
-            app.tr("off", "关闭")
-        }
-    );
     let header = if parts[0].height > 1 {
-        // Name and version, then the model by its readable name, then where
-        // the work happens and under which permissions, quieter. The workspace
-        // needs no label; it shows the git branch, or a warning when the
-        // workspace is the whole home folder.
-        let place = home_short(&app.workspace);
-        let mut suffix = Vec::new();
-        if app.home_workspace {
-            suffix.push(Span::styled(
-                format!(" · {}", app.tr("home folder", "主目录")),
-                Style::new().fg(p.accent),
-            ));
-        } else if !app.branch.is_empty() {
-            suffix.push(Span::styled(
-                format!(" · {}", app.branch),
-                Style::new().fg(p.muted),
-            ));
-        }
-        let suffix_width: usize = suffix.iter().map(|s| s.content.width()).sum();
-        let mut place_line = vec![Span::styled(
-            workspace_tail(
-                &place,
-                usize::from(area.width)
-                    .saturating_sub(usize::from(left_padding) + suffix_width + 1),
-            ),
-            Style::new().fg(p.muted),
+        // One line: model, where the work is, and what the next action may do.
+        // The product name and version wait in the details row.
+        let mut lines = vec![session_line(
+            app,
+            p,
+            usize::from(area.width.saturating_sub(left_padding)),
         )];
-        place_line.extend(suffix);
-        let mut model = display_model(&app.model);
-        if !app.provider.is_empty() {
-            model = format!("{model} · {}", display_provider(&app.provider));
+        if !app.service_notice.is_empty() {
+            lines.push(Line::styled(
+                app.service_notice.clone(),
+                Style::new().fg(p.warn),
+            ));
         }
-        let mut lines = vec![
-            Line::from(vec![
-                Span::styled("Aria Code", Style::new().fg(p.accent).bold()),
-                Span::styled(format!(" v{}", app.version), Style::new().fg(p.accent)),
-            ]),
-            Line::raw(model),
-            Line::from(place_line),
-            Line::styled(runtime.to_owned(), Style::new().fg(p.muted)),
-        ];
         if !app.update_notice.is_empty() {
             lines.push(Line::styled(
                 app.update_notice.clone(),
-                Style::new().fg(p.accent),
+                Style::new().fg(p.warn),
             ));
         }
         // Where the turn is: Inspect ✓ · Edit ● · Verify ○ — what the work is,
@@ -279,7 +247,8 @@ pub fn draw(frame: &mut Frame, app: &App) {
         if app.details {
             lines.push(Line::styled(
                 format!(
-                    "Rust UI {} · {} {}",
+                    "Aria Code v{} · Rust UI {} · {} {}",
+                    app.version,
                     env!("CARGO_PKG_VERSION"),
                     app.tr("session", "会话"),
                     app.session
@@ -289,10 +258,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
         }
         Text::from(lines)
     } else {
-        Text::from(Line::styled(
-            format!("Aria · {}", app.model),
-            Style::new().fg(p.accent),
-        ))
+        Text::from(session_line(app, p, usize::from(area.width)))
     };
     let mut header_area = parts[0];
     if show_robot {
@@ -1240,9 +1206,81 @@ fn example_prompt(app: &App) -> String {
     ];
     let pick = app.session.bytes().map(usize::from).sum::<usize>() % EN.len();
     if app.zh() {
-        format!("试试“{}” · / 命令 · @ 文件", ZH[pick])
+        format!("试试“{}”", ZH[pick])
     } else {
-        format!("Try \"{}\" · / commands · @ files", EN[pick])
+        format!("Try \"{}\"", EN[pick])
+    }
+}
+
+/// Model, place, and what a later action is allowed to do, fitted to one row.
+fn session_line(app: &App, p: Palette, width: usize) -> Line<'static> {
+    let mut model = display_model(&app.model);
+    if !app.provider.is_empty() {
+        let provider = display_provider(&app.provider);
+        if model.is_empty() {
+            model = provider;
+        } else {
+            model = format!("{model} · {provider}");
+        }
+    }
+    let place = home_short(&app.workspace);
+    let home = if app.home_workspace {
+        format!(" · {}", app.tr("home folder", "主目录"))
+    } else {
+        String::new()
+    };
+    let branch = if app.home_workspace || app.branch.is_empty() {
+        String::new()
+    } else {
+        format!(" · {}", app.branch)
+    };
+    let permission = permission_phrase(app);
+    let tail = format!("{home}{branch} · {permission}");
+    let lead = if model.is_empty() {
+        String::new()
+    } else {
+        format!("{model} · ")
+    };
+    let place = workspace_tail(&place, width.saturating_sub(lead.width() + tail.width()));
+    let mut spans = Vec::new();
+    if !lead.is_empty() {
+        spans.push(Span::raw(lead));
+    }
+    let place_style = if app.home_workspace {
+        Style::new().fg(p.warn)
+    } else {
+        Style::new().fg(p.muted)
+    };
+    spans.push(Span::styled(place, place_style));
+    if app.home_workspace {
+        spans.push(Span::styled(home, Style::new().fg(p.warn)));
+    } else if !branch.is_empty() {
+        spans.push(Span::styled(branch, Style::new().fg(p.muted)));
+    }
+    spans.push(Span::styled(
+        format!(" · {permission}"),
+        Style::new().fg(p.muted),
+    ));
+    Line::from(spans)
+}
+
+fn permission_phrase(app: &App) -> String {
+    let mode = match app.permission.as_str() {
+        "workspace-write" => app.tr("writes need approval", "写入需确认"),
+        "read-only" | "plan" => app.tr("read only", "只读"),
+        "accept-edits" => app.tr("edits allowed", "可直接改文件"),
+        "" => "",
+        other => other,
+    };
+    let network = if app.network {
+        app.tr("network on", "网络开")
+    } else {
+        app.tr("network off", "网络关")
+    };
+    if mode.is_empty() {
+        network.to_owned()
+    } else {
+        format!("{mode} · {network}")
     }
 }
 
@@ -1327,6 +1365,24 @@ mod tests {
     }
 
     #[test]
+    fn a_service_warning_is_one_sentence_under_the_status() {
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        let app = App {
+            ready: true,
+            model: "qwen2.5:7b".into(),
+            service_notice: "商业服务没连上：本机没有商家令牌。先登录 gcloud，这次可以不用它。"
+                .into(),
+            ..App::default()
+        };
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let shown = display(&terminal);
+        assert!(shown.contains("qwen2.5:7b"), "{shown}");
+        assert!(shown.contains("商家令牌"), "{shown}");
+        assert!(!shown.contains("WARNING:"), "{shown}");
+        assert!(!shown.contains("Aria Code"), "{shown}");
+    }
+
+    #[test]
     fn welcome_lines_read_like_a_prompt_not_a_form() {
         let mut terminal = Terminal::new(TestBackend::new(90, 24)).unwrap();
         let mut app = App {
@@ -1366,7 +1422,8 @@ mod tests {
             !shown.contains("Describe a task, edit your project"),
             "{shown}"
         );
-        assert_eq!(shown.matches("/ commands").count(), 1, "{shown}");
+        assert!(!shown.contains("/ commands"), "{shown}");
+        assert!(!shown.contains("@ files"), "{shown}");
     }
 
     #[test]
@@ -1527,12 +1584,11 @@ mod tests {
         };
         terminal.draw(|f| draw(f, &app)).unwrap();
         let rendered = display(&terminal);
-        let header = rendered.lines().nth(2).unwrap();
-        assert!(rendered
-            .lines()
-            .nth(3)
-            .unwrap()
-            .contains("workspace-write · network on"));
+        let header = rendered.lines().next().unwrap();
+        assert!(
+            header.contains("writes need approval · network on"),
+            "{header}"
+        );
         assert!(header.contains('…'));
         assert!(header.contains("我的项目"));
         assert!(header.width() <= 80);
@@ -1944,11 +2000,12 @@ mod tests {
             };
             terminal.draw(|f| draw(f, &app)).unwrap();
             let buffer = terminal.backend().buffer();
-            // 9 columns wide and 4 rows tall: ears on row 1, text two columns on.
-            assert_eq!(buffer[(0, 1)].symbol(), "▌");
-            assert_eq!(buffer[(8, 1)].symbol(), "▐");
-            assert_eq!(buffer[(11, 0)].symbol(), "A");
-            assert!(display(&terminal).contains("Aria Code"));
+            // Eight columns, two rows: the roof, then the window and the slit.
+            assert_eq!(buffer[(0, 0)].symbol(), "▄");
+            assert_eq!(buffer[(2, 0)].symbol(), "▀");
+            assert_eq!(buffer[(1, 1)].symbol(), "▄");
+            assert_eq!(buffer[(4, 1)].symbol(), "▄");
+            assert!(!display(&terminal).contains("Aria Code"));
         }
     }
     #[test]

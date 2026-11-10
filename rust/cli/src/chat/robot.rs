@@ -133,56 +133,41 @@ impl Robot {
         Self(rows)
     }
 
-    /// The compact mascot: 9 columns by 4 rows, the height of the four lines of
-    /// text beside it on the welcome screen. Quadrant and half blocks keep the
-    /// edges exact in any font; the two eyes are identical ivory squares. The
-    /// larger 14x6 form this replaces stood taller than the text and read as
-    /// chunky, with a half-row of empty space above it.
+    /// Two rows by eight columns: the supplied isometric mark, not a face.
+    /// Each cell is one terminal row of half-blocks, so the picture is four
+    /// pixels tall. The top row is the roof with the opening; the bottom row
+    /// is the left window and the right slit. Cream on a dark terminal, ink
+    /// on a light one. No eyes, ears, or feet.
     fn compact_cream(theme: &str) -> Self {
-        let (body, ear, leg) = if theme == "light" {
-            (
-                Color::Rgb(230, 221, 208),
-                Color::Rgb(156, 148, 139),
-                Color::Rgb(184, 175, 166),
-            )
+        let ink = if theme == "light" {
+            Color::Rgb(37, 39, 34)
         } else {
-            (
-                Color::Rgb(244, 235, 228),
-                Color::Rgb(182, 173, 164),
-                Color::Rgb(213, 204, 195),
-            )
+            Color::Rgb(247, 246, 240)
         };
-        let screen = Color::Rgb(14, 14, 14);
-        let eye = Color::Rgb(255, 253, 245);
-        let fg = |text: &'static str, color: Color| Span::styled(text, Style::new().fg(color));
-        let on =
-            |text: &'static str, f: Color, b: Color| Span::styled(text, Style::new().fg(f).bg(b));
-        let dark = |text: &'static str| Span::styled(text, Style::new().bg(screen));
-        let rows = vec![
-            vec![fg("▗", body), on("▛▀▀▀▀▀▜", body, screen), fg("▖", body)],
-            vec![
-                on("▌", ear, body),
-                on("▌", body, screen),
-                on("▗▖", eye, screen),
-                dark(" "),
-                on("▗▖", eye, screen),
-                on("▐", body, screen),
-                on("▐", ear, body),
-            ],
-            vec![fg("▐", body), on("▙▄▄▄▄▄▟", body, screen), fg("▌", body)],
-            vec![
-                fg("▝", ear),
-                on("▀", ear, leg),
-                fg("▀", ear),
-                on("▀", ear, leg),
-                fg("▀", ear),
-                on("▀", ear, leg),
-                fg("▀", ear),
-                on("▀", ear, leg),
-                fg("▘", ear),
-            ],
+        // Four pixel rows. `true` is the mark, `false` is the opening.
+        let pixels: [[bool; 8]; 4] = [
+            [false, true, true, true, true, true, true, false],
+            [true, true, false, true, true, false, true, true],
+            [true, false, true, true, false, false, true, true],
+            [false, true, true, true, true, true, true, false],
         ];
-        Self(rows.into_iter().map(Line::from).collect())
+        let solid = Span::styled("▀", Style::new().fg(ink).bg(ink));
+        let mut rows = Vec::new();
+        for pair in pixels.chunks(2) {
+            let mut spans = Vec::new();
+            for col in 0..8 {
+                let upper = pair[0][col];
+                let lower = pair[1][col];
+                spans.push(match (upper, lower) {
+                    (true, true) => solid.clone(),
+                    (true, false) => Span::styled("▀", Style::new().fg(ink)),
+                    (false, true) => Span::styled("▄", Style::new().fg(ink)),
+                    (false, false) => Span::raw(" "),
+                });
+            }
+            rows.push(Line::from(spans));
+        }
+        Self(rows)
     }
 }
 
@@ -216,46 +201,32 @@ mod tests {
                 robot.0[3].spans[7].style.bg,
                 Some(Color::Rgb(255, 253, 245))
             );
-            assert_eq!(Robot::cream(theme, true).0.len(), 4);
+            assert_eq!(Robot::cream(theme, true).0.len(), 2);
         }
     }
     #[test]
-    fn compact_mascot_is_nine_by_four_with_two_identical_eyes() {
-        let ivory = Some(Color::Rgb(255, 253, 245));
-        let black = Some(Color::Rgb(14, 14, 14));
-        for theme in ["light", "dark"] {
+    fn compact_mark_is_the_isometric_silhouette() {
+        for (theme, ink) in [
+            ("light", Color::Rgb(37, 39, 34)),
+            ("dark", Color::Rgb(247, 246, 240)),
+        ] {
             let robot = Robot::from_event(&serde_json::json!({
                 "design": "cream-block-v2", "theme": theme
             }));
-            // As tall as the four lines of text beside it, and 9 columns wide.
-            assert_eq!(robot.0.len(), 4);
-            assert!(robot.0.iter().all(|row| row.width() == 9));
-            // Row 1: ear, frame, eye, gap, eye, frame, ear. The eyes are the
-            // same glyph in the same colours, one cell either side of the gap.
-            let face = &robot.0[1].spans;
-            assert_eq!(face.len(), 7);
-            assert_eq!(face[2].content, "▗▖");
-            assert_eq!(face[4].content, "▗▖");
-            assert_eq!(face[2].style, face[4].style);
-            assert_eq!(face[2].style.fg, ivory);
-            assert_eq!(face[2].style.bg, black);
-            assert_eq!(face[3].style.bg, black);
-            // Four feet: alternating filled and open cells along the base.
-            let base: Vec<_> = robot.0[3]
-                .spans
+            assert_eq!(robot.0.len(), 2);
+            assert!(robot.0.iter().all(|row| row.width() == 8));
+            // Roof opening on the left of the first row, window on the second.
+            assert_eq!(robot.0[0].spans[0].content, "▄");
+            assert_eq!(robot.0[0].spans[2].content, "▀");
+            assert_eq!(robot.0[1].spans[1].content, "▄");
+            assert_eq!(robot.0[1].spans[4].content, "▄");
+            assert_eq!(robot.0[0].spans[1].style.fg, Some(ink));
+            let drawn: String = robot
+                .0
                 .iter()
-                .map(|s| s.content.as_ref())
+                .flat_map(|row| row.spans.iter().map(|span| span.content.as_ref()))
                 .collect();
-            assert_eq!(base.concat(), "▝▀▀▀▀▀▀▀▘");
-            let feet: Vec<bool> = robot.0[3]
-                .spans
-                .iter()
-                .map(|s| s.style.bg.is_some())
-                .collect();
-            assert_eq!(
-                feet,
-                [false, true, false, true, false, true, false, true, false]
-            );
+            assert!(!drawn.contains('▗') && !drawn.contains('▖'));
         }
     }
     #[test]

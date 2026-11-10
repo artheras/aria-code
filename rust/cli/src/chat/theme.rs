@@ -8,6 +8,7 @@ pub struct Palette {
     pub assistant: Color,
     pub success: Color,
     pub error: Color,
+    pub warn: Color,
     pub code_bg: Color,
     pub selection_fg: Color,
 }
@@ -54,6 +55,7 @@ impl Palette {
                 assistant: Color::Rgb(15, 112, 139),
                 success: Color::Rgb(25, 112, 63),
                 error: Color::Rgb(177, 38, 38),
+                warn: Color::Rgb(140, 84, 0),
                 code_bg: Color::Rgb(242, 242, 242),
                 selection_fg: Color::White,
             }
@@ -64,6 +66,7 @@ impl Palette {
                 assistant: Color::Rgb(91, 192, 216),
                 success: Color::Rgb(125, 190, 120),
                 error: Color::Rgb(240, 115, 115),
+                warn: Color::Rgb(240, 186, 84),
                 code_bg: Color::Rgb(32, 32, 32),
                 selection_fg: Color::Black,
             }
@@ -97,7 +100,7 @@ mod tests {
             ("dark", Color::Rgb(14, 14, 14)),
         ] {
             let p = Palette::for_theme(theme);
-            for foreground in [p.accent, p.muted, p.assistant, p.success, p.error] {
+            for foreground in [p.accent, p.muted, p.assistant, p.success, p.error, p.warn] {
                 let (a, b) = (luminance(foreground), luminance(background));
                 assert!(
                     (a.max(b) + 0.05) / (a.min(b) + 0.05) >= 4.5,
