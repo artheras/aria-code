@@ -475,6 +475,9 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 			delivery["show"] = s.cfg.boolean("delivery_report", true)
 			fields["delivery"] = delivery
 		}
+		if packet := evidence.contextPacket(); len(packet.Included) > 0 || len(packet.Omitted) > 0 {
+			fields["context"] = packet.export()
+		}
 	}
 	if answer != "" && !strings.HasPrefix(strings.TrimSpace(text), "/") {
 		s.fireHooks(context.WithoutCancel(ctx), "ResponseDone", "", nil, nil, answer)

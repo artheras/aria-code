@@ -763,6 +763,10 @@ type turnEvidence struct {
 	// The acceptance gate and how it runs a check, when it is on.
 	accept *acceptanceGate
 	runner checkRunner
+	// Reads already sent to the model this turn, keyed by path and window.
+	// A later read of the same bytes is not sent again.
+	readPaths  []string
+	readDigest map[string]string
 }
 
 func newTurnEvidence(root string) *turnEvidence {
@@ -804,6 +808,11 @@ func (e *turnEvidence) finished(tool string, params map[string]any, result toolR
 	e.ledger.Record(tool, params, map[string]any{"success": success})
 	if command, _ := params["command"].(string); tool == "run_command" && ran && isVerificationCommand(normalizeCommand(command)) {
 		e.checks.ran(command, code)
+	}
+	if tool == "read_file" && result.Success {
+		if path, _ := result.Data["path"].(string); path != "" {
+			e.readPaths = appendNew(e.readPaths, path)
+		}
 	}
 }
 
