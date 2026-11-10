@@ -198,7 +198,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     } else {
         u16::from(roomy).saturating_mul(2).saturating_add(1)
             + u16::from(!app.update_notice.is_empty())
-            + u16::from(!app.service_notice.is_empty())
+            + u16::from(!app.service_notices.is_empty())
             + u16::from(app.details)
             + u16::from(app.turn.is_some() && !app.phase.is_empty())
     };
@@ -224,9 +224,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
         } else {
             vec![session_line(app, p, width)]
         };
-        if !app.service_notice.is_empty() {
+        if !app.service_notices.is_empty() {
             lines.push(Line::styled(
-                app.service_notice.clone(),
+                fit(&app.service_notices.join(" · "), width),
                 Style::new().fg(p.warn),
             ));
         }
@@ -239,13 +239,23 @@ pub fn draw(frame: &mut Frame, app: &App) {
         // Where the turn is: Inspect ✓ · Edit ● · Verify ○ — what the work is,
         // not which tools the model happens to call.
         if app.turn.is_some() && !app.phase.is_empty() {
-            lines.push(Line::from(vec![
-                Span::styled(app.phase.strip(app.zh()), Style::new().fg(p.accent)),
-                Span::styled(
-                    format!("  {}", fit(&app.phase.doing(app.zh()), 60)),
-                    Style::new().fg(p.muted),
-                ),
-            ]));
+            let mut spans = Vec::new();
+            for (index, (text, state)) in app.phase.pieces(app.zh()).into_iter().enumerate() {
+                if index > 0 {
+                    spans.push(Span::styled(" · ", Style::new().fg(p.muted)));
+                }
+                let color = match state {
+                    0 => p.accent,
+                    -1 => p.success,
+                    _ => p.muted,
+                };
+                spans.push(Span::styled(text, Style::new().fg(color)));
+            }
+            spans.push(Span::styled(
+                format!("  {}", fit(&app.phase.doing(app.zh()), 60)),
+                Style::new().fg(p.muted),
+            ));
+            lines.push(Line::from(spans));
         }
         if app.details {
             lines.push(Line::styled(
@@ -1264,7 +1274,7 @@ fn identity_lines(app: &App, p: Palette, width: usize) -> Vec<Line<'static>> {
             Span::styled("Aria Code", Style::new().bold()),
             Span::styled(format!(" v{}", app.version), Style::new().fg(p.muted)),
         ]),
-        Line::raw(model),
+        Line::styled(model, Style::new().fg(p.muted)),
         Line::from(place_line),
     ]
 }
@@ -1378,6 +1388,32 @@ mod tests {
         let shown = display(&terminal);
         assert!(shown.contains("Inspect ✓ · Edit ● · Verify ○"), "{shown}");
         assert!(shown.contains("Editing src/auth.py"), "{shown}");
+        let palette = Palette::for_theme("dark");
+        let buffer = terminal.backend().buffer();
+        let mut saw_done = false;
+        let mut saw_now = false;
+        let mut saw_wait = false;
+        for y in 0..buffer.area.height {
+            for x in 0..buffer.area.width {
+                let cell = &buffer[(x, y)];
+                match cell.symbol() {
+                    "✓" => {
+                        assert_eq!(cell.fg, palette.success);
+                        saw_done = true;
+                    }
+                    "●" => {
+                        assert_eq!(cell.fg, palette.accent);
+                        saw_now = true;
+                    }
+                    "○" => {
+                        assert_eq!(cell.fg, palette.muted);
+                        saw_wait = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        assert!(saw_done && saw_now && saw_wait);
         // Once the turn ends the strip goes away; the header returns to its usual rows.
         app.event(serde_json::json!({"protocol":1,"type":"turn.completed","turn_id":"turn-1","status":"completed"})).unwrap();
         terminal.draw(|f| draw(f, &app)).unwrap();
@@ -1427,8 +1463,7 @@ mod tests {
         let app = App {
             ready: true,
             model: "qwen2.5:7b".into(),
-            service_notice: "商业服务没连上：本机没有商家令牌。先登录 gcloud，这次可以不用它。"
-                .into(),
+            service_notices: vec!["商业 · 未连接，没有商家令牌".into(), "检索 · 未连接".into()],
             ..App::default()
         };
         terminal.draw(|f| draw(f, &app)).unwrap();
@@ -1436,6 +1471,7 @@ mod tests {
         assert!(shown.contains("Aria Code"), "{shown}");
         assert!(shown.contains("qwen2.5:7b"), "{shown}");
         assert!(shown.contains("商家令牌"), "{shown}");
+        assert!(shown.contains("检索 · 未连接"), "{shown}");
         assert!(!shown.contains("WARNING:"), "{shown}");
     }
 

@@ -190,25 +190,25 @@ impl PhaseTrack {
         self.target.clear();
     }
 
-    /// The strip: each phase seen so far, ✓ once left behind and ● while in it.
-    /// After an edit with no check yet, `Verify ○` shows what is still expected.
-    pub fn strip(&self, zh: bool) -> String {
-        let mut parts: Vec<String> = self
+    /// Each phase and its state: -1 done, 0 current, 1 still expected.
+    /// After an edit with no check yet, Verify is the expected step.
+    pub fn pieces(&self, zh: bool) -> Vec<(String, i8)> {
+        let mut parts: Vec<(String, i8)> = self
             .seen
             .iter()
             .map(|p| {
-                let mark = if Some(*p) == self.current {
-                    "●"
-                } else {
-                    "✓"
-                };
-                format!("{} {mark}", p.name(zh))
+                let current = Some(*p) == self.current;
+                let mark = if current { "●" } else { "✓" };
+                (
+                    format!("{} {mark}", p.name(zh)),
+                    if current { 0 } else { -1 },
+                )
             })
             .collect();
         if self.seen.contains(&Phase::Edit) && !self.seen.contains(&Phase::Verify) {
-            parts.push(format!("{} ○", Phase::Verify.name(zh)));
+            parts.push((format!("{} ○", Phase::Verify.name(zh)), 1));
         }
-        parts.join(" · ")
+        parts
     }
 
     /// "Editing src/a.py", or nothing when idle.
@@ -253,16 +253,37 @@ mod tests {
     #[test]
     fn the_strip_shows_progress_and_what_is_still_expected() {
         let mut t = PhaseTrack::default();
-        assert!(t.is_empty() && t.strip(false).is_empty());
+        assert!(t.is_empty() && t.pieces(false).is_empty());
         t.enter(Phase::Inspect, "src/a.py");
-        assert_eq!(t.strip(false), "Inspect ●");
+        assert_eq!(t.pieces(false), vec![("Inspect ●".into(), 0)]);
         t.enter(Phase::Edit, "src/a.py");
-        assert_eq!(t.strip(false), "Inspect ✓ · Edit ● · Verify ○");
+        assert_eq!(
+            t.pieces(false),
+            vec![
+                ("Inspect ✓".into(), -1),
+                ("Edit ●".into(), 0),
+                ("Verify ○".into(), 1),
+            ]
+        );
         assert_eq!(t.doing(false), "Editing src/a.py");
         t.enter(Phase::Verify, "pytest -q");
-        assert_eq!(t.strip(false), "Inspect ✓ · Edit ✓ · Verify ●");
+        assert_eq!(
+            t.pieces(false),
+            vec![
+                ("Inspect ✓".into(), -1),
+                ("Edit ✓".into(), -1),
+                ("Verify ●".into(), 0),
+            ]
+        );
         t.finish();
-        assert_eq!(t.strip(false), "Inspect ✓ · Edit ✓ · Verify ✓");
+        assert_eq!(
+            t.pieces(false),
+            vec![
+                ("Inspect ✓".into(), -1),
+                ("Edit ✓".into(), -1),
+                ("Verify ✓".into(), -1),
+            ]
+        );
         assert!(t.doing(false).is_empty());
         t.clear();
         assert!(t.is_empty());
@@ -274,7 +295,13 @@ mod tests {
         for p in [Phase::Inspect, Phase::Edit, Phase::Inspect, Phase::Edit] {
             t.enter(p, "");
         }
-        assert_eq!(t.strip(true), "检查 ✓ · 修改 ● · 验证 ○");
+        let line = t
+            .pieces(true)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect::<Vec<_>>()
+            .join(" · ");
+        assert_eq!(line, "检查 ✓ · 修改 ● · 验证 ○");
     }
 
     #[test]

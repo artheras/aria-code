@@ -182,8 +182,9 @@ pub struct App {
     pub model: String,
     pub version: String,
     pub update_notice: String,
-    /// One human sentence for a worker warning. Logger text stays out of the transcript.
-    pub service_notice: String,
+    /// Short status for each service that failed to connect. Logger text stays
+    /// out of the transcript. At most three, oldest dropped.
+    pub service_notices: Vec<String>,
     pub log_buf: String,
     /// Where the running turn is: inspecting, editing, verifying…
     pub phase: PhaseTrack,
@@ -232,20 +233,34 @@ pub struct App {
     pub viewport_scroll: Cell<usize>,
 }
 
-fn looks_like_log(text: &str) -> bool {
-    text.contains("WARNING:")
-        || text.contains("ERROR:")
-        || text.contains("INFO:")
-        || text.contains("DEBUG:")
-        || text.contains("CRITICAL:")
-        || text.contains("[MCP:")
-}
-
 fn is_log_line(line: &str) -> bool {
     let trimmed = line.trim();
     ["WARNING:", "ERROR:", "INFO:", "DEBUG:", "CRITICAL:"]
         .iter()
         .any(|prefix| trimmed.starts_with(prefix))
+}
+
+fn starts_like_log(text: &str) -> bool {
+    let trimmed = text.trim_start();
+    is_log_line(trimmed) || trimmed.starts_with("[MCP:")
+}
+
+/// A short name for a service id. Unknown ids lose the `aria-` prefix.
+fn service_label(name: &str, zh: bool) -> String {
+    let key = name
+        .trim()
+        .trim_start_matches("aria-")
+        .trim_start_matches("aria_")
+        .to_ascii_lowercase();
+    let (zh_label, en_label) = match key.as_str() {
+        "commerce" => ("商业", "Commerce"),
+        "quant" | "quant_engine" => ("量化", "Quant"),
+        "apify" | "research" | "web" => ("检索", "Research"),
+        "market" | "market_data" => ("行情", "Market"),
+        "" | "mcp" => ("服务", "Service"),
+        _ => return key.replace(['_', '-'], " "),
+    };
+    if zh { zh_label } else { en_label }.to_owned()
 }
 
 fn service_notice(line: &str, zh: bool) -> Option<String> {
@@ -260,30 +275,28 @@ fn service_notice(line: &str, zh: bool) -> Option<String> {
             .nth(1)
             .and_then(|rest| rest.split(']').next())
             .unwrap_or("MCP");
+        let label = service_label(name, zh);
         if lower.contains("merchant token")
             || lower.contains("secret manager")
             || lower.contains("gcloud")
         {
-            return Some(
-                if zh {
-                    "商业服务没连上：本机没有商家令牌。先登录 gcloud，这次可以不用它。"
-                } else {
-                    "Commerce is offline: no merchant token on this machine. Sign in with gcloud, or continue without it."
-                }
-                .to_owned(),
-            );
+            return Some(if zh {
+                "商业 · 未连接，没有商家令牌".to_owned()
+            } else {
+                "Commerce · offline, no merchant token".to_owned()
+            });
         }
         return Some(if zh {
-            format!("{name} 没连上，这次先不用它。")
+            format!("{label} · 未连接")
         } else {
-            format!("{name} did not connect. This session continues without it.")
+            format!("{label} · offline")
         });
     }
     let message = trimmed.splitn(3, ':').nth(2).unwrap_or(trimmed).trim();
     if message.is_empty() {
         None
     } else {
-        Some(message.chars().take(160).collect())
+        Some(message.chars().take(80).collect())
     }
 }
 
@@ -323,10 +336,20 @@ impl App {
             self.entries.pop_front();
         }
     }
+    fn remember_notice(&mut self, notice: String) {
+        if notice.is_empty() || self.service_notices.iter().any(|have| have == &notice) {
+            return;
+        }
+        self.service_notices.push(notice);
+        if self.service_notices.len() > 3 {
+            self.service_notices.remove(0);
+        }
+    }
     fn absorb_output(&mut self, text: &str) {
-        let pending = looks_like_log(&self.log_buf);
-        let chunk = looks_like_log(text);
-        if !pending && !chunk {
+        // A sentence that merely mentions a log word is still the model's
+        // answer. Only a chunk that opens like a log line, or the rest of one
+        // already being collected, stays out of the transcript.
+        if self.log_buf.is_empty() && !starts_like_log(text) {
             self.delta("output", text);
             return;
         }
@@ -334,7 +357,7 @@ impl App {
         while let Some(index) = self.log_buf.find('\n') {
             let line: String = self.log_buf.drain(..=index).collect();
             if let Some(notice) = service_notice(&line, self.zh()) {
-                self.service_notice = notice;
+                self.remember_notice(notice);
             } else if !is_log_line(&line) {
                 self.delta("output", &line);
             }
@@ -1396,13 +1419,13 @@ mod tests {
             a.event(json!({"protocol":1,"type":"tool.started","turn_id":"turn-1","tool":tool,"params":{}})).unwrap();
         }
         a.event(json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"analyze_financial_statements","success":false,"error":"source_timeout"})).unwrap();
-        assert!(a.phase.strip(false).contains("●"));
+        assert!(a.phase.pieces(false).iter().any(|(_, state)| *state == 0));
         assert!(a
             .entries
             .iter()
             .any(|e| e.action.as_ref().is_some_and(|x| !x.done && !x.cancelled)));
         a.event(json!({"protocol":1,"type":"tool.completed","turn_id":"turn-1","tool":"get_market_data","success":true})).unwrap();
-        assert!(!a.phase.strip(false).contains("●"));
+        assert!(!a.phase.pieces(false).iter().any(|(_, state)| *state == 0));
         assert_eq!(a.status, "Preparing response");
         assert!(a.turn.is_some());
         assert!(a
@@ -1608,10 +1631,27 @@ mod tests {
         app.event(json!({"protocol":1,"type":"output.delta","text":raw}))
             .unwrap();
         assert!(app.entries.is_empty());
-        assert!(
-            app.service_notice.contains("商家令牌"),
-            "{}",
-            app.service_notice
+        assert_eq!(
+            app.service_notices,
+            vec!["商业 · 未连接，没有商家令牌".to_string()]
+        );
+        let research =
+            "WARNING:aria_code.mcp_client:[MCP:apify] Handshake failed: connection refused\n";
+        app.event(json!({"protocol":1,"type":"output.delta","text":research}))
+            .unwrap();
+        assert_eq!(
+            app.service_notices,
+            vec![
+                "商业 · 未连接，没有商家令牌".to_string(),
+                "检索 · 未连接".to_string(),
+            ]
+        );
+        app.event(json!({"protocol":1,"type":"output.delta","text":research}))
+            .unwrap();
+        assert_eq!(
+            app.service_notices.len(),
+            2,
+            "the same service is not listed twice"
         );
         app.event(json!({"protocol":1,"type":"output.delta","text":"INFO:aria_code.mcp_client:started\n"}))
             .unwrap();
@@ -1619,6 +1659,14 @@ mod tests {
         app.event(json!({"protocol":1,"type":"output.delta","text":"the file has 3 lines\n"}))
             .unwrap();
         assert!(app.entries.back().unwrap().text.contains("3 lines"));
+        app.event(
+            json!({"protocol":1,"type":"output.delta","text":"see the WARNING: in the log\n"}),
+        )
+        .unwrap();
+        assert!(
+            app.entries.iter().any(|e| e.text.contains("WARNING:")),
+            "a sentence that mentions a log word stays in the transcript"
+        );
     }
 
     #[test]
