@@ -125,3 +125,4 @@ go/relay/aria-relay-race
 /local-media/
 /outputs/hackathon/
 /examples/hackathon/
+.worktrees/
