@@ -255,4 +255,3 @@ func TestLocalProviderCompactsOlderToolOutputsAndFiltersMultiEdit(t *testing.T) 
 		t.Fatalf("expected latest tool output to be preserved, got: %q", latestToolContent)
 	}
 }
-
