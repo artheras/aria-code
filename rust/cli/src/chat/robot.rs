@@ -154,7 +154,7 @@ impl Robot {
         let pixels: [[u8; 9]; 6] = [
             [0, 1, 1, 1, 1, 1, 1, 1, 0],
             [5, 2, 2, 2, 2, 2, 2, 2, 5],
-            [5, 2, 3, 2, 2, 4, 2, 2, 5],
+            [5, 2, 3, 2, 2, 3, 2, 2, 5],
             [5, 2, 2, 2, 2, 2, 2, 2, 5],
             [0, 4, 4, 4, 4, 4, 4, 4, 0],
             [0, 5, 0, 5, 0, 5, 0, 5, 0],
@@ -223,7 +223,6 @@ mod tests {
     #[test]
     fn compact_robot_has_a_square_eye_an_orange_dash_and_four_feet() {
         let eye = Some(Color::Rgb(255, 253, 245));
-        let dash = Some(Color::Rgb(249, 180, 103));
         let screen = Some(Color::Rgb(14, 14, 14));
         for theme in ["light", "dark"] {
             let robot = Robot::from_event(&serde_json::json!({
@@ -234,7 +233,7 @@ mod tests {
             let face = &robot.0[1].spans;
             assert_eq!(face[2].style.fg, eye);
             assert_eq!(face[2].style.bg, screen);
-            assert_eq!(face[5].style.fg, dash);
+            assert_eq!(face[5].style.fg, eye);
             assert_eq!(face[5].style.bg, screen);
             let feet = robot.0[2]
                 .spans
