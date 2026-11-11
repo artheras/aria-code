@@ -333,11 +333,11 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                 }
                 let mut is_check = false;
                 let mut check = updates::Check {
-                    current: env!("ARIA_PRODUCT_VERSION").to_string(),
+                    current: String::new(),
                     channel: env::var("ARIA_CODE_INSTALL_CHANNEL")
                         .unwrap_or_else(|_| "native".into()),
                     offline: false,
-                    refresh: true,
+                    refresh: false,
                     timeout: Duration::from_secs(8),
                 };
                 let mut current_opt = first;
@@ -356,17 +356,23 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                         _ => return Err("Unexpected update argument".into()),
                     }
                 }
-                if check.current.is_empty() {
-                    return Err(
-                        "--current is required; use your installed aria-code --version".into(),
-                    );
-                }
                 if check.offline && check.refresh {
                     return Err("--offline and --refresh are mutually exclusive".into());
                 }
                 if is_check {
+                    if check.current.is_empty() {
+                        return Err(
+                            "--current is required; use your installed aria-code --version".into(),
+                        );
+                    }
                     break Mode::Update(check);
                 } else {
+                    if check.current.is_empty() {
+                        check.current = env!("ARIA_PRODUCT_VERSION").to_string();
+                    }
+                    if !check.offline {
+                        check.refresh = true;
+                    }
                     break Mode::UpdateAuto(check);
                 }
             }

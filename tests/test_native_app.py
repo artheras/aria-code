@@ -411,11 +411,11 @@ def test_real_terminal_paste_approval_resize_cancel_and_restore(application, ent
     try:
         wait("Ready")
         wait("▄▀▀▀▀▀▀▀▄")
-        # Three rows by nine columns. The square eye is ivory on black, the
-        # dash is orange on black, and four gray feet sit under the stripe.
+        # Three rows by nine columns. The two square eyes are ivory on black,
+        # an orange stripe, and four gray feet sit under the stripe.
         assert screen.buffer[1][2].fg == "fffdf5"
         assert screen.buffer[1][2].bg == "0e0e0e"
-        assert screen.buffer[1][5].fg == "f9b467"
+        assert screen.buffer[1][5].fg == "fffdf5"
         assert screen.buffer[1][5].bg == "0e0e0e"
         for col in (1, 3, 5, 7):
             assert screen.buffer[2][col].bg == "b6ada4"
