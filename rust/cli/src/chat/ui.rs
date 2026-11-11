@@ -1283,7 +1283,7 @@ fn example_prompt(app: &App) -> String {
     ];
     let pick = app.session.bytes().map(usize::from).sum::<usize>() % EN.len();
     if app.zh() {
-        format!("试试“{}”", ZH[pick])
+        ZH[pick].to_string()
     } else {
         format!("Try \"{}\"", EN[pick])
     }
