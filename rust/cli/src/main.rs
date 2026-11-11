@@ -29,7 +29,7 @@ Usage:
   aria-native sessions search QUERY [--limit N]
   aria-native sessions show ID
   aria-native [--python EXE] [-C DIR] resume ID [--] [ARIA ARGUMENTS...]
-  aria-native update check --current VERSION [--channel native|npm|pip|source] [--offline|--refresh]
+  aria-native update [check] [--current VERSION] [--channel native|npm|pip|source] [--offline|--refresh]
   aria-native update install --to VERSION
   aria-native update auto-install --current VERSION
   aria-native update rollback
@@ -105,6 +105,7 @@ enum Mode {
         args: Vec<OsString>,
     },
     Update(updates::Check),
+    UpdateAuto(updates::Check),
     UpdateInstall(String),
     UpdateAutoInstall(String),
     UpdateRollback,
@@ -302,17 +303,15 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                 break Mode::Resume { id, args: rest };
             }
             Some("update") => {
-                let action = utf8(
-                    args.next(),
-                    "Usage: update check --current VERSION | update install --to VERSION | update rollback",
-                )?;
-                if action == "rollback" {
+                let first = args.next();
+                let first_str = first.as_ref().and_then(|a| a.to_str());
+                if first_str == Some("rollback") {
                     if args.next().is_some() {
                         return Err("Usage: update rollback".into());
                     }
                     break Mode::UpdateRollback;
                 }
-                if action == "install" {
+                if first_str == Some("install") {
                     if args.next().as_deref() != Some(std::ffi::OsStr::new("--to")) {
                         return Err("Usage: update install --to VERSION".into());
                     }
@@ -322,7 +321,7 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                     }
                     break Mode::UpdateInstall(version);
                 }
-                if action == "auto-install" {
+                if first_str == Some("auto-install") {
                     if args.next().as_deref() != Some(std::ffi::OsStr::new("--current")) {
                         return Err("Usage: update auto-install --current VERSION".into());
                     }
@@ -332,19 +331,19 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                     }
                     break Mode::UpdateAutoInstall(version);
                 }
-                if action != "check" {
-                    return Err("Usage: update check | install | auto-install | rollback".into());
-                }
+                let mut is_check = false;
                 let mut check = updates::Check {
-                    current: String::new(),
+                    current: env!("ARIA_PRODUCT_VERSION").to_string(),
                     channel: env::var("ARIA_CODE_INSTALL_CHANNEL")
                         .unwrap_or_else(|_| "native".into()),
                     offline: false,
-                    refresh: false,
-                    timeout: Duration::from_secs(4),
+                    refresh: true,
+                    timeout: Duration::from_secs(8),
                 };
-                while let Some(arg) = args.next() {
+                let mut current_opt = first;
+                while let Some(arg) = current_opt.take().or_else(|| args.next()) {
                     match arg.to_str() {
+                        Some("check") | Some("--check") => is_check = true,
                         Some("--current") => {
                             check.current =
                                 utf8(args.next(), "--current requires the product version")?
@@ -354,7 +353,7 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                         }
                         Some("--offline") => check.offline = true,
                         Some("--refresh") => check.refresh = true,
-                        _ => return Err("Unexpected update check argument".into()),
+                        _ => return Err("Unexpected update argument".into()),
                     }
                 }
                 if check.current.is_empty() {
@@ -365,7 +364,11 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                 if check.offline && check.refresh {
                     return Err("--offline and --refresh are mutually exclusive".into());
                 }
-                break Mode::Update(check);
+                if is_check {
+                    break Mode::Update(check);
+                } else {
+                    break Mode::UpdateAuto(check);
+                }
             }
             Some("tool") => {
                 let mut name = args.next().ok_or("tool requires NAME and JSON")?;
@@ -570,6 +573,52 @@ fn run(options: Options) -> Result<i32, String> {
             };
             println!("{result}");
             Ok(status)
+        }
+        Mode::UpdateAuto(check) => {
+            println!("Checking for updates (current: v{})...", check.current);
+            let result = updates::check(&state::root()?, &check)?;
+            let status = result["status"].as_str().unwrap_or("");
+            if status == "unavailable" || (status == "stale" && !result["error"].is_null()) {
+                let err_msg = result["error"]
+                    .as_str()
+                    .unwrap_or("Network error or update metadata unavailable");
+                eprintln!("Update check failed: {err_msg}");
+                return Ok(1);
+            }
+            let is_available = result["update_available"].as_bool().unwrap_or(false);
+            if !is_available {
+                println!("✓ Aria Code is already up to date (v{}).", check.current);
+                return Ok(0);
+            }
+            let latest = match result["latest"].as_str() {
+                Some(v) => v,
+                None => {
+                    println!("✓ Aria Code is already up to date (v{}).", check.current);
+                    return Ok(0);
+                }
+            };
+            if check.channel == "npm" || check.channel == "pip" {
+                if let Some(cmd) = result["update_command"].as_str() {
+                    println!("Update available: v{} -> v{}", check.current, latest);
+                    println!(
+                        "Installed via {}. To update, run:\n  {}",
+                        check.channel, cmd
+                    );
+                    return Ok(0);
+                }
+            }
+            println!(
+                "Found new version: v{} (installed: v{}).",
+                latest, check.current
+            );
+            println!("Downloading and updating release...");
+            let command = updates::install(latest)?;
+            println!(
+                "✓ Successfully updated Aria Code to v{} ({})! Restart aria to use it.",
+                latest,
+                command.display()
+            );
+            Ok(0)
         }
         Mode::UpdateRollback => {
             let command = updates::rollback()?;

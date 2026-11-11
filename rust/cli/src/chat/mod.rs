@@ -429,7 +429,12 @@ fn key_request_inner(app: &mut App, key: KeyEvent) -> Option<Value> {
         }
         KeyCode::PageUp => app.scroll = app.scroll.saturating_add(10),
         KeyCode::PageDown => app.scroll = app.scroll.saturating_sub(10),
-        _ => edit(&mut app.editor, key),
+        _ => {
+            if matches!(key.code, KeyCode::Char(_)) && !ctrl {
+                app.scroll = 0;
+            }
+            edit(&mut app.editor, key);
+        }
     }
     None
 }

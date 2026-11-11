@@ -196,3 +196,63 @@ func TestCompatibleHTTPFailuresNeverExposeReflectedCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLocalProviderCompactsOlderToolOutputsAndFiltersMultiEdit(t *testing.T) {
+	hugeOutput := strings.Repeat("line of code\n", 200)
+	shortOutput := "success"
+	contents := []*genai.Content{
+		{
+			Role: "assistant",
+			Parts: []*genai.Part{
+				{FunctionCall: &genai.FunctionCall{ID: "call_1", Name: "read_file", Args: map[string]any{"path": "foo.go"}}},
+			},
+		},
+		{
+			Role: "user",
+			Parts: []*genai.Part{
+				{FunctionResponse: &genai.FunctionResponse{ID: "call_1", Name: "read_file", Response: map[string]any{"content": hugeOutput}}},
+			},
+		},
+		{
+			Role: "user",
+			Parts: []*genai.Part{
+				{Text: "now edit it"},
+			},
+		},
+		{
+			Role: "assistant",
+			Parts: []*genai.Part{
+				{FunctionCall: &genai.FunctionCall{ID: "call_2", Name: "edit_file", Args: map[string]any{"path": "foo.go"}}},
+			},
+		},
+		{
+			Role: "user",
+			Parts: []*genai.Part{
+				{FunctionResponse: &genai.FunctionResponse{ID: "call_2", Name: "edit_file", Response: map[string]any{"content": shortOutput}}},
+			},
+		},
+	}
+	messages, err := openAIMessages(contents, "System", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Older tool response should be compacted
+	var olderToolContent, latestToolContent string
+	for _, m := range messages {
+		if m["role"] == "tool" {
+			if m["tool_call_id"] == "call_1" {
+				olderToolContent = m["content"].(string)
+			}
+			if m["tool_call_id"] == "call_2" {
+				latestToolContent = m["content"].(string)
+			}
+		}
+	}
+	if !strings.Contains(olderToolContent, "truncated") {
+		t.Fatalf("expected older tool output to be compacted, got length %d: %q", len(olderToolContent), olderToolContent)
+	}
+	if !strings.Contains(latestToolContent, "success") {
+		t.Fatalf("expected latest tool output to be preserved, got: %q", latestToolContent)
+	}
+}
+

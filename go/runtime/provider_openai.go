@@ -85,7 +85,29 @@ func (p *openAIProvider) connection(ctx context.Context) (*http.Client, string, 
 	return p.client, p.endpoint, nil
 }
 
-func openAIMessages(contents []*genai.Content, system string) ([]map[string]any, error) {
+func compactToolResponseForLocal(raw string) string {
+	if len(raw) <= 1500 {
+		return raw
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(raw), &m); err == nil {
+		changed := false
+		for k, v := range m {
+			if s, ok := v.(string); ok && len(s) > 800 {
+				m[k] = s[:400] + fmt.Sprintf("\n... [truncated %d bytes for local context] ...\n", len(s)-600) + s[len(s)-200:]
+				changed = true
+			}
+		}
+		if changed {
+			if compacted, err := json.Marshal(m); err == nil {
+				return string(compacted)
+			}
+		}
+	}
+	return raw[:400] + fmt.Sprintf("\n... [truncated %d bytes for local context] ...\n", len(raw)-600) + raw[len(raw)-200:]
+}
+
+func openAIMessages(contents []*genai.Content, system string, isLocal ...bool) ([]map[string]any, error) {
 	messages := []map[string]any{{"role": "system", "content": system}}
 	type pendingCall struct{ id, name string }
 	var pending []pendingCall
@@ -141,7 +163,11 @@ func openAIMessages(contents []*genai.Content, system string) ([]map[string]any,
 				if err != nil {
 					return nil, err
 				}
-				responses = append(responses, map[string]any{"role": "tool", "tool_call_id": id, "content": string(body)})
+				contentStr := string(body)
+				if len(isLocal) > 0 && isLocal[0] && i < len(contents)-2 && len(contentStr) > 1500 {
+					contentStr = compactToolResponseForLocal(contentStr)
+				}
+				responses = append(responses, map[string]any{"role": "tool", "tool_call_id": id, "content": contentStr})
 			}
 			if data := part.InlineData; data != nil {
 				if !strings.HasPrefix(data.MIMEType, "image/") {
@@ -417,7 +443,7 @@ func (p *openAIProvider) Generate(ctx context.Context, contents []*genai.Content
 	if err != nil {
 		return nil, safe(err)
 	}
-	messages, err := openAIMessages(contents, system)
+	messages, err := openAIMessages(contents, system, p.isLocal())
 	if err != nil {
 		return nil, err
 	}
@@ -446,6 +472,12 @@ func (p *openAIProvider) Generate(ctx context.Context, contents []*genai.Content
 	declarations := []map[string]any{}
 	for _, tool := range tools {
 		for _, d := range tool.FunctionDeclarations {
+			// For local models (Ollama, vLLM, llama.cpp):
+			// Skip multi_edit: small models struggle with nested replace arrays.
+			// edit_file provides a reliable, direct single-replacement interface.
+			if p.isLocal() && d.Name == "multi_edit" {
+				continue
+			}
 			schema := d.ParametersJsonSchema
 			if schema == nil {
 				schema = d.Parameters

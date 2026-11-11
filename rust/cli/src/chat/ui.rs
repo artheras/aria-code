@@ -718,7 +718,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
         ""
     };
     let scroll = if app.scroll > 0 {
-        app.tr(" · viewing history", " · 查看历史中")
+        app.tr(
+            " · ▲ viewing history (Esc bottom)",
+            " · ▲ 回溯历史中 (按 Esc 触底)",
+        )
     } else {
         ""
     };
