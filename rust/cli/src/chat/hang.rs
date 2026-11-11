@@ -191,11 +191,7 @@ mod tests {
 
     #[test]
     fn leading_blank_lines_do_not_steal_the_marker() {
-        let out = hang(
-            vec![Line::raw(""), Line::raw("hello world")],
-            marker(),
-            20,
-        );
+        let out = hang(vec![Line::raw(""), Line::raw("hello world")], marker(), 20);
         assert_eq!(text(&out[0]), "▄ hello world");
     }
 }
