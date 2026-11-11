@@ -51,9 +51,23 @@ func TestOllamaListingAndHealthUseActualEndpoint(t *testing.T) {
 	}))
 	defer host.Close()
 	s := approvalServer(t, config{"ollama_base_url": host.URL}, appOptions{})
-	text, err := s.command(context.Background(), "t", "/models ollama")
-	if err != nil || !strings.Contains(text, "qwen-test:local") || count != 1 {
-		t.Fatal(text, err, count)
+	// /model ollama lists available models directly
+	text, err := s.command(context.Background(), "t", "/model ollama")
+	if err != nil || !strings.Contains(text, "qwen-test:local") {
+		t.Fatal(text, err)
+	}
+	// /model list ollama also works
+	text, err = s.command(context.Background(), "t", "/model list ollama")
+	if err != nil || !strings.Contains(text, "qwen-test:local") {
+		t.Fatal(text, err)
+	}
+	// /model provider/model syntax works
+	if _, err := s.command(context.Background(), "t", "/model ollama/qwen-test:local"); err != nil {
+		t.Fatal(err)
+	}
+	text, err = s.command(context.Background(), "t", "/models ollama")
+	if err != nil || !strings.Contains(text, "qwen-test:local") {
+		t.Fatal(text, err)
 	}
 	if _, err := s.command(context.Background(), "t", "/model ollama qwen-test:local"); err != nil {
 		t.Fatal(err)

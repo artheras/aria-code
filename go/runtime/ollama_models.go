@@ -14,7 +14,7 @@ func requireOllamaModel(ctx context.Context, provider *declaredProvider, request
 	defer cancel()
 	names, err := declaredModels(ctx, provider)
 	if err != nil {
-		return "", fmt.Errorf("cannot verify installed Ollama models: %w; check Ollama and retry /models ollama", err)
+		return "", fmt.Errorf("cannot verify installed Ollama models: %w; check Ollama and retry /model ollama", err)
 	}
 	for _, name := range names {
 		if name == requested {

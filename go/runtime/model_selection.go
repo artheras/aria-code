@@ -77,7 +77,7 @@ func (s *server) selectModel(ctx context.Context, provider, model string) (strin
 
 func (s *server) modelsCommand(ctx context.Context, args []string) (string, error) {
 	if len(args) > 1 {
-		return "", errors.New("usage: /models [google|gcp|ollama|declared-provider]")
+		return "", errors.New("usage: /model [list] [google|gcp|ollama|declared-provider]")
 	}
 	name := providerName(s.cfg)
 	if len(args) == 1 {
@@ -91,7 +91,7 @@ func (s *server) modelsCommand(ctx context.Context, args []string) (string, erro
 		return "", err
 	}
 	if len(names) == 0 {
-		return "No models returned by " + name + ". For Ollama, install a model with ollama pull <model>, then retry /models ollama.", nil
+		return "No models returned by " + name + ". For Ollama, install a model with ollama pull <model>, then retry /model " + name + ".", nil
 	}
 	text := name + " models:\n" + strings.Join(names, "\n") + "\n\nSelect: /model " + name + " <model>"
 	if more {

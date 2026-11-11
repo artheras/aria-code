@@ -599,7 +599,27 @@ pub fn draw(frame: &mut Frame, app: &App) {
             inside,
         );
     } else {
-        frame.render_widget(Paragraph::new(input_rows[first..].join("\n")), inside);
+        let text = input_rows[first..].join("\n");
+        if text.starts_with('/') {
+            let mut parts = text.splitn(2, ' ');
+            let cmd = parts.next().unwrap_or("");
+            let rest = parts.next().unwrap_or("");
+            let spans = if rest.is_empty() {
+                vec![Span::styled(
+                    cmd.to_owned(),
+                    Style::new().fg(p.accent).bold(),
+                )]
+            } else {
+                vec![
+                    Span::styled(cmd.to_owned(), Style::new().fg(p.accent).bold()),
+                    Span::raw(" "),
+                    Span::raw(rest.to_owned()),
+                ]
+            };
+            frame.render_widget(Paragraph::new(Line::from(spans)), inside);
+        } else {
+            frame.render_widget(Paragraph::new(text), inside);
+        }
     }
     frame.set_cursor_position((
         inside.x + cursor.1.min(inside.width.saturating_sub(1)),

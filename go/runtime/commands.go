@@ -10,14 +10,13 @@ import (
 )
 
 func nativeCommands() []string {
-	return []string{"/help", "/model", "/models", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint", "/git", "/commit", "/pr", "/gh", "/review", "/test", "/verify", "/fix", "/bug", "/trace", "/quality", "/search", "/read", "/ls", "/write", "/edit", "/code", "/run", "/build", "/task", "/worktree", "/tasks", "/delegate", "/agents", "/workflow", "/wf", "/consult", "/mcp", "/skills", "/vision", "/upload-image", "/providers", "/apikey", "/whoami", "/logout", "/doctor", "/update", "/feedback", "/privacy", "/cost", "/thinking", "/graph", "/impact", "/lsp", "/hooks", "/browser", "/screenshot", "/login", "/finance", "/broker"}
+	return []string{"/help", "/model", "/config", "/health", "/sessions", "/export", "/import", "/new", "/resume", "/permissions", "/undo", "/rewind", "/changes", "/apply-change", "/reject-change", "/clear", "/status", "/context", "/tools", "/diff", "/compact", "/btw", "/recap", "/regen", "/history", "/rename", "/fork", "/save", "/load", "/init", "/memory", "/note", "/recall", "/todo", "/project", "/plan", "/apply-plan", "/checkpoint", "/git", "/commit", "/pr", "/gh", "/review", "/test", "/verify", "/fix", "/bug", "/trace", "/quality", "/search", "/read", "/ls", "/write", "/edit", "/code", "/run", "/build", "/task", "/worktree", "/tasks", "/delegate", "/agents", "/workflow", "/wf", "/consult", "/mcp", "/skills", "/vision", "/upload-image", "/providers", "/apikey", "/whoami", "/logout", "/doctor", "/update", "/feedback", "/privacy", "/cost", "/thinking", "/graph", "/impact", "/lsp", "/hooks", "/browser", "/screenshot", "/login", "/finance", "/broker"}
 }
 
 // commandInfo describes each command for the "/" list: [English, Chinese].
 var commandInfo = map[string][2]string{
 	"/help":          {"Show commands and shortcuts", "查看命令和快捷键"},
-	"/model":         {"Choose a provider and model", "选择服务商和模型"},
-	"/models":        {"List models without generating", "列出可用模型（不产生调用）"},
+	"/model":         {"Choose, list, or switch model", "选择、查看或切换模型"},
 	"/config":        {"Show or change settings", "查看或修改设置"},
 	"/health":        {"Check the model connection", "检查模型连接"},
 	"/sessions":      {"List saved sessions", "列出已保存的会话"},
@@ -271,7 +270,7 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		return "", fmt.Errorf("%s runs as a turn in the interactive application", fields[0])
 	case "/help":
 		extraHelp := "\n/import <path> — create a new session from JSON\n/export session [path] — complete session including file snapshots\n/export bundle [path] — private diagnostics and lifecycle trace (no conversation or config)\n@ references extract DOCX/PPTX text and PDF text/OCR.\n/config set document_ocr=true — OCR empty PDF pages (Tesseract language data required)\n/config set ocr_language=eng+chi_sim+chi_tra\n/config set document_vision=true — send image/PDF-page evidence to your selected vision-capable provider; off by default\n"
-		return "Aria native interface\n\nEnter sends · Ctrl+J / Alt+Enter adds a line\nEsc cancels · Ctrl+O shows operation details · F1 opens help\nTab completes /commands and @file references\n\n/model — interactive provider/model selection\n/models [google|gcp|ollama] — discover models without generation\n/model <provider> <model> — switch explicitly\n@file:path or @\"path with spaces\" — read a text file into this turn\n/config set gcp_project=PROJECT · gcp_location=REGION · ollama_base_url=URL\n/export <format> [path] — export saved conversation\n/changes · /apply-change ID · /reject-change ID — review edits\n\n" + strings.Join(nativeCommands(), " · ") + extraHelp, nil
+		return "Aria native interface\n\nEnter sends · Ctrl+J / Alt+Enter adds a line\nEsc cancels · Ctrl+O shows operation details · F1 opens help\nTab completes /commands and @file references\n\n/model — interactive model picker, or /model [provider] to list, /model <provider> <model> to switch\n@file:path or @\"path with spaces\" — read a text file into this turn\n/config set gcp_project=PROJECT · gcp_location=REGION · ollama_base_url=URL\n/export <format> [path] — export saved conversation\n/changes · /apply-change ID · /reject-change ID — review edits\n\n" + strings.Join(nativeCommands(), " · ") + extraHelp, nil
 	case "/sessions":
 		sessions, err := listSessions(s.opts.root, 20)
 		if err != nil {
@@ -310,46 +309,60 @@ func (s *server) command(ctx context.Context, turn, text string) (string, error)
 		if len(fields) == 1 && !s.opts.noninteractive {
 			return s.modelPicker(ctx, turn)
 		}
-		if len(fields) == 3 {
-			return s.selectModel(ctx, fields[1], fields[2])
-		}
-		name := providerName(s.cfg)
 		if len(fields) == 1 {
+			name := providerName(s.cfg)
 			if name == "google" {
-				text := fmt.Sprintf("google / %s\n/models google: list cloud models\n/models ollama: list local models\n/model <provider> <model>: switch provider and model\n/model <model>: switch within current provider", s.cfg.text("model", "gemini-3.8-flash"))
+				text := fmt.Sprintf("google / %s\n/model [provider]: list available models\n/model <provider> <model>: switch provider and model\n/model <model>: switch within current provider", s.cfg.text("model", "gemini-3.8-flash"))
 				if tuned := tunedModelNames(s.cfg); len(tuned) > 0 {
 					text += "\nTuned models: " + strings.Join(tuned, ", ")
 				}
 				return text, nil
 			}
-			return fmt.Sprintf("%s / %s\n/models %s: list models\n/model <provider> <model>: switch provider and model", name, s.cfg.text("model", ""), name), nil
+			return fmt.Sprintf("%s / %s\n/model %s: list available models\n/model <provider> <model>: switch provider and model", name, s.cfg.text("model", ""), name), nil
 		}
-		if len(fields) != 2 {
-			return "", errors.New("usage: /model <model name>")
+		if fields[1] == "list" || fields[1] == "ls" {
+			return s.modelsCommand(ctx, fields[2:])
 		}
-		model := fields[1]
-		if name == "google" {
-			model = strings.TrimPrefix(model, "google/")
-			_, alias := mappingHas(s.cfg["tuned_models"], model)
-			if !strings.HasPrefix(model, "gemini-") && !alias && !tunedEndpointName.MatchString(model) {
-				return "", errors.New("unknown Google model name; use a gemini- model, a name from tuned_models or projects/…/endpoints/…")
+		if len(fields) == 3 {
+			return s.selectModel(ctx, fields[1], fields[2])
+		}
+		if len(fields) == 2 {
+			arg := fields[1]
+			// Support /model provider/model (e.g. /model ollama/qwen2.5:7b or /model google/gemini-2.5-flash)
+			if p, m, ok := strings.Cut(arg, "/"); ok && p != "" && m != "" && !strings.HasPrefix(arg, "projects/") {
+				return s.selectModel(ctx, p, m)
 			}
+			// If arg is a known provider name, list models for that provider (e.g. /model ollama)
+			if isProviderName(arg) {
+				return s.modelsCommand(ctx, []string{arg})
+			}
+			// Otherwise switch model within current provider
+			name := providerName(s.cfg)
+			model := arg
+			if name == "google" {
+				model = strings.TrimPrefix(model, "google/")
+				_, alias := mappingHas(s.cfg["tuned_models"], model)
+				if !strings.HasPrefix(model, "gemini-") && !alias && !tunedEndpointName.MatchString(model) {
+					return "", errors.New("unknown Google model name; use a gemini- model, a name from tuned_models or projects/…/endpoints/…")
+				}
+			}
+			next := config{}
+			for key, value := range s.cfg {
+				next[key] = value
+			}
+			next["model"] = model
+			provider, err := modelProviderFor(next)
+			if err != nil {
+				return "", err
+			}
+			if err := s.saveSetting("model", model); err != nil {
+				return "", err
+			}
+			s.cfg["model"] = model
+			s.provider = provider
+			return "Model: " + model, nil
 		}
-		next := config{}
-		for key, value := range s.cfg {
-			next[key] = value
-		}
-		next["model"] = model
-		provider, err := modelProviderFor(next)
-		if err != nil {
-			return "", err
-		}
-		if err := s.saveSetting("model", model); err != nil {
-			return "", err
-		}
-		s.cfg["model"] = model
-		s.provider = provider
-		return "Model: " + model, nil
+		return "", errors.New("usage: /model [provider] [model name] or /model list [provider]")
 	case "/config":
 		if len(fields) == 1 {
 			autoLevel, ok := pyInt(s.cfg["auto_approve_level"])
@@ -487,4 +500,13 @@ func mappingHas(value any, key string) (any, bool) {
 	m, _ := asMapping(value)
 	item, ok := m[key]
 	return item, ok
+}
+
+func isProviderName(name string) bool {
+	switch strings.ToLower(name) {
+	case "google", "ollama", "vertexai", "gcp", "vllm", "llamacpp", "local":
+		return true
+	default:
+		return false
+	}
 }
