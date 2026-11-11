@@ -4,6 +4,17 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.168.0] — 2026-11-11
+
+- runtime: robust local model integration (Ollama / vLLM / llama.cpp) with zero-arg tool call tolerance, HTTP 400 stream options fallback, and direct usage reporting
+- runtime: lower local provider temperature to 0.2 to prevent degenerate stuttering and hallucination
+- runtime: sanitize CJK spacing and collapse broken single-character newlines from smaller models
+- runtime: remove negative boilerplate examples from system prompt to prevent 7B prompt reflection
+- tui: balanced symmetric dual pixel eyes for cream mascot face
+- tui: simplify input placeholder prompt to eliminate cursor collision and glyph overlap
+- tui: ensure message hang marker is attached to the first non-empty text row across scroll states
+- ci: fix gitleaks allowlist for project review test fixtures and keep reasoning_content token counts out of visible parts
+
 ## [0.167.0] — 2026-11-10
 
 - The terminal shows the robot, each service, an edit's size, and a one-line quote or backtest.
