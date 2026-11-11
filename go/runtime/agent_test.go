@@ -149,3 +149,18 @@ func TestPersistentReadDenialIsCheckedBeforeOpeningTheFile(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSanitizeModelAnswerCleansDegenerateSpacingAndBrokenLines(t *testing.T) {
+	input := "尝 试\n\n执 行\n\n相 关\n\n操 作\n\n。 请\n\n告 诉 我\n\n您 的\n\n偏 好\n\n。"
+	cleaned := sanitizeModelAnswer(input)
+	expected := "尝试执行相关操作。请告诉我您的偏好。"
+	if cleaned != expected {
+		t.Fatalf("expected %q, got %q", expected, cleaned)
+	}
+
+	// English spacing and markdown must be preserved
+	eng := "Hello world!\n\nThis is a normal paragraph with `code block`."
+	if sanitizeModelAnswer(eng) != eng {
+		t.Fatalf("expected %q, got %q", eng, sanitizeModelAnswer(eng))
+	}
+}

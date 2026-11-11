@@ -30,14 +30,22 @@ pub fn hang(
     let avail = usize::from(width.saturating_sub(INDENT)).max(8);
     let mut out = Vec::new();
     let mut marker = Some(marker);
+    // Skip leading empty lines so they don't consume the marker and push an empty row
+    let mut non_empty_found = false;
     for line in lines {
+        let is_empty = line.spans.is_empty() || line.spans.iter().all(|s| s.content.is_empty());
+        if !non_empty_found && is_empty {
+            continue;
+        }
+        non_empty_found = true;
         for row in wrap(line, avail) {
-            let mut spans = match marker.take() {
+            let spans = match marker.take() {
                 Some(head) => head,
                 None => vec![Span::raw(" ".repeat(usize::from(INDENT)))],
             };
-            spans.extend(row);
-            out.push(Line::from(spans));
+            let mut line_spans = spans;
+            line_spans.extend(row);
+            out.push(Line::from(line_spans));
         }
     }
     if let Some(head) = marker {
@@ -179,5 +187,15 @@ mod tests {
     fn an_empty_message_still_shows_its_marker() {
         let out = hang(Vec::new(), marker(), 20);
         assert_eq!(text(&out[0]), "▄ ");
+    }
+
+    #[test]
+    fn leading_blank_lines_do_not_steal_the_marker() {
+        let out = hang(
+            vec![Line::raw(""), Line::raw("hello world")],
+            marker(),
+            20,
+        );
+        assert_eq!(text(&out[0]), "▄ hello world");
     }
 }

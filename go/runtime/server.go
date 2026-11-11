@@ -420,6 +420,7 @@ func (s *server) runTurn(ctx context.Context, turn, text string) {
 		}
 	}
 	if answer != "" {
+		answer = sanitizeModelAnswer(answer)
 		if s.historyReset {
 			s.historyNotice = capText(answer, 1000)
 		}

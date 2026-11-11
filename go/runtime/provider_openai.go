@@ -393,6 +393,20 @@ func parseCompletions(r io.Reader, streaming bool, emit func(string), usage ...*
 	return content, nil
 }
 
+func (p *openAIProvider) isLocal() bool {
+	if p.declared != nil {
+		id := strings.ToLower(p.declared.ID)
+		if id == "ollama" || id == "vllm" || id == "llamacpp" || id == "local" {
+			return true
+		}
+		if strings.Contains(p.declared.BaseURL, "127.0.0.1") || strings.Contains(p.declared.BaseURL, "localhost") {
+			return true
+		}
+	}
+	lp := strings.ToLower(p.cfg.text("local_provider", ""))
+	return lp == "ollama" || lp == "vllm" || lp == "llamacpp" || lp == "local"
+}
+
 func (p *openAIProvider) Generate(ctx context.Context, contents []*genai.Content, system string, tools []*genai.Tool, emit func(string)) (*genai.Content, error) {
 	safe := (&googleProvider{cfg: p.cfg}).safeError
 	label := "Google Chat Completions"
@@ -418,12 +432,16 @@ func (p *openAIProvider) Generate(ctx context.Context, contents []*genai.Content
 		model = "google/" + model
 	}
 	maxTokens := p.cfg.number("max_output_tokens", 32768)
-	payload := map[string]any{"model": model, "messages": messages, "stream": true, "temperature": 0.7, "max_tokens": maxTokens}
-	if p.cfg.boolean("stream_usage", true) {
-		payload["stream_options"] = map[string]any{"include_usage": true}
+	temp := 0.7
+	if p.isLocal() {
+		temp = 0.2
 	}
 	if temperature, ok := p.cfg["temperature"].(float64); ok {
-		payload["temperature"] = temperature
+		temp = temperature
+	}
+	payload := map[string]any{"model": model, "messages": messages, "stream": true, "temperature": temp, "max_tokens": maxTokens}
+	if p.cfg.boolean("stream_usage", true) {
+		payload["stream_options"] = map[string]any{"include_usage": true}
 	}
 	declarations := []map[string]any{}
 	for _, tool := range tools {
