@@ -324,4 +324,10 @@ func TestLocalModelOptionsNumCtxInPayload(t *testing.T) {
 	if opts["num_ctx"] != float64(16384) {
 		t.Fatalf("expected num_ctx=16384, got: %v", opts["num_ctx"])
 	}
+	if opts["repeat_penalty"] != float64(1.1) {
+		t.Fatalf("expected repeat_penalty=1.1, got: %v", opts["repeat_penalty"])
+	}
+	if opts["top_p"] != float64(0.9) {
+		t.Fatalf("expected top_p=0.9, got: %v", opts["top_p"])
+	}
 }

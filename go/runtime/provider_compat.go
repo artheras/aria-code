@@ -498,8 +498,18 @@ func (p *openAIProvider) Generate(ctx context.Context, contents []*genai.Content
 		if numCtx <= 0 {
 			numCtx = 16384
 		}
+		rp := 1.1
+		if val, ok := p.cfg["repeat_penalty"].(float64); ok && val > 0 {
+			rp = val
+		}
+		topP := 0.9
+		if val, ok := p.cfg["top_p"].(float64); ok && val > 0 {
+			topP = val
+		}
 		payload["options"] = map[string]any{
-			"num_ctx": numCtx,
+			"num_ctx":        numCtx,
+			"repeat_penalty": rp,
+			"top_p":          topP,
 		}
 	}
 	if p.cfg.boolean("stream_usage", true) {
