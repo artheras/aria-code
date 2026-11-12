@@ -132,7 +132,7 @@ def list_service_usage_specs() -> tuple[ServiceUsageSpec, ...]:
             name="safety_policy",
             purpose="文件、shell、网络、券商交易和隐私反馈的统一权限/审计边界",
             cli_entrypoints=("/permissions", "/trade preview", "/feedback"),
-            package_sources=("safety", "runtime/approval.py", "command_safety.py", "privacy"),
+            package_sources=("safety", "runtime/approval.py", "safety/permissions.py", "privacy"),
             mcp_tools=("run_command", "broker_order"),
             next_step="/permissions 或 /trade mode",
         ),

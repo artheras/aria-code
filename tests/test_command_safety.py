@@ -1,6 +1,6 @@
 import unittest
 
-from aria_code.command_safety import evaluate_command_policy, normalize_command
+from aria_code.safety.permissions import evaluate_command_policy, normalize_command
 from aria_code.plan_utils import parse_plan_steps
 
 

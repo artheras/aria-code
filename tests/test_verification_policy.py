@@ -9,7 +9,7 @@ built entirely on running these commands.
 
 import unittest
 
-from aria_code.command_safety import evaluate_command_policy
+from aria_code.safety.permissions import evaluate_command_policy
 
 
 def _allowed(command, policy="safe", **kwargs):
