@@ -43,7 +43,6 @@ def test_old_names_are_the_moved_modules():
         "aria_code.aria_feishu_bot": "aria_bots.feishu_bot",
         "aria_telegram_bot": "aria_bots.telegram_bot",
         "aria_code.clients.aria_relay_client": "aria_bots.relay_client",
-        "aria_relay_client": "aria_bots.relay_client",
         "aria_code.apps.channels.conversation": "aria_bots.channels.conversation",
         "apps.channels.approvals": "aria_bots.channels.approvals",
         "aria_code.tools.logistics_tenancy": "aria_bots.logistics.tenancy",

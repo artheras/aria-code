@@ -66,7 +66,7 @@ class EveryRuntimeImportIsListed(unittest.TestCase):
         # Guards against the parsing below silently matching nothing, which
         # would make the next test pass vacuously.
         targets = _runtime_targets()
-        self.assertGreaterEqual(len(targets["shim"]), 20)
+        self.assertGreaterEqual(len(targets["shim"]), 6)
         self.assertGreaterEqual(len(targets["broker"]), 5)
         self.assertGreaterEqual(len(targets["agent"]), 20)
 

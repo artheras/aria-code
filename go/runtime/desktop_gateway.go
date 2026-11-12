@@ -126,10 +126,10 @@ func loadProjectTaskContext(workspace string) ([]ProjectTaskContextEntry, error)
 // ResidencyBoundary separates data-at-rest storage residency, model inference
 // residency, and external MCP/tool egress allowlists.
 type ResidencyBoundary struct {
-	StorageRegion      string   `json:"storage_region"`
-	InferenceRegion    string   `json:"inference_region"`
-	AllowedMCPDomains  []string `json:"allowed_mcp_domains,omitempty"`
-	EKMEnabled         bool     `json:"ekm_enabled"`
+	StorageRegion     string   `json:"storage_region"`
+	InferenceRegion   string   `json:"inference_region"`
+	AllowedMCPDomains []string `json:"allowed_mcp_domains,omitempty"`
+	EKMEnabled        bool     `json:"ekm_enabled"`
 }
 
 // AgentServiceIdentity represents the enterprise service identity for an agent instance.
