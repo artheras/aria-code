@@ -164,3 +164,44 @@ func TestSanitizeModelAnswerCleansDegenerateSpacingAndBrokenLines(t *testing.T) 
 		t.Fatalf("expected %q, got %q", eng, sanitizeModelAnswer(eng))
 	}
 }
+
+func TestRepetitiveFailingToolCallsGetLoopBreakerWarning(t *testing.T) {
+	root := t.TempDir()
+	scope, err := newScope(root, nil, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	round := 0
+	p := providerFunc(func(ctx context.Context, contents []*genai.Content, system string, tools []*genai.Tool, emit func(string)) (*genai.Content, error) {
+		round++
+		if round == 1 {
+			// First failure
+			return &genai.Content{Role: "model", Parts: []*genai.Part{call("read_file", map[string]any{"path": "missing.txt"})}}, nil
+		}
+		if round == 2 {
+			lastResp := contents[len(contents)-1].Parts[0].FunctionResponse.Response
+			errStr, _ := lastResp["error"].(string)
+			if strings.Contains(errStr, "Warning: this exact call failed") {
+				t.Fatalf("round 1 should not have warning yet, got: %v", errStr)
+			}
+			// Exact same failing call again
+			return &genai.Content{Role: "model", Parts: []*genai.Part{call("read_file", map[string]any{"path": "missing.txt"})}}, nil
+		}
+		// Round 3 receives response of round 2 call
+		lastResp := contents[len(contents)-1].Parts[0].FunctionResponse.Response
+		errStr, _ := lastResp["error"].(string)
+		if !strings.Contains(errStr, "Warning: this exact call failed 2 times consecutively") {
+			t.Fatalf("expected loop breaker warning on round 2 repeat, got: %v", errStr)
+		}
+		emit("I notice the file is missing.")
+		return genai.NewContentFromText("I notice the file is missing.", genai.RoleModel), nil
+	})
+	hooks := quietHooks()
+	_, answer, err := nativeTurn(context.Background(), p, scope, config{}, nil, "Check missing file", hooks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if answer != "I notice the file is missing." {
+		t.Fatalf("expected final answer, got: %q", answer)
+	}
+}
