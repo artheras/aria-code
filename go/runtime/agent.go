@@ -45,7 +45,9 @@ var fileDefinitions = []definition{
 	{"list_files", "List a directory or matching files. Use only when the task requires repository evidence.", map[string]any{"path": textParam("Directory, defaults to current workspace"), "pattern": textParam("Glob pattern, default *")}, nil, false},
 	{"write_file", "Create or overwrite an actual file. The host enforces scope and asks for approval before changing it.", map[string]any{"path": textParam("File path"), "content": textParam("Complete file contents")}, []string{"path", "content"}, true},
 	{"edit_file", "Replace exact text in a file. Read the file first. old_string must be unique unless replace_all is explicitly true.", map[string]any{"path": textParam("File path"), "old_string": textParam("Exact old source text"), "new_string": textParam("Replacement source text"), "replace_all": map[string]any{"type": "boolean"}}, []string{"path", "old_string", "new_string"}, true},
-	{"publish_artifact", "Publish a self-contained HTML page, Markdown document, or image to the user's live canvas panel with instant version history. Use when the result is visual (dashboard, report, chart, comparison table). HTML must inline CSS/JS and embed images as data: URIs.", map[string]any{"path": textParam("Path to existing file in workspace to publish"), "content": textParam("File content to publish (use with filename)"), "filename": textParam("Bare filename for content (e.g. report.html)"), "title": textParam("Display title"), "topic": textParam("Thread topic grouping versions (defaults to title)"), "description": textParam("One-line summary")}, nil, false},
+	{"inspect_data", "Profile and summarize tabular/structured data (CSV, TSV, JSON, JSONL) without loading raw rows into context. Returns schema, row count, null percentages, numerical statistics (min/max/avg), top categories, and head samples. Saves >90% tokens on ERP, inventory, and ledger tables.", map[string]any{"path": textParam("Path to data file (CSV, TSV, JSON, JSONL)"), "max_rows": map[string]any{"type": "integer", "description": "Maximum rows to profile (default 10000)"}, "head": map[string]any{"type": "integer", "description": "Number of sample rows to include (default 5)"}}, []string{"path"}, false},
+	{"solve_spatial_constraints", "Deterministic 3D geometric collision detection, obstacle clearance margins, and robotic kinematic reachability constraints. Solves floating-point spatial checks natively in 0.001s without LLM trigonometric trial-and-error.", map[string]any{"operation": textParam("Operation: collision_check, distance_matrix, or reachability_check"), "objects": map[string]any{"type": "array", "description": "List of 3D objects with name, type (sphere/box), position [x,y,z], and radius or size"}, "target": map[string]any{"type": "array", "description": "Target [x, y, z] coordinate for reachability_check"}, "arm_limits": map[string]any{"type": "object", "description": "Kinematic workspace limits (base, min_radius, max_radius, min_z, max_z)"}}, nil, false},
+	{"publish_artifact", "Publish a self-contained HTML page, Markdown document, 3D model (.gltf, .glb, .obj, .stl), or image to the user's live canvas panel with instant version history. Use when the result is visual (dashboard, report, 3D model, comparison table).", map[string]any{"path": textParam("Path to existing file in workspace to publish"), "content": textParam("File content to publish (use with filename)"), "filename": textParam("Bare filename for content (e.g. report.html)"), "title": textParam("Display title"), "topic": textParam("Thread topic grouping versions (defaults to title)"), "description": textParam("One-line summary")}, nil, false},
 }
 
 func nativeTools() []*genai.Tool {
@@ -429,6 +431,10 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 						result = fileGlob(ctx, s, call.Args)
 					case "search_code":
 						result = searchCode(ctx, s, call.Args)
+					case "inspect_data":
+						result = inspectDataTool(ctx, s, call.Args)
+					case "solve_spatial_constraints":
+						result = solveSpatialConstraintsTool(ctx, call.Args)
 					case "publish_artifact":
 						stateRootPath := s.workspace
 						if r, err := stateRoot(); err == nil {

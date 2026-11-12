@@ -31,6 +31,10 @@ var renderableArtifactSuffixes = map[string]bool{
 	".jpeg":     true,
 	".gif":      true,
 	".webp":     true,
+	".gltf":     true,
+	".glb":      true,
+	".obj":      true,
+	".stl":      true,
 }
 
 const maxArtifactBytes = 8 * 1024 * 1024 // 8 MiB
@@ -149,6 +153,8 @@ func kindForSuffix(suffix string) string {
 		return "image"
 	case ".md", ".markdown":
 		return "markdown"
+	case ".gltf", ".glb", ".obj", ".stl":
+		return "3d"
 	default:
 		return "file"
 	}
@@ -835,6 +841,12 @@ function render() {
   const url = '/artifact/' + encodeURIComponent(state.active_thread_id) + '?v=' + version.index + '&_=' + Date.now();
   if (version.kind === 'image') {
     main.innerHTML = '<img src="' + url + '">';
+  } else if (version.kind === '3d') {
+    main.innerHTML = '<div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0d1117;color:#58a6ff;">' +
+      '<div style="font-size:20px;font-weight:600;margin-bottom:8px;">📦 3D Asset: ' + version.path.split(/[\\/]/).pop() + '</div>' +
+      '<div style="font-size:13px;color:#8b949e;margin-bottom:20px;">Direct WebGL 3D Preview Pipeline Active</div>' +
+      '<a href="' + url + '" target="_blank" style="color:#58a6ff;border:1px solid #30363d;padding:8px 16px;border-radius:6px;text-decoration:none;font-weight:500;">Download 3D Asset</a>' +
+      '</div>';
   } else {
     main.innerHTML = '<iframe id="canvas-frame" src="' + url + '" sandbox="allow-scripts"></iframe>';
   }
