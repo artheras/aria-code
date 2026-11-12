@@ -20,7 +20,7 @@ def handle_realty_query(
         return {"success": False, "error": "not_realty_query"}
 
     try:
-        from realty_data_tools import get_house_price_index, get_re_investment
+        from aria_code.tools.realty_data_tools import get_house_price_index, get_re_investment
     except ImportError:
         return {"success": False, "error": "realty_data_tools_not_available"}
 

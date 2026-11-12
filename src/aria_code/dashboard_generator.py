@@ -68,8 +68,7 @@ def _load_portfolio() -> Tuple[List[Dict], List[Dict]]:
     if not _PORTFOLIO_DB.exists():
         return [], []
     try:
-        sys.path.insert(0, str(Path(__file__).parent))
-        from portfolio_ledger import PortfolioLedger
+        from aria_code.domain.portfolio_ledger import PortfolioLedger
         ledger    = PortfolioLedger()
         positions = ledger.get_positions()
         realized  = ledger.get_realized_pnl()

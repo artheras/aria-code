@@ -414,7 +414,7 @@ def check_alerts(params: dict = None) -> dict:
     # Push notifications for newly triggered alerts
     if triggered_now:
         try:
-            from notification_tools import send_alert_notification
+            from aria_code.tools.notification_tools import send_alert_notification
             for _alrt in triggered_now:
                 send_alert_notification(_alrt)
         except Exception as _ne:

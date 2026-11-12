@@ -142,7 +142,7 @@ class PortfolioCommandsMixin:
           /journal delete <id>                  → 删除指定记录
         """
         try:
-            from portfolio_ledger import PortfolioLedger as _PL
+            from aria_code.domain.portfolio_ledger import PortfolioLedger as _PL
         except ImportError:
             msg = "portfolio_ledger 模块未找到"
             self.context.console.print(f"[red]{msg}[/red]") if self.context.has_rich else print(msg)
@@ -684,7 +684,7 @@ class PortfolioCommandsMixin:
             symbols = [s.strip(",").upper() for s in sym_parts if s.strip(",")]
         else:
             try:
-                from portfolio_ledger import PortfolioLedger as _PL_default
+                from aria_code.domain.portfolio_ledger import PortfolioLedger as _PL_default
                 positions = _PL_default().get_positions()
             except ImportError:
                 positions = []
@@ -809,14 +809,14 @@ class PortfolioCommandsMixin:
     async def _portfolio_holdings_by_strategy(self):
         """实盘持仓看板：按来源策略分组（策略名匹配交易 reason），含实时浮盈。"""
         try:
-            from portfolio_ledger import PortfolioLedger
+            from aria_code.domain.portfolio_ledger import PortfolioLedger
         except ImportError:
             self.context.console.print("[red]portfolio_ledger 模块未找到[/red]") if self.context.has_rich else print("portfolio_ledger 未找到")
             return
         ledger = PortfolioLedger()
         names = []
         try:
-            from strategy_vault import get_vault
+            from aria_code.domain.strategy_vault import get_vault
             names = get_vault().list_all_names()
         except Exception:
             pass
@@ -1033,7 +1033,7 @@ class PortfolioCommandsMixin:
             store, log = CalibrationStore(), PredictionLog()
             led_res = {"evaluated": 0, "hits": 0}
             try:  # actual realised P&L first — the strongest ground truth
-                from portfolio_ledger import PortfolioLedger
+                from aria_code.domain.portfolio_ledger import PortfolioLedger
                 led_res = evaluate_from_ledger(store, log, PortfolioLedger())
             except Exception:
                 pass

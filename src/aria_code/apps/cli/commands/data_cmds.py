@@ -74,7 +74,7 @@ class DataCommandsMixin:
         rest = parts[1] if len(parts) > 1 else ""
 
         try:
-            from data_analysis_tools import (sql_query, sql_list_tables,
+            from aria_code.tools.data_analysis_tools import (sql_query, sql_list_tables,
                                               export_to_excel, load_csv_data)
         except ImportError as e:
             if self.context.has_rich:
@@ -171,7 +171,7 @@ class DataCommandsMixin:
         sub = parts[0].lower() if parts else "list"
 
         try:
-            from data_analysis_tools import (add_price_alert, list_price_alerts,
+            from aria_code.tools.data_analysis_tools import (add_price_alert, list_price_alerts,
                                               delete_price_alert, check_alerts)
         except ImportError as e:
             if self.context.has_rich:
@@ -257,7 +257,7 @@ class DataCommandsMixin:
         symbols = parts if parts else ["AAPL", "MSFT", "TSLA", "SPY", "QQQ"]
 
         try:
-            from data_analysis_tools import calc_correlation_matrix
+            from aria_code.tools.data_analysis_tools import calc_correlation_matrix
         except ImportError as e:
             if self.context.has_rich:
                 self.context.console.print(f"[red]data_analysis_tools 未加载: {e}[/red]")
@@ -279,7 +279,7 @@ class DataCommandsMixin:
         parts = args.strip().split() if args.strip() else []
 
         try:
-            from data_analysis_tools import portfolio_backtest
+            from aria_code.tools.data_analysis_tools import portfolio_backtest
         except ImportError as e:
             if self.context.has_rich:
                 self.context.console.print(f"[red]data_analysis_tools 未加载: {e}[/red]")

@@ -279,7 +279,7 @@ class BacktestCommandsMixin:
         else:
             _resolved_start = None
 
-        from backtest_report import STRATEGY_ALIASES as _STRATEGY_ALIASES
+        from aria_code.domain.backtest_report import STRATEGY_ALIASES as _STRATEGY_ALIASES
         _known_strategies = set(_STRATEGY_ALIASES) | {"ml", "ml_signal", "agent"}
 
         def _is_strategy(token: str) -> bool:
@@ -337,7 +337,7 @@ class BacktestCommandsMixin:
         api_url = self.terminal.config.get("api_url", "http://localhost:8000")
 
         async def _do_backtest():
-            from backtest_report import BacktestConfig, generate_backtest_report
+            from aria_code.domain.backtest_report import BacktestConfig, generate_backtest_report
             local_config = BacktestConfig(
                 symbol=symbol,
                 strategy=strategy,
@@ -382,7 +382,7 @@ class BacktestCommandsMixin:
                     # momentum whatever strategy was asked for, counted buys and
                     # sells as separate trades and called the share of up days
                     # the win rate.
-                    from backtest_report import run_backtest_from_history
+                    from aria_code.domain.backtest_report import run_backtest_from_history
                     _ticker = _yf.Ticker(symbol)
                     _df = _ticker.history(start=start_date, end=end_date, auto_adjust=True)
                     if _df is None or _df.empty:
@@ -515,7 +515,7 @@ class BacktestCommandsMixin:
                 from rich.table import Table
                 from rich.text import Text
                 from aria_code.ui.render.output import file_uri
-                from backtest_report import normalize_strategy as _normalize_strategy
+                from aria_code.domain.backtest_report import normalize_strategy as _normalize_strategy
 
                 facts: list[tuple[str, object]] = [
                     ("source", src),
@@ -1651,7 +1651,7 @@ class BacktestCommandsMixin:
             return
         deployed = set()
         try:
-            from portfolio_ledger import PortfolioLedger
+            from aria_code.domain.portfolio_ledger import PortfolioLedger
             groups = PortfolioLedger().positions_by_strategy(names)
             deployed = {k for k in groups if k != PortfolioLedger.UNATTRIBUTED}
         except Exception:
@@ -1818,7 +1818,7 @@ class BacktestCommandsMixin:
         latest = all_versions[0]
         bt = latest.backtest_result or next((v.backtest_result for v in all_versions if v.backtest_result), None)
 
-        from portfolio_ledger import PortfolioLedger
+        from aria_code.domain.portfolio_ledger import PortfolioLedger
         ledger = PortfolioLedger()
         rest = parts[1:]
 
@@ -2208,7 +2208,7 @@ class BacktestCommandsMixin:
 
                 self.context.console.print("\n  [bold]实盘部署[/bold]")
                 try:
-                    from portfolio_ledger import PortfolioLedger
+                    from aria_code.domain.portfolio_ledger import PortfolioLedger
                     trades = PortfolioLedger().get_trades(limit=2000)
                     tagged = [t for t in trades if name.lower() in str(t.get("reason") or "").lower()]
                     if not tagged:
@@ -2298,7 +2298,7 @@ class BacktestCommandsMixin:
                     print(f"  backtest: sharpe={br.get('sharpe_ratio')} "
                           f"return={br.get('total_return_pct', br.get('total_return'))}")
                 try:
-                    from portfolio_ledger import PortfolioLedger
+                    from aria_code.domain.portfolio_ledger import PortfolioLedger
                     tagged = [t for t in PortfolioLedger().get_trades(limit=2000)
                               if name.lower() in str(t.get("reason") or "").lower()]
                     if tagged:

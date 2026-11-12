@@ -592,7 +592,7 @@ def get_us_housing_data() -> dict:
     - S&P/Case-Shiller 20城房价指数 (SPCS20RSA)
     - 30年固定按揭利率 (MORTGAGE30US)
     """
-    from macro_tools import _fred_series  # reuse existing FRED helper
+    from aria_code.tools.macro_tools import _fred_series  # reuse existing FRED helper
 
     indicators = {
         "housing_starts":    ("HOUST",       "新屋开工（千套，季调年化）"),

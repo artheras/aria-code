@@ -386,7 +386,7 @@ def _get_mdc():
 # (legacy financial_agents fallback removed — the agents/ package is the sole path)
 
 try:
-    from strategy_vault import get_vault as _get_vault, ai_review_strategy as _ai_review
+    from aria_code.domain.strategy_vault import get_vault as _get_vault, ai_review_strategy as _ai_review
     _HAS_VAULT = True
 except ImportError:
     _HAS_VAULT = False
@@ -1174,7 +1174,7 @@ if _HAS_PLUGIN:
 
 # ── Register spreadsheet deliverable tools (structured xlsx writer) ────────
 try:
-    from spreadsheet_tools import register_spreadsheet_tools as _reg_xlsx
+    from aria_code.tools.spreadsheet_tools import register_spreadsheet_tools as _reg_xlsx
     _n_xlsx = _reg_xlsx(LOCAL_TOOLS, LOCAL_TOOL_SCHEMAS)
     if _n_xlsx:
         logger.info("Registered %d spreadsheet tools", _n_xlsx)
@@ -4688,7 +4688,7 @@ class ArtheraTerminal(_ChatTurn, _Chrome, _HeadlessMixin):
             if not self.running:
                 break
             try:
-                from data_analysis_tools import check_alerts
+                from aria_code.tools.data_analysis_tools import check_alerts
                 result = await loop.run_in_executor(None, check_alerts)
                 triggered = result.get("triggered", [])
                 if triggered:
@@ -4699,7 +4699,7 @@ class ArtheraTerminal(_ChatTurn, _Chrome, _HeadlessMixin):
                             f"\n[bold yellow]⚡ 预警触发[/bold yellow] [cyan]{sym}[/cyan] → {cur}"
                         )
                         try:
-                            from notification_tools import send_alert_notification
+                            from aria_code.tools.notification_tools import send_alert_notification
                             await loop.run_in_executor(None, send_alert_notification, alrt)
                         except Exception as _ne:
                             logger.debug("Alert notification failed: %s", _ne)

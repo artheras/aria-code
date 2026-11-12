@@ -158,7 +158,7 @@ class AnalysisCommandsMixin:
         indicator = parts[1] if len(parts) > 1 else "all"
 
         try:
-            from macro_tools import get_us_macro, get_cn_macro, get_central_bank_rates, get_economic_calendar
+            from aria_code.tools.macro_tools import get_us_macro, get_cn_macro, get_central_bank_rates, get_economic_calendar
         except ImportError:
             if self.context.has_rich:
                 self.context.console.print("[red]macro_tools 模块未找到[/red]")

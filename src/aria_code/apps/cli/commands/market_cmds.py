@@ -389,7 +389,7 @@ class MarketCommandsMixin:
         sub = parts[0].lower() if parts else "market"
 
         try:
-            from realty_data_tools import (
+            from aria_code.tools.realty_data_tools import (
                 get_house_price_index, get_re_investment,
                 get_reits_list, get_reit_analysis, get_multi_city_comparison,
                 calc_rental_yield, property_valuation, asset_location_score,

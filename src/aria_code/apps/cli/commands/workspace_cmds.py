@@ -1403,7 +1403,7 @@ class WorkspaceCommandsMixin:
                     pass
             # 3. Search strategy vault
             try:
-                from aria_code.strategy_vault import get_vault as _gv
+                from aria_code.domain.strategy_vault import get_vault as _gv
                 vault = _gv()
                 for s in (vault.list() or []):
                     name = str(s.get("name", ""))

@@ -91,7 +91,7 @@ def test_backtest_takes_either_order(monkeypatch):
         seen["strategy"], seen["symbol"] = config.strategy, config.symbol
         return {"success": False, "error": "stop here"}
 
-    import backtest_report
+    from aria_code.domain import backtest_report
     monkeypatch.setattr(backtest_report, "generate_backtest_report", fake_report)
     monkeypatch.setitem(__import__("sys").modules, "yfinance", None)
     printed = []
