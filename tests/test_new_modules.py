@@ -331,7 +331,7 @@ class TestPluginLoader:
 
 def test_run_async_closes_coroutine_like_object_on_setup_failure(monkeypatch):
     import asyncio
-    from aria_code.aliyun_data_client import run_async
+    from aria_code.clients.aliyun_data_client import run_async
 
     class FakeCoro:
         closed = False
@@ -498,7 +498,7 @@ class TestAliyunDataClient:
         env_backup = {k: os.environ.pop(k, None)
                       for k in ("ARTHERA_CLOUD_URL", "ARTHERA_DATA_URL", "ARTHERA_API_TOKEN")}
         try:
-            from aria_code.aliyun_data_client import _load_cloud_config, AliyunDataClient
+            from aria_code.clients.aliyun_data_client import _load_cloud_config, AliyunDataClient
             AliyunDataClient.reset()
             cfg = _load_cloud_config()
             assert "cloud_url" in cfg
@@ -508,7 +508,7 @@ class TestAliyunDataClient:
             for k, v in env_backup.items():
                 if v is not None:
                     os.environ[k] = v
-            from aria_code.aliyun_data_client import AliyunDataClient
+            from aria_code.clients.aliyun_data_client import AliyunDataClient
             AliyunDataClient.reset()
 
     def test_env_var_overrides_config(self):
@@ -516,24 +516,24 @@ class TestAliyunDataClient:
         import os
         os.environ["ARTHERA_CLOUD_URL"] = "http://my-aliyun-server:8000"
         try:
-            from aria_code.aliyun_data_client import _load_cloud_config, AliyunDataClient
+            from aria_code.clients.aliyun_data_client import _load_cloud_config, AliyunDataClient
             AliyunDataClient.reset()
             cfg = _load_cloud_config()
             assert cfg["cloud_url"] == "http://my-aliyun-server:8000"
         finally:
             del os.environ["ARTHERA_CLOUD_URL"]
-            from aria_code.aliyun_data_client import AliyunDataClient
+            from aria_code.clients.aliyun_data_client import AliyunDataClient
             AliyunDataClient.reset()
 
     def test_singleton_pattern(self):
-        from aria_code.aliyun_data_client import AliyunDataClient
+        from aria_code.clients.aliyun_data_client import AliyunDataClient
         AliyunDataClient.reset()
         a = AliyunDataClient.get()
         b = AliyunDataClient.get()
         assert a is b
 
     def test_reset_creates_new_instance(self):
-        from aria_code.aliyun_data_client import AliyunDataClient
+        from aria_code.clients.aliyun_data_client import AliyunDataClient
         AliyunDataClient.reset()
         a = AliyunDataClient.get()
         AliyunDataClient.reset()
@@ -541,7 +541,7 @@ class TestAliyunDataClient:
         assert a is not b
 
     def test_circuit_breaker_opens_after_failures(self):
-        from aria_code.aliyun_data_client import _CircuitBreaker
+        from aria_code.clients.aliyun_data_client import _CircuitBreaker
         cb = _CircuitBreaker(failure_threshold=3, recovery_timeout=3600)
         assert cb.allow() is True
         for _ in range(3):
@@ -551,7 +551,7 @@ class TestAliyunDataClient:
 
     def test_circuit_breaker_recovers_after_timeout(self):
         import time
-        from aria_code.aliyun_data_client import _CircuitBreaker
+        from aria_code.clients.aliyun_data_client import _CircuitBreaker
         cb = _CircuitBreaker(failure_threshold=2, recovery_timeout=0.05)
         cb.record_failure()
         cb.record_failure()
@@ -562,7 +562,7 @@ class TestAliyunDataClient:
         assert cb.is_open is False
 
     def test_status_returns_dict(self):
-        from aria_code.aliyun_data_client import AliyunDataClient
+        from aria_code.clients.aliyun_data_client import AliyunDataClient
         AliyunDataClient.reset()
         st = AliyunDataClient.get().status()
         assert "cloud_url" in st
@@ -574,7 +574,7 @@ class TestAliyunDataClient:
         assert st["health_summary"]["total"] == 2
 
     def test_summarize_cloud_health_builds_structured_snapshot(self):
-        from aria_code.aliyun_data_client import summarize_cloud_health
+        from aria_code.clients.aliyun_data_client import summarize_cloud_health
 
         summary = summarize_cloud_health(
             {"status": "healthy"},
@@ -602,8 +602,8 @@ class TestAliyunDataClient:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = pathlib.Path(tmp) / "config.json"
 
-            with patch("aria_code.aliyun_data_client._cfg_path", return_value=str(config_path)):
-                from aria_code.aliyun_data_client import save_cloud_config, _load_cloud_config, AliyunDataClient
+            with patch("aria_code.clients.aliyun_data_client._cfg_path", return_value=str(config_path)):
+                from aria_code.clients.aliyun_data_client import save_cloud_config, _load_cloud_config, AliyunDataClient
                 save_cloud_config(cloud_url="http://test-server:9000")
                 AliyunDataClient.reset()
                 _load_cloud_config()

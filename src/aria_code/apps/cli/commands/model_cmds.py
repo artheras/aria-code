@@ -1737,7 +1737,7 @@ class ModelCommandsMixin:
           /cloud reset               — reset circuit breakers
         """
         try:
-            from aliyun_data_client import AliyunDataClient, save_cloud_config, summarize_cloud_health
+            from aria_code.clients.aliyun_data_client import AliyunDataClient, save_cloud_config, summarize_cloud_health
         except ImportError:
             if self.context.has_rich:
                 self.context.console.print("  [red]aliyun_data_client.py not found[/red]")

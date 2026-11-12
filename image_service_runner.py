@@ -24,7 +24,7 @@ def run(payload: dict[str, Any]) -> dict[str, Any]:
 
     backend = str(payload.get("backend") or "local")
     if backend == "local":
-        from local_image_provider import generate_image_local
+        from aria_code.providers.local_image_provider import generate_image_local
         return generate_image_local(
             prompt,
             width=int(payload.get("width") or 1024),
@@ -33,7 +33,7 @@ def run(payload: dict[str, Any]) -> dict[str, Any]:
     if backend == "openai":
         if not bool(payload.get("confirmed")):
             return _failure("confirmed=true is required for paid OpenAI image generation")
-        from openai_image_client import generate_image
+        from aria_code.clients.openai_image_client import generate_image
         return generate_image(
             prompt,
             size=str(payload.get("size") or "1024x1536"),

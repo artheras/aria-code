@@ -1194,7 +1194,7 @@ except Exception as _exc:
 # Without this the chat loop can generate stock charts but has no tool for
 # "generate me a real photo" — see image_gen_tools.py's module docstring.
 try:
-    from image_gen_tools import register_image_tools as _reg_image
+    from aria_code.tools.image_gen_tools import register_image_tools as _reg_image
     _n_image = _reg_image(LOCAL_TOOLS, LOCAL_TOOL_SCHEMAS)
     if _n_image:
         logger.info("Registered %d image generation tools", _n_image)

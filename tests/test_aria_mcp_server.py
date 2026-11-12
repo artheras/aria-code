@@ -190,7 +190,7 @@ async def test_generate_image_refuses_with_confirmed_false():
 
 @pytest.mark.asyncio
 async def test_generate_image_calls_client_only_when_confirmed(monkeypatch):
-    import openai_image_client
+    from aria_code.clients import openai_image_client
 
     called = {}
 
@@ -215,7 +215,7 @@ async def test_edit_image_refuses_without_confirmed():
 
 @pytest.mark.asyncio
 async def test_edit_image_calls_client_only_when_confirmed(monkeypatch):
-    import openai_image_client
+    from aria_code.clients import openai_image_client
 
     called = {}
 
@@ -233,7 +233,7 @@ async def test_edit_image_calls_client_only_when_confirmed(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_edit_image_omits_mask_path_by_default(monkeypatch):
-    import openai_image_client
+    from aria_code.clients import openai_image_client
 
     called = {}
 
@@ -248,7 +248,7 @@ async def test_edit_image_omits_mask_path_by_default(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_edit_image_passes_through_mask_path_for_inpainting(monkeypatch):
-    import openai_image_client
+    from aria_code.clients import openai_image_client
 
     called = {}
 

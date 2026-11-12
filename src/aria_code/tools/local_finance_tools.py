@@ -67,7 +67,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 try:
-    from aria_code.aliyun_data_client import (
+    from aria_code.clients.aliyun_data_client import (
         AliyunDataClient,
         cloud_get_quote_sync,
         cloud_get_history_sync,
@@ -1590,7 +1590,7 @@ def _get_market_insights(params: dict) -> dict:
 
     if _HAS_CLOUD:
         try:
-            from aria_code.aliyun_data_client import run_async
+            from aria_code.clients.aliyun_data_client import run_async
             result = run_async(AliyunDataClient.get().get_market_insights(symbols, market=market))
             if result:
                 return {"success": True, **result, "provider": "aliyun_cloud"}
@@ -1640,7 +1640,7 @@ def _get_predictions(params: dict) -> dict:
 
     if _HAS_CLOUD:
         try:
-            from aria_code.aliyun_data_client import run_async
+            from aria_code.clients.aliyun_data_client import run_async
             result = run_async(AliyunDataClient.get().get_predictions(symbols, prediction_days=days, market=market))
             if result and result.get("predictions"):
                 return {"success": True, **result, "provider": "aliyun_cloud"}
@@ -1702,7 +1702,7 @@ def _cloud_backtest(params: dict) -> dict:
 
     if _HAS_CLOUD:
         try:
-            from aria_code.aliyun_data_client import run_async
+            from aria_code.clients.aliyun_data_client import run_async
             result = run_async(
                 AliyunDataClient.get().run_backtest(
                     symbols, strategy_cfg,

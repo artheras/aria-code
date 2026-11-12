@@ -43,7 +43,7 @@ def test_tool_generate_image_requires_prompt():
 
 
 def test_tool_generate_image_calls_local_backend_with_dimensions(monkeypatch):
-    import local_image_provider
+    from aria_code.providers import local_image_provider
 
     called = {}
 
@@ -74,7 +74,7 @@ def test_tool_edit_image_requires_image_path_and_prompt():
 
 
 def test_tool_edit_image_calls_local_backend_with_strength(monkeypatch):
-    import local_image_provider
+    from aria_code.providers import local_image_provider
 
     called = {}
 

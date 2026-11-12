@@ -1248,7 +1248,7 @@ async def _call_report_pptx(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _call_estimate_image_cost(args: Dict[str, Any]) -> Dict[str, Any]:
-    from openai_image_client import estimate_cost
+    from aria_code.clients.openai_image_client import estimate_cost
 
     try:
         return {
@@ -1279,7 +1279,7 @@ async def _call_generate_image(args: Dict[str, Any]) -> Dict[str, Any]:
     import asyncio
     from functools import partial
 
-    from openai_image_client import generate_image
+    from aria_code.clients.openai_image_client import generate_image
 
     prompt = str(args.get("prompt", "")).strip()
     if not prompt:
@@ -1315,7 +1315,7 @@ async def _call_edit_image(args: Dict[str, Any]) -> Dict[str, Any]:
     import asyncio
     from functools import partial
 
-    from openai_image_client import edit_image
+    from aria_code.clients.openai_image_client import edit_image
 
     image_path = str(args.get("image_path", "")).strip()
     prompt = str(args.get("prompt", "")).strip()
@@ -1349,7 +1349,7 @@ async def _call_generate_image_local(args: Dict[str, Any]) -> Dict[str, Any]:
     import asyncio
     from functools import partial
 
-    from local_image_provider import generate_image_local
+    from aria_code.providers.local_image_provider import generate_image_local
 
     prompt = str(args.get("prompt", "")).strip()
     if not prompt:
@@ -1373,7 +1373,7 @@ async def _call_edit_image_local(args: Dict[str, Any]) -> Dict[str, Any]:
     import asyncio
     from functools import partial
 
-    from local_image_provider import edit_image_local
+    from aria_code.providers.local_image_provider import edit_image_local
 
     image_path = str(args.get("image_path", "")).strip()
     prompt = str(args.get("prompt", "")).strip()

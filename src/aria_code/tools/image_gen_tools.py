@@ -29,7 +29,7 @@ def tool_generate_image(params: Dict[str, Any]) -> Dict[str, Any]:
     if not prompt:
         return {"success": False, "error": "缺少 prompt"}
     try:
-        from local_image_provider import generate_image_local
+        from aria_code.providers.local_image_provider import generate_image_local
     except Exception as exc:
         return {"success": False, "error": f"本地图片生成不可用: {exc}"}
     width = int(params.get("width") or 1024)
@@ -44,7 +44,7 @@ def tool_edit_image(params: Dict[str, Any]) -> Dict[str, Any]:
     if not image_path or not prompt:
         return {"success": False, "error": "缺少 image_path 或 prompt"}
     try:
-        from local_image_provider import edit_image_local
+        from aria_code.providers.local_image_provider import edit_image_local
     except Exception as exc:
         return {"success": False, "error": f"本地图片编辑不可用: {exc}"}
     strength = float(params.get("strength") or 0.6)

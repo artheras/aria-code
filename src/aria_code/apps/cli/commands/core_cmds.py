@@ -1754,27 +1754,11 @@ class CoreCommandsMixin:
                     print(f"  {'●' if s['running'] else '○'} {s['name']:20s} {s['tool_count']} tools")
     def cmd_license(self, args: str):
         """Show feature license / entitlement status."""
-        try:
-            from licensing import current_license, license_status
-            current_license(refresh=True)   # re-read in case a key was just installed
-            st = license_status()
-        except Exception as e:
-            self.context.console.print(f"  [yellow]license 模块不可用: {e}[/yellow]" if self.context.has_rich else f"license unavailable: {e}")
-            return
-        tier = st.get("tier", "free")
-        valid = st.get("valid", True)
+        msg = "Native runtime has no entitlements; all features are unrestricted."
         if self.context.has_rich:
-            color = "green" if (tier != "free" and valid) else "dim"
-            self.context.console.print(f"  授权等级: [{color}]{tier}[/{color}]  有效: {valid}"
-                          + (f"  到期: {st['exp']}" if st.get("exp") else ""))
-            if st.get("reason"):
-                self.context.console.print(f"  [yellow]{st['reason']}[/yellow]")
-            feats = st.get("features") or []
-            self.context.console.print(f"  已解锁: {', '.join(feats) if feats else '仅免费功能'}")
-            self.context.console.print(f"  签名校验模式: {'开启' if st.get('signed_mode') else '关闭(开发/自托管)'}")
-            self.context.console.print("  [dim]免费版含全部核心功能;专业功能配置 ARIA_LICENSE_KEY 或 ~/.arthera/license.json 解锁。[/dim]")
+            self.context.console.print(f"  [green]{msg}[/green]")
         else:
-            print(f"license tier={tier} valid={valid} features={st.get('features')}")
+            print(f"  {msg}")
     def cmd_ariarc(self, args: str):
         """Show or reload .ariarc project configuration."""
         from aria_cli import _HAS_ARIARC, get_ariarc, reload_ariarc
