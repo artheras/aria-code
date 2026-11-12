@@ -468,7 +468,7 @@ class PortfolioCommandsMixin:
                 if export_pdf_flag:
                     from pathlib import Path as _Path  # mixin 重绑定后无模块级 Path
                     try:
-                        from markdown_pdf import markdown_to_pdf as _md_to_pdf
+                        from aria_code.markdown_pdf import markdown_to_pdf as _md_to_pdf
                         _pdf_out = await asyncio.get_event_loop().run_in_executor(
                             None,
                             lambda: _md_to_pdf(_Path(out_f),

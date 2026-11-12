@@ -1183,7 +1183,7 @@ except Exception as _exc:
 
 # ── Register markdown→PDF deliverable tools (styled zh/en report render) ───
 try:
-    from markdown_pdf import register_markdown_pdf_tools as _reg_mdpdf
+    from aria_code.markdown_pdf import register_markdown_pdf_tools as _reg_mdpdf
     _n_mdpdf = _reg_mdpdf(LOCAL_TOOLS, LOCAL_TOOL_SCHEMAS)
     if _n_mdpdf:
         logger.info("Registered %d markdown-pdf tools", _n_mdpdf)

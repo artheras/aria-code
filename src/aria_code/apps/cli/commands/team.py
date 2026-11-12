@@ -664,7 +664,7 @@ def save_team_report(
     quality_notes: list[str] | None = None,
     created_at: datetime | None = None,
 ) -> SavedTeamReport:
-    from artifacts import create_user_artifact, write_artifact_metadata, write_artifact_raw_data
+    from aria_code.artifacts import create_user_artifact, write_artifact_metadata, write_artifact_raw_data
     from packages.aria_services.research_quality import assess_team_report
 
     created = created_at or datetime.now()

@@ -182,7 +182,7 @@ class SessionCommandsMixin:
                 # A support bundle should carry environment health and MCP/circuit
                 # state — the two things a maintainer asks for first. Best-effort.
                 try:
-                    from doctor import run_doctor
+                    from aria_code.doctor import run_doctor
                     doctor_report = run_doctor(self.terminal.config)
                 except Exception:
                     doctor_report = None

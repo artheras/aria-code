@@ -873,7 +873,7 @@ async def _call_report_pdf(args: Dict[str, Any]) -> Dict[str, Any]:
     import asyncio
 
     from artifacts import create_user_artifact
-    from markdown_pdf import markdown_to_pdf
+    from aria_code.markdown_pdf import markdown_to_pdf
 
     md = str(args.get("markdown", ""))
     if not md.strip():

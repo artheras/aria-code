@@ -354,7 +354,7 @@ class BacktestCommandsMixin:
                 if _output_dir:
                     _out_path = pathlib.Path(_output_dir).expanduser()
                     if not _out_path.is_absolute():
-                        from artifacts import user_generated_dir
+                        from aria_code.artifacts import user_generated_dir
                         _out_path = user_generated_dir() / _out_path
                 local_result = await asyncio.get_event_loop().run_in_executor(
                     None, lambda: generate_backtest_report(local_config, output_dir=_out_path)
@@ -765,7 +765,7 @@ class BacktestCommandsMixin:
             )
 
             _fname = f"auto_strat_{strategy_type}_{symbol}_r{round_num}_{int(_time.time())}.py"
-            from artifacts import user_generated_dir as _user_generated_dir
+            from aria_code.artifacts import user_generated_dir as _user_generated_dir
             _fpath = _user_generated_dir() / _fname
 
             self.context.console.print("  [dim]生成策略代码...[/dim]") if self.context.has_rich else print("  Generating strategy...")
@@ -1228,7 +1228,7 @@ class BacktestCommandsMixin:
 
         # Resolve base directory under the user's local Aria Code workspace.
         # Generated strategy/code projects must not silently land in the source repo.
-        from artifacts import user_projects_dir as _user_projects_dir
+        from aria_code.artifacts import user_projects_dir as _user_projects_dir
         base_dir = _user_projects_dir() / project_name
 
         # ── LLM-generated scaffold (when user gives a description) ────────────

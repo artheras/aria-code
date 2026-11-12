@@ -223,7 +223,7 @@ class OpsCommandsMixin:
                 print("  /plan 1. Analyze sentiment  2. Build model  3. Backtest")
             return
 
-        from plan_utils import parse_plan
+        from aria_code.plan_utils import parse_plan
         plan_steps = parse_plan(raw)
         if not plan_steps:
             self.context.console.print("[dim]No valid steps found[/dim]" if self.context.has_rich else "No valid steps found")
