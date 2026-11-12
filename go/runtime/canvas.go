@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,9 +11,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -77,6 +80,52 @@ func canvasDiscoveryPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(root, "canvas.json"), nil
+}
+
+func isProcessAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	if pid == os.Getpid() {
+		return true
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+type canvasDiscovery struct {
+	URL       string  `json:"url"`
+	PID       int     `json:"pid"`
+	StartedAt float64 `json:"started_at"`
+}
+
+func readCanvasDiscovery() (*canvasDiscovery, error) {
+	discPath, err := canvasDiscoveryPath()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(discPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var disc canvasDiscovery
+	if err := json.Unmarshal(data, &disc); err != nil {
+		return nil, err
+	}
+	if disc.PID > 0 && !isProcessAlive(disc.PID) {
+		_ = os.Remove(discPath)
+		return nil, nil
+	}
+	return &disc, nil
 }
 
 func getActiveCanvas() *canvasServer {
@@ -451,6 +500,14 @@ func (cs *canvasServer) handleBridge(w http.ResponseWriter, r *http.Request) {
 		}
 		cs.mu.Unlock()
 
+		if action.Action == "version" || action.Type == "version" {
+			topic, _ := action.Payload["topic"].(string)
+			path, _ := action.Payload["path"].(string)
+			if topic != "" && path != "" {
+				cs.recordVersion(topic, path)
+			}
+		}
+
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "received": action.Action})
 		return
@@ -582,6 +639,27 @@ func publishArtifactTool(ctx context.Context, sc *scope, root string, params map
 	live := cs != nil && cs.URL() != ""
 	if live {
 		cs.recordVersion(topic, targetPath)
+	} else if disc, _ := readCanvasDiscovery(); disc != nil && disc.URL != "" {
+		live = true
+		go func(url string) {
+			payload, _ := json.Marshal(map[string]any{
+				"type":   "version",
+				"action": "version",
+				"payload": map[string]any{
+					"topic": topic,
+					"path":  targetPath,
+				},
+			})
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, strings.TrimRight(url, "/")+"/api/bridge", bytes.NewReader(payload))
+			if err == nil {
+				req.Header.Set("Content-Type", "application/json")
+				client := &http.Client{Timeout: 3 * time.Second}
+				resp, err := client.Do(req)
+				if err == nil {
+					_ = resp.Body.Close()
+				}
+			}
+		}(disc.URL)
 	}
 
 	hint := "Recorded. Tell the user to run /canvas to open the live preview panel."
@@ -612,19 +690,34 @@ func (s *server) canvasCommand(ctx context.Context, args []string) (string, erro
 	switch sub {
 	case "stop":
 		cs := getActiveCanvas()
-		if cs == nil {
-			return "Canvas preview server is not running.", nil
+		if cs != nil {
+			if err := stopCanvasServer(); err != nil {
+				return "", err
+			}
+			return "Stopped canvas preview server.", nil
 		}
-		if err := stopCanvasServer(); err != nil {
-			return "", err
+		if disc, _ := readCanvasDiscovery(); disc != nil && disc.PID > 0 {
+			if disc.PID == os.Getpid() {
+				_ = stopCanvasServer()
+			} else if proc, err := os.FindProcess(disc.PID); err == nil {
+				_ = proc.Signal(syscall.SIGTERM)
+				discPath, _ := canvasDiscoveryPath()
+				if discPath != "" {
+					_ = os.Remove(discPath)
+				}
+			}
+			return "Stopped canvas preview server.", nil
 		}
-		return "Stopped canvas preview server.", nil
+		return "Canvas preview server is not running.", nil
 	case "status":
 		cs := getActiveCanvas()
-		if cs == nil || cs.URL() == "" {
-			return "Canvas preview server is not running. Run /canvas to start.", nil
+		if cs != nil && cs.URL() != "" {
+			return fmt.Sprintf("Canvas preview server is running at %s", cs.URL()), nil
 		}
-		return fmt.Sprintf("Canvas preview server is running at %s", cs.URL()), nil
+		if disc, _ := readCanvasDiscovery(); disc != nil && disc.URL != "" {
+			return fmt.Sprintf("Canvas preview server is running at %s", disc.URL), nil
+		}
+		return "Canvas preview server is not running. Run /canvas to start.", nil
 	case "bridge":
 		cs := getActiveCanvas()
 		if cs == nil {
@@ -642,6 +735,9 @@ func (s *server) canvasCommand(ctx context.Context, args []string) (string, erro
 		cs := getActiveCanvas()
 		if cs != nil && cs.URL() != "" {
 			return fmt.Sprintf("Canvas preview server is already running: %s\nRun /canvas stop to shut it down.", cs.URL()), nil
+		}
+		if disc, _ := readCanvasDiscovery(); disc != nil && disc.URL != "" {
+			return fmt.Sprintf("Canvas preview server is already running: %s\nRun /canvas stop to shut it down.", disc.URL), nil
 		}
 		server, err := startCanvasServer()
 		if err != nil {

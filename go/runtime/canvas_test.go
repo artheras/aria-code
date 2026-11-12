@@ -200,3 +200,48 @@ func TestCanvasLifecycleAndPublishArtifact(t *testing.T) {
 		t.Fatalf("canvas stop failed: %s, %v", stopOut, err)
 	}
 }
+
+func TestCanvasDiscoveryAndStaleHandling(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ARIA_HOME", home)
+
+	discPath, err := canvasDiscoveryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. No discovery file
+	disc, err := readCanvasDiscovery()
+	if err != nil || disc != nil {
+		t.Fatalf("expected nil discovery when no file exists, got %v, %v", disc, err)
+	}
+
+	// 2. Active process discovery file
+	payload, _ := json.Marshal(map[string]any{
+		"url":        "http://127.0.0.1:9999",
+		"pid":        os.Getpid(),
+		"started_at": 1234567.0,
+	})
+	_ = os.WriteFile(discPath, payload, 0o644)
+
+	disc, err = readCanvasDiscovery()
+	if err != nil || disc == nil || disc.URL != "http://127.0.0.1:9999" {
+		t.Fatalf("expected valid discovery for live PID, got %v, %v", disc, err)
+	}
+
+	// 3. Stale PID discovery file (non-existent process PID)
+	stalePayload, _ := json.Marshal(map[string]any{
+		"url":        "http://127.0.0.1:8888",
+		"pid":        999999999,
+		"started_at": 1234567.0,
+	})
+	_ = os.WriteFile(discPath, stalePayload, 0o644)
+
+	disc, err = readCanvasDiscovery()
+	if err != nil || disc != nil {
+		t.Fatalf("expected nil discovery for stale PID, got %v", disc)
+	}
+	if _, err := os.Stat(discPath); !os.IsNotExist(err) {
+		t.Fatalf("expected stale discovery file to be deleted")
+	}
+}
