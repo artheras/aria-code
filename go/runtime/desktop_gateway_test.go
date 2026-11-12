@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -107,7 +108,11 @@ func TestDesktopGatewayLifecycleAndDiscovery(t *testing.T) {
 	recStatus := httptest.NewRecorder()
 	reqStatus := httptest.NewRequest(http.MethodGet, "/api/v2/runtime/status", nil)
 	gw.httpServer.Handler.ServeHTTP(recStatus, reqStatus)
-	if recStatus.Code != http.StatusOK || !strings.Contains(recStatus.Body.String(), workspace) {
+	var statusResp map[string]any
+	if err := json.Unmarshal(recStatus.Body.Bytes(), &statusResp); err != nil {
+		t.Fatalf("failed to decode runtime status: %v", err)
+	}
+	if recStatus.Code != http.StatusOK || statusResp["workspace"] != workspace {
 		t.Fatalf("unexpected runtime status response: %d %s", recStatus.Code, recStatus.Body.String())
 	}
 

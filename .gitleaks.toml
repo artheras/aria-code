@@ -112,4 +112,11 @@ condition = "AND"
 paths = ['''(^|/)tests/test_native_go_project_review\.py$''']
 regexes = ['''sk-1234567890abcdefghijklmnop''']
 
+[[allowlists]]
+description = "Synthetic Firebase JWT test token in account memory unit tests."
+condition = "AND"
+paths = ['''(^|/)go/runtime/account_memory_test\.go$''']
+regexes = ['''eyJhbGciOiJIUzI1NiJ9\.eyJhdWQiOiJhcnRoZXJhLTY2ZTViIiwiaXNzIjoiaHR0cHM6Ly9zZWN1cmV0b2tlbi5nb29nbGUuY29tL2FydGhlcmEtNjZlNWIiLCJzdWIiOiJ1c2VyXzEyMyJ9\.sig''']
+
+
 
