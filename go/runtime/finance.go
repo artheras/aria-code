@@ -34,7 +34,7 @@ var financeCommands = graphSetOf(strings.Fields(`/accuracy /alert /analyze /asha
 /indices /inventory /journal /limitup /longterm /macro /market /markets /news /north /ops-report /optimize
 /optimize-port /options /orders /paper /peer /plan-report /portfolio /positions /predict /quote /realty /report
 /research /revenue-calc /risk /risk-scan /screen /screen-cn /shortterm /signal /sim /stat-arb /strategy /stress
-/ta /team /deep /ui /canvas /artifacts /account /cloud /deploy /trade /tv /warehouse /watch`))
+/ta /team /deep /ui /account /cloud /deploy /trade /tv /warehouse /watch`))
 
 // directFinance are answered without the model.
 var directFinance = map[string]bool{"/broker": true, "/positions": true, "/orders": true, "/account": true}

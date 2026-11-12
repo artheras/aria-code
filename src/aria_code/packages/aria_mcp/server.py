@@ -1,6 +1,6 @@
 """aria-code MCP server — exposes read-only aria-code capabilities over stdio JSON-RPC.
 
-Lets any MCP-compatible client (Claude Code, Codex, Cursor, ...) call into
+Lets any MCP-compatible client call into
 aria-code's market data, multi-agent research team, and generated-artifact
 list. Pattern mirrors Arthera's packages/quant_engine/mcp_server.py (hand-rolled
 stdio JSON-RPC, no `mcp` SDK dependency).
@@ -938,7 +938,7 @@ async def _call_backtest_run(args: Dict[str, Any]) -> Dict[str, Any]:
 async def _call_figma_read_file(args: Dict[str, Any]) -> Dict[str, Any]:
     import asyncio
 
-    from figma_client import get_file_summary
+    from aria_code.clients.figma_client import get_file_summary
 
     file_key = str(args.get("file_key", "")).strip()
     if not file_key:
@@ -954,7 +954,7 @@ async def _call_figma_read_file(args: Dict[str, Any]) -> Dict[str, Any]:
 async def _call_figma_comments(args: Dict[str, Any]) -> Dict[str, Any]:
     import asyncio
 
-    from figma_client import list_comments
+    from aria_code.clients.figma_client import list_comments
 
     file_key = str(args.get("file_key", "")).strip()
     if not file_key:
@@ -1126,7 +1126,7 @@ async def _call_video_detect_scenes(args: Dict[str, Any]) -> Dict[str, Any]:
         return {"success": False, "error": str(exc)}
 
 
-_VIDEO_GEN_PROVIDERS = {"kling": "kling_video_client", "runway": "runway_video_client"}
+_VIDEO_GEN_PROVIDERS = {"kling": "aria_code.clients.kling_video_client", "runway": "aria_code.clients.runway_video_client"}
 
 
 async def _call_video_generate_estimate(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1250,7 +1250,17 @@ async def _call_report_pptx(args: Dict[str, Any]) -> Dict[str, Any]:
 async def _call_estimate_image_cost(args: Dict[str, Any]) -> Dict[str, Any]:
     from openai_image_client import estimate_cost
 
-    return {"success": True, **estimate_cost(size=args.get("size") or "1024x1536", quality=args.get("quality") or "high")}
+    try:
+        return {
+            "success": True,
+            **estimate_cost(
+                size=args.get("size") or "1024x1536",
+                quality=args.get("quality") or "high",
+                model=args.get("model"),
+            ),
+        }
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
 
 
 async def _call_generate_image(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1279,7 +1289,11 @@ async def _call_generate_image(args: Dict[str, Any]) -> Dict[str, Any]:
     try:
         fn = partial(
             generate_image, prompt,
-            size=args.get("size") or "1024x1536", quality=args.get("quality") or "high",
+            size=args.get("size") or "1024x1536",
+            quality=args.get("quality") or "high",
+            model=args.get("model"),
+            complexity=args.get("complexity"),
+            output_format=args.get("output_format"),
             confirmed=True,
         )
         return await loop.run_in_executor(None, fn)
@@ -1310,13 +1324,21 @@ async def _call_edit_image(args: Dict[str, Any]) -> Dict[str, Any]:
 
     mask_path = args.get("mask_path")
     mask_path = str(mask_path).strip() if mask_path else None
+    region_hint = args.get("region_hint")
+    region_hint = str(region_hint).strip() if region_hint else None
 
     loop = asyncio.get_event_loop()
     try:
         fn = partial(
             edit_image, image_path, prompt,
-            size=args.get("size") or "1024x1536", quality=args.get("quality") or "high",
-            mask_path=mask_path, confirmed=True,
+            size=args.get("size") or "1024x1536",
+            quality=args.get("quality") or "high",
+            mask_path=mask_path,
+            region_hint=region_hint,
+            model=args.get("model"),
+            complexity=args.get("complexity"),
+            output_format=args.get("output_format"),
+            confirmed=True,
         )
         return await loop.run_in_executor(None, fn)
     except Exception as exc:
@@ -1369,7 +1391,7 @@ async def _call_edit_image_local(args: Dict[str, Any]) -> Dict[str, Any]:
 async def _call_canva_design(args: Dict[str, Any]) -> Dict[str, Any]:
     import asyncio
 
-    from canva_client import autofill_design
+    from aria_code.clients.canva_client import autofill_design
 
     template_id = str(args.get("template_id", "")).strip()
     data = args.get("data") or {}
@@ -1387,7 +1409,7 @@ async def _call_canva_design(args: Dict[str, Any]) -> Dict[str, Any]:
 async def _call_canva_upload_asset(args: Dict[str, Any]) -> Dict[str, Any]:
     import asyncio
 
-    from canva_client import upload_asset
+    from aria_code.clients.canva_client import upload_asset
 
     file_path = str(args.get("file_path", "")).strip()
     if not file_path:

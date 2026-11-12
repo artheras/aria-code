@@ -114,6 +114,10 @@ var Capabilities = set(
 	"system.admin",
 	// Physical: acting on a device or a robot, which a checkpoint cannot undo.
 	"hardware.flash", "actuator.command",
+	// The live desktop: reading the screen and driving the mouse and keyboard.
+	"screen.capture", "desktop.control",
+	// Enterprise residency and vault boundaries: external MCP egress and credential vault access.
+	"mcp.external_egress", "credential.vault",
 )
 
 // RiskAssessment mirrors RiskAssessment.as_dict().
@@ -941,9 +945,90 @@ var (
 	riskReadTools = set("read_file", "list_files", "search_code", "glob", "project_context", "git_status", "git_diff",
 		"repo_map", "find_symbol", "analyze_file", "notebook_read", "update_todos")
 	riskWriteTools       = set("write_file", "edit_file", "multi_edit", "apply_change", "apply_patch", "notebook_edit")
-	riskNetworkReadTools = set("web_fetch", "web_search", "get_market_data", "get_market_history")
-	patchTarget          = pyRegexp(`(?m)^\+\+\+ (?:b/)?(\S+)`)
+	riskNetworkReadTools = set("web_fetch", "web_search", "get_market_data", "get_market_history", "browser_navigate", "browser_screenshot")
+	riskDesktopTools     = set("computer_action", "computer_screenshot")
+	pointerQuiet         = set("move", "scroll")
+	keySplit             = pyRegexp(`[\s+]+`)
+	keyAliases           = map[string]string{
+		"command": "cmd", "option": "alt", "opt": "alt", "control": "ctrl",
+		"del": "delete", "return": "enter", "escape": "esc",
+	}
+	keyDestructive = [][]string{
+		{"cmd", "q"}, {"cmd", "alt", "q"}, {"cmd", "shift", "q"}, {"alt", "f4"}, {"ctrl", "alt", "delete"},
+		{"cmd", "alt", "esc"}, {"cmd", "delete"}, {"cmd", "backspace"}, {"ctrl", "shift", "delete"},
+		{"cmd", "shift", "delete"}, {"ctrl", "shift", "q"},
+	}
+	patchTarget = pyRegexp(`(?m)^\+\+\+ (?:b/)?(\S+)`)
 )
+
+func pyOrEmptyStr(v any) string {
+	if !pyTruthy(v) {
+		return ""
+	}
+	return pyStr(v)
+}
+
+func keyParts(key any) map[string]bool {
+	raw := strings.ToLower(pyOrEmptyStr(key))
+	out := map[string]bool{}
+	for _, p := range keySplit.Split(raw, -1) {
+		if p == "" {
+			continue
+		}
+		if alias, ok := keyAliases[p]; ok {
+			p = alias
+		}
+		out[p] = true
+	}
+	return out
+}
+
+func assessDesktop(name string, params map[string]any) RiskAssessment {
+	d := newDraft()
+	d.systems = append(d.systems, "This computer's screen")
+	if name == "computer_screenshot" {
+		d.add("screen.capture")
+		d.raiseTo(3, "Captures everything visible on screen, which may include private content", false)
+		d.summary = "Capture the screen"
+		return d.freeze(0)
+	}
+	action := strings.TrimSpace(strings.ToLower(pyOrEmptyStr(params["action"])))
+	d.add("desktop.control")
+	if pointerQuiet[action] {
+		d.raiseTo(2, "Moves the pointer or scrolls on the live desktop", false)
+		d.summary = "Desktop " + action
+		return d.freeze(0)
+	}
+	d.raiseTo(3, "Drives the mouse or keyboard of the live desktop", true)
+	label := action
+	if label == "" {
+		label = "input"
+	}
+	d.summary = "Desktop " + label
+	switch action {
+	case "type":
+		text := pyOrEmptyStr(params["text"])
+		if strings.Contains(text, "\n") || strings.Contains(text, "\r") {
+			d.raiseTo(4, "Types a line break, which submits or runs whatever is focused", true)
+		}
+	case "key":
+		parts := keyParts(params["key"])
+		for _, combo := range keyDestructive {
+			match := true
+			for _, k := range combo {
+				if !parts[k] {
+					match = false
+					break
+				}
+			}
+			if match {
+				d.raiseTo(4, "Key combination that quits, closes or deletes", true)
+				break
+			}
+		}
+	}
+	return d.freeze(0)
+}
 
 // toolPaths is risk.tool_paths: the file paths a tool call names.
 func toolPaths(params map[string]any) []string {
@@ -1057,6 +1142,8 @@ func AssessTool(tool string, params map[string]any, root string) RiskAssessment 
 			d.raiseTo(4, "Writes a credentials or secrets file", false)
 		}
 		d.summary = "Edit files"
+	case riskDesktopTools[name]:
+		return assessDesktop(name, params)
 	case riskNetworkReadTools[name]:
 		d.add("network.read")
 		if u, ok := params["url"].(string); ok {

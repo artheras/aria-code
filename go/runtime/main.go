@@ -38,6 +38,9 @@ func mainCode() int {
 	if len(os.Args) > 1 && os.Args[1] == "mcp" {
 		return mcpServerCommand(os.Args[2:], os.Stdin, os.Stdout, os.Stderr)
 	}
+	if len(os.Args) > 1 && (os.Args[1] == "serve" || os.Args[1] == "gateway") {
+		return daemonServeCommand(os.Args[2:], os.Stdout, os.Stderr)
+	}
 	if len(os.Args) > 1 && os.Args[1] == "daemon" {
 		return daemonCommand(os.Args[2:], os.Stdout, os.Stderr)
 	}

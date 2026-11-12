@@ -122,7 +122,7 @@ def list_service_usage_specs() -> tuple[ServiceUsageSpec, ...]:
         ),
         ServiceUsageSpec(
             name="mcp_bridge",
-            purpose="把 Arthera QuantEngine 作为 MCP 工具暴露给 Aria/Claude/Cursor",
+            purpose="把 Arthera QuantEngine 作为 MCP 工具暴露给本地客户端",
             cli_entrypoints=("/packages connect arthera", "/mcp reload", "/packages tools arthera"),
             package_sources=("packages/quant_engine/mcp_server.py",),
             mcp_tools=("calculate_factors", "run_backtest", "price_option", "execution_schedule"),

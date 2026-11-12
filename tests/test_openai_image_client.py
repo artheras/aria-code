@@ -36,7 +36,7 @@ def test_generate_image_missing_key_raises_actionable_error(monkeypatch):
             assert "/apikey set openai" in str(exc)
 
 
-def test_generate_image_posts_gpt_image_1_with_correct_fields(tmp_path):
+def test_generate_image_posts_gpt_image_2_6_sunburst_with_correct_fields(tmp_path):
     resp = MagicMock(status_code=200)
     resp.json.return_value = {"created": 1, "data": [{"b64_json": _fake_b64_png()}]}
     captured = {}
@@ -53,9 +53,45 @@ def test_generate_image_posts_gpt_image_1_with_correct_fields(tmp_path):
         result = oic.generate_image("a minimal poster", size="1024x1024", quality="high", confirmed=True)
 
     assert captured["url"].endswith("/images/generations")
-    assert captured["json"]["model"] == "gpt-image-1"
+    assert captured["json"]["model"] == "gpt-image-2.6-sunburst"
     assert captured["json"]["prompt"] == "a minimal poster"
     assert result["success"] is True
+    assert result["model"] == "gpt-image-2.6-sunburst"
+
+
+def test_generate_image_supports_flare_svg_and_complexity(tmp_path):
+    svg_b64 = base64.b64encode(b'<svg xmlns="http://www.w3.org/2000/svg"></svg>').decode()
+    resp = MagicMock(status_code=200)
+    resp.json.return_value = {"created": 1, "data": [{"b64_json": svg_b64}]}
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return resp
+
+    with patch.object(oic, "_require_key", return_value="sk-test"), \
+         patch("requests.post", side_effect=fake_post), \
+         patch("artifacts.create_user_artifact") as mock_artifact:
+        mock_artifact.return_value.path = tmp_path / "out.svg"
+        result = oic.generate_image(
+            "vector badge",
+            model="flare",
+            complexity="medium",
+            output_format="svg",
+            confirmed=True,
+        )
+
+    assert captured["json"]["model"] == "gpt-image-2.6-flare"
+    assert captured["json"]["complexity"] == "medium"
+    assert captured["json"]["output_format"] == "svg"
+    assert result["success"] is True
+    assert result["format"] == "svg"
+
+
+def test_deprecated_gpt_image_2_is_rejected():
+    result = oic.generate_image("a poster", model="gpt-image-2", confirmed=True)
+    assert result["success"] is False
+    assert "2027-02-10" in result["error"]
 
 
 def test_generate_image_surfaces_api_error():
@@ -107,7 +143,7 @@ def test_edit_image_posts_multipart_to_edits_endpoint(tmp_path):
         result = oic.edit_image(str(src), "convert to duotone", confirmed=True)
 
     assert captured["url"].endswith("/images/edits")
-    assert captured["data"]["model"] == "gpt-image-1"
+    assert captured["data"]["model"] == "gpt-image-2.6-sunburst"
     assert "image" in captured["files"]
     assert result["success"] is True
 
@@ -191,9 +227,46 @@ def test_normalize_image_for_upload_keeps_alpha_for_mask(tmp_path):
     assert reopened.mode == "RGBA"
 
 
-def test_estimate_cost_known_size_quality():
+def test_estimate_cost_known_size_quality(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     result = oic.estimate_cost(size="1024x1024", quality="high")
     assert result["estimated_cost_usd"] == 0.167
+    assert result["model"] == "gpt-image-2.6-sunburst"
+    flare_res = oic.estimate_cost(size="1024x1024", quality="low", model="flare")
+    assert flare_res["estimated_cost_usd"] == 0.005
+    assert flare_res["model"] == "gpt-image-2.6-flare"
+
+
+def test_google_cloud_vertex_imagen_priority_when_gcp_project_configured(monkeypatch, tmp_path):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "aria-vertex-prod")
+    monkeypatch.setenv("VERTEX_ACCESS_TOKEN", "ya29.test-token")
+
+    with patch.object(oic, "_api_key", return_value=""):
+        est = oic.estimate_cost(size="1024x1536", quality="high")
+        assert est["provider"] == "google"
+        assert est["model"] == "imagen-3.0-generate-002"
+        assert est["estimated_cost_usd"] == 0.04
+
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"predictions": [{"bytesBase64Encoded": _fake_b64_png()}]}
+        captured = {}
+
+        def fake_post(url, headers=None, json=None, timeout=None):
+            captured["url"] = url
+            captured["json"] = json
+            return resp
+
+        with patch("requests.post", side_effect=fake_post), \
+             patch("artifacts.create_user_artifact") as mock_artifact:
+            mock_artifact.return_value.path = tmp_path / "vertex_out.png"
+            result = oic.generate_image("editorial cover on Vertex AI", size="1024x1536", confirmed=True)
+
+        assert result["success"] is True
+        assert result["provider"] == "google"
+        assert result["model"] == "imagen-3.0-generate-002"
+        assert "projects/aria-vertex-prod/locations/us-central1/publishers/google/models/imagen-3.0-generate-002:predict" in captured["url"]
+        assert captured["json"]["parameters"]["aspectRatio"] == "3:4"
 
 
 def test_estimate_cost_unknown_combo_reports_none():

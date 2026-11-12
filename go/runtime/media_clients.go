@@ -48,6 +48,7 @@ import (
 // Endpoints are variables so tests can point them at a local server.
 var (
 	openAIImageBase = "https://api.openai.com/v1"
+	googleImageBase = "https://us-central1-aiplatform.googleapis.com/v1"
 	figmaBase       = "https://api.figma.com/v1"
 	klingBase       = "https://api.klingai.com"
 	runwayBase      = "https://api.dev.runwayml.com"
@@ -55,11 +56,16 @@ var (
 )
 
 const (
-	maxImageUpload   = 50 << 20
-	maxImageResponse = 80 << 20
-	maxVideoDownload = 1 << 30
-	openAIImageModel = "gpt-image-1"
-	runwayVersion    = "2024-11-06"
+	maxImageUpload           = 50 << 20
+	maxImageResponse         = 80 << 20
+	maxVideoDownload         = 1 << 30
+	openAIImageModel         = "gpt-image-2.6-sunburst"
+	openAIImageModelSunburst = "gpt-image-2.6-sunburst"
+	openAIImageModelFlare    = "gpt-image-2.6-flare"
+	openAIImageModelLegacy   = "gpt-image-1"
+	googleImagenModel        = "imagen-3.0-generate-002"
+	googleImagenFastModel    = "imagen-3.0-fast-generate-001"
+	runwayVersion            = "2024-11-06"
 )
 
 func envKey(names ...string) string {
@@ -139,11 +145,93 @@ func confirmedArg(args map[string]any, what, estimate string) error {
 
 // ── Images ───────────────────────────────────────────────────────────────────
 
-// imageCostUSD is gpt-image-1's published output price per image.
+// imageCostUSD is the default model's published output price per image.
 var imageCostUSD = map[string]map[string]float64{
 	"low":    {"1024x1024": 0.011, "1024x1536": 0.016, "1536x1024": 0.016},
 	"medium": {"1024x1024": 0.042, "1024x1536": 0.063, "1536x1024": 0.063},
 	"high":   {"1024x1024": 0.167, "1024x1536": 0.25, "1536x1024": 0.25},
+}
+
+var imageCostUSDByModel = map[string]map[string]map[string]float64{
+	openAIImageModelSunburst: imageCostUSD,
+	openAIImageModelLegacy:   imageCostUSD,
+	openAIImageModelFlare: {
+		"low":    {"1024x1024": 0.005, "1024x1536": 0.008, "1536x1024": 0.008},
+		"medium": {"1024x1024": 0.018, "1024x1536": 0.027, "1536x1024": 0.027},
+		"high":   {"1024x1024": 0.065, "1024x1536": 0.098, "1536x1024": 0.098},
+	},
+	googleImagenModel: {
+		"low":    {"1024x1024": 0.04, "1024x1536": 0.04, "1536x1024": 0.04},
+		"medium": {"1024x1024": 0.04, "1024x1536": 0.04, "1536x1024": 0.04},
+		"high":   {"1024x1024": 0.04, "1024x1536": 0.04, "1536x1024": 0.04},
+	},
+	googleImagenFastModel: {
+		"low":    {"1024x1024": 0.02, "1024x1536": 0.02, "1536x1024": 0.02},
+		"medium": {"1024x1024": 0.02, "1024x1536": 0.02, "1536x1024": 0.02},
+		"high":   {"1024x1024": 0.02, "1024x1536": 0.02, "1536x1024": 0.02},
+	},
+}
+
+func resolveImageProviderAndModel(args map[string]any) (string, string, error) {
+	prov, _ := args["provider"].(string)
+	prov = strings.ToLower(strings.TrimSpace(prov))
+	if prov == "" {
+		prov = strings.ToLower(strings.TrimSpace(os.Getenv("ARIA_IMAGE_PROVIDER")))
+	}
+	raw, _ := args["model"].(string)
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		raw = strings.TrimSpace(os.Getenv("ARIA_OPENAI_IMAGE_MODEL"))
+	}
+
+	switch strings.ToLower(raw) {
+	case "imagen", "imagen-3", googleImagenModel:
+		return "google", googleImagenModel, nil
+	case "imagen-fast", googleImagenFastModel:
+		return "google", googleImagenFastModel, nil
+	}
+	if prov == "google" || prov == "vertex" || prov == "vertexai" {
+		if raw == "" {
+			if q, _ := args["quality"].(string); q == "low" {
+				return "google", googleImagenFastModel, nil
+			}
+			return "google", googleImagenModel, nil
+		}
+		return "", "", fmt.Errorf("unsupported Google Cloud image model %q; use %s or %s", raw, googleImagenModel, googleImagenFastModel)
+	}
+	// When no explicit model/provider is passed and Google Cloud is configured while OPENAI_API_KEY is absent,
+	// default to Google Cloud Vertex AI (Imagen 3) so desktop Vertex AI users need no extra API key.
+	if raw == "" && prov == "" && envKey("OPENAI_API_KEY") == "" && envKey("VERTEX_PROJECT", "GOOGLE_CLOUD_PROJECT", "GEMINI_API_KEY", "GOOGLE_API_KEY") != "" {
+		return "google", googleImagenModel, nil
+	}
+	m, err := resolveOpenAIImageModel(args)
+	if err != nil {
+		return "", "", err
+	}
+	return "openai", m, nil
+}
+
+func resolveOpenAIImageModel(args map[string]any) (string, error) {
+	raw, _ := args["model"].(string)
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		raw = strings.TrimSpace(os.Getenv("ARIA_OPENAI_IMAGE_MODEL"))
+	}
+	if raw == "" {
+		return openAIImageModel, nil
+	}
+	switch strings.ToLower(raw) {
+	case "sunburst", "gpt-image-2.6-sunburst", "gpt-image-2.6":
+		return openAIImageModelSunburst, nil
+	case "flare", "gpt-image-2.6-flare":
+		return openAIImageModelFlare, nil
+	case "gpt-image-1":
+		return openAIImageModelLegacy, nil
+	case "gpt-image-2", "gpt-image-2-2026-04-21":
+		return "", errors.New("gpt-image-2 is deprecated (retiring 2027-02-10); migrate to gpt-image-2.6-sunburst or gpt-image-2.6-flare")
+	default:
+		return "", fmt.Errorf("unsupported OpenAI image model %q; use gpt-image-2.6-sunburst, gpt-image-2.6-flare or gpt-image-1", raw)
+	}
 }
 
 func imageOptions(args map[string]any) (size, quality string, err error) {
@@ -165,21 +253,43 @@ func imageOptions(args map[string]any) (size, quality string, err error) {
 	default:
 		return "", "", errors.New("quality must be low, medium, high or auto")
 	}
+	if comp, _ := args["complexity"].(string); comp != "" {
+		switch comp {
+		case "low", "medium", "high", "auto":
+		default:
+			return "", "", errors.New("complexity must be low, medium, high or auto")
+		}
+	}
+	if fmtOpt, _ := args["output_format"].(string); fmtOpt != "" {
+		switch strings.ToLower(fmtOpt) {
+		case "png", "jpeg", "webp", "gif", "svg":
+		default:
+			return "", "", errors.New("output_format must be png, jpeg, webp, gif or svg")
+		}
+	}
 	return size, quality, nil
 }
 
 func mcpEstimateImageCost(_ context.Context, args map[string]any) map[string]any {
+	provider, model, err := resolveImageProviderAndModel(args)
+	if err != nil {
+		return mcpFail(err.Error())
+	}
 	size, quality, err := imageOptions(args)
 	if err != nil {
 		return mcpFail(err.Error())
 	}
-	result := map[string]any{"success": true, "provider": "openai", "model": openAIImageModel, "size": size, "quality": quality,
-		"note": "Illustrative estimate from OpenAI's published per-image pricing; check current pricing before relying on it."}
-	if cost, ok := imageCostUSD[quality][size]; ok {
+	result := map[string]any{"success": true, "provider": provider, "model": model, "size": size, "quality": quality,
+		"note": "Illustrative estimate from published per-image pricing; check current pricing before relying on it."}
+	modelTable := imageCostUSDByModel[model]
+	if modelTable == nil {
+		modelTable = imageCostUSD
+	}
+	if cost, ok := modelTable[quality][size]; ok {
 		result["estimated_cost_usd"] = cost
 	} else {
 		result["estimated_cost_usd"] = nil
-		result["note"] = "OpenAI resolves 'auto' size or quality when the request runs, so it cannot be priced ahead."
+		result["note"] = "Auto size or quality is resolved when the request runs, so it cannot be priced ahead."
 	}
 	return result
 }
@@ -330,11 +440,41 @@ func pngBytes(img image.Image, keepAlpha bool) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// isSVGImage checks whether data is a clean SVG document without embedded scripts.
+func isSVGImage(data []byte) bool {
+	trimmed := strings.TrimSpace(string(data))
+	lower := strings.ToLower(trimmed)
+	if !strings.HasPrefix(lower, "<svg") && !(strings.HasPrefix(lower, "<?xml") && strings.Contains(lower, "<svg")) {
+		return false
+	}
+	if strings.Contains(lower, "<script") || strings.Contains(lower, "javascript:") || strings.Contains(lower, "onload=") {
+		return false
+	}
+	return strings.Contains(lower, "</svg>")
+}
+
 // saveImage writes base64 image data, after checking it decodes, to a new file.
 func saveImage(args map[string]any, name, b64 string) map[string]any {
 	data, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
 		return mcpFail("the provider returned image data that is not base64")
+	}
+	if isSVGImage(data) {
+		ext := ".svg"
+		if raw, _ := args["output_path"].(string); strings.TrimSpace(raw) != "" {
+			ext = strings.ToLower(filepath.Ext(raw))
+			if ext != ".svg" {
+				return mcpFail("the image is svg; give output_path that extension")
+			}
+		}
+		out, err := artifactOutput(args, "image", name, ext)
+		if err != nil {
+			return mcpFail(err.Error())
+		}
+		if err := writeNew(out, data); err != nil {
+			return mcpFail(err.Error())
+		}
+		return map[string]any{"success": true, "path": out, "format": "svg", "bytes": len(data)}
 	}
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
@@ -343,10 +483,10 @@ func saveImage(args map[string]any, name, b64 string) map[string]any {
 	ext := map[string]string{"png": ".png", "jpeg": ".jpg", "webp": ".webp", "gif": ".gif"}[format]
 	if raw, _ := args["output_path"].(string); strings.TrimSpace(raw) != "" {
 		ext = strings.ToLower(filepath.Ext(raw))
-		if ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".webp" {
-			return mcpFail("output_path must end in .png, .jpg or .webp")
+		if ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".webp" && ext != ".gif" {
+			return mcpFail("output_path must end in .png, .jpg, .webp, .gif or .svg")
 		}
-		if (ext == ".jpg" || ext == ".jpeg") != (format == "jpeg") || (ext == ".png") != (format == "png") {
+		if (ext == ".jpg" || ext == ".jpeg") != (format == "jpeg") || (ext == ".png") != (format == "png") || (ext == ".gif") != (format == "gif") {
 			return mcpFail(fmt.Sprintf("the image is %s; give output_path that extension", format))
 		}
 	}
@@ -357,7 +497,7 @@ func saveImage(args map[string]any, name, b64 string) map[string]any {
 	if err := writeNew(out, data); err != nil {
 		return mcpFail(err.Error())
 	}
-	return map[string]any{"success": true, "path": out, "width": cfg.Width, "height": cfg.Height, "bytes": len(data)}
+	return map[string]any{"success": true, "path": out, "format": format, "width": cfg.Width, "height": cfg.Height, "bytes": len(data)}
 }
 
 type openAIImageReply struct {
@@ -380,6 +520,75 @@ func openAIKey() (string, error) {
 	return "", errors.New("set OPENAI_API_KEY in the environment Aria runs in (see /apikey)")
 }
 
+type vertexPredictReply struct {
+	Predictions []struct {
+		BytesBase64Encoded string `json:"bytesBase64Encoded"`
+	} `json:"predictions"`
+	Data []struct {
+		B64 string `json:"b64_json"`
+	} `json:"data"`
+}
+
+func (r vertexPredictReply) image() (string, error) {
+	if len(r.Predictions) > 0 && r.Predictions[0].BytesBase64Encoded != "" {
+		return r.Predictions[0].BytesBase64Encoded, nil
+	}
+	if len(r.Data) > 0 && r.Data[0].B64 != "" {
+		return r.Data[0].B64, nil
+	}
+	return "", errors.New("Google Cloud Vertex AI returned no image data")
+}
+
+func sizeToAspectRatio(size string) string {
+	switch size {
+	case "1536x1024":
+		return "4:3"
+	case "1024x1536":
+		return "3:4"
+	default:
+		return "1:1"
+	}
+}
+
+func mcpGenerateImageGoogle(ctx context.Context, args map[string]any, model, prompt, size string) map[string]any {
+	project := envKey("VERTEX_PROJECT", "GOOGLE_CLOUD_PROJECT")
+	location := envKey("VERTEX_LOCATION", "GOOGLE_CLOUD_LOCATION")
+	if location == "" || location == "global" {
+		location = "us-central1"
+	}
+	token := envKey("VERTEX_ACCESS_TOKEN", "GEMINI_API_KEY", "GOOGLE_API_KEY")
+	if project == "" && token == "" {
+		return mcpFail("set GOOGLE_CLOUD_PROJECT (with ADC) or GEMINI_API_KEY in the environment Aria runs in")
+	}
+	if project == "" {
+		project = "default-project"
+	}
+	target := fmt.Sprintf("%s/projects/%s/locations/%s/publishers/google/models/%s:predict",
+		strings.TrimRight(googleImageBase, "/"), url.PathEscape(project), url.PathEscape(location), url.PathEscape(model))
+	headers := map[string]string{"Content-Type": "application/json", "X-Goog-User-Project": project}
+	if token != "" {
+		headers["Authorization"] = "Bearer " + token
+	}
+	payload := map[string]any{
+		"instances":  []map[string]any{{"prompt": prompt}},
+		"parameters": map[string]any{"sampleCount": 1, "aspectRatio": sizeToAspectRatio(size)},
+	}
+	var reply vertexPredictReply
+	if err := mediaRequest(ctx, "Google Cloud Vertex AI", http.MethodPost, target, headers, jsonBody(payload), &reply); err != nil {
+		return mcpFail(err.Error())
+	}
+	b64, err := reply.image()
+	if err != nil {
+		return mcpFail(err.Error())
+	}
+	res := saveImage(args, "generated", b64)
+	if res["success"] == true {
+		res["provider"] = "google"
+		res["model"] = model
+	}
+	return res
+}
+
 func mcpGenerateImage(ctx context.Context, args map[string]any) map[string]any {
 	if err := confirmedArg(args, "generate an image", "aria.report.estimate_image_cost"); err != nil {
 		return mcpFail(err.Error())
@@ -388,18 +597,32 @@ func mcpGenerateImage(ctx context.Context, args map[string]any) map[string]any {
 	if strings.TrimSpace(prompt) == "" || len(prompt) > 32000 {
 		return mcpFail("prompt is required (up to 32,000 characters)")
 	}
+	provider, model, err := resolveImageProviderAndModel(args)
+	if err != nil {
+		return mcpFail(err.Error())
+	}
 	size, quality, err := imageOptions(args)
 	if err != nil {
 		return mcpFail(err.Error())
+	}
+	if provider == "google" {
+		return mcpGenerateImageGoogle(ctx, args, model, prompt, size)
 	}
 	key, err := openAIKey()
 	if err != nil {
 		return mcpFail(err.Error())
 	}
+	reqPayload := map[string]any{"model": model, "prompt": prompt, "size": size, "quality": quality}
+	if comp, _ := args["complexity"].(string); comp != "" {
+		reqPayload["complexity"] = comp
+	}
+	if fmtOpt, _ := args["output_format"].(string); fmtOpt != "" {
+		reqPayload["output_format"] = strings.ToLower(fmtOpt)
+	}
 	var reply openAIImageReply
 	err = mediaRequest(ctx, "OpenAI", http.MethodPost, openAIImageBase+"/images/generations",
 		map[string]string{"Authorization": "Bearer " + key, "Content-Type": "application/json"},
-		jsonBody(map[string]any{"model": openAIImageModel, "prompt": prompt, "size": size, "quality": quality}), &reply)
+		jsonBody(reqPayload), &reply)
 	if err != nil {
 		return mcpFail(err.Error())
 	}
@@ -407,7 +630,12 @@ func mcpGenerateImage(ctx context.Context, args map[string]any) map[string]any {
 	if err != nil {
 		return mcpFail(err.Error())
 	}
-	return saveImage(args, "generated", b64)
+	res := saveImage(args, "generated", b64)
+	if res["success"] == true {
+		res["provider"] = "openai"
+		res["model"] = model
+	}
+	return res
 }
 
 func mcpEditImage(ctx context.Context, args map[string]any) map[string]any {
@@ -419,6 +647,10 @@ func mcpEditImage(ctx context.Context, args map[string]any) map[string]any {
 	if strings.TrimSpace(prompt) == "" || strings.TrimSpace(imagePath) == "" {
 		return mcpFail("image_path and prompt are required")
 	}
+	model, err := resolveOpenAIImageModel(args)
+	if err != nil {
+		return mcpFail(err.Error())
+	}
 	size, quality, err := imageOptions(args)
 	if err != nil {
 		return mcpFail(err.Error())
@@ -429,7 +661,17 @@ func mcpEditImage(ctx context.Context, args map[string]any) map[string]any {
 	}
 	var body bytes.Buffer
 	form := multipart.NewWriter(&body)
-	for k, v := range map[string]string{"model": openAIImageModel, "prompt": prompt, "size": size, "quality": quality} {
+	fields := map[string]string{"model": model, "prompt": prompt, "size": size, "quality": quality}
+	if comp, _ := args["complexity"].(string); comp != "" {
+		fields["complexity"] = comp
+	}
+	if fmtOpt, _ := args["output_format"].(string); fmtOpt != "" {
+		fields["output_format"] = strings.ToLower(fmtOpt)
+	}
+	if regionHint, _ := args["region_hint"].(string); strings.TrimSpace(regionHint) != "" {
+		fields["region_hint"] = strings.TrimSpace(regionHint)
+	}
+	for k, v := range fields {
 		form.WriteField(k, v)
 	}
 	addImage := func(field, path string, keepAlpha bool) error {
@@ -471,7 +713,11 @@ func mcpEditImage(ctx context.Context, args map[string]any) map[string]any {
 		return mcpFail(err.Error())
 	}
 	stem := strings.TrimSuffix(filepath.Base(imagePath), filepath.Ext(imagePath))
-	return saveImage(args, stem+"_edited", b64)
+	res := saveImage(args, stem+"_edited", b64)
+	if res["success"] == true {
+		res["model"] = model
+	}
+	return res
 }
 
 // ── Local images (AUTOMATIC1111-compatible API) ─────────────────────────────
@@ -1028,22 +1274,34 @@ func init() {
 		t.Annotations["destructiveHint"] = true
 		return t
 	}
+	imageProviderProp := map[string]any{"type": "string", "enum": []any{"google", "openai"}, "description": "Optional provider override: 'google' (Vertex AI Imagen 3, default when GOOGLE_CLOUD_PROJECT is set and OPENAI_API_KEY is unset) or 'openai' (GPT Image 2.6)."}
+	modelProp := map[string]any{"type": "string", "enum": []any{"imagen-3.0-generate-002", "imagen-3.0-fast-generate-001", "imagen", "imagen-fast", "gpt-image-2.6-sunburst", "gpt-image-2.6-flare", "sunburst", "flare", "gpt-image-1"}, "description": "Google Cloud Vertex AI Imagen 3 (imagen / imagen-fast) or OpenAI GPT Image 2.6 (sunburst / flare)."}
 	sizeProp := map[string]any{"type": "string", "enum": []any{"1024x1024", "1536x1024", "1024x1536", "auto"}, "description": "Default: 1024x1536"}
 	qualityProp := map[string]any{"type": "string", "enum": []any{"low", "medium", "high", "auto"}, "description": "Default: high"}
+	complexityProp := map[string]any{"type": "string", "enum": []any{"low", "medium", "high", "auto"}, "description": "Optional adjustable complexity for GPT Image 2.6."}
+	outputFormatProp := map[string]any{"type": "string", "enum": []any{"png", "jpeg", "webp", "gif", "svg"}, "description": "Optional output format (PNG, JPEG, WebP, animated GIF or vector SVG)."}
+	regionHintProp := map[string]any{"type": "string", "description": "Optional marker-assisted local editing region or visual annotation hint for GPT Image 2.6."}
 	confirmedProp := map[string]any{"type": "boolean", "description": "Must be true: this is billed the moment it succeeds."}
-	imageOut := map[string]any{"type": "string", "description": "Optional new .png file (never overwritten); default: a new file under Aria's artifacts/image."}
+	imageOut := map[string]any{"type": "string", "description": "Optional new .png/.jpg/.webp/.gif/.svg file (never overwritten); default: a new file under Aria's artifacts/image."}
 	providerProp := map[string]any{"type": "string", "enum": []any{"kling", "runway"}}
 	mcpServerTools = append(mcpServerTools,
-		readOnlyTool("aria.report.estimate_image_cost", "Estimated OpenAI cost of one gpt-image-1 image at a size and quality. Call before generate_image or edit_image.",
-			map[string]any{"size": sizeProp, "quality": qualityProp}),
-		paid(writeTool("aria.report.generate_image", "Generate an image from a prompt with OpenAI gpt-image-1 (OPENAI_API_KEY), into a new file. Paid: needs confirmed=true.",
+		readOnlyTool("aria.report.estimate_image_cost", "Estimated cost of one Google Cloud Vertex AI Imagen 3 or OpenAI GPT Image 2.6 image at a size and quality. Call before generate_image or edit_image.",
+			map[string]any{"provider": imageProviderProp, "model": modelProp, "size": sizeProp, "quality": qualityProp}),
+		paid(writeTool("aria.report.generate_image", "Generate an image from a prompt with Google Cloud Vertex AI Imagen 3 (GOOGLE_CLOUD_PROJECT) or OpenAI GPT Image 2.6 (OPENAI_API_KEY), into a new file. Paid: needs confirmed=true.",
 			map[string]any{"prompt": map[string]any{"type": "string", "description": "Text prompt, e.g. a skill's compiled poster prompt."},
-				"size": sizeProp, "quality": qualityProp, "confirmed": confirmedProp, "output_path": imageOut}, "prompt", "confirmed")),
-		paid(writeTool("aria.report.edit_image", "Transform a local photo with OpenAI gpt-image-1, optionally only where a mask is transparent, into a new file. Paid: needs confirmed=true.",
+				"provider": imageProviderProp, "model": modelProp, "size": sizeProp, "quality": qualityProp, "complexity": complexityProp, "output_format": outputFormatProp, "confirmed": confirmedProp, "output_path": imageOut}, "prompt", "confirmed")),
+		paid(writeTool("aria.report.edit_image", "Transform a local photo with OpenAI GPT Image 2.6 (sunburst/flare), optionally with a transparent mask or marker-assisted region_hint, into a new file. Paid: needs confirmed=true.",
 			map[string]any{"image_path": map[string]any{"type": "string", "description": "The photo to transform (PNG, JPEG, WebP; EXIF rotation is applied)."},
-				"prompt":    map[string]any{"type": "string", "description": "How to transform it."},
-				"mask_path": map[string]any{"type": "string", "description": "Optional PNG mask: transparent areas are edited, opaque ones kept."},
-				"size":      sizeProp, "quality": qualityProp, "confirmed": confirmedProp, "output_path": imageOut}, "image_path", "prompt", "confirmed")),
+				"prompt":        map[string]any{"type": "string", "description": "How to transform it."},
+				"mask_path":     map[string]any{"type": "string", "description": "Optional PNG mask: transparent areas are edited, opaque ones kept."},
+				"region_hint":   regionHintProp,
+				"model":         modelProp,
+				"size":          sizeProp,
+				"quality":       qualityProp,
+				"complexity":    complexityProp,
+				"output_format": outputFormatProp,
+				"confirmed":     confirmedProp,
+				"output_path":   imageOut}, "image_path", "prompt", "confirmed")),
 		network(writeTool("aria.report.generate_image_local", "Generate an image on a local AUTOMATIC1111-compatible server (ARIA_LOCAL_IMAGE_URL, default http://127.0.0.1:7860), into a new file. No cost.",
 			map[string]any{"prompt": map[string]any{"type": "string"},
 				"width":       map[string]any{"type": "integer", "description": "Default: 1024"},

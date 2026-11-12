@@ -46,6 +46,23 @@ func projectInstructions(root, workspace string) string {
 	}
 	if root != "" {
 		add("user_profile", filepath.Join(root, "ARIA.md"))
+		// Inject account-partitioned profile if available
+		cfg, _ := loadConfig(root)
+		accProfile := filepath.Join(accountRoot(root, cfg), "ARIA.md")
+		if accProfile != filepath.Join(root, "ARIA.md") {
+			add("account_profile", accProfile)
+		}
+		memState, _ := loadAccountMemory(root, cfg)
+		if len(memState.Items) > 0 {
+			var memLines []string
+			for _, it := range memState.Items {
+				if len(memLines) < 20 {
+					memLines = append(memLines, "• "+it.Content)
+				}
+			}
+			memBlock := strings.Join(memLines, "\n")
+			fmt.Fprintf(&b, "\n\n<account_memory>\n%s\n</account_memory>", memBlock)
+		}
 	}
 	for _, name := range projectContextFiles {
 		add("project_instructions", filepath.Join(workspace, name))
@@ -178,8 +195,34 @@ func (s *server) memoryCommand(args string) (string, error) {
 			}
 			return "Saved to your profile (" + profile + "); every project sees it.", nil
 		}
+		if what == "sync" {
+			pushed, pulled, err := syncAccountMemory(context.Background(), s.opts.root, s.cfg)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("Memory synchronized with Arthera Cloud (pushed %d, pulled %d).", pushed, pulled), nil
+		}
+		if what == "account" {
+			act, fact, _ := strings.Cut(fact, " ")
+			if act == "add" && strings.TrimSpace(fact) != "" {
+				if err := addAccountMemory(s.opts.root, s.cfg, fact); err != nil {
+					return "", err
+				}
+				return "Saved to account memory: " + fact, nil
+			}
+			state, _ := loadAccountMemory(s.opts.root, s.cfg)
+			if len(state.Items) == 0 {
+				return "No account memory items. /memory profile account add <fact> to record.", nil
+			}
+			var b strings.Builder
+			b.WriteString(fmt.Sprintf("Account Memory (%d items, outbox: %d)\n\n", len(state.Items), len(state.Outbox)))
+			for _, it := range state.Items {
+				b.WriteString("• " + it.Content + "\n")
+			}
+			return strings.TrimSpace(b.String()), nil
+		}
 	}
-	return "", errors.New("usage: /memory [show | add <fact> | profile [add <fact>]]")
+	return "", errors.New("usage: /memory [show | add <fact> | profile [add <fact> | sync | account [add <fact>]]]")
 }
 
 func workspaceFiles(workspace string) []string {

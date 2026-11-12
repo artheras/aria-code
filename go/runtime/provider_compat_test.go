@@ -255,3 +255,73 @@ func TestLocalProviderCompactsOlderToolOutputsAndFiltersMultiEdit(t *testing.T) 
 		t.Fatalf("expected latest tool output to be preserved, got: %q", latestToolContent)
 	}
 }
+
+func TestParseJSONArgumentsRecovery(t *testing.T) {
+	for name, tc := range map[string]struct {
+		input string
+		want  string
+	}{
+		"clean": {
+			input: `{"command": "git status"}`,
+			want:  "git status",
+		},
+		"markdown_code_block": {
+			input: "```json\n{\"command\": \"ls -la\"}\n```",
+			want:  "ls -la",
+		},
+		"trailing_comma": {
+			input: `{"command": "echo hi",}`,
+			want:  "echo hi",
+		},
+		"surrounding_text_and_trailing_comma": {
+			input: "Here is the tool call:\n```\n{\"command\": \"pwd\",}\n```\nDone",
+			want:  "pwd",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			args := map[string]any{}
+			if err := parseJSONArguments(tc.input, &args); err != nil {
+				t.Fatalf("failed to parse %q: %v", tc.input, err)
+			}
+			if args["command"] != tc.want {
+				t.Fatalf("expected command=%q, got=%v", tc.want, args["command"])
+			}
+		})
+	}
+}
+
+func TestLocalModelOptionsNumCtxInPayload(t *testing.T) {
+	var capturedPayload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Logf("server received: %s %s", r.Method, r.URL.Path)
+		if strings.HasSuffix(r.URL.Path, "/models") || strings.HasSuffix(r.URL.Path, "/tags") {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"data":[{"id":"qwen2.5:7b"}],"models":[{"name":"qwen2.5:7b"}]}`)
+			return
+		}
+		json.NewDecoder(r.Body).Decode(&capturedPayload)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	p := &openAIProvider{
+		cfg:      config{"local_provider": "ollama", "num_ctx": float64(16384)},
+		model:    "qwen2.5:7b",
+		client:   server.Client(),
+		endpoint: server.URL + "/v1/chat/completions",
+		declared: &declaredProvider{ID: "ollama", Name: "Ollama", BaseURL: server.URL},
+	}
+	_, err := p.Generate(context.Background(), []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "hi"}}}}, "system", nil, func(s string) {})
+	if err != nil {
+		t.Logf("Generate returned err: %v", err)
+	}
+
+	opts, ok := capturedPayload["options"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected options in payload for local model, got: %v", capturedPayload)
+	}
+	if opts["num_ctx"] != float64(16384) {
+		t.Fatalf("expected num_ctx=16384, got: %v", opts["num_ctx"])
+	}
+}

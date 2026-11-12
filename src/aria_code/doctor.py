@@ -122,7 +122,7 @@ def _check_python_drift() -> Optional[DoctorCheck]:
         for line in cfg.read_text(encoding="utf-8").splitlines():
             key, _, value = line.partition("=")
             key = key.strip().lower()
-            if key == "version":
+            if key in ("version", "version_info"):
                 recorded = value.strip()
             elif key == "home":
                 home = value.strip()
@@ -375,7 +375,7 @@ def integration_checks() -> List[DoctorCheck]:
         # Read stored config directly rather than calling _access_token(),
         # which refreshes an expired token over the network — this function
         # is a local-first, no-mutation health check, not a live probe.
-        from canva_client import _load_canva_config
+        from aria_code.clients.canva_client import _load_canva_config
 
         connected = bool(_load_canva_config().get("access_token"))
         checks.append(_check(

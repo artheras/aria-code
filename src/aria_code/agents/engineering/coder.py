@@ -180,7 +180,7 @@ class CoderAgent(BaseAgent):
 
     async def analyze(self, symbol: str, data: Dict[str, Any]) -> AgentResult:
         """
-        Advanced Autonomous Software Engineer Loop (Cursor/Claude Code caliber).
+        Advanced Autonomous Software Engineer Loop.
         """
         rule_tree = data.get("strategy_rules") or data.get("rule_tree")
         request_text = data.get("request", "Write a Python script.")

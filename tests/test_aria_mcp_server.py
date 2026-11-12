@@ -157,7 +157,7 @@ async def test_generate_submit_rejects_unknown_provider_even_when_confirmed():
 
 @pytest.mark.asyncio
 async def test_generate_submit_calls_provider_only_when_confirmed(monkeypatch):
-    import kling_video_client
+    from aria_code.clients import kling_video_client
 
     called = {}
 

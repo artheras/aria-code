@@ -146,14 +146,16 @@ def default_exposures() -> List[MCPExposure]:
         MCPExposure(
             "aria.report.estimate_image_cost",
             "tool:openai_estimate_image_cost",
-            "Get an illustrative per-image cost estimate (USD) for OpenAI's gpt-image-1 "
-            "at a given size/quality, before generating. Free, no API call to OpenAI.",
+            "Get an illustrative per-image cost estimate (USD) for OpenAI's GPT Image 2.6 "
+            "(gpt-image-2.6-sunburst / gpt-image-2.6-flare) or gpt-image-1 at a given size/quality, "
+            "before generating. Free, no API call to OpenAI.",
         ),
         MCPExposure(
             "aria.report.generate_image",
             "tool:openai_generate_image",
-            "Generate a new image from a text prompt (e.g. minimal-editorial-poster's "
-            "compiled prompt) via OpenAI's gpt-image-1. Real per-call cost, billed by "
+            "Generate a new image (PNG, WebP, animated GIF, or SVG) from a text prompt "
+            "(e.g. minimal-editorial-poster's compiled prompt) via OpenAI's GPT Image 2.6 "
+            "(gpt-image-2.6-sunburst / gpt-image-2.6-flare). Real per-call cost, billed by "
             "OpenAI the instant this succeeds — requires confirmed=true, and calling "
             "aria.report.estimate_image_cost first is strongly recommended. Requires an "
             "OpenAI API key (/apikey set openai sk-... or OPENAI_API_KEY).",
@@ -163,10 +165,9 @@ def default_exposures() -> List[MCPExposure]:
             "aria.report.edit_image",
             "tool:openai_edit_image",
             "Transform an existing local photo per a text prompt (duotone, background "
-            "simplification, texture overlay, etc.) via OpenAI's gpt-image-1 edits "
-            "endpoint. Pass mask_path for inpainting — a local mask PNG where transparent "
-            "areas mark what to edit and opaque areas are left untouched — to constrain "
-            "the edit to part of the image instead of the whole thing. Real per-call cost, "
+            "simplification, texture overlay, etc.) via OpenAI's GPT Image 2.6 edits "
+            "endpoint. Pass mask_path for transparent-mask inpainting or region_hint for "
+            "marker-assisted local editing. Real per-call cost, "
             "billed by OpenAI the instant this succeeds — requires confirmed=true, and "
             "calling aria.report.estimate_image_cost first is strongly recommended. "
             "Requires an OpenAI API key.",

@@ -2,6 +2,9 @@
 'use strict';
 
 const vscode = require('vscode');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 const DEFAULT_API_BASE = 'http://127.0.0.1:8000';
 const HEALTH_POLL_MS = 30_000;
@@ -12,7 +15,26 @@ let healthTimer;
 let webviewViewRef = null;
 let apiBase = DEFAULT_API_BASE;
 
+function resolveDiscoveredUrl(fileName) {
+  try {
+    const ariaHome = process.env.ARIA_HOME || path.join(os.homedir(), '.aria-code');
+    const legacyHome = path.join(os.homedir(), '.arthera');
+    for (const h of [ariaHome, legacyHome]) {
+      const p = path.join(h, fileName);
+      if (fs.existsSync(p)) {
+        const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+        if (data && data.url) {
+          return String(data.url).replace(/\/+$/, '');
+        }
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
 function getConfiguredApiBase() {
+  const discovered = resolveDiscoveredUrl('runtime.json');
+  if (discovered) return discovered;
   const cfg = vscode.workspace.getConfiguration('ariaCode');
   const value = cfg.get('apiBase', DEFAULT_API_BASE);
   return String(value || DEFAULT_API_BASE).replace(/\/+$/, '');

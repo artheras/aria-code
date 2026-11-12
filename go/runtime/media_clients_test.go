@@ -94,22 +94,30 @@ type mediaStub struct {
 
 func newMediaStub(t *testing.T, handle func(w http.ResponseWriter, r *http.Request, body []byte)) *mediaStub {
 	t.Helper()
-	s := &mediaStub{}
-	s.srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		s.mu.Lock()
-		s.requests = append(s.requests, r)
-		s.bodies = append(s.bodies, body)
-		s.mu.Unlock()
-		handle(w, r, body)
-	}))
-	t.Cleanup(s.srv.Close)
-	saved := []string{openAIImageBase, figmaBase, klingBase, runwayBase}
+	s := &mediaStub{
+		srv: &httptest.Server{URL: "https://media-stub.local"},
+	}
+	saved := []string{openAIImageBase, googleImageBase, figmaBase, klingBase, runwayBase}
 	savedClient := mediaHTTP
-	openAIImageBase, figmaBase, klingBase, runwayBase = s.srv.URL+"/openai", s.srv.URL+"/figma", s.srv.URL+"/kling", s.srv.URL+"/runway"
-	mediaHTTP = s.srv.Client()
+	openAIImageBase, googleImageBase, figmaBase, klingBase, runwayBase = s.srv.URL+"/openai", s.srv.URL+"/google", s.srv.URL+"/figma", s.srv.URL+"/kling", s.srv.URL+"/runway"
+	mediaHTTP = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			var body []byte
+			if r.Body != nil {
+				body, _ = io.ReadAll(r.Body)
+				r.Body = io.NopCloser(bytes.NewReader(body))
+			}
+			s.mu.Lock()
+			s.requests = append(s.requests, r)
+			s.bodies = append(s.bodies, body)
+			s.mu.Unlock()
+			rec := httptest.NewRecorder()
+			handle(rec, r, body)
+			return rec.Result(), nil
+		}),
+	}
 	t.Cleanup(func() {
-		openAIImageBase, figmaBase, klingBase, runwayBase = saved[0], saved[1], saved[2], saved[3]
+		openAIImageBase, googleImageBase, figmaBase, klingBase, runwayBase = saved[0], saved[1], saved[2], saved[3], saved[4]
 		mediaHTTP = savedClient
 	})
 	return s
@@ -143,6 +151,10 @@ func TestOpenAIImageTools(t *testing.T) {
 		t.Fatal("unconfirmed paid calls must be refused", r)
 	}
 	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("VERTEX_PROJECT", "")
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "")
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
 	if r := mcpGenerateImage(ctx, map[string]any{"prompt": "a poster", "confirmed": true}); r["success"] != false || !strings.Contains(r["error"].(string), "OPENAI_API_KEY") {
 		t.Fatal(r)
 	}
@@ -203,6 +215,82 @@ func TestOpenAIImageTools(t *testing.T) {
 		if r := mcpEditImage(ctx, bad); r["success"] != false {
 			t.Fatal("accepted", bad, r)
 		}
+	}
+
+	// GPT Image 2.6 model routing, flare cost tier, SVG output, complexity, region_hint, and gpt-image-2 deprecation guard
+	if r := mcpEstimateImageCost(ctx, map[string]any{"model": "flare", "size": "1024x1024", "quality": "low"}); r["model"] != openAIImageModelFlare || r["estimated_cost_usd"] != 0.005 {
+		t.Fatalf("unexpected flare estimate: %+v", r)
+	}
+	if r := mcpEstimateImageCost(ctx, map[string]any{"model": "gpt-image-2"}); r["success"] != false || !strings.Contains(r["error"].(string), "2027-02-10") {
+		t.Fatalf("expected deprecation error for gpt-image-2: %+v", r)
+	}
+	svg64 := base64.StdEncoding.EncodeToString([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>`))
+	svgStub := newMediaStub(t, func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Write([]byte(`{"data":[{"b64_json":"` + svg64 + `"}]}`))
+	})
+	svgOut := filepath.Join(home, "vector.svg")
+	rSVG := mcpGenerateImage(ctx, map[string]any{
+		"prompt":        "minimal vector icon",
+		"model":         "flare",
+		"complexity":    "medium",
+		"output_format": "svg",
+		"confirmed":     true,
+		"output_path":   svgOut,
+	})
+	if rSVG["success"] != true || rSVG["format"] != "svg" || rSVG["model"] != openAIImageModelFlare {
+		t.Fatalf("expected SVG generation success: %+v", rSVG)
+	}
+	_, svgReqBody := svgStub.last()
+	if !strings.Contains(string(svgReqBody), `"model":"gpt-image-2.6-flare"`) ||
+		!strings.Contains(string(svgReqBody), `"complexity":"medium"`) ||
+		!strings.Contains(string(svgReqBody), `"output_format":"svg"`) {
+		t.Fatalf("unexpected SVG generation body: %s", string(svgReqBody))
+	}
+
+	// Marker-assisted region_hint in edit_image
+	rHint := mcpEditImage(ctx, map[string]any{
+		"image_path":    "phone.jpg",
+		"prompt":        "replace highlighted box with neon sign",
+		"region_hint":   "red-bounding-box:x=10,y=10,w=100,h=80",
+		"model":         "sunburst",
+		"complexity":    "high",
+		"output_format": "svg",
+		"confirmed":     true,
+	})
+	if rHint["success"] != true || rHint["model"] != openAIImageModelSunburst {
+		t.Fatalf("expected marker-assisted edit success: %+v", rHint)
+	}
+	reqHint, bodyHint := svgStub.last()
+	reqHint.Body = io.NopCloser(bytes.NewReader(bodyHint))
+	if err := reqHint.ParseMultipartForm(10 << 20); err != nil {
+		t.Fatal(err)
+	}
+	if reqHint.FormValue("region_hint") != "red-bounding-box:x=10,y=10,w=100,h=80" || reqHint.FormValue("complexity") != "high" {
+		t.Fatalf("expected region_hint and complexity in multipart form: %+v", reqHint.MultipartForm.Value)
+	}
+
+	// Google Cloud Vertex AI Imagen 3 automatic priority when GOOGLE_CLOUD_PROJECT is configured and OPENAI_API_KEY is unset
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "aria-vertex-prod")
+	t.Setenv("VERTEX_ACCESS_TOKEN", "ya29.test-token")
+	if r := mcpEstimateImageCost(ctx, map[string]any{}); r["provider"] != "google" || r["model"] != googleImagenModel || r["estimated_cost_usd"] != 0.04 {
+		t.Fatalf("expected Google Cloud Imagen 3 default estimate when GOOGLE_CLOUD_PROJECT is set: %+v", r)
+	}
+	vertexStub := newMediaStub(t, func(w http.ResponseWriter, r *http.Request, body []byte) {
+		w.Write([]byte(`{"predictions":[{"bytesBase64Encoded":"` + png64 + `"}]}`))
+	})
+	rVertex := mcpGenerateImage(ctx, map[string]any{
+		"prompt":    "editorial cover on Vertex AI",
+		"size":      "1024x1536",
+		"confirmed": true,
+	})
+	if rVertex["success"] != true || rVertex["provider"] != "google" || rVertex["model"] != googleImagenModel {
+		t.Fatalf("expected Google Cloud Vertex AI image generation success: %+v", rVertex)
+	}
+	vReq, vBody := vertexStub.last()
+	if !strings.Contains(vReq.URL.Path, "/projects/aria-vertex-prod/locations/us-central1/publishers/google/models/imagen-3.0-generate-002:predict") ||
+		!strings.Contains(string(vBody), `"aspectRatio":"3:4"`) {
+		t.Fatalf("unexpected Vertex AI request: %s %s", vReq.URL.Path, string(vBody))
 	}
 }
 

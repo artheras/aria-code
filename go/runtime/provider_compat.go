@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -243,6 +244,32 @@ type tokenCounts struct {
 	} `json:"completion_tokens_details"`
 }
 
+var trailingCommaRegex = regexp.MustCompile(`,(\s*[}\]])`)
+
+func parseJSONArguments(raw string, target *map[string]any) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "null" {
+		return nil
+	}
+	if err := json.Unmarshal([]byte(raw), target); err == nil && *target != nil {
+		return nil
+	}
+	cleaned := raw
+	if start := strings.Index(cleaned, "{"); start != -1 {
+		if end := strings.LastIndex(cleaned, "}"); end != -1 && end >= start {
+			cleaned = cleaned[start : end+1]
+		}
+	}
+	if err := json.Unmarshal([]byte(cleaned), target); err == nil && *target != nil {
+		return nil
+	}
+	fixed := trailingCommaRegex.ReplaceAllString(cleaned, "$1")
+	if err := json.Unmarshal([]byte(fixed), target); err == nil && *target != nil {
+		return nil
+	}
+	return errors.New("tool call arguments are not a complete JSON object")
+}
+
 // A stream is not executable until every call's arguments have been parsed and
 // the server sends a completion marker. An EOF halfway through a call is an error.
 func parseCompletions(r io.Reader, streaming bool, emit func(string), usage ...*tokenCounts) (*genai.Content, error) {
@@ -387,7 +414,7 @@ func parseCompletions(r io.Reader, streaming bool, emit func(string), usage ...*
 		}
 		rawArgs := strings.TrimSpace(call.Function.Arguments)
 		if rawArgs != "" && rawArgs != "null" {
-			if err := json.Unmarshal([]byte(rawArgs), &args); err != nil || args == nil {
+			if err := parseJSONArguments(rawArgs, &args); err != nil || args == nil {
 				return content, errors.New("tool call arguments are not a complete JSON object")
 			}
 		}
@@ -466,6 +493,15 @@ func (p *openAIProvider) Generate(ctx context.Context, contents []*genai.Content
 		temp = temperature
 	}
 	payload := map[string]any{"model": model, "messages": messages, "stream": true, "temperature": temp, "max_tokens": maxTokens}
+	if p.isLocal() {
+		numCtx := p.cfg.number("num_ctx", 16384)
+		if numCtx <= 0 {
+			numCtx = 16384
+		}
+		payload["options"] = map[string]any{
+			"num_ctx": numCtx,
+		}
+	}
 	if p.cfg.boolean("stream_usage", true) {
 		payload["stream_options"] = map[string]any{"include_usage": true}
 	}
@@ -524,11 +560,12 @@ func (p *openAIProvider) Generate(ctx context.Context, contents []*genai.Content
 			attempt--
 			continue
 		}
-		if response.StatusCode == http.StatusBadRequest && p.declared != nil && payload["stream_options"] != nil && !strippedStreamOptions {
-			// Local servers (llama.cpp, older vLLM/LM Studio) may reject stream_options.
+		if response.StatusCode == http.StatusBadRequest && p.declared != nil && (payload["stream_options"] != nil || payload["options"] != nil) && (!strippedStreamOptions || payload["options"] != nil) {
+			// Local servers (llama.cpp, older vLLM/LM Studio) may reject stream_options or options.
 			io.Copy(io.Discard, io.LimitReader(response.Body, 65536))
 			response.Body.Close()
 			delete(payload, "stream_options")
+			delete(payload, "options")
 			if nextBody, marshalErr := json.Marshal(payload); marshalErr == nil {
 				body = nextBody
 				strippedStreamOptions = true

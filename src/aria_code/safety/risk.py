@@ -69,6 +69,8 @@ CAPABILITIES = frozenset({
     "hardware.flash", "actuator.command",
     # The live desktop: reading the screen and driving the mouse and keyboard.
     "screen.capture", "desktop.control",
+    # Enterprise residency and vault boundaries: external MCP egress and credential vault access.
+    "mcp.external_egress", "credential.vault",
 })
 
 

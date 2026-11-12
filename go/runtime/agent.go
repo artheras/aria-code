@@ -45,6 +45,7 @@ var fileDefinitions = []definition{
 	{"list_files", "List a directory or matching files. Use only when the task requires repository evidence.", map[string]any{"path": textParam("Directory, defaults to current workspace"), "pattern": textParam("Glob pattern, default *")}, nil, false},
 	{"write_file", "Create or overwrite an actual file. The host enforces scope and asks for approval before changing it.", map[string]any{"path": textParam("File path"), "content": textParam("Complete file contents")}, []string{"path", "content"}, true},
 	{"edit_file", "Replace exact text in a file. Read the file first. old_string must be unique unless replace_all is explicitly true.", map[string]any{"path": textParam("File path"), "old_string": textParam("Exact old source text"), "new_string": textParam("Replacement source text"), "replace_all": map[string]any{"type": "boolean"}}, []string{"path", "old_string", "new_string"}, true},
+	{"publish_artifact", "Publish a self-contained HTML page, Markdown document, or image to the user's live canvas panel with instant version history. Use when the result is visual (dashboard, report, chart, comparison table). HTML must inline CSS/JS and embed images as data: URIs.", map[string]any{"path": textParam("Path to existing file in workspace to publish"), "content": textParam("File content to publish (use with filename)"), "filename": textParam("Bare filename for content (e.g. report.html)"), "title": textParam("Display title"), "topic": textParam("Thread topic grouping versions (defaults to title)"), "description": textParam("One-line summary")}, nil, false},
 }
 
 func nativeTools() []*genai.Tool {
@@ -427,6 +428,12 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 						result = fileGlob(ctx, s, call.Args)
 					case "search_code":
 						result = searchCode(ctx, s, call.Args)
+					case "publish_artifact":
+						stateRootPath := s.workspace
+						if r, err := stateRoot(); err == nil {
+							stateRootPath = r
+						}
+						result = publishArtifactTool(ctx, s, stateRootPath, call.Args)
 					case "web_fetch", "web_search":
 						if !c.boolean("network_enabled", true) {
 							result = failed(errors.New("network access is off for this session (network_enabled=false)"))

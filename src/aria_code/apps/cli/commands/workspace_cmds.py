@@ -729,7 +729,7 @@ class WorkspaceCommandsMixin:
         from rich.table import Table as _T
         from rich import box as _box
         try:
-            from aria_code.project_tools import ProjectSession, scan_project, format_grep_results
+            from aria_code.tools.project_tools import ProjectSession, scan_project, format_grep_results
             _HAS_PT = True
         except ImportError:
             _HAS_PT = False

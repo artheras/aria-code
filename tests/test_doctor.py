@@ -330,7 +330,7 @@ def test_provider_key_present_swallows_import_errors():
 
 def test_integration_checks_canva_connected(monkeypatch):
     monkeypatch.setattr(doctor, "_provider_key_present", lambda module_name, key_fn: False)
-    import canva_client
+    from aria_code.clients import canva_client
     monkeypatch.setattr(canva_client, "_load_canva_config", lambda: {"access_token": "tok"})
     checks = {c.name: c for c in integration_checks()}
     assert checks["integration:canva"].status == "ok"
@@ -338,7 +338,7 @@ def test_integration_checks_canva_connected(monkeypatch):
 
 def test_integration_checks_canva_not_connected(monkeypatch):
     monkeypatch.setattr(doctor, "_provider_key_present", lambda module_name, key_fn: False)
-    import canva_client
+    from aria_code.clients import canva_client
     monkeypatch.setattr(canva_client, "_load_canva_config", lambda: {})
     checks = {c.name: c for c in integration_checks()}
     assert checks["integration:canva"].status == "warn"

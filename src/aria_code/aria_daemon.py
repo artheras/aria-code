@@ -1289,7 +1289,7 @@ async def main() -> None:
     relay_mode      = os.environ.get("ARIA_RELAY_MODE", "")
     if relay_url and relay_client_id and relay_mode == "relay":
         try:
-            from aria_relay_client import _connect_and_serve as _relay_serve
+            from aria_code.clients.aria_relay_client import _connect_and_serve as _relay_serve
             tasks.append(asyncio.create_task(_relay_serve(), name="feishu_relay"))
             logger.info("Feishu relay client started → %s (client=%s)", relay_url, relay_client_id)
         except ImportError:
