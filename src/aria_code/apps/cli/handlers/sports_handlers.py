@@ -15,7 +15,7 @@ from __future__ import annotations
 def try_prefetch_sports_data(message: str) -> str:
     """Live sports context for a query, or "" when unavailable."""
     try:
-        from football_data_client import get_sports_context_for_query
+        from aria_code.clients.football_data_client import get_sports_context_for_query
 
         return get_sports_context_for_query(message) or ""
     except Exception:

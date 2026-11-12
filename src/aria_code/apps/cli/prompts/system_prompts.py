@@ -252,7 +252,7 @@ def build_analysis_prompt_lite(user_message: str) -> str:
 def build_finance_prompt(user_message: str = "") -> str:
     """Build FINANCE_CHAT_PROMPT with today's date and language rule injected."""
     try:
-        from aria_code.finance_formulas import FORMULA_PROMPT_BLOCK_CORE as _fpb
+        from aria_code.domain.finance_formulas import FORMULA_PROMPT_BLOCK_CORE as _fpb
     except Exception:
         _fpb = ""
 

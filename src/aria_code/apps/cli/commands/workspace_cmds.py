@@ -486,7 +486,7 @@ class WorkspaceCommandsMixin:
         # ── 确保 file_session 已初始化 ────────────────────────────────────────
         if self.terminal._file_session is None:
             try:
-                from aria_code.file_analysis_tools import FileSession
+                from aria_code.tools.file_analysis_tools import FileSession
                 self.terminal._file_session = FileSession()
             except ImportError as e:
                 if self.context.has_rich:
@@ -516,7 +516,7 @@ class WorkspaceCommandsMixin:
                 except Exception:
                     pass
 
-            from aria_code.file_analysis_tools import parse_file, check_parsers
+            from aria_code.tools.file_analysis_tools import parse_file, check_parsers
             fc = await loop.run_in_executor(
                 None, lambda: parse_file(rest, include_images=include_img))
 
@@ -575,7 +575,7 @@ class WorkspaceCommandsMixin:
 
             layer_names = {1: "📌 快速摘要", 2: "🔍 深度分析", 3: "💡 领域洞察", 4: "✅ 行动建议"}
 
-            from aria_code.file_analysis_tools import build_analysis_prompt
+            from aria_code.tools.file_analysis_tools import build_analysis_prompt
 
             for layer in layers_to_run:
                 if self.context.has_rich:
@@ -613,7 +613,7 @@ class WorkspaceCommandsMixin:
             if not question:
                 return
 
-            from aria_code.file_analysis_tools import build_analysis_prompt
+            from aria_code.tools.file_analysis_tools import build_analysis_prompt
             prompt = build_analysis_prompt(fc, layer=0, question=question)
             await self.terminal.send_message(
                 prompt,
@@ -666,7 +666,7 @@ class WorkspaceCommandsMixin:
 
         # ────────────────── /file check ───────────────────────────────────────
         elif sub == "check":
-            from aria_code.file_analysis_tools import check_parsers
+            from aria_code.tools.file_analysis_tools import check_parsers
             parsers = check_parsers()
             if self.context.has_rich:
                 from rich.table import Table as _T

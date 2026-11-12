@@ -79,7 +79,7 @@ class FootballAgent:
         with_llm: bool = True,
         neutral_venue: bool = False,
     ) -> MatchPrediction:
-        from football_data_client import get_team_stats
+        from aria_code.clients.football_data_client import get_team_stats
         from packages.quant_engine.sports.predictor import quick_predict
 
         # neutral_venue defaults False: club leagues (pl/bl1/sa/pd/fl1, the

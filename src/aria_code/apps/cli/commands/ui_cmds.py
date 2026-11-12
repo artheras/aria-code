@@ -186,7 +186,7 @@ class UiCommandsMixin:
                 "Install: pip install playwright mss pyautogui pillow && playwright install chromium",
             )
             return
-        from computer_use_tools import _tool_browser_navigate, _tool_browser_screenshot
+        from aria_code.tools.computer_use_tools import _tool_browser_navigate, _tool_browser_screenshot
 
         parts = args.strip().split(maxsplit=1)
         if not parts:
@@ -253,7 +253,7 @@ class UiCommandsMixin:
                 "Install: pip install mss pillow",
             )
             return
-        from computer_use_tools import _tool_computer_screenshot
+        from aria_code.tools.computer_use_tools import _tool_computer_screenshot
 
         monitor = int(args.strip()) if args.strip().isdigit() else 1
         if self.context.has_rich:

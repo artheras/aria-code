@@ -112,7 +112,7 @@ def _is_known_football_name(name: str) -> bool:
     if not n:
         return False
     try:
-        from football_data_client import _CN_TEAM_MAP, _FIFA_RATINGS
+        from aria_code.clients.football_data_client import _CN_TEAM_MAP, _FIFA_RATINGS
     except Exception:
         return False
     if n in _CN_TEAM_MAP:
@@ -159,7 +159,7 @@ def _parse_nl_team_pair(text: str) -> Optional[Tuple[str, str]]:
     Returns None if two teams cannot be confidently identified.
     """
     try:
-        from football_data_client import _CN_TEAM_MAP, _FIFA_RATINGS
+        from aria_code.clients.football_data_client import _CN_TEAM_MAP, _FIFA_RATINGS
     except Exception:
         return None
 
@@ -591,7 +591,7 @@ class MarketCommandsMixin:
                 rest    = raw[idx + 4:].strip()
                 away_parts = rest.split()
                 # last token might be league code (including wc/世界杯)
-                from football_data_client import LEAGUE_IDS, TOURNAMENT_CODES
+                from aria_code.clients.football_data_client import LEAGUE_IDS, TOURNAMENT_CODES
                 _all_codes = {**LEAGUE_IDS, **{k: v for k, v in TOURNAMENT_CODES.items()}}
                 if away_parts and away_parts[-1].lower().replace(" ", "") in _all_codes:
                     league = away_parts[-1]
@@ -609,7 +609,7 @@ class MarketCommandsMixin:
         # ── team ──────────────────────────────────────────────────────────────
         elif sub in ("team", "球队"):
             rest  = " ".join(parts[1:])
-            from football_data_client import LEAGUE_IDS
+            from aria_code.clients.football_data_client import LEAGUE_IDS
             tokens = rest.split()
             if tokens and tokens[-1].lower() in LEAGUE_IDS:
                 league = tokens[-1]
@@ -626,7 +626,7 @@ class MarketCommandsMixin:
                 idx  = raw.lower().index(" vs ")
                 t1   = raw[:idx].strip()
                 rest = raw[idx + 4:].strip()
-                from football_data_client import LEAGUE_IDS
+                from aria_code.clients.football_data_client import LEAGUE_IDS
                 tokens = rest.split()
                 if tokens and tokens[-1].lower() in LEAGUE_IDS:
                     league = tokens[-1]
@@ -653,7 +653,7 @@ class MarketCommandsMixin:
                     _h_cn, _a_cn = _nl_pair
                     # Determine league: national teams → wc, club → pl default
                     try:
-                        from football_data_client import _CN_TEAM_MAP, _find_fifa_rating
+                        from aria_code.clients.football_data_client import _CN_TEAM_MAP, _find_fifa_rating
                         _h_en = _CN_TEAM_MAP.get(_h_cn, _h_cn)
                         _a_en = _CN_TEAM_MAP.get(_a_cn, _a_cn)
                         _is_nat = bool(_find_fifa_rating(_h_en) or _find_fifa_rating(_a_en))
@@ -665,7 +665,7 @@ class MarketCommandsMixin:
 
                 # ── Step 2: Fall back to get_sports_context_for_query ─────────
                 try:
-                    from football_data_client import get_sports_context_for_query
+                    from aria_code.clients.football_data_client import get_sports_context_for_query
                     _sports_ctx = get_sports_context_for_query(full_args)
                 except Exception:
                     _sports_ctx = ""
@@ -702,7 +702,7 @@ class MarketCommandsMixin:
 
         if _is_wc:
             try:
-                from football_data_client import (
+                from aria_code.clients.football_data_client import (
                     predict_wc_match,
                     _find_fifa_rating,
                     team_display_name,
@@ -862,7 +862,7 @@ class MarketCommandsMixin:
         from rich.columns import Columns
         from rich.text import Text
         try:
-            from football_data_client import team_display_name as _football_display_name
+            from aria_code.clients.football_data_client import team_display_name as _football_display_name
         except Exception:
             def _football_display_name(value, locale="zh"):
                 return str(value or "-")

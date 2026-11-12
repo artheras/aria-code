@@ -95,7 +95,7 @@ def _g(name):
 
 def _tool_analyze_file(params: dict) -> dict:
     """Parse & analyse a local document/image (pdf/docx/xlsx/csv/image/…)."""
-    from aria_code.file_analysis_tools import tool_analyze_file as _f
+    from aria_code.tools.file_analysis_tools import tool_analyze_file as _f
     return _f(params)
 def _tool_read_file(params: dict) -> dict:
     """Thin shim — implementation in apps/cli/tools/file_tools.py."""

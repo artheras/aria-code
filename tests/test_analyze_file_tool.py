@@ -63,7 +63,7 @@ def test_video_routes_and_degrades_gracefully(tmp_path):
 
 
 def test_video_extensions_recognized(tmp_path):
-    from file_analysis_tools import parse_file
+    from aria_code.tools.file_analysis_tools import parse_file
     for ext in ("mp4", "mov", "avi", "mkv", "webm", "m4v"):
         f = tmp_path / f"v.{ext}"
         f.write_bytes(b"\x00" * 64)
@@ -72,7 +72,7 @@ def test_video_extensions_recognized(tmp_path):
 
 
 def test_optional_parser_detection_refreshes_after_install(monkeypatch):
-    import file_analysis_tools as tools
+    from aria_code.tools import file_analysis_tools as tools
 
     sentinel = object()
     monkeypatch.setattr(tools, "_docx_mod", None)

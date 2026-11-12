@@ -32,7 +32,7 @@ def _football_standings(league: str) -> None:
     from rich import box as rich_box
     from rich.panel import Panel
     try:
-        from football_data_client import get_standings, LEAGUE_NAMES, _resolve_league
+        from aria_code.clients.football_data_client import get_standings, LEAGUE_NAMES, _resolve_league
     except ImportError:
         console.print("[red]football_data_client.py 未找到[/red]")
         return
@@ -100,7 +100,7 @@ def _football_fixtures(league: str, days: int = 7) -> None:
     from rich.table import Table
     from rich import box as rich_box
     try:
-        from football_data_client import get_fixtures, LEAGUE_NAMES, _resolve_league
+        from aria_code.clients.football_data_client import get_fixtures, LEAGUE_NAMES, _resolve_league
     except ImportError:
         console.print("[red]football_data_client.py 未找到[/red]")
         return
@@ -147,7 +147,7 @@ def _football_team(team: str, league: str = "pl") -> None:
     from rich import box as rich_box
     from rich.panel import Panel
     try:
-        from football_data_client import get_team_stats
+        from aria_code.clients.football_data_client import get_team_stats
     except ImportError:
         console.print("[red]football_data_client.py 未找到[/red]")
         return
@@ -199,7 +199,7 @@ def _football_h2h(t1: str, t2: str, league: str = "pl") -> None:
     from rich import box as rich_box
     from rich.panel import Panel
     try:
-        from football_data_client import get_head_to_head
+        from aria_code.clients.football_data_client import get_head_to_head
     except ImportError:
         console.print("[red]football_data_client.py 未找到[/red]")
         return

@@ -695,7 +695,7 @@ class DiagnosticOpsCommandsMixin:
             # File parser availability is cached for performance.  Refresh it
             # now so DOCX/PDF/XLSX tools work in this same Aria session.
             try:
-                from file_analysis_tools import refresh_optional_parsers
+                from aria_code.tools.file_analysis_tools import refresh_optional_parsers
 
                 refresh_optional_parsers()
             except Exception:

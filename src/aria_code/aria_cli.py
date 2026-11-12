@@ -1142,7 +1142,7 @@ except Exception as _exc:
 # ── Register computer-use tools (browser automation + desktop control) ──────
 _HAS_COMPUTER_USE = False
 try:
-    from computer_use_tools import COMPUTER_USE_TOOLS, COMPUTER_USE_SCHEMAS as _CU_SCHEMAS
+    from aria_code.tools.computer_use_tools import COMPUTER_USE_TOOLS, COMPUTER_USE_SCHEMAS as _CU_SCHEMAS
     LOCAL_TOOLS.update(COMPUTER_USE_TOOLS)
     _HAS_COMPUTER_USE = True
     logger.info("Registered %d computer-use tools", len(COMPUTER_USE_TOOLS))
@@ -1504,7 +1504,7 @@ import re as _re_latex
 
 # Delegate to the canonical formula renderer when available
 try:
-    from finance_formulas import (
+    from aria_code.domain.finance_formulas import (
         FORMULA_PROMPT_BLOCK_CORE as _FORMULA_PROMPT_BLOCK_CORE,
         strip_latex_for_cli as _strip_latex_impl,
     )
