@@ -1,14 +1,17 @@
+pub mod binomial_tree;
 pub mod black_scholes;
 pub mod implied_vol;
-pub mod binomial_tree;
 pub mod monte_carlo;
 pub mod portfolio;
 
+pub use binomial_tree::price_american_crr;
 pub use black_scholes::{calculate_greeks, norm_cdf, norm_pdf, Greeks, OptionSpec};
 pub use implied_vol::implied_volatility;
-pub use binomial_tree::price_american_crr;
 pub use monte_carlo::{simulate_gbm_parallel, MonteCarloConfig, MonteCarloResult};
-pub use portfolio::{optimize_min_variance, optimize_risk_parity, portfolio_return, portfolio_volatility, PortfolioAllocation, PortfolioInput};
+pub use portfolio::{
+    optimize_min_variance, optimize_risk_parity, portfolio_return, portfolio_volatility,
+    PortfolioAllocation, PortfolioInput,
+};
 
 #[cfg(test)]
 mod tests {
@@ -31,7 +34,10 @@ mod tests {
         assert!(g.gamma > 0.0 && g.vega > 0.0);
 
         // Put-Call Parity: C - P = S - K * exp(-rT)
-        let put_spec = OptionSpec { is_call: false, ..spec };
+        let put_spec = OptionSpec {
+            is_call: false,
+            ..spec
+        };
         let put_g = calculate_greeks(&put_spec);
         let lhs = g.price - put_g.price;
         let rhs = spec.s - spec.k * (-spec.r * spec.t).exp();
@@ -50,7 +56,16 @@ mod tests {
             q: 0.01,
         };
         let g = calculate_greeks(&spec);
-        let iv = implied_volatility(g.price, spec.s, spec.k, spec.t, spec.r, spec.q, spec.is_call).unwrap();
+        let iv = implied_volatility(
+            g.price,
+            spec.s,
+            spec.k,
+            spec.t,
+            spec.r,
+            spec.q,
+            spec.is_call,
+        )
+        .unwrap();
         assert!((iv - 0.28).abs() < 0.001, "recovered iv was {}", iv);
     }
 

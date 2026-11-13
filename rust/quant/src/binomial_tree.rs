@@ -1,7 +1,7 @@
 use crate::black_scholes::OptionSpec;
 
 pub fn price_american_crr(spec: &OptionSpec, steps: usize) -> f64 {
-    let n = steps.max(50).min(5000);
+    let n = steps.clamp(50, 5000);
     let s = spec.s;
     let k = spec.k;
     let t = spec.t.max(1e-6);

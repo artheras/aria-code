@@ -78,9 +78,20 @@ fn main() {
                     std::process::exit(1);
                 }
             };
-            match implied_volatility(req.market_price, req.s, req.k, req.t, req.r, req.q, req.is_call) {
+            match implied_volatility(
+                req.market_price,
+                req.s,
+                req.k,
+                req.t,
+                req.r,
+                req.q,
+                req.is_call,
+            ) {
                 Ok(iv) => {
-                    println!("{}", serde_json::json!({ "implied_volatility": iv, "success": true }));
+                    println!(
+                        "{}",
+                        serde_json::json!({ "implied_volatility": iv, "success": true })
+                    );
                 }
                 Err(e) => {
                     println!("{}", serde_json::json!({ "error": e, "success": false }));
@@ -96,7 +107,9 @@ fn main() {
                 #[serde(default = "default_steps")]
                 steps: usize,
             }
-            fn default_steps() -> usize { 500 }
+            fn default_steps() -> usize {
+                500
+            }
 
             let req: AmericanRequest = match serde_json::from_str(&raw_json) {
                 Ok(r) => r,
@@ -106,7 +119,10 @@ fn main() {
                 }
             };
             let price = price_american_crr(&req.spec, req.steps);
-            println!("{}", serde_json::json!({ "american_price": price, "steps": req.steps }));
+            println!(
+                "{}",
+                serde_json::json!({ "american_price": price, "steps": req.steps })
+            );
         }
         "monte-carlo" => {
             let cfg: MonteCarloConfig = match serde_json::from_str(&raw_json) {
@@ -131,12 +147,20 @@ fn main() {
             let rp_weights = optimize_risk_parity(&inp.cov_matrix);
             let rp_ret = portfolio_return(&rp_weights, &inp.returns);
             let rp_vol = portfolio_volatility(&rp_weights, &inp.cov_matrix);
-            let rp_sharpe = if rp_vol > 1e-8 { (rp_ret - rf) / rp_vol } else { 0.0 };
+            let rp_sharpe = if rp_vol > 1e-8 {
+                (rp_ret - rf) / rp_vol
+            } else {
+                0.0
+            };
 
             let mv_weights = optimize_min_variance(&inp.cov_matrix);
             let mv_ret = portfolio_return(&mv_weights, &inp.returns);
             let mv_vol = portfolio_volatility(&mv_weights, &inp.cov_matrix);
-            let mv_sharpe = if mv_vol > 1e-8 { (mv_ret - rf) / mv_vol } else { 0.0 };
+            let mv_sharpe = if mv_vol > 1e-8 {
+                (mv_ret - rf) / mv_vol
+            } else {
+                0.0
+            };
 
             let result = serde_json::json!({
                 "assets": inp.assets,

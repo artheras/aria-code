@@ -3,14 +3,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonteCarloConfig {
-    pub s0: f64,              // Initial asset price
-    pub r: f64,               // Drift / risk-free rate
-    pub q: f64,               // Dividend yield
-    pub sigma: f64,           // Volatility
-    pub t: f64,               // Total time in years
-    pub steps: usize,         // Number of time steps per path
-    pub num_paths: usize,     // Total number of simulated paths
-    pub seed: Option<u64>,    // Optional random seed
+    pub s0: f64,           // Initial asset price
+    pub r: f64,            // Drift / risk-free rate
+    pub q: f64,            // Dividend yield
+    pub sigma: f64,        // Volatility
+    pub t: f64,            // Total time in years
+    pub steps: usize,      // Number of time steps per path
+    pub num_paths: usize,  // Total number of simulated paths
+    pub seed: Option<u64>, // Optional random seed
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,7 +36,11 @@ struct FastRng {
 
 impl FastRng {
     fn new(seed: u64) -> Self {
-        let s = if seed == 0 { 0x5a17_9b32_14f8_2d09 } else { seed };
+        let s = if seed == 0 {
+            0x5a17_9b32_14f8_2d09
+        } else {
+            seed
+        };
         Self { state: s }
     }
 
@@ -79,7 +83,8 @@ pub fn simulate_gbm_parallel(cfg: &MonteCarloConfig) -> MonteCarloResult {
     let terminal_prices: Vec<f64> = (0..n_paths)
         .into_par_iter()
         .map(|idx| {
-            let mut rng = FastRng::new(base_seed.wrapping_add((idx as u64).wrapping_mul(0x9e3779b97f4a7c15)));
+            let mut rng =
+                FastRng::new(base_seed.wrapping_add((idx as u64).wrapping_mul(0x9e3779b97f4a7c15)));
             let mut s = cfg.s0;
             for _ in 0..n_steps {
                 let z = rng.next_gaussian();

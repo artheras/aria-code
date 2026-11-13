@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortfolioInput {
     pub assets: Vec<String>,
-    pub returns: Vec<f64>,          // Expected annualized returns per asset
-    pub cov_matrix: Vec<Vec<f64>>,  // N x N covariance matrix
+    pub returns: Vec<f64>,         // Expected annualized returns per asset
+    pub cov_matrix: Vec<Vec<f64>>, // N x N covariance matrix
     pub risk_free_rate: Option<f64>,
 }
 
@@ -34,6 +34,7 @@ pub fn portfolio_return(weights: &[f64], returns: &[f64]) -> f64 {
 }
 
 // Exact Euclidean projection onto probability simplex: {w >= 0, sum(w) = 1}
+#[allow(clippy::needless_range_loop)]
 pub fn project_simplex(v: &[f64]) -> Vec<f64> {
     let n = v.len();
     let mut u = v.to_vec();
@@ -94,6 +95,7 @@ pub fn optimize_risk_parity(cov: &[Vec<f64>]) -> Vec<f64> {
 }
 
 // Minimum Variance Portfolio via projected gradient descent on simplex
+#[allow(clippy::needless_range_loop)]
 pub fn optimize_min_variance(cov: &[Vec<f64>]) -> Vec<f64> {
     let n = cov.len();
     if n == 0 {

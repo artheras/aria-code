@@ -22,14 +22,14 @@ pub fn norm_cdf(x: f64) -> f64 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OptionSpec {
-    pub s: f64,          // Spot price
-    pub k: f64,          // Strike price
-    pub t: f64,          // Time to maturity (years)
-    pub r: f64,          // Risk-free interest rate (annualized, e.g. 0.05)
-    pub sigma: f64,      // Volatility (annualized, e.g. 0.20)
-    pub is_call: bool,   // true for Call, false for Put
+    pub s: f64,        // Spot price
+    pub k: f64,        // Strike price
+    pub t: f64,        // Time to maturity (years)
+    pub r: f64,        // Risk-free interest rate (annualized, e.g. 0.05)
+    pub sigma: f64,    // Volatility (annualized, e.g. 0.20)
+    pub is_call: bool, // true for Call, false for Put
     #[serde(default)]
-    pub q: f64,          // Dividend yield (annualized, default 0.0)
+    pub q: f64, // Dividend yield (annualized, default 0.0)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,16 +64,14 @@ pub fn calculate_greeks(spec: &OptionSpec) -> Greeks {
         let p = s * eq_t * norm_cdf(d1) - k * er_t * norm_cdf(d2);
         let del = eq_t * norm_cdf(d1);
         let rh = k * t * er_t * norm_cdf(d2);
-        let th = - (s * sigma * eq_t * nd1_pdf) / (2.0 * sqrt_t)
-            + q * s * eq_t * norm_cdf(d1)
+        let th = -(s * sigma * eq_t * nd1_pdf) / (2.0 * sqrt_t) + q * s * eq_t * norm_cdf(d1)
             - r * k * er_t * norm_cdf(d2);
         (p, del, rh, th)
     } else {
         let p = k * er_t * norm_cdf(-d2) - s * eq_t * norm_cdf(-d1);
         let del = -eq_t * norm_cdf(-d1);
         let rh = -k * t * er_t * norm_cdf(-d2);
-        let th = - (s * sigma * eq_t * nd1_pdf) / (2.0 * sqrt_t)
-            - q * s * eq_t * norm_cdf(-d1)
+        let th = -(s * sigma * eq_t * nd1_pdf) / (2.0 * sqrt_t) - q * s * eq_t * norm_cdf(-d1)
             + r * k * er_t * norm_cdf(-d2);
         (p, del, rh, th)
     };
