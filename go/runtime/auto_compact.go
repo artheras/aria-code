@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -85,6 +86,7 @@ func (s *server) maybeAutoCompact(turn, prompt string) bool {
 }
 
 func compactContents(contents []*genai.Content) []*genai.Content {
+	contents = compactToolPayloads(contents, autoCompactTail)
 	if len(contents) <= autoCompactTail {
 		return contents
 	}
@@ -100,6 +102,35 @@ func compactContents(contents []*genai.Content) []*genai.Content {
 		genai.NewContentFromText("Understood. I will continue from this summary.", genai.RoleModel),
 	}
 	return append(head, contents[cut:]...)
+}
+
+// compactToolPayloads truncates oversized tool outputs from older turns in the sliding window.
+// Recent turns (last keepTail turns) are preserved in full. Older turns have heavy payloads
+// (e.g. multi-kilobyte file reads or directory dumps) trimmed to lightweight summaries.
+func compactToolPayloads(contents []*genai.Content, keepTail int) []*genai.Content {
+	if len(contents) <= keepTail {
+		return contents
+	}
+	cutoff := len(contents) - keepTail
+	for i := 0; i < cutoff; i++ {
+		content := contents[i]
+		for _, part := range content.Parts {
+			if part == nil || part.FunctionResponse == nil {
+				continue
+			}
+			fnResp := part.FunctionResponse
+			respMap := fnResp.Response
+			if respMap != nil {
+				for _, key := range []string{"content", "output", "stdout"} {
+					if strVal, ok := respMap[key].(string); ok && len(strVal) > 600 {
+						lines := strings.Count(strVal, "\n") + 1
+						respMap[key] = fmt.Sprintf("[%d lines output previously received; compacted to save context tokens]", lines)
+					}
+				}
+			}
+		}
+	}
+	return contents
 }
 
 func summarizeDropped(contents []*genai.Content) string {

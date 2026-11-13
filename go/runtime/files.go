@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"io"
 	"io/fs"
 	"os"
@@ -543,7 +547,140 @@ func propose(s *scope, tool string, params map[string]any) (fileChange, error) {
 	if len(c.after) > 4<<20 {
 		return c, errors.New("file content exceeds 4 MiB")
 	}
+	if err := validateProposedSyntax(c.path, c.after); err != nil {
+		return c, err
+	}
 	return c, nil
+}
+
+func validateProposedSyntax(path string, content []byte) error {
+	trimmed := bytes.TrimSpace(content)
+	if len(trimmed) == 0 {
+		return nil
+	}
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".json":
+		if !json.Valid(trimmed) {
+			return fmt.Errorf("pre-flight syntax check failed for %s: invalid JSON syntax", filepath.Base(path))
+		}
+	case ".go":
+		fset := token.NewFileSet()
+		if _, err := parser.ParseFile(fset, filepath.Base(path), content, parser.AllErrors); err != nil {
+			return fmt.Errorf("pre-flight syntax check failed for %s: %w", filepath.Base(path), err)
+		}
+	case ".py":
+		if err := checkPythonDelimiters(content); err != nil {
+			return fmt.Errorf("pre-flight syntax check failed for %s: %w", filepath.Base(path), err)
+		}
+	}
+	return nil
+}
+
+func checkPythonDelimiters(content []byte) error {
+	var stack []byte
+	var lineNums []int
+	line := 1
+	inSingleStr := false
+	inDoubleStr := false
+	inTripleSingle := false
+	inTripleDouble := false
+	inComment := false
+
+	n := len(content)
+	for i := 0; i < n; i++ {
+		ch := content[i]
+		if ch == '\n' {
+			line++
+			inComment = false
+			inSingleStr = false
+			inDoubleStr = false
+			continue
+		}
+		if inComment {
+			continue
+		}
+
+		// Triple quotes
+		if i+2 < n && content[i] == '"' && content[i+1] == '"' && content[i+2] == '"' {
+			if inTripleDouble {
+				inTripleDouble = false
+				i += 2
+				continue
+			} else if !inSingleStr && !inDoubleStr && !inTripleSingle {
+				inTripleDouble = true
+				i += 2
+				continue
+			}
+		}
+		if i+2 < n && content[i] == '\'' && content[i+1] == '\'' && content[i+2] == '\'' {
+			if inTripleSingle {
+				inTripleSingle = false
+				i += 2
+				continue
+			} else if !inSingleStr && !inDoubleStr && !inTripleDouble {
+				inTripleSingle = true
+				i += 2
+				continue
+			}
+		}
+
+		if inTripleSingle || inTripleDouble {
+			continue
+		}
+
+		if ch == '\\' && (inSingleStr || inDoubleStr) {
+			i++
+			continue
+		}
+
+		if ch == '"' && !inSingleStr {
+			inDoubleStr = !inDoubleStr
+			continue
+		}
+		if ch == '\'' && !inDoubleStr {
+			inSingleStr = !inSingleStr
+			continue
+		}
+
+		if inSingleStr || inDoubleStr {
+			continue
+		}
+
+		if ch == '#' {
+			inComment = true
+			continue
+		}
+
+		switch ch {
+		case '(', '[', '{':
+			stack = append(stack, ch)
+			lineNums = append(lineNums, line)
+		case ')':
+			if len(stack) == 0 || stack[len(stack)-1] != '(' {
+				return fmt.Errorf("unexpected ')' at line %d", line)
+			}
+			stack = stack[:len(stack)-1]
+			lineNums = lineNums[:len(lineNums)-1]
+		case ']':
+			if len(stack) == 0 || stack[len(stack)-1] != '[' {
+				return fmt.Errorf("unexpected ']' at line %d", line)
+			}
+			stack = stack[:len(stack)-1]
+			lineNums = lineNums[:len(lineNums)-1]
+		case '}':
+			if len(stack) == 0 || stack[len(stack)-1] != '{' {
+				return fmt.Errorf("unexpected '}' at line %d", line)
+			}
+			stack = stack[:len(stack)-1]
+			lineNums = lineNums[:len(lineNums)-1]
+		}
+	}
+
+	if len(stack) > 0 {
+		return fmt.Errorf("unclosed '%c' opened at line %d", stack[len(stack)-1], lineNums[len(lineNums)-1])
+	}
+	return nil
 }
 func applyChange(s *scope, c fileChange) toolResult {
 	p, err := s.open(c.path, true)
