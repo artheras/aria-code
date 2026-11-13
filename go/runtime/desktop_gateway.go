@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -172,6 +175,7 @@ type desktopGatewayServer struct {
 	listener       net.Listener
 	httpServer     *http.Server
 	url            string
+	token          string
 	stateRoot      string
 	workspace      string
 	activeSession  string
@@ -182,6 +186,21 @@ type desktopGatewayServer struct {
 	childTasks     map[string]*ChildTaskRecord
 	complianceLogs []ComplianceAuditEntry
 	diagnostics    map[string][]LSPDiagnosticItem
+	subscribers    map[chan gatewayEvent]struct{}
+}
+
+type gatewayEvent struct {
+	Type      string         `json:"type"`
+	Timestamp string         `json:"timestamp"`
+	Data      map[string]any `json:"data,omitempty"`
+}
+
+func generateGatewayToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err == nil {
+		return hex.EncodeToString(b)
+	}
+	return fmt.Sprintf("aria-%d", time.Now().UnixNano())
 }
 
 type LSPDiagnosticItem struct {
@@ -263,6 +282,7 @@ func startDesktopGateway(root, workspace string, port int) (*desktopGatewayServe
 	gw := &desktopGatewayServer{
 		listener:   listener,
 		url:        url,
+		token:      generateGatewayToken(),
 		stateRoot:  root,
 		workspace:  workspace,
 		approvals:  map[string]pendingApproval{},
@@ -279,12 +299,14 @@ func startDesktopGateway(root, workspace string, port int) (*desktopGatewayServe
 			},
 		},
 		childTasks:     map[string]*ChildTaskRecord{},
-		complianceLogs: []ComplianceAuditEntry{},
+		complianceLogs: loadComplianceLogs(root, 500),
 		diagnostics:    map[string][]LSPDiagnosticItem{},
+		subscribers:    map[chan gatewayEvent]struct{}{},
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", gw.handleHealth)
+	mux.HandleFunc("/api/v2/events", gw.handleEvents)
 	mux.HandleFunc("/api/v2/runtime/status", gw.handleRuntimeStatus)
 	mux.HandleFunc("/api/v2/sessions", gw.handleSessions)
 	mux.HandleFunc("/api/v2/approvals", gw.handleApprovals)
@@ -297,7 +319,7 @@ func startDesktopGateway(root, workspace string, port int) (*desktopGatewayServe
 	mux.HandleFunc("/api/v2/diagnostics/report", gw.handleDiagnosticsReport)
 
 	gw.httpServer = &http.Server{
-		Handler:      corsMiddleware(mux),
+		Handler:      corsMiddleware(gw.authMiddleware(mux)),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 60 * time.Second,
 	}
@@ -313,6 +335,7 @@ func startDesktopGateway(root, workspace string, port int) (*desktopGatewayServe
 		_ = os.MkdirAll(filepath.Dir(discPath), 0o755)
 		data, _ := json.MarshalIndent(map[string]any{
 			"url":        url,
+			"token":      gw.token,
 			"pid":        os.Getpid(),
 			"started_at": float64(time.Now().UnixNano()) / 1e9,
 			"version":    version,
@@ -344,14 +367,53 @@ func stopDesktopGateway() error {
 	return nil
 }
 
+func isAllowedLocalOrigin(origin string) bool {
+	return strings.HasPrefix(origin, "http://127.0.0.1") ||
+		strings.HasPrefix(origin, "http://localhost") ||
+		strings.HasPrefix(origin, "https://127.0.0.1") ||
+		strings.HasPrefix(origin, "https://localhost") ||
+		strings.HasPrefix(origin, "app://") ||
+		strings.HasPrefix(origin, "vscode-webview://")
+}
+
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if origin != "" && isAllowedLocalOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (gw *desktopGatewayServer) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+		queryToken := strings.TrimSpace(r.URL.Query().Get("token"))
+		provided := ""
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			provided = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		} else if queryToken != "" {
+			provided = queryToken
+		}
+		// Enforce token when credentials are presented, on browser cross-origin
+		// requests, or when explicitly requested via query param.
+		if provided != "" || r.Header.Get("Origin") != "" || r.URL.Query().Get("require_auth") == "1" {
+			if gw.token == "" || provided != gw.token {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -461,15 +523,157 @@ func (gw *desktopGatewayServer) activeChildTaskListLocked() []ChildTaskRecord {
 	return active
 }
 
+func complianceAuditFilePath(stateRoot string) string {
+	if strings.TrimSpace(stateRoot) == "" {
+		return ""
+	}
+	return filepath.Join(stateRoot, "compliance_audit.jsonl")
+}
+
+func loadComplianceLogs(stateRoot string, limit int) []ComplianceAuditEntry {
+	path := complianceAuditFilePath(stateRoot)
+	if path == "" {
+		return []ComplianceAuditEntry{}
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return []ComplianceAuditEntry{}
+	}
+	defer f.Close()
+
+	var entries []ComplianceAuditEntry
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 16*1024), 256*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var entry ComplianceAuditEntry
+		if err := json.Unmarshal([]byte(line), &entry); err == nil {
+			entries = append(entries, entry)
+		}
+	}
+	if limit > 0 && len(entries) > limit {
+		entries = entries[len(entries)-limit:]
+	}
+	return entries
+}
+
+func (gw *desktopGatewayServer) PublishEvent(eventType string, data map[string]any) {
+	if gw == nil {
+		return
+	}
+	ev := gatewayEvent{
+		Type:      eventType,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Data:      data,
+	}
+	gw.mu.RLock()
+	subs := make([]chan gatewayEvent, 0, len(gw.subscribers))
+	for ch := range gw.subscribers {
+		subs = append(subs, ch)
+	}
+	gw.mu.RUnlock()
+	for _, ch := range subs {
+		select {
+		case ch <- ev:
+		default:
+		}
+	}
+}
+
+func (gw *desktopGatewayServer) handleEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{})
+
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	ch := make(chan gatewayEvent, 32)
+	gw.mu.Lock()
+	if gw.subscribers == nil {
+		gw.subscribers = map[chan gatewayEvent]struct{}{}
+	}
+	gw.subscribers[ch] = struct{}{}
+	gw.mu.Unlock()
+
+	defer func() {
+		gw.mu.Lock()
+		delete(gw.subscribers, ch)
+		gw.mu.Unlock()
+	}()
+
+	writeEvent := func(ev gatewayEvent) bool {
+		payload, err := json.Marshal(ev)
+		if err != nil {
+			return true
+		}
+		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, payload); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
+
+	if !writeEvent(gatewayEvent{
+		Type:      "gateway.connected",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Data:      map[string]any{"agent_id": gw.identity.AgentID, "workspace": gw.workspace},
+	}) {
+		return
+	}
+
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case ev := <-ch:
+			if !writeEvent(ev) {
+				return
+			}
+		case <-ticker.C:
+			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
 func (gw *desktopGatewayServer) recordComplianceLocked(eventType, action, childTaskID, cancelStatus string) {
-	gw.complianceLogs = append(gw.complianceLogs, ComplianceAuditEntry{
+	entry := ComplianceAuditEntry{
 		Timestamp:          time.Now().UTC().Format(time.RFC3339),
 		EventType:          eventType,
 		AgentID:            gw.identity.AgentID,
 		ChildTaskID:        childTaskID,
 		Action:             action,
 		CancellationStatus: cancelStatus,
-	})
+	}
+	gw.complianceLogs = append(gw.complianceLogs, entry)
+	if path := complianceAuditFilePath(gw.stateRoot); path != "" {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err == nil {
+			if line, err := json.Marshal(entry); err == nil {
+				if f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
+					_, _ = f.Write(append(line, '\n'))
+					_ = f.Close()
+				}
+			}
+		}
+	}
 }
 
 func (gw *desktopGatewayServer) handleLifecycleAction(w http.ResponseWriter, r *http.Request) {
@@ -660,6 +864,7 @@ func (gw *desktopGatewayServer) handleDiagnosticsReport(w http.ResponseWriter, r
 		}
 		count := len(gw.diagnostics[req.Path])
 		gw.mu.Unlock()
+		gw.PublishEvent("diagnostics.updated", map[string]any{"path": req.Path, "count": count})
 
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(map[string]any{
