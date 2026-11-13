@@ -396,4 +396,12 @@ func TestServerEmitForwardsToGatewaySSE(t *testing.T) {
 	if !strings.Contains(sseBody, "event: tool.started") || !strings.Contains(sseBody, `"tool":"git_status"`) {
 		t.Fatalf("expected tool.started forwarded to SSE, got %q", sseBody)
 	}
+
+	// Verify unified Canvas routes mounted on Desktop Gateway
+	recCanvas := httptest.NewRecorder()
+	reqCanvas := httptest.NewRequest(http.MethodGet, "/canvas/state", nil)
+	gw.httpServer.Handler.ServeHTTP(recCanvas, reqCanvas)
+	if recCanvas.Code != http.StatusOK || !strings.Contains(recCanvas.Body.String(), `"threads"`) {
+		t.Fatalf("expected unified /canvas/state to return 200 with threads, got %d %s", recCanvas.Code, recCanvas.Body.String())
+	}
 }

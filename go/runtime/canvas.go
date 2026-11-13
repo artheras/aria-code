@@ -260,14 +260,7 @@ func startCanvasServer() (*canvasServer, error) {
 		discovery:  discPath,
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", cs.handleIndex)
-	mux.HandleFunc("/events", cs.handleEvents)
-	mux.HandleFunc("/state", cs.handleState)
-	mux.HandleFunc("/api/artifacts", cs.handleState)
-	mux.HandleFunc("/artifact/", cs.handleArtifact)
-	mux.HandleFunc("/api/bridge", cs.handleBridge)
-
+	mux := newCanvasMux(cs)
 	cs.handler = mux
 	cs.httpServer = &http.Server{
 		Handler:      mux,
@@ -306,7 +299,9 @@ func stopCanvasServer() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	_ = cs.httpServer.Shutdown(ctx)
+	if cs.httpServer != nil {
+		_ = cs.httpServer.Shutdown(ctx)
+	}
 	if cs.discovery != "" {
 		_ = os.Remove(cs.discovery)
 	}
@@ -319,6 +314,44 @@ func stopCanvasServer() error {
 	cs.mu.Unlock()
 
 	return nil
+}
+
+func newCanvasMux(cs *canvasServer) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", cs.handleIndex)
+	mux.HandleFunc("/events", cs.handleEvents)
+	mux.HandleFunc("/state", cs.handleState)
+	mux.HandleFunc("/api/artifacts", cs.handleState)
+	mux.HandleFunc("/artifact/", cs.handleArtifact)
+	mux.HandleFunc("/api/bridge", cs.handleBridge)
+	return mux
+}
+
+func attachCanvasToGateway(gatewayURL string) *canvasServer {
+	activeCanvasMu.Lock()
+	defer activeCanvasMu.Unlock()
+	if activeCanvas != nil {
+		return activeCanvas
+	}
+	cs := &canvasServer{
+		url:        strings.TrimRight(gatewayURL, "/") + "/canvas/",
+		threads:    map[string]*canvasArtifactThread{},
+		sseClients: map[chan []byte]bool{},
+	}
+	cs.handler = newCanvasMux(cs)
+	activeCanvas = cs
+	return cs
+}
+
+func detachGatewayCanvas(cs *canvasServer) {
+	if cs == nil {
+		return
+	}
+	activeCanvasMu.Lock()
+	defer activeCanvasMu.Unlock()
+	if activeCanvas == cs && cs.httpServer == nil {
+		activeCanvas = nil
+	}
 }
 
 func (cs *canvasServer) handleIndex(w http.ResponseWriter, r *http.Request) {

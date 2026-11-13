@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -85,17 +88,48 @@ func verifyChangesTool(ctx context.Context, s scope, params map[string]any) tool
 		})
 	}
 
+	data := map[string]any{
+		"paths":          paths,
+		"impact_summary": impactSummary,
+		"affected_tests": affectedTests,
+		"reason":         plan.Reason,
+		"passed":         allPassed,
+		"results":        outcomes,
+	}
+	if !allPassed {
+		if cpID, cpLabel := latestCheckpointHint(ctx); cpID != "" {
+			data["latest_checkpoint_id"] = cpID
+			data["latest_checkpoint_label"] = cpLabel
+			data["recovery_hint"] = fmt.Sprintf("Verification failed. You can rewind to checkpoint %s (%s) via /rewind if repairs diverge.", cpID, cpLabel)
+		}
+	}
+
 	return toolResult{
 		Success: allPassed,
-		Data: map[string]any{
-			"paths":          paths,
-			"impact_summary": impactSummary,
-			"affected_tests": affectedTests,
-			"reason":         plan.Reason,
-			"passed":         allPassed,
-			"results":        outcomes,
-		},
+		Data:    data,
 	}
+}
+
+func latestCheckpointHint(ctx context.Context) (string, string) {
+	root, err := stateRoot()
+	if err != nil || strings.TrimSpace(root) == "" {
+		return "", ""
+	}
+	dbPath := filepath.Join(root, "checkpoints.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		return "", ""
+	}
+	store, err := openCheckpoints(root)
+	if err != nil {
+		return "", ""
+	}
+	defer store.Close()
+
+	var id, label string
+	if err := store.db.QueryRowContext(ctx, `SELECT checkpoint_id, label FROM checkpoints ORDER BY sequence DESC LIMIT 1`).Scan(&id, &label); err != nil {
+		return "", ""
+	}
+	return id, label
 }
 
 // extractFailureDiagnostics distills verbose test/compiler logs down to

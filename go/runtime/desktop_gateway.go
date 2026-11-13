@@ -187,6 +187,7 @@ type desktopGatewayServer struct {
 	complianceLogs []ComplianceAuditEntry
 	diagnostics    map[string][]LSPDiagnosticItem
 	subscribers    map[chan gatewayEvent]struct{}
+	canvas         *canvasServer
 }
 
 type gatewayEvent struct {
@@ -302,6 +303,7 @@ func startDesktopGateway(root, workspace string, port int) (*desktopGatewayServe
 		complianceLogs: loadComplianceLogs(root, 500),
 		diagnostics:    map[string][]LSPDiagnosticItem{},
 		subscribers:    map[chan gatewayEvent]struct{}{},
+		canvas:         attachCanvasToGateway(url),
 	}
 
 	mux := http.NewServeMux()
@@ -317,6 +319,13 @@ func startDesktopGateway(root, workspace string, port int) (*desktopGatewayServe
 	mux.HandleFunc("/api/v2/analytics/usage", gw.handleAnalyticsUsage)
 	mux.HandleFunc("/api/v2/compliance/logs", gw.handleComplianceLogs)
 	mux.HandleFunc("/api/v2/diagnostics/report", gw.handleDiagnosticsReport)
+	if gw.canvas != nil && gw.canvas.handler != nil {
+		mux.HandleFunc("/canvas", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/canvas/", http.StatusMovedPermanently)
+		})
+		mux.Handle("/canvas/", http.StripPrefix("/canvas", gw.canvas.handler))
+		mux.Handle("/api/v2/canvas/", http.StripPrefix("/api/v2/canvas", gw.canvas.handler))
+	}
 
 	gw.httpServer = &http.Server{
 		Handler:      corsMiddleware(gw.authMiddleware(mux)),
@@ -361,6 +370,7 @@ func stopDesktopGateway() error {
 	defer cancel()
 
 	_ = gw.httpServer.Shutdown(ctx)
+	detachGatewayCanvas(gw.canvas)
 	if gw.discovery != "" {
 		_ = os.Remove(gw.discovery)
 	}
@@ -439,6 +449,7 @@ func (gw *desktopGatewayServer) handleRuntimeStatus(w http.ResponseWriter, r *ht
 		"version":                     version,
 		"workspace":                   gw.workspace,
 		"active_session":              gw.activeSession,
+		"canvas_url":                  gw.url + "/canvas/",
 		"model":                       cfg.text("model", "gemini-3.8-flash"),
 		"provider":                    providerName(cfg),
 		"network":                     cfg.boolean("network_enabled", true),
