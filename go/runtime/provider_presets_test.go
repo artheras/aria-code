@@ -171,3 +171,42 @@ func TestRuntimeOptionOverridesAndSaveUsage(t *testing.T) {
 		t.Fatalf("unexpected usage file payload: %v", payload)
 	}
 }
+
+func TestCursorOpenAICompatiblePresets(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
+	for _, tc := range []struct {
+		id       string
+		endpoint string
+		defModel string
+	}{
+		{"openrouter", "https://openrouter.ai/api/v1/chat/completions", "deepseek/deepseek-r1"},
+		{"minimax", "https://api.minimax.chat/v1/chat/completions", "MiniMax-Text-01"},
+		{"ollama", "http://127.0.0.1:11434/v1/chat/completions", "qwen2.5-coder"},
+		{"openai-compatible", "http://localhost:8000/v1/chat/completions", ""},
+	} {
+		spec, err := declaredProviderFor(config{"local_provider": tc.id})
+		if err != nil {
+			t.Fatalf("declaredProviderFor(%s) error: %v", tc.id, err)
+		}
+		if spec.endpoint() != tc.endpoint {
+			t.Fatalf("preset %s expected endpoint %s, got %s", tc.id, tc.endpoint, spec.endpoint())
+		}
+		if tc.defModel != "" && spec.Model != tc.defModel {
+			t.Fatalf("preset %s expected model %s, got %s", tc.id, tc.defModel, spec.Model)
+		}
+	}
+
+	// Verify generic override via base_url and model
+	customSpec, err := declaredProviderFor(config{
+		"local_provider": "openai-compatible",
+		"base_url":       "http://10.0.0.5:1234/v1",
+		"model":          "custom-llm-v1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error for custom openai-compatible: %v", err)
+	}
+	if customSpec.endpoint() != "http://10.0.0.5:1234/v1/chat/completions" || customSpec.Model != "custom-llm-v1" {
+		t.Fatalf("custom override failed: endpoint=%s model=%s", customSpec.endpoint(), customSpec.Model)
+	}
+}

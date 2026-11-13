@@ -181,6 +181,21 @@ type desktopGatewayServer struct {
 	identity       AgentServiceIdentity
 	childTasks     map[string]*ChildTaskRecord
 	complianceLogs []ComplianceAuditEntry
+	diagnostics    map[string][]LSPDiagnosticItem
+}
+
+type LSPDiagnosticItem struct {
+	Path     string `json:"path"`
+	Line     int    `json:"line"`
+	Col      int    `json:"col"`
+	Severity string `json:"severity"` // "error", "warning", "info", "hint"
+	Message  string `json:"message"`
+	Source   string `json:"source,omitempty"`
+}
+
+type diagnosticsReportRequest struct {
+	Path        string              `json:"path"`
+	Diagnostics []LSPDiagnosticItem `json:"diagnostics"`
 }
 
 type pendingApproval struct {
@@ -265,6 +280,7 @@ func startDesktopGateway(root, workspace string, port int) (*desktopGatewayServe
 		},
 		childTasks:     map[string]*ChildTaskRecord{},
 		complianceLogs: []ComplianceAuditEntry{},
+		diagnostics:    map[string][]LSPDiagnosticItem{},
 	}
 
 	mux := http.NewServeMux()
@@ -278,6 +294,7 @@ func startDesktopGateway(root, workspace string, port int) (*desktopGatewayServe
 	mux.HandleFunc("/api/v2/lifecycle/action", gw.handleLifecycleAction)
 	mux.HandleFunc("/api/v2/analytics/usage", gw.handleAnalyticsUsage)
 	mux.HandleFunc("/api/v2/compliance/logs", gw.handleComplianceLogs)
+	mux.HandleFunc("/api/v2/diagnostics/report", gw.handleDiagnosticsReport)
 
 	gw.httpServer = &http.Server{
 		Handler:      corsMiddleware(mux),
@@ -369,6 +386,8 @@ func (gw *desktopGatewayServer) handleRuntimeStatus(w http.ResponseWriter, r *ht
 		"governance_mode":             "zero_trust",
 		"preflight_syntax_validation": true,
 		"sliding_window_compaction":   true,
+		"diagnostics_feedback":        true,
+		"active_diagnostics_files":    len(gw.diagnostics),
 	})
 }
 
@@ -619,6 +638,58 @@ func (gw *desktopGatewayServer) handleTaskContext(w http.ResponseWriter, r *http
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"entries": entries,
 		"count":   len(entries),
+	})
+}
+
+func (gw *desktopGatewayServer) handleDiagnosticsReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		var req diagnosticsReportRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.Path == "" {
+			http.Error(w, "path is required", http.StatusBadRequest)
+			return
+		}
+		gw.mu.Lock()
+		if len(req.Diagnostics) == 0 {
+			delete(gw.diagnostics, req.Path)
+		} else {
+			gw.diagnostics[req.Path] = req.Diagnostics
+		}
+		count := len(gw.diagnostics[req.Path])
+		gw.mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "recorded",
+			"path":   req.Path,
+			"count":  count,
+		})
+		return
+	}
+
+	gw.mu.RLock()
+	defer gw.mu.RUnlock()
+
+	totalErrors, totalWarnings := 0, 0
+	for _, items := range gw.diagnostics {
+		for _, it := range items {
+			if strings.EqualFold(it.Severity, "error") {
+				totalErrors++
+			} else if strings.EqualFold(it.Severity, "warning") {
+				totalWarnings++
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"total_errors":   totalErrors,
+		"total_warnings": totalWarnings,
+		"files_count":    len(gw.diagnostics),
+		"diagnostics":    gw.diagnostics,
 	})
 }
 

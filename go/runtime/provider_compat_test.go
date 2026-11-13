@@ -331,3 +331,62 @@ func TestLocalModelOptionsNumCtxInPayload(t *testing.T) {
 		t.Fatalf("expected top_p=0.9, got: %v", opts["top_p"])
 	}
 }
+
+func TestThoughtStreamFilter(t *testing.T) {
+	// 1. Normal streaming without think tags
+	f1 := &thoughtStreamFilter{}
+	out1 := f1.Feed("Hello ") + f1.Feed("world!") + f1.Flush()
+	if out1 != "Hello world!" {
+		t.Fatalf("expected 'Hello world!', got %q", out1)
+	}
+
+	// 2. Chunks with <think> tag split across chunks
+	f2 := &thoughtStreamFilter{}
+	chunks := []string{"<th", "ink>deliberating...", " still thinking</", "think>The solution is 42."}
+	var out2 strings.Builder
+	for _, ch := range chunks {
+		out2.WriteString(f2.Feed(ch))
+	}
+	out2.WriteString(f2.Flush())
+	if out2.String() != "The solution is 42." {
+		t.Fatalf("expected 'The solution is 42.', got %q", out2.String())
+	}
+
+	// 3. Unclosed think tag should be dropped completely on flush
+	f3 := &thoughtStreamFilter{}
+	out3 := f3.Feed("<think>secret thoughts never closed") + f3.Flush()
+	if out3 != "" {
+		t.Fatalf("expected empty output for unclosed think, got %q", out3)
+	}
+}
+
+func TestSplitThinkingContent(t *testing.T) {
+	thoughts, ans := splitThinkingContent("<think>step 1\nstep 2</think>Clean Answer")
+	if len(thoughts) != 1 || !strings.Contains(thoughts[0], "step 1") || ans != "Clean Answer" {
+		t.Fatalf("unexpected split result: thoughts=%v ans=%q", thoughts, ans)
+	}
+}
+
+func TestLocalOnlyModeRefusal(t *testing.T) {
+	extProvider := &openAIProvider{
+		cfg: config{"local_only": true},
+		declared: &declaredProvider{
+			ID:      "openai",
+			BaseURL: "https://api.openai.com/v1",
+		},
+	}
+	if _, _, err := extProvider.connection(context.Background()); err == nil || !strings.Contains(err.Error(), "local-only mode is active") {
+		t.Fatalf("expected local-only rejection for external endpoint, got err: %v", err)
+	}
+
+	localProvider := &openAIProvider{
+		cfg: config{"local_only": true},
+		declared: &declaredProvider{
+			ID:      "ollama",
+			BaseURL: "http://127.0.0.1:11434/v1",
+		},
+	}
+	if _, endpoint, err := localProvider.connection(context.Background()); err != nil || !strings.Contains(endpoint, "127.0.0.1") {
+		t.Fatalf("expected local-only connection success for 127.0.0.1, got endpoint=%s err=%v", endpoint, err)
+	}
+}

@@ -27,22 +27,25 @@ import (
 )
 
 type providerPreset struct {
-	id, name, baseURL, envKey, model, keyURL string
+	id, name, baseURL, model, envKey, keyURL string
 }
 
 var providerPresets = []providerPreset{
-	{"openai", "OpenAI", "https://api.openai.com", "OPENAI_API_KEY", "gpt-4o-mini", "https://platform.openai.com/api-keys"},
-	{"anthropic", "Anthropic", "https://api.anthropic.com/v1", "ANTHROPIC_API_KEY", "claude-haiku-4-5", "https://console.anthropic.com/settings/keys"},
-	{"deepseek", "DeepSeek", "https://api.deepseek.com", "DEEPSEEK_API_KEY", "deepseek-chat", "https://platform.deepseek.com/api_keys"},
-	{"siliconflow", "SiliconFlow", "https://api.siliconflow.cn", "SILICONFLOW_API_KEY", "deepseek-ai/DeepSeek-V3", "https://cloud.siliconflow.cn/account/ak"},
-	{"dashscope", "Alibaba DashScope", "https://dashscope.aliyuncs.com/compatible-mode", "DASHSCOPE_API_KEY", "qwen-plus", "https://bailian.console.aliyun.com/"},
-	{"moonshot", "Moonshot", "https://api.moonshot.cn/v1", "MOONSHOT_API_KEY", "moonshot-v1-8k", "https://platform.moonshot.cn/console/api-keys"},
-	{"zhipu", "Zhipu", "https://open.bigmodel.cn/api/paas/v4", "ZHIPUAI_API_KEY", "glm-4-flash", "https://open.bigmodel.cn/usercenter/apikeys"},
-	{"groq", "Groq", "https://api.groq.com/openai", "GROQ_API_KEY", "llama-3.3-70b-versatile", "https://console.groq.com/keys"},
-	{"together", "Together", "https://api.together.xyz", "TOGETHER_API_KEY", "meta-llama/Llama-3.3-70B-Instruct-Turbo", "https://api.together.xyz/settings/api-keys"},
+	{"openai", "OpenAI", "https://api.openai.com", "gpt-4o", "OPENAI_API_KEY", "https://platform.openai.com/api-keys"},
+	{"anthropic", "Anthropic", "https://api.anthropic.com/v1", "claude-3-7-sonnet", "ANTHROPIC_API_KEY", "https://console.anthropic.com/settings/keys"},
+	{"deepseek", "DeepSeek", "https://api.deepseek.com", "deepseek-chat", "DEEPSEEK_API_KEY", "https://platform.deepseek.com/api_keys"},
+	{"openrouter", "OpenRouter", "https://openrouter.ai/api", "deepseek/deepseek-r1", "OPENROUTER_API_KEY", "https://openrouter.ai/keys"},
+	{"siliconflow", "SiliconFlow", "https://api.siliconflow.cn", "deepseek-ai/DeepSeek-V3", "SILICONFLOW_API_KEY", "https://cloud.siliconflow.cn/account/ak"},
+	{"dashscope", "Alibaba DashScope", "https://dashscope.aliyuncs.com/compatible-mode", "qwen-plus", "DASHSCOPE_API_KEY", "https://bailian.console.aliyun.com/"},
+	{"moonshot", "Moonshot", "https://api.moonshot.cn/v1", "moonshot-v1-8k", "MOONSHOT_API_KEY", "https://platform.moonshot.cn/console/api-keys"},
+	{"zhipu", "Zhipu", "https://open.bigmodel.cn/api/paas/v4", "glm-4-plus", "ZHIPUAI_API_KEY", "https://open.bigmodel.cn/usercenter/apikeys"},
+	{"minimax", "MiniMax", "https://api.minimax.chat/v1", "MiniMax-Text-01", "MINIMAX_API_KEY", "https://platform.minimaxi.com/"},
+	{"groq", "Groq", "https://api.groq.com/openai", "llama-3.3-70b-versatile", "GROQ_API_KEY", "https://console.groq.com/keys"},
+	{"together", "Together", "https://api.together.xyz", "meta-llama/Llama-3.3-70B-Instruct-Turbo", "TOGETHER_API_KEY", "https://api.together.xyz/settings/api-keys"},
 	{"lmstudio", "LM Studio (local)", "http://localhost:1234", "", "", ""},
 	{"vllm", "vLLM (local)", "http://localhost:8000", "", "", ""},
 	{"llamacpp", "llama.cpp (local)", "http://localhost:8080", "", "", ""},
+	{"openai-compatible", "OpenAI Compatible", "http://localhost:8000/v1", "", "OPENAI_API_KEY", ""},
 }
 
 const (
@@ -77,12 +80,12 @@ func presetProvider(c config, name string) *declaredProvider {
 	}
 	base := p.baseURL
 	switch name {
-	case "lmstudio", "vllm", "llamacpp":
-		base = first(c.text("endpoint_url", ""), c.text(name+"_base_url", ""), os.Getenv(strings.ToUpper(name)+"_BASE_URL"), base)
+	case "lmstudio", "vllm", "llamacpp", "ollama", "openai-compatible", "openai_compatible":
+		base = first(c.text("base_url", ""), c.text("endpoint_url", ""), c.text(name+"_base_url", ""), os.Getenv(strings.ToUpper(strings.ReplaceAll(name, "-", "_"))+"_BASE_URL"), base)
 	default:
-		base = first(c.text("endpoint_url", ""), base)
+		base = first(c.text("base_url", ""), c.text("endpoint_url", ""), base)
 	}
-	model := first(c.text(name+"_model", ""), os.Getenv(strings.ToUpper(name)+"_MODEL"), p.model)
+	model := first(c.text("model", ""), c.text(name+"_model", ""), os.Getenv(strings.ToUpper(strings.ReplaceAll(name, "-", "_"))+"_MODEL"), p.model)
 	instructions := ""
 	if p.keyURL != "" {
 		instructions = "Get one at " + p.keyURL + " and export " + p.envKey + " in your shell profile."

@@ -214,3 +214,72 @@ func TestDesktopGatewayLifecycleAndDiscovery(t *testing.T) {
 		t.Fatalf("expected runtime.json to be cleaned up after stop, err: %v", err)
 	}
 }
+
+func TestDiagnosticsReportEndpoint(t *testing.T) {
+	root := t.TempDir()
+	ws := t.TempDir()
+	t.Setenv("ARIA_HOME", root)
+
+	gw, err := startDesktopGateway(root, ws, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stopDesktopGateway()
+
+	// 1. Report diagnostics for main.go
+	payload := `{
+		"path": "main.go",
+		"diagnostics": [
+			{"line": 10, "col": 5, "severity": "error", "message": "undefined: calculate"},
+			{"line": 20, "col": 1, "severity": "warning", "message": "unused variable 'x'"}
+		]
+	}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v2/diagnostics/report", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	gw.httpServer.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"status":"recorded"`) {
+		t.Fatalf("unexpected POST diagnostics response: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// 2. Query diagnostics via GET
+	recGet := httptest.NewRecorder()
+	reqGet := httptest.NewRequest(http.MethodGet, "/api/v2/diagnostics/report", nil)
+	gw.httpServer.Handler.ServeHTTP(recGet, reqGet)
+	if recGet.Code != http.StatusOK {
+		t.Fatalf("expected 200 on GET diagnostics, got %d", recGet.Code)
+	}
+	var res map[string]any
+	if err := json.Unmarshal(recGet.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res["total_errors"] != float64(1) || res["total_warnings"] != float64(1) || res["files_count"] != float64(1) {
+		t.Fatalf("unexpected diagnostics summary: %+v", res)
+	}
+
+	// 3. Runtime status includes diagnostics feedback flag
+	recStatus := httptest.NewRecorder()
+	reqStatus := httptest.NewRequest(http.MethodGet, "/api/v2/runtime/status", nil)
+	gw.httpServer.Handler.ServeHTTP(recStatus, reqStatus)
+	if !strings.Contains(recStatus.Body.String(), `"diagnostics_feedback":true`) || !strings.Contains(recStatus.Body.String(), `"active_diagnostics_files":1`) {
+		t.Fatalf("runtime status missing diagnostics feedback: %s", recStatus.Body.String())
+	}
+
+	// 4. Clear diagnostics by reporting empty array
+	recClear := httptest.NewRecorder()
+	reqClear := httptest.NewRequest(http.MethodPost, "/api/v2/diagnostics/report", strings.NewReader(`{"path":"main.go","diagnostics":[]}`))
+	reqClear.Header.Set("Content-Type", "application/json")
+	gw.httpServer.Handler.ServeHTTP(recClear, reqClear)
+	if recClear.Code != http.StatusOK {
+		t.Fatalf("expected 200 on clear diagnostics, got %d", recClear.Code)
+	}
+
+	recGet2 := httptest.NewRecorder()
+	reqGet2 := httptest.NewRequest(http.MethodGet, "/api/v2/diagnostics/report", nil)
+	gw.httpServer.Handler.ServeHTTP(recGet2, reqGet2)
+	var res2 map[string]any
+	_ = json.Unmarshal(recGet2.Body.Bytes(), &res2)
+	if res2["files_count"] != float64(0) {
+		t.Fatalf("expected 0 files after clearing, got %+v", res2)
+	}
+}

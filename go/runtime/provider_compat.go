@@ -62,7 +62,11 @@ func (p *openAIProvider) connection(ctx context.Context) (*http.Client, string, 
 	if d := p.declared; d != nil {
 		transport := nativeTransport()
 		transport.ResponseHeaderTimeout = d.Timeout
-		p.client, p.endpoint = &http.Client{Transport: transport}, d.endpoint()
+		endpoint := d.endpoint()
+		if p.cfg.boolean("local_only", false) && !isLocalEndpoint(endpoint) {
+			return nil, "", fmt.Errorf("local-only mode is active: refusing external connection to %s", endpoint)
+		}
+		p.client, p.endpoint = &http.Client{Transport: transport}, endpoint
 		return p.client, p.endpoint, nil
 	}
 	options, err := googleHTTPOptions(ctx, p.cfg)
@@ -82,6 +86,9 @@ func (p *openAIProvider) connection(ctx context.Context) (*http.Client, string, 
 		host = options.Location + "-" + host
 	}
 	p.endpoint = "https://" + host + "/v1/projects/" + url.PathEscape(options.Project) + "/locations/" + url.PathEscape(options.Location) + "/endpoints/openapi/chat/completions"
+	if p.cfg.boolean("local_only", false) && !isLocalEndpoint(p.endpoint) {
+		return nil, "", fmt.Errorf("local-only mode is active: refusing external connection to %s", p.endpoint)
+	}
 	p.client = options.HTTPClient
 	return p.client, p.endpoint, nil
 }
@@ -277,6 +284,7 @@ func parseCompletions(r io.Reader, streaming bool, emit func(string), usage ...*
 	calls := map[int]*completionCall{}
 	bytesRead := 0
 	finished := false
+	filter := &thoughtStreamFilter{}
 	// With stream_options.include_usage the usage event comes after the
 	// finish_reason; keep reading for it until [DONE] or the stream ends.
 	wantUsage := len(usage) > 0 && usage[0] != nil
@@ -306,9 +314,21 @@ func parseCompletions(r io.Reader, streaming bool, emit func(string), usage ...*
 				delta = choice.Message
 				finished = true
 			}
+
+			// Filter embedded <think>...</think> blocks and decouple reasoning:
+			// delta.ReasoningContent / delta.Reasoning are private model thoughts (DeepSeek-R1 / QwQ)
+			// and are never emitted as visible text.
 			if delta.Content != "" {
-				content.Parts = append(content.Parts, &genai.Part{Text: delta.Content})
-				emit(delta.Content)
+				text := delta.Content
+				if streaming {
+					text = filter.Feed(delta.Content)
+				} else if strings.Contains(text, "<think>") {
+					_, text = splitThinkingContent(text)
+				}
+				if text != "" {
+					content.Parts = append(content.Parts, &genai.Part{Text: text})
+					emit(text)
+				}
 			}
 			for n, call := range delta.Calls {
 				index := call.Index
@@ -393,6 +413,10 @@ func parseCompletions(r io.Reader, streaming bool, emit func(string), usage ...*
 		}
 		if err := flush(); err != nil {
 			return content, err
+		}
+		if trailing := filter.Flush(); trailing != "" {
+			content.Parts = append(content.Parts, &genai.Part{Text: trailing})
+			emit(trailing)
 		}
 	}
 	if !finished {
@@ -627,4 +651,100 @@ func waitModelRetry(ctx context.Context, attempt int) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+type thoughtStreamFilter struct {
+	inThink bool
+	buf     string
+}
+
+func (f *thoughtStreamFilter) Feed(chunk string) string {
+	f.buf += chunk
+	var visible strings.Builder
+	for len(f.buf) > 0 {
+		if !f.inThink {
+			idx := strings.Index(f.buf, "<think>")
+			if idx == -1 {
+				prefixLen := 0
+				for l := min(len(f.buf), len("<think>")-1); l > 0; l-- {
+					if strings.HasSuffix(f.buf, "<think>"[:l]) {
+						prefixLen = l
+						break
+					}
+				}
+				emitLen := len(f.buf) - prefixLen
+				if emitLen > 0 {
+					visible.WriteString(f.buf[:emitLen])
+					f.buf = f.buf[emitLen:]
+				}
+				break
+			}
+			visible.WriteString(f.buf[:idx])
+			f.buf = f.buf[idx+len("<think>"):]
+			f.inThink = true
+		} else {
+			idx := strings.Index(f.buf, "</think>")
+			if idx == -1 {
+				prefixLen := 0
+				for l := min(len(f.buf), len("</think>")-1); l > 0; l-- {
+					if strings.HasSuffix(f.buf, "</think>"[:l]) {
+						prefixLen = l
+						break
+					}
+				}
+				discardLen := len(f.buf) - prefixLen
+				if discardLen > 0 {
+					f.buf = f.buf[discardLen:]
+				}
+				break
+			}
+			f.buf = f.buf[idx+len("</think>"):]
+			f.inThink = false
+		}
+	}
+	return visible.String()
+}
+
+func (f *thoughtStreamFilter) Flush() string {
+	if f.inThink {
+		f.buf = ""
+		return ""
+	}
+	res := f.buf
+	f.buf = ""
+	return res
+}
+
+func splitThinkingContent(text string) (thoughts []string, answer string) {
+	rem := text
+	for {
+		start := strings.Index(rem, "<think>")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(rem, "</think>")
+		if end == -1 {
+			th := strings.TrimPrefix(rem[start:], "<think>")
+			if strings.TrimSpace(th) != "" {
+				thoughts = append(thoughts, th)
+			}
+			rem = rem[:start]
+			break
+		}
+		th := rem[start+7 : end]
+		if strings.TrimSpace(th) != "" {
+			thoughts = append(thoughts, th)
+		}
+		rem = rem[:start] + rem[end+8:]
+	}
+	return thoughts, strings.TrimSpace(rem)
+}
+
+func isLocalEndpoint(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "localhost" || host == "127.0.0.1" || host == "::1" || strings.HasSuffix(host, ".local")
 }

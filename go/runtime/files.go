@@ -462,6 +462,12 @@ func propose(s *scope, tool string, params map[string]any) (fileChange, error) {
 			return c, errors.New("content must be a string")
 		}
 		c.after = []byte(value)
+		if strings.HasSuffix(strings.ToLower(c.path), ".pdf") && !bytes.HasPrefix(c.after, []byte("%PDF-")) {
+			// Auto-compile Markdown/plain text into valid PDF bytes so the file is never corrupted
+			if pdfData, err := compileMarkdownToPDFBytes(context.Background(), value, filepath.Base(c.path)); err == nil && len(pdfData) > 0 {
+				c.after = pdfData
+			}
+		}
 	case "edit_file":
 		if !c.existed {
 			return c, errors.New("file not found")
@@ -480,6 +486,12 @@ func propose(s *scope, tool string, params map[string]any) (fileChange, error) {
 		}
 		count := strings.Count(string(c.before), old)
 		all, _ := params["replace_all"].(bool)
+		if count == 0 {
+			if matched, cCount := locateFuzzyMatch(string(c.before), old); cCount > 0 {
+				old = matched
+				count = cCount
+			}
+		}
 		if count == 0 {
 			return c, errors.New("old_string was not found; read_file first to copy exact text")
 		}
@@ -525,6 +537,12 @@ func propose(s *scope, tool string, params map[string]any) (fileChange, error) {
 			}
 			count := strings.Count(working, old)
 			all, _ := edit["replace_all"].(bool)
+			if count == 0 {
+				if matched, cCount := locateFuzzyMatch(working, old); cCount > 0 {
+					old = matched
+					count = cCount
+				}
+			}
 			if count == 0 || (count > 1 && !all) {
 				return c, fmt.Errorf("edit %d has %d matches; no changes applied", i+1, count)
 			}
@@ -737,4 +755,90 @@ func applyChange(s *scope, c fileChange) toolResult {
 		return failed(err)
 	}
 	return toolResult{Success: true, Data: map[string]any{"path": c.path, "bytes": len(c.after), "changed": string(c.before) != string(c.after)}}
+}
+
+func splitLinesPreserve(s string) []string {
+	var lines []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			lines = append(lines, s[start:i+1])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		lines = append(lines, s[start:])
+	}
+	return lines
+}
+
+func findLineSliceMatches(cLines, oLines []string, eq func(c, o string) bool) []int {
+	var matches []int
+	if len(oLines) == 0 || len(oLines) > len(cLines) {
+		return matches
+	}
+	for i := 0; i <= len(cLines)-len(oLines); i++ {
+		matched := true
+		for j := 0; j < len(oLines); j++ {
+			if !eq(cLines[i+j], oLines[j]) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			matches = append(matches, i)
+		}
+	}
+	return matches
+}
+
+func locateFuzzyMatch(content, old string) (string, int) {
+	if old == "" || content == "" {
+		return "", 0
+	}
+	// 1. CRLF normalization
+	normalizedOld := strings.ReplaceAll(old, "\r\n", "\n")
+	if strings.Contains(content, "\r\n") {
+		crlfOld := strings.ReplaceAll(normalizedOld, "\n", "\r\n")
+		if cnt := strings.Count(content, crlfOld); cnt > 0 {
+			return crlfOld, cnt
+		}
+	} else {
+		if cnt := strings.Count(content, normalizedOld); cnt > 0 {
+			return normalizedOld, cnt
+		}
+	}
+
+	// 2. Line-by-line whitespace-tolerant sliding window
+	cLines := splitLinesPreserve(content)
+	oLines := splitLinesPreserve(old)
+	if len(oLines) == 0 || len(oLines) > len(cLines) {
+		return "", 0
+	}
+
+	// Pass A: Compare lines with trailing whitespace and \r stripped
+	matchesA := findLineSliceMatches(cLines, oLines, func(c, o string) bool {
+		return strings.TrimRight(c, " \t\r\n") == strings.TrimRight(o, " \t\r\n")
+	})
+	if len(matchesA) == 1 {
+		idx := matchesA[0]
+		matchedStr := strings.Join(cLines[idx:idx+len(oLines)], "")
+		return matchedStr, 1
+	} else if len(matchesA) > 1 {
+		return "", len(matchesA)
+	}
+
+	// Pass B: Compare lines with both leading and trailing whitespace stripped (indentation-tolerant)
+	matchesB := findLineSliceMatches(cLines, oLines, func(c, o string) bool {
+		return strings.TrimSpace(c) == strings.TrimSpace(o)
+	})
+	if len(matchesB) == 1 {
+		idx := matchesB[0]
+		matchedStr := strings.Join(cLines[idx:idx+len(oLines)], "")
+		return matchedStr, 1
+	} else if len(matchesB) > 1 {
+		return "", len(matchesB)
+	}
+
+	return "", 0
 }

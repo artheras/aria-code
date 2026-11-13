@@ -248,7 +248,8 @@ func declaredProviderFor(c config) (*declaredProvider, error) {
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 			return nil, errors.New("ollama_base_url must be an http(s) URL without credentials, query or fragment")
 		}
-		return &declaredProvider{ID: "ollama", Name: "Ollama", BaseURL: strings.TrimRight(base, "/"), Timeout: 120 * time.Second}, nil
+		model := first(c.text("model", ""), c.text("ollama_model", ""), os.Getenv("OLLAMA_MODEL"), "qwen2.5-coder")
+		return &declaredProvider{ID: "ollama", Name: "Ollama", BaseURL: strings.TrimRight(base, "/"), Model: model, Timeout: 120 * time.Second}, nil
 	}
 	where := "~/.aria/providers.yaml"
 	if path != "" {
@@ -378,6 +379,45 @@ func (d *declaredProvider) redact(err error) error {
 // modelProviderFor is the provider a configuration selects: Google unless
 // local_provider names a declared provider.
 func modelProviderFor(c config) (modelProvider, error) {
+	primary, err := buildSingleProvider(c)
+	if err != nil {
+		return nil, err
+	}
+	fbProviderName := c.text("fallback_provider", "")
+	fbModelName := c.text("fallback_model", "")
+	if fbProviderName == "" && fbModelName == "" {
+		return primary, nil
+	}
+	fbCfg := make(config)
+	for k, v := range c {
+		fbCfg[k] = v
+	}
+	delete(fbCfg, "fallback_provider")
+	delete(fbCfg, "fallback_model")
+	delete(fbCfg, "fallback_base_url")
+
+	if fbProviderName != "" {
+		fbCfg["local_provider"] = fbProviderName
+	}
+	if fbModelName != "" {
+		fbCfg["model"] = fbModelName
+	}
+	if u := c.text("fallback_base_url", ""); u != "" {
+		fbCfg["base_url"] = u
+	}
+	fallback, err := buildSingleProvider(fbCfg)
+	if err != nil {
+		return primary, nil
+	}
+	return &resilientProvider{
+		primary:      primary,
+		fallback:     fallback,
+		primaryName:  providerName(c),
+		fallbackName: providerName(fbCfg),
+	}, nil
+}
+
+func buildSingleProvider(c config) (modelProvider, error) {
 	spec, err := declaredProviderFor(c)
 	if err != nil {
 		return nil, err

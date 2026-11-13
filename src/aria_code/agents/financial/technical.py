@@ -56,7 +56,7 @@ class TechnicalAgent(BaseAgent):
             "5) Conclusion: BULLISH / NEUTRAL / BEARISH"
         )
 
-        analysis = await self._call_llm(self._SYSTEM, prompt, max_tokens=600, quote=quote)
+        analysis = await self._call_llm(self._SYSTEM, prompt, max_tokens=3000, quote=quote)
         if not analysis:
             analysis = _template_analysis(symbol, price, history, lang=self.lang)
 

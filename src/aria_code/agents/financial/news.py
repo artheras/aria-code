@@ -109,7 +109,7 @@ class NewsAgent(BaseAgent):
             "4. Conclude with: POSITIVE / NEUTRAL / NEGATIVE"
         )
 
-        analysis = await self._call_llm(self._SYSTEM, prompt, max_tokens=500)
+        analysis = await self._call_llm(self._SYSTEM, prompt, max_tokens=3000)
         if not analysis:
             analysis = _template_analysis(symbol, news, events, lang=self.lang)
 

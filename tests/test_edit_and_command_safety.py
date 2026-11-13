@@ -141,3 +141,31 @@ def test_a_command_that_succeeds_carries_no_hint(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ARIA_ARTIFACT_ROOT", str(tmp_path / "artifacts"))
     assert "hint" not in run("python3 -c 'print(1)'", tmp_path)["data"]
+
+
+def test_fuzzy_edit_tolerance(tmp_path, monkeypatch):
+    from aria_code.apps.cli.tools.write_tools import tool_edit_file, tool_multi_edit
+    monkeypatch.chdir(tmp_path)
+    file_path = tmp_path / "hello.py"
+    file_path.write_text("def greet():\n    msg = 'hello'\n    return msg\n")
+
+    # 1. Edit with trailing spaces in old_string
+    res = tool_edit_file({
+        "path": str(file_path),
+        "old_string": "    msg = 'hello'   \n    return msg  \n",
+        "new_string": "    msg = 'hi'\n    return msg\n",
+    })
+    assert res["success"] is True, res
+    assert "msg = 'hi'" in file_path.read_text()
+
+    # 2. Multi edit with indentation difference
+    res_m = tool_multi_edit({
+        "path": str(file_path),
+        "edits": [{
+            "old_string": "msg = 'hi'\nreturn msg",
+            "new_string": "    msg = 'salut'\n    return msg\n",
+        }],
+    })
+    assert res_m["success"] is True, res_m
+    assert "msg = 'salut'" in file_path.read_text()
+

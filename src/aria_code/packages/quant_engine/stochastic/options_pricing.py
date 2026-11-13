@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import pandas as pd
@@ -574,3 +574,84 @@ def iv_surface(
         ivs=ivs,
         S=S,
     )
+
+
+def find_aria_quant_binary() -> Optional[str]:
+    """Find native Rust aria-quant binary if built."""
+    import os
+    import shutil
+    from pathlib import Path
+
+    env_bin = os.getenv("ARIA_QUANT_BINARY")
+    if env_bin and Path(env_bin).is_file():
+        return env_bin
+    cand = shutil.which("aria-quant")
+    if cand:
+        return cand
+    # Check workspace rust target directory
+    repo_cand = Path(__file__).resolve().parents[5] / "rust" / "target" / "release" / "aria-quant"
+    if repo_cand.is_file():
+        return str(repo_cand)
+    return None
+
+
+def native_monte_carlo(
+    s0: float,
+    r: float,
+    sigma: float,
+    t: float,
+    num_paths: int = 100000,
+    steps: int = 252,
+    q: float = 0.0,
+    seed: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Run high-performance multi-threaded parallel Monte Carlo simulation using native Rust aria-quant.
+    Falls back to numpy if native binary is not built.
+    """
+    import json
+    import subprocess
+    bin_path = find_aria_quant_binary()
+    if bin_path:
+        payload = json.dumps({
+            "s0": float(s0),
+            "r": float(r),
+            "q": float(q),
+            "sigma": float(sigma),
+            "t": float(t),
+            "steps": int(steps),
+            "num_paths": int(num_paths),
+            "seed": seed,
+        })
+        try:
+            res = subprocess.run([bin_path, "monte-carlo", payload], capture_output=True, text=True, check=True)
+            out = json.loads(res.stdout)
+            out["engine"] = "rust_native"
+            return out
+        except Exception as e:
+            logger.debug("[options_pricing] native monte carlo failed, falling back to numpy: %s", e)
+
+    # Fallback numpy simulation
+    dt = t / steps
+    drift = (r - q - 0.5 * sigma ** 2) * dt
+    vol_sqrt = sigma * math.sqrt(dt)
+    if seed is not None:
+        np.random.seed(seed)
+    z = np.random.normal(0, 1, (num_paths, steps))
+    log_returns = drift + vol_sqrt * z
+    paths = s0 * np.exp(np.sum(log_returns, axis=1))
+    paths.sort()
+    mean = float(np.mean(paths))
+    std = float(np.std(paths))
+    p05 = float(np.percentile(paths, 5))
+    p01 = float(np.percentile(paths, 1))
+    return {
+        "mean_terminal": mean,
+        "std_terminal": std,
+        "var_95": max(0.0, s0 - p05),
+        "var_99": max(0.0, s0 - p01),
+        "p05": p05,
+        "median": float(np.median(paths)),
+        "p95": float(np.percentile(paths, 95)),
+        "engine": "python_numpy",
+    }

@@ -13,10 +13,15 @@ class FundamentalAgent(BaseAgent):
     description = "基本面分析：估值/ROE/竞争优势/财务健康"
 
     _SYSTEM = (
-        "You are a fundamental equity analyst. Evaluate: PE/PB valuation levels "
-        "(vs historical range and sector peers), ROE quality, revenue growth, "
-        "balance sheet health, and competitive moat. "
-        "Be data-driven. End with: UNDERVALUED / FAIRLY_VALUED / OVERVALUED."
+        "You are a senior fundamental equity research analyst. Deliver an in-depth, structured valuation "
+        "and financial health teardown using structured markdown headings and tables:\n"
+        "## 1. Valuation Multiples & Historical Context (P/E TTM, P/B, EV/EBITDA, Dividend Yield)\n"
+        "## 2. Profitability & Capital Efficiency (ROE, ROIC, Gross & Operating Margins, Cash Flow Conversion)\n"
+        "## 3. Revenue & Growth Trajectory (Topline growth momentum, sustainability, secular tailwinds)\n"
+        "## 4. Balance Sheet Quality & Solvency (Net debt/cash position, debt coverage, liquidity buffer)\n"
+        "## 5. Economic Moat & Competitive Advantages (Pricing power, network effects, cost advantage)\n"
+        "## 6. Fundamental Verdict & Price Target Band\n"
+        "Be strictly data-driven. Conclude explicitly with: UNDERVALUED / FAIRLY_VALUED / OVERVALUED."
     )
 
     async def fetch_data(self, symbol: str) -> Dict[str, Any]:
@@ -66,19 +71,12 @@ class FundamentalAgent(BaseAgent):
         prompt = (
             f"Stock: {symbol}  Price: {price}\n"
             f"Fundamentals:\n{fund_str}\n\n"
-            "Evaluate:\n"
-            "1. Valuation (PE/PB vs historical/sector)\n"
-            "2. Profitability quality (ROE trend)\n"
-            "3. Growth outlook (revenue/earnings)\n"
-            "4. Balance sheet and dividend\n"
-            "5. Competitive moat\n"
-            "Conclusion: UNDERVALUED / FAIRLY_VALUED / OVERVALUED\n\n"
-            "Data limits: use only the financial fields supplied above. No historical series, peer "
-            "panel or factor validation report is connected here; do not claim those comparisons "
-            "or tests were run. If a valuation or financial field is missing, identify it as unavailable."
+            "Please deliver a thorough, institutional fundamental evaluation following the 6-section structure above.\n"
+            "Include markdown summary tables for key ratios and qualitative assessment of capital allocation.\n"
+            "Data limits: use only verified financial metrics. If any field is missing, state it clearly."
         )
 
-        analysis  = await self._call_llm(self._SYSTEM, prompt, max_tokens=500, quote=quote)
+        analysis  = await self._call_llm(self._SYSTEM, prompt, max_tokens=4096, quote=quote)
         if not analysis:
             analysis = _template_fundamental(symbol, pe, pb, roe, rev_g, lang=self.lang)
 

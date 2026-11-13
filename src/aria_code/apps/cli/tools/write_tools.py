@@ -530,6 +530,31 @@ def tool_write_file(params: dict) -> dict:
         existed = p.exists()
         before_mode = _stat.S_IMODE(p.stat().st_mode) if p.is_file() else None
 
+        # Auto-compile Markdown/plain text to valid PDF when targeting a .pdf file
+        if p.suffix.lower() == ".pdf" and not content.startswith("%PDF-"):
+            try:
+                from aria_code.markdown_pdf import markdown_to_pdf
+                p.parent.mkdir(parents=True, exist_ok=True)
+                pdf_out = markdown_to_pdf(content, p)
+                if pdf_out and pdf_out.exists() and pdf_out.stat().st_size > 0:
+                    console, has_rich = _ui()
+                    sz = pdf_out.stat().st_size
+                    if has_rich and console:
+                        console.print(f"  [dim]Auto-compiled markdown to valid PDF: {p} ({sz} bytes)[/dim]")
+                    return {
+                        "success": True,
+                        "data": {
+                            "path": str(p),
+                            "action": "Compiled PDF" if not existed else "Updated PDF",
+                            "lines": content.count("\n") + 1,
+                            "bytes": sz,
+                            "is_pdf": True,
+                        },
+                    }
+            except Exception as _pdf_err:
+                import logging
+                logging.getLogger(__name__).warning("[write_file] PDF auto-compilation failed: %s", _pdf_err)
+
         console, has_rich = _ui()
         store = _change_store()
         change = store.stage(p, content, source="write_file")
@@ -705,6 +730,61 @@ def _find_all(text: str, needle: str) -> list[int]:
     return found
 
 
+def _split_lines_preserve(s: str) -> list[str]:
+    lines = []
+    start = 0
+    for i, ch in enumerate(s):
+        if ch == "\n":
+            lines.append(s[start:i + 1])
+            start = i + 1
+    if start < len(s):
+        lines.append(s[start:])
+    return lines
+
+
+def _locate_fuzzy_match(content: str, old: str) -> tuple[str, int]:
+    if not old or not content:
+        return "", 0
+    # 1. CRLF normalization
+    norm_old = old.replace("\r\n", "\n")
+    if "\r\n" in content:
+        crlf_old = norm_old.replace("\n", "\r\n")
+        if content.count(crlf_old) > 0:
+            return crlf_old, content.count(crlf_old)
+    else:
+        if content.count(norm_old) > 0:
+            return norm_old, content.count(norm_old)
+
+    c_lines = _split_lines_preserve(content)
+    o_lines = _split_lines_preserve(old)
+    if not o_lines or len(o_lines) > len(c_lines):
+        return "", 0
+
+    # Pass A: trailing whitespace tolerant
+    matches_a = []
+    for i in range(len(c_lines) - len(o_lines) + 1):
+        if all(c_lines[i + j].rstrip(" \t\r\n") == o_lines[j].rstrip(" \t\r\n") for j in range(len(o_lines))):
+            matches_a.append(i)
+    if len(matches_a) == 1:
+        idx = matches_a[0]
+        return "".join(c_lines[idx:idx + len(o_lines)]), 1
+    if len(matches_a) > 1:
+        return "", len(matches_a)
+
+    # Pass B: indentation / leading-trailing whitespace tolerant
+    matches_b = []
+    for i in range(len(c_lines) - len(o_lines) + 1):
+        if all(c_lines[i + j].strip() == o_lines[j].strip() for j in range(len(o_lines))):
+            matches_b.append(i)
+    if len(matches_b) == 1:
+        idx = matches_b[0]
+        return "".join(c_lines[idx:idx + len(o_lines)]), 1
+    if len(matches_b) > 1:
+        return "", len(matches_b)
+
+    return "", 0
+
+
 def tool_edit_file(params: dict) -> dict:
     """Edit a file by replacing old_string with new_string.
 
@@ -741,6 +821,10 @@ def tool_edit_file(params: dict) -> dict:
 
         content = p.read_text(encoding="utf-8", errors="replace")
         before_mode = _stat.S_IMODE(p.stat().st_mode)
+        if content.count(old_str) == 0:
+            matched, f_count = _locate_fuzzy_match(content, old_str)
+            if f_count > 0:
+                old_str = matched
         if content.count(old_str) == 0:
             preview = "\n".join(content.splitlines()[:10])
             return {"success": False,
@@ -878,6 +962,11 @@ def tool_multi_edit(params: dict) -> dict:
             if not old_s:
                 return {"success": False, "error": f"edit #{i + 1} missing 'old_string'"}
             occurrences = working.count(old_s)
+            if occurrences == 0:
+                matched, f_count = _locate_fuzzy_match(working, old_s)
+                if f_count > 0:
+                    old_s = matched
+                    occurrences = f_count
             if occurrences == 0:
                 return {"success": False, "error":
                         f"edit #{i + 1}: old_string not found. No edits applied (atomic). "
