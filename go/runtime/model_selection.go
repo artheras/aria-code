@@ -183,13 +183,23 @@ func sortNewestFirst(names []string) {
 func presetSuggestedModels(name string) []string {
 	switch name {
 	case "google", "vertexai", "gemini":
-		return []string{"gemini-3.8-flash", "gemini-3.8-pro", "gemini-3.5-flash"}
+		return []string{"gemini-3.8-flash", "gemini-3.8-pro", "gemini-2.5-pro", "gemini-2.5-flash"}
 	case "openai":
-		return []string{"gpt-4o", "gpt-4o-mini", "o3-mini"}
+		return []string{"gpt-4o", "gpt-4o-mini", "o3-mini", "o1"}
 	case "anthropic":
-		return []string{"claude-sonnet-4-5", "claude-haiku-4-5"}
+		return []string{"claude-3-7-sonnet", "claude-3-5-sonnet", "claude-3-5-haiku", "claude-haiku-4-5"}
 	case "deepseek":
 		return []string{"deepseek-chat", "deepseek-reasoner"}
+	case "dashscope":
+		return []string{"qwen-max", "qwen-plus", "qwen2.5-coder-32b-instruct"}
+	case "siliconflow":
+		return []string{"deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1", "Qwen/Qwen2.5-Coder-32B-Instruct"}
+	case "openrouter":
+		return []string{"deepseek/deepseek-r1", "anthropic/claude-3.7-sonnet", "openai/o3-mini"}
+	case "ollama":
+		return []string{"qwen2.5-coder", "deepseek-r1", "llama3.3"}
+	case "minimax":
+		return []string{"MiniMax-Text-01", "abab6.5s-chat"}
 	}
 	if p, ok := findPreset(name); ok && p.model != "" {
 		return []string{p.model}

@@ -181,7 +181,7 @@ func TestCursorOpenAICompatiblePresets(t *testing.T) {
 		defModel string
 	}{
 		{"openrouter", "https://openrouter.ai/api/v1/chat/completions", "deepseek/deepseek-r1"},
-		{"minimax", "https://api.minimax.chat/v1/chat/completions", "abab6.5s-chat"},
+		{"minimax", "https://api.minimax.chat/v1/chat/completions", "MiniMax-Text-01"},
 		{"ollama", "http://127.0.0.1:11434/v1/chat/completions", "qwen2.5-coder"},
 		{"openai-compatible", "http://localhost:8000/v1/chat/completions", ""},
 	} {

@@ -31,15 +31,15 @@ type providerPreset struct {
 }
 
 var providerPresets = []providerPreset{
-	{"openai", "OpenAI", "https://api.openai.com", "OPENAI_API_KEY", "gpt-4o-mini", "https://platform.openai.com/api-keys"},
-	{"anthropic", "Anthropic", "https://api.anthropic.com/v1", "ANTHROPIC_API_KEY", "claude-haiku-4-5", "https://console.anthropic.com/settings/keys"},
+	{"openai", "OpenAI", "https://api.openai.com", "OPENAI_API_KEY", "gpt-4o", "https://platform.openai.com/api-keys"},
+	{"anthropic", "Anthropic", "https://api.anthropic.com/v1", "ANTHROPIC_API_KEY", "claude-3-7-sonnet", "https://console.anthropic.com/settings/keys"},
 	{"deepseek", "DeepSeek", "https://api.deepseek.com", "DEEPSEEK_API_KEY", "deepseek-chat", "https://platform.deepseek.com/api_keys"},
 	{"openrouter", "OpenRouter", "https://openrouter.ai/api", "OPENROUTER_API_KEY", "deepseek/deepseek-r1", "https://openrouter.ai/keys"},
 	{"siliconflow", "SiliconFlow", "https://api.siliconflow.cn", "SILICONFLOW_API_KEY", "deepseek-ai/DeepSeek-V3", "https://cloud.siliconflow.cn/account/ak"},
 	{"dashscope", "Alibaba DashScope", "https://dashscope.aliyuncs.com/compatible-mode", "DASHSCOPE_API_KEY", "qwen-plus", "https://bailian.console.aliyun.com/"},
 	{"moonshot", "Moonshot", "https://api.moonshot.cn/v1", "MOONSHOT_API_KEY", "moonshot-v1-8k", "https://platform.moonshot.cn/console/api-keys"},
-	{"zhipu", "Zhipu", "https://open.bigmodel.cn/api/paas/v4", "ZHIPUAI_API_KEY", "glm-4-flash", "https://open.bigmodel.cn/usercenter/apikeys"},
-	{"minimax", "MiniMax", "https://api.minimax.chat/v1", "MINIMAX_API_KEY", "abab6.5s-chat", "https://platform.minimaxi.com/"},
+	{"zhipu", "Zhipu", "https://open.bigmodel.cn/api/paas/v4", "ZHIPUAI_API_KEY", "glm-4-plus", "https://open.bigmodel.cn/usercenter/apikeys"},
+	{"minimax", "MiniMax", "https://api.minimax.chat/v1", "MINIMAX_API_KEY", "MiniMax-Text-01", "https://platform.minimaxi.com/"},
 	{"groq", "Groq", "https://api.groq.com/openai", "GROQ_API_KEY", "llama-3.3-70b-versatile", "https://console.groq.com/keys"},
 	{"together", "Together", "https://api.together.xyz", "TOGETHER_API_KEY", "meta-llama/Llama-3.3-70B-Instruct-Turbo", "https://api.together.xyz/settings/api-keys"},
 	{"ollama", "Ollama (local)", "http://127.0.0.1:11434", "", "qwen2.5-coder", "https://ollama.com"},

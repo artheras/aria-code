@@ -212,11 +212,18 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 	if budget > 100 {
 		budget = 100
 	}
+	router := newRoleRouter(p, c)
+	coderProvider := router.ProviderForRole(RoleCoder)
+	reviewerProvider := router.ProviderForRole(RoleReviewer)
 	for round := 0; round < budget; round++ {
 		if ctx.Err() != nil {
 			return contents, answer.String(), ctx.Err()
 		}
-		content, err := p.Generate(ctx, contents, system, tools, func(text string) { answer.WriteString(text); hooks.emit("answer.delta", map[string]any{"text": text}) })
+		activeP := coderProvider
+		if activeP == nil {
+			activeP = p
+		}
+		content, err := activeP.Generate(ctx, contents, system, tools, func(text string) { answer.WriteString(text); hooks.emit("answer.delta", map[string]any{"text": text}) })
 		if content != nil && len(content.Parts) > 0 {
 			contents = append(contents, content)
 		}
@@ -268,7 +275,7 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 				answer.Reset()
 				continue
 			}
-			if directive := hooks.evidence.review(ctx, p, hooks.emit); directive != "" {
+			if directive := hooks.evidence.review(ctx, reviewerProvider, hooks.emit); directive != "" {
 				contents = append(contents, genai.NewContentFromText(directive, genai.RoleUser))
 				answer.Reset()
 				continue
