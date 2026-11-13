@@ -248,7 +248,8 @@ func declaredProviderFor(c config) (*declaredProvider, error) {
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 			return nil, errors.New("ollama_base_url must be an http(s) URL without credentials, query or fragment")
 		}
-		return &declaredProvider{ID: "ollama", Name: "Ollama", BaseURL: strings.TrimRight(base, "/"), Timeout: 120 * time.Second}, nil
+		model := first(c.text("model", ""), c.text("ollama_model", ""), os.Getenv("OLLAMA_MODEL"), "qwen2.5-coder")
+		return &declaredProvider{ID: "ollama", Name: "Ollama", BaseURL: strings.TrimRight(base, "/"), Model: model, Timeout: 120 * time.Second}, nil
 	}
 	where := "~/.aria/providers.yaml"
 	if path != "" {

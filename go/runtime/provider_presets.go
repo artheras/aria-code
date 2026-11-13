@@ -42,7 +42,6 @@ var providerPresets = []providerPreset{
 	{"minimax", "MiniMax", "https://api.minimax.chat/v1", "MiniMax-Text-01", "MINIMAX_API_KEY", "https://platform.minimaxi.com/"},
 	{"groq", "Groq", "https://api.groq.com/openai", "llama-3.3-70b-versatile", "GROQ_API_KEY", "https://console.groq.com/keys"},
 	{"together", "Together", "https://api.together.xyz", "meta-llama/Llama-3.3-70B-Instruct-Turbo", "TOGETHER_API_KEY", "https://api.together.xyz/settings/api-keys"},
-	{"ollama", "Ollama (local)", "http://127.0.0.1:11434", "qwen2.5-coder", "", "https://ollama.com"},
 	{"lmstudio", "LM Studio (local)", "http://localhost:1234", "", "", ""},
 	{"vllm", "vLLM (local)", "http://localhost:8000", "", "", ""},
 	{"llamacpp", "llama.cpp (local)", "http://localhost:8080", "", "", ""},
