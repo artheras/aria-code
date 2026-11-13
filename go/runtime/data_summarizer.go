@@ -364,3 +364,235 @@ func topCategories(freq map[string]int, limit int) []string {
 	}
 	return out
 }
+
+type aggItem struct {
+	Count int
+	Sum   float64
+	Min   float64
+	Max   float64
+}
+
+type groupResult struct {
+	Group string  `json:"group"`
+	Count int     `json:"count"`
+	Value float64 `json:"value"`
+}
+
+// aggregateDataTool performs deterministic streaming group-by and aggregation
+// over structured tabular datasets (CSV, TSV, JSONL).
+// Supported functions: "sum", "avg", "count", "min", "max".
+// Keeps context token usage under ~200 tokens.
+func aggregateDataTool(ctx context.Context, sc *scope, params map[string]any) toolResult {
+	rawPath := strings.TrimSpace(str(params, "path", ""))
+	if rawPath == "" {
+		return failed(errors.New("aggregate_data requires 'path' parameter"))
+	}
+	groupByCol := strings.TrimSpace(str(params, "group_by", ""))
+	if groupByCol == "" {
+		return failed(errors.New("aggregate_data requires 'group_by' parameter"))
+	}
+	metricCol := strings.TrimSpace(str(params, "metric", ""))
+	fn := strings.ToLower(strings.TrimSpace(str(params, "function", "count")))
+	if fn == "" {
+		fn = "count"
+	}
+	if fn != "count" && metricCol == "" {
+		return failed(fmt.Errorf("aggregate function '%s' requires 'metric' parameter", fn))
+	}
+	topN := 20
+	if n, ok := params["top_n"].(float64); ok && n > 0 {
+		topN = int(n)
+	}
+
+	scoped, err := sc.open(rawPath, false)
+	if err != nil {
+		return failed(err)
+	}
+	defer scoped.Close()
+	targetPath := scoped.absolute
+
+	file, err := os.Open(targetPath)
+	if err != nil {
+		return failed(err)
+	}
+	defer file.Close()
+
+	ext := strings.ToLower(filepath.Ext(targetPath))
+	var headers []string
+	var rows [][]string
+
+	switch ext {
+	case ".csv", ".tsv", ".txt":
+		sep := rune(',')
+		if ext == ".tsv" {
+			sep = '\t'
+		} else {
+			leadBytes := make([]byte, 2048)
+			n, _ := file.Read(leadBytes)
+			lead := string(leadBytes[:n])
+			if strings.Count(lead, "\t") > strings.Count(lead, ",") {
+				sep = '\t'
+			} else if strings.Count(lead, ";") > strings.Count(lead, ",") {
+				sep = ';'
+			}
+			_, _ = file.Seek(0, io.SeekStart)
+		}
+		reader := csv.NewReader(bufio.NewReader(file))
+		reader.Comma = sep
+		reader.LazyQuotes = true
+		reader.FieldsPerRecord = -1
+		first, err := reader.Read()
+		if err != nil {
+			return failed(fmt.Errorf("failed to read table header: %w", err))
+		}
+		headers = first
+		for {
+			rec, err := reader.Read()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				continue
+			}
+			rows = append(rows, rec)
+		}
+
+	case ".jsonl":
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := bytes.TrimSpace(scanner.Bytes())
+			if len(line) == 0 {
+				continue
+			}
+			var m map[string]any
+			if err := json.Unmarshal(line, &m); err == nil {
+				if len(headers) == 0 {
+					for k := range m {
+						headers = append(headers, k)
+					}
+					sort.Strings(headers)
+				}
+				row := make([]string, len(headers))
+				for i, h := range headers {
+					if v, ok := m[h]; ok && v != nil {
+						row[i] = fmt.Sprintf("%v", v)
+					}
+				}
+				rows = append(rows, row)
+			}
+		}
+
+	default:
+		return failed(fmt.Errorf("unsupported tabular format '%s' for aggregate_data; supported: .csv, .tsv, .jsonl", ext))
+	}
+
+	groupIdx := -1
+	metricIdx := -1
+	for i, h := range headers {
+		if strings.EqualFold(h, groupByCol) {
+			groupIdx = i
+		}
+		if metricCol != "" && strings.EqualFold(h, metricCol) {
+			metricIdx = i
+		}
+	}
+	if groupIdx == -1 {
+		return failed(fmt.Errorf("group_by column '%s' not found in headers %v", groupByCol, headers))
+	}
+	if fn != "count" && metricIdx == -1 {
+		return failed(fmt.Errorf("metric column '%s' not found in headers %v", metricCol, headers))
+	}
+
+	groups := make(map[string]*aggItem)
+	totalRows := len(rows)
+
+	for _, row := range rows {
+		if groupIdx >= len(row) {
+			continue
+		}
+		gKey := strings.TrimSpace(row[groupIdx])
+		if gKey == "" {
+			gKey = "(null)"
+		}
+		item, exists := groups[gKey]
+		if !exists {
+			item = &aggItem{Min: math.MaxFloat64, Max: -math.MaxFloat64}
+			groups[gKey] = item
+		}
+		item.Count++
+
+		if metricIdx >= 0 && metricIdx < len(row) {
+			vStr := strings.TrimSpace(row[metricIdx])
+			if vStr != "" {
+				if val, err := strconv.ParseFloat(vStr, 64); err == nil {
+					item.Sum += val
+					if val < item.Min {
+						item.Min = val
+					}
+					if val > item.Max {
+						item.Max = val
+					}
+				}
+			}
+		}
+	}
+
+	var results []groupResult
+	for gKey, item := range groups {
+		var val float64
+		switch fn {
+		case "count":
+			val = float64(item.Count)
+		case "sum":
+			val = item.Sum
+		case "avg":
+			if item.Count > 0 {
+				val = item.Sum / float64(item.Count)
+			}
+		case "min":
+			if item.Min != math.MaxFloat64 {
+				val = item.Min
+			}
+		case "max":
+			if item.Max != -math.MaxFloat64 {
+				val = item.Max
+			}
+		}
+		results = append(results, groupResult{
+			Group: gKey,
+			Count: item.Count,
+			Value: math.Round(val*100) / 100,
+		})
+	}
+
+	// Sort descending by Value
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Value > results[j].Value
+	})
+
+	if len(results) > topN {
+		results = results[:topN]
+	}
+
+	// Build markdown table
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("### Aggregation: %s by %s\n\n", strings.ToUpper(fn), groupByCol))
+	b.WriteString(fmt.Sprintf("| %s | Count | %s(%s) |\n", groupByCol, strings.ToUpper(fn), metricCol))
+	b.WriteString("|---|---|---|\n")
+	for _, r := range results {
+		b.WriteString(fmt.Sprintf("| %s | %d | %.2f |\n", r.Group, r.Count, r.Value))
+	}
+
+	return toolResult{
+		Success: true,
+		Data: map[string]any{
+			"total_rows":     totalRows,
+			"groups_count":   len(groups),
+			"group_by":       groupByCol,
+			"metric":         metricCol,
+			"function":       fn,
+			"top_results":    results,
+			"markdown_table": b.String(),
+		},
+	}
+}

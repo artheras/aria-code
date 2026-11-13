@@ -59,3 +59,41 @@ func TestAutoCompactStaysOffWhenDisabledOrTheHistoryIsShort(t *testing.T) {
 		t.Fatal("a short history was compacted")
 	}
 }
+
+func TestCompactToolPayloads(t *testing.T) {
+	hugeOutput := strings.Repeat("log entry line of data\n", 50) // ~1150 chars
+	contentWithToolResp := &genai.Content{
+		Role: genai.RoleModel,
+		Parts: []*genai.Part{
+			{
+				FunctionResponse: &genai.FunctionResponse{
+					Name: "read_file",
+					Response: map[string]any{
+						"path":    "main.go",
+						"content": hugeOutput,
+					},
+				},
+			},
+		},
+	}
+
+	contents := []*genai.Content{
+		contentWithToolResp,
+		genai.NewContentFromText("user question 1", genai.RoleUser),
+		genai.NewContentFromText("model answer 1", genai.RoleModel),
+		genai.NewContentFromText("user question 2", genai.RoleUser),
+	}
+
+	// keepTail = 2: first content is older than keepTail, so its tool payload should be compacted
+	compacted := compactToolPayloads(contents, 2)
+	part := compacted[0].Parts[0].FunctionResponse
+	resp := part.Response
+	contentStr := resp["content"].(string)
+
+	if !strings.Contains(contentStr, "compacted to save context tokens") {
+		t.Fatalf("expected tool payload to be compacted, got: %s", contentStr)
+	}
+	if len(contentStr) > 200 {
+		t.Fatalf("expected compacted string to be small, got %d chars", len(contentStr))
+	}
+}

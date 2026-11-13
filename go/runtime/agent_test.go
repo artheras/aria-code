@@ -21,6 +21,32 @@ func call(name string, args map[string]any) *genai.Part {
 func quietHooks() agentHooks {
 	return agentHooks{emit: func(string, map[string]any) {}, approve: func(context.Context, string, map[string]any, fileChange) (bool, string, error) { return true, "", nil }}
 }
+
+func TestNativeToolsDeclarations(t *testing.T) {
+	tools := nativeTools()
+	if len(tools) == 0 {
+		t.Fatal("expected native tools declarations")
+	}
+	expected := map[string]bool{
+		"inspect_data":              false,
+		"aggregate_data":            false,
+		"inspect_3d_asset":          false,
+		"solve_spatial_constraints": false,
+		"publish_artifact":          false,
+	}
+	for _, tool := range tools {
+		for _, decl := range tool.FunctionDeclarations {
+			if _, ok := expected[decl.Name]; ok {
+				expected[decl.Name] = true
+			}
+		}
+	}
+	for name, found := range expected {
+		if !found {
+			t.Errorf("expected tool %s to be declared in nativeTools()", name)
+		}
+	}
+}
 func TestSocialClassificationRetainsTasksAndContinuations(t *testing.T) {
 	for _, s := range []string{"你好", "Hello, Aria!", "thank you", "你好呀", "👋"} {
 		if !social(s) {

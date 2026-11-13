@@ -115,6 +115,9 @@ func TestDesktopGatewayLifecycleAndDiscovery(t *testing.T) {
 	if recStatus.Code != http.StatusOK || statusResp["workspace"] != workspace {
 		t.Fatalf("unexpected runtime status response: %d %s", recStatus.Code, recStatus.Body.String())
 	}
+	if statusResp["governance_mode"] != "zero_trust" || statusResp["preflight_syntax_validation"] != true {
+		t.Fatalf("expected zero_trust governance in statusResp: %v", statusResp)
+	}
 
 	// 4. Task Context endpoint
 	recCtx := httptest.NewRecorder()
