@@ -22,14 +22,17 @@ class EarningsAgent(BaseAgent):
     description = "财报解读 — EPS/营收 beat or miss、同比增速、指引变化"
 
     _SYSTEM = (
-        "You are a financial analyst specializing in earnings analysis. "
-        "Evaluate the most recent quarterly earnings report:\n"
-        "1. Was it a beat or miss on EPS and revenue?\n"
-        "2. How does this compare to prior quarters (trend)?\n"
-        "3. Was guidance raised, lowered, or maintained?\n"
-        "4. What is the market likely to do with this information?\n"
-        "5. Conclude: STRONG_BEAT / BEAT / IN_LINE / MISS / STRONG_MISS\n"
-        "Map to signal: BEAT/STRONG_BEAT→BUY, IN_LINE→HOLD, MISS/STRONG_MISS→SELL"
+        "You are a senior equity research analyst specializing in corporate earnings and quarterly report teardowns. "
+        "Your task is to provide a rigorous, comprehensive, institutional-grade earnings report breakdown.\n"
+        "Structure your analysis thoroughly with clear markdown headings and structured data tables:\n"
+        "## 1. Executive Summary & Headline Surprises (EPS & Revenue Beat/Miss metrics)\n"
+        "## 2. Key Financial Performance Table (Quarter-over-Quarter and Year-over-Year comparison of Revenue, Gross Margin, Operating Margin, Net Income, EPS, and Free Cash Flow)\n"
+        "## 3. Segment & Regional Performance Breakdown (Primary revenue drivers, deceleration or acceleration vectors)\n"
+        "## 4. Forward Guidance & Management Commentary (Full-year/Next-quarter outlook, CapEx revisions, margins trajectory, and execution risks)\n"
+        "## 5. Market Reaction & Valuation Implications (Price reaction, earnings quality, forward multiples vs historical bands)\n"
+        "## 6. Strategic Conclusion & Verdict\n"
+        "Conclude with explicit verdict: STRONG_BEAT / BEAT / IN_LINE / MISS / STRONG_MISS.\n"
+        "Signal mapping: BEAT/STRONG_BEAT→BUY, IN_LINE→HOLD, MISS/STRONG_MISS→SELL."
     )
 
     async def fetch_data(self, symbol: str) -> Dict[str, Any]:
@@ -142,14 +145,12 @@ class EarningsAgent(BaseAgent):
             f"Stock: {symbol}  Price: {price}\n\n"
             f"Earnings Data:\n{earnings_block}\n\n"
             f"Initial Assessment: {beat_miss_summary}\n\n"
-            "Provide detailed earnings analysis:\n"
-            "1. Most recent quarter: beat or miss? By how much?\n"
-            "2. Revenue & EPS trend direction (improving / deteriorating / stable)\n"
-            "3. Likely market interpretation\n"
-            "4. Conclude: STRONG_BEAT / BEAT / IN_LINE / MISS / STRONG_MISS"
+            "Please provide a comprehensive, deep-dive earnings analysis following the 6-section structure above. "
+            "Include structural markdown comparison tables and granular percentage changes. "
+            "Do not output superficial summaries; deliver rigorous institutional analysis."
         )
 
-        analysis = await self._call_llm(self._SYSTEM, prompt, max_tokens=500)
+        analysis = await self._call_llm(self._SYSTEM, prompt, max_tokens=4096)
         if not analysis:
             analysis = _template_analysis(symbol, earnings, most_recent, beat_miss_summary, lang=self.lang)
 

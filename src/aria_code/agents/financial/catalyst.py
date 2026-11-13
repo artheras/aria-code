@@ -135,7 +135,7 @@ class CatalystAgent(BaseAgent):
             "5. Conclude: POSITIVE / NEUTRAL / NEGATIVE"
         )
 
-        analysis = await self._call_llm(self._SYSTEM, prompt, max_tokens=450)
+        analysis = await self._call_llm(self._SYSTEM, prompt, max_tokens=3000)
         if not analysis:
             analysis = _template_analysis(symbol, catalysts, urgency)
 

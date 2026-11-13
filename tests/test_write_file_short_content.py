@@ -47,3 +47,14 @@ def test_whitespace_only_content_is_rejected(tmp_path):
     result = write(tmp_path, "blank.txt", "   \n  ")
     assert not result["success"] and "empty" in result["error"]
     assert not (tmp_path / "blank.txt").exists()
+
+
+def test_write_file_pdf_auto_compilation(tmp_path):
+    report_md = "# 2026 Q3 财报分析\n\n营收同比增长 18%，净利润超预期。\n\n| 指标 | 本期 | 预期 |\n|---|---|---|\n| 营收 | $12.5B | $11.8B |\n| EPS | $1.45 | $1.32 |\n"
+    res = write(tmp_path, "financial_report.pdf", report_md)
+    assert res["success"], res
+    pdf_path = tmp_path / "financial_report.pdf"
+    assert pdf_path.exists()
+    assert pdf_path.stat().st_size > 0
+    content_bytes = pdf_path.read_bytes()
+    assert content_bytes.startswith(b"%PDF-")

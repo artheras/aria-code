@@ -63,7 +63,7 @@ class RiskAgent(BaseAgent):
             "were run or invent a beta. If the history is missing, state that the risk metrics are unavailable."
         )
 
-        analysis  = await self._call_llm(self._SYSTEM, prompt, max_tokens=400, quote=quote)
+        analysis  = await self._call_llm(self._SYSTEM, prompt, max_tokens=3000, quote=quote)
         if not analysis:
             analysis = _template_risk(symbol, metrics, lang=self.lang)
 

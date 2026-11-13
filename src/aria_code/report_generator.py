@@ -1209,6 +1209,7 @@ def _export_pdf_via_chrome(html_path: Path, pdf_path: Path) -> bool:
     with tempfile.TemporaryDirectory(prefix="aria_pdf_") as tmp:
         cmd = [
             chrome, "--headless=new", "--disable-gpu",
+            "--no-sandbox", "--disable-dev-shm-usage",
             f"--user-data-dir={tmp}",
             "--no-pdf-header-footer",
             f"--print-to-pdf={pdf_path}",
@@ -1257,14 +1258,14 @@ def _export_pdf_via_webkit(html_path: Path, pdf_path: Path) -> bool:
         )
 
         runloop = NSRunLoop.currentRunLoop()
-        deadline = 30.0
+        deadline = 8.0
         while view.isLoading() and deadline > 0:
             runloop.runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(0.05))
             deadline -= 0.05
         if view.isLoading():
             return False
         # 渲染余量（inline base64 图片解码等）
-        for _ in range(10):
+        for _ in range(6):
             runloop.runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(0.05))
 
         result: dict = {}
@@ -1275,7 +1276,7 @@ def _export_pdf_via_webkit(html_path: Path, pdf_path: Path) -> bool:
         view.createPDFWithConfiguration_completionHandler_(
             WKPDFConfiguration.alloc().init(), _done
         )
-        deadline = 30.0
+        deadline = 8.0
         while "data" not in result and deadline > 0:
             runloop.runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(0.05))
             deadline -= 0.05

@@ -462,6 +462,12 @@ func propose(s *scope, tool string, params map[string]any) (fileChange, error) {
 			return c, errors.New("content must be a string")
 		}
 		c.after = []byte(value)
+		if strings.HasSuffix(strings.ToLower(c.path), ".pdf") && !bytes.HasPrefix(c.after, []byte("%PDF-")) {
+			// Auto-compile Markdown/plain text into valid PDF bytes so the file is never corrupted
+			if pdfData, err := compileMarkdownToPDFBytes(context.Background(), value, filepath.Base(c.path)); err == nil && len(pdfData) > 0 {
+				c.after = pdfData
+			}
+		}
 	case "edit_file":
 		if !c.existed {
 			return c, errors.New("file not found")

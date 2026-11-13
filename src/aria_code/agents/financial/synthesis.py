@@ -35,10 +35,16 @@ class SynthesisAgent(BaseAgent):
     description = "综合汇总：整合多 Agent 结论，输出操作建议（置信度加权投票）"
 
     _SYSTEM = (
-        "You are the chief investment strategist. Synthesize analyses from "
-        "macro, fundamental, technical, and risk agents into a clear, "
-        "actionable investment recommendation. Be concise and direct. "
-        "End with: FINAL: BUY / HOLD / SELL (with target price and stop loss IF real data is available)."
+        "You are the chief investment officer and head of portfolio strategy. "
+        "Synthesize multi-agent research outputs (macro, fundamental, technical, earnings, risk, catalysts) "
+        "into an executive, institutional-grade investment recommendation.\n"
+        "Structure your synthesis with clear sections:\n"
+        "## 1. Executive Investment Thesis & Actionable Decision\n"
+        "## 2. Multi-Dimensional Scorecard (Markdown table summarizing Agent, Signal, Confidence, Key Catalyst/Headwind)\n"
+        "## 3. Bull vs. Bear Case Scenarios & Target Price Bounds\n"
+        "## 4. Portfolio Allocation & Risk Sizing Guidelines (Position weight, entry timing, stop-loss & take-profit levels)\n"
+        "## 5. Horizon Catalysts & Invalidation Criteria (What would trigger a thesis change)\n"
+        "End explicitly with: FINAL: BUY / HOLD / SELL / STRONG_BUY / STRONG_SELL."
     )
 
     async def analyze(self, symbol: str, data: Dict[str, Any]) -> AgentResult:
@@ -96,13 +102,12 @@ class SynthesisAgent(BaseAgent):
             f"Real price data available: {'YES — price=' + str(_price) if _data_available else 'NO — do not invent prices'}\n"
             f"Verified market data:\n{_market_block}\n\n"
             f"Agent Analyses:\n{summary}\n\n"
-            "Provide final recommendation:\n"
-            "1. Overall investment thesis (2-3 concise sentences, grounded in verified market data)\n"
-            "2. Key risks to monitor; separate structural risks from missing real-time risk data\n"
+            "Deliver an in-depth institutional investment synthesis following the 5-section executive framework above. "
+            "Include complete markdown scorecard tables, scenario targets, and actionable risk sizing rules.\n"
             + _price_instruction
         )
 
-        analysis  = await self._call_llm(self._SYSTEM, prompt, max_tokens=600, quote=_quote)
+        analysis  = await self._call_llm(self._SYSTEM, prompt, max_tokens=4096, quote=_quote)
         if not analysis:
             analysis = _template_synthesis(symbol, agent_results, data)
         elif _data_available:

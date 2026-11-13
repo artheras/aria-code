@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -226,5 +227,33 @@ func TestFuzzyEditMatching(t *testing.T) {
 	content, _ = os.ReadFile(path)
 	if !strings.Contains(string(content), "val := 50\n    return val * 10") {
 		t.Fatalf("expected updated content after multi_edit, got:\n%s", string(content))
+	}
+}
+
+func TestWriteFilePDFAutoCompilation(t *testing.T) {
+	root := t.TempDir()
+	scope, err := newScope(root, nil, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change, err := propose(scope, "write_file", map[string]any{
+		"path":    "financial_report.pdf",
+		"content": "# 2026 Annual Financial Report\n\nOperating Cash Flow: $3.5B\n\n| Metric | FY25 | FY26 |\n|---|---|---|\n| Revenue | $10B | $12.5B |\n| Gross Margin | 42% | 46% |\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(change.after, []byte("%PDF-")) {
+		t.Fatalf("expected compiled PDF starting with %%PDF-, got %s", string(change.after[:30]))
+	}
+	if result := applyChange(scope, change); !result.Success {
+		t.Fatal(result)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "financial_report.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(data, []byte("%PDF-")) {
+		t.Fatalf("file on disk is not a valid PDF")
 	}
 }

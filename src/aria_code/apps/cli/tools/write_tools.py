@@ -530,6 +530,31 @@ def tool_write_file(params: dict) -> dict:
         existed = p.exists()
         before_mode = _stat.S_IMODE(p.stat().st_mode) if p.is_file() else None
 
+        # Auto-compile Markdown/plain text to valid PDF when targeting a .pdf file
+        if p.suffix.lower() == ".pdf" and not content.startswith("%PDF-"):
+            try:
+                from aria_code.markdown_pdf import markdown_to_pdf
+                p.parent.mkdir(parents=True, exist_ok=True)
+                pdf_out = markdown_to_pdf(content, p)
+                if pdf_out and pdf_out.exists() and pdf_out.stat().st_size > 0:
+                    console, has_rich = _ui()
+                    sz = pdf_out.stat().st_size
+                    if has_rich and console:
+                        console.print(f"  [dim]Auto-compiled markdown to valid PDF: {p} ({sz} bytes)[/dim]")
+                    return {
+                        "success": True,
+                        "data": {
+                            "path": str(p),
+                            "action": "Compiled PDF" if not existed else "Updated PDF",
+                            "lines": content.count("\n") + 1,
+                            "bytes": sz,
+                            "is_pdf": True,
+                        },
+                    }
+            except Exception as _pdf_err:
+                import logging
+                logging.getLogger(__name__).warning("[write_file] PDF auto-compilation failed: %s", _pdf_err)
+
         console, has_rich = _ui()
         store = _change_store()
         change = store.stage(p, content, source="write_file")

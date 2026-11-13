@@ -96,7 +96,7 @@ class DebateAgent(BaseAgent):
             f"End with: Signal: {vocabulary} — [primary reason in one line]"
         )
 
-        analysis = await self._call_llm(self._system_prompt(scheme), prompt, max_tokens=600)
+        analysis = await self._call_llm(self._system_prompt(scheme), prompt, max_tokens=3000)
         if not analysis:
             analysis = _template_resolution(symbol, conflicting, scheme)
 
