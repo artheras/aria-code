@@ -77,3 +77,55 @@ SKU-1005,Apparel,WH-South,80,25.99,2026-10-12
 		t.Fatalf("expected unsupported format error, got %v", resBad)
 	}
 }
+
+func TestAggregateDataTool(t *testing.T) {
+	tmpDir := t.TempDir()
+	sc, err := newScope(tmpDir, nil, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	csvPath := filepath.Join(tmpDir, "sales.csv")
+	csvContent := `region,product,sales,orders
+North,Laptop,1200.0,5
+North,Mouse,50.0,10
+South,Laptop,800.0,3
+East,Keyboard,150.0,2
+South,Mouse,100.0,12
+`
+	if err := os.WriteFile(csvPath, []byte(csvContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Group by region, sum sales
+	res := aggregateDataTool(context.Background(), sc, map[string]any{
+		"path":     csvPath,
+		"group_by": "region",
+		"metric":   "sales",
+		"function": "sum",
+	})
+	if !res.Success {
+		t.Fatalf("aggregateDataTool sum failed: %s", res.Error)
+	}
+
+	table := res.Data["markdown_table"].(string)
+	if !strings.Contains(table, "North") || !strings.Contains(table, "1250.00") {
+		t.Fatalf("expected North total sales 1250 in table: %s", table)
+	}
+	if !strings.Contains(table, "South") || !strings.Contains(table, "900.00") {
+		t.Fatalf("expected South total sales 900 in table: %s", table)
+	}
+
+	// 2. Group by region, count rows
+	resCount := aggregateDataTool(context.Background(), sc, map[string]any{
+		"path":     csvPath,
+		"group_by": "region",
+		"function": "count",
+	})
+	if !resCount.Success {
+		t.Fatalf("aggregateDataTool count failed: %s", resCount.Error)
+	}
+	if resCount.Data["groups_count"].(int) != 3 {
+		t.Fatalf("expected 3 distinct regions, got %v", resCount.Data["groups_count"])
+	}
+}
