@@ -249,3 +249,27 @@ def test_discovery_tolerates_corrupt_file(monkeypatch, tmp_path):
     monkeypatch.setattr(preview_server, "discovery_path", lambda: path)
     path.write_text("{not json", encoding="utf-8")
     assert preview_server.read_discovery() is None
+
+
+async def test_markdown_artifact_renders_as_styled_html(tmp_path):
+    import aiohttp
+
+    session = await preview_server.start_session()
+
+    class _FakeRecord:
+        category = "reports/research"
+        topic = "AI-TRENDS"
+        path = tmp_path / "summary.md"
+
+    _FakeRecord.path.write_text("# AI Market Research\n\n> Summary of findings\n\n| Model | Score |\n|---|---|\n| Claude 3.7 | 95 |\n", encoding="utf-8")
+    await session.notify_new_version(preview_server.thread_id_for(_FakeRecord), _FakeRecord)
+
+    async with aiohttp.ClientSession() as client:
+        thread_id = preview_server.thread_id_for(_FakeRecord)
+        async with client.get(session.url + f"artifact/{thread_id}?v=0") as resp:
+            assert resp.status == 200
+            assert resp.content_type == "text/html"
+            html = await resp.text()
+            assert "AI Market Research" in html
+            assert "<table" in html
+
