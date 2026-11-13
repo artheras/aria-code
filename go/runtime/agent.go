@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/genai"
@@ -55,6 +56,10 @@ var fileDefinitions = []definition{
 	{"optimize_portfolio", "Optimal portfolio asset allocation (Risk Parity equal risk contribution and Markowitz Minimum Variance). Solves constrained convex quadratic optimization on probability simplex in <0.001s.", map[string]any{"assets": map[string]any{"type": "array", "description": "List of asset ticker symbols", "items": textParam("Ticker symbol")}, "returns": map[string]any{"type": "array", "description": "Expected annualized returns per asset", "items": map[string]any{"type": "number"}}, "cov_matrix": map[string]any{"type": "array", "description": "N x N covariance matrix of asset returns"}}, []string{"assets", "returns", "cov_matrix"}, false},
 	{"run_backtest", "High-speed deterministic event-driven strategy backtest engine with slippage, commissions, Sharpe, Sortino, Calmar, max drawdown, and trade PnL log.", map[string]any{"bars": map[string]any{"type": "array", "description": "Chronological bars [{date, close, signal, open, high, low, volume}] where signal is target weight in [-1, 1]", "items": map[string]any{"type": "object"}}, "initial_capital": map[string]any{"type": "number", "description": "Starting capital (default 100000)"}, "commission_bps": map[string]any{"type": "number", "description": "Commission in basis points (default 5)"}, "slippage_bps": map[string]any{"type": "number", "description": "Slippage in basis points (default 5)"}, "allow_short": map[string]any{"type": "boolean", "description": "Allow negative target signals for shorting (default false)"}}, []string{"bars"}, false},
 	{"verify_changes", "Analyze cross-file impact via the project symbol graph, infer and run targeted tests for modified files, and extract concise failure diagnostics for automated self-correction.", map[string]any{"paths": map[string]any{"type": "array", "description": "Optional list of modified file paths (defaults to git changed files)", "items": textParam("File path")}}, nil, false},
+	{"git_status", "Inspect repository working tree status and branch summary (read-only, no shell approval needed).", map[string]any{"path": textParam("Optional relative path filter")}, nil, false},
+	{"git_diff", "Inspect git diff for unstaged or staged changes (read-only, bounded output).", map[string]any{"path": textParam("Optional relative path filter"), "staged": map[string]any{"type": "boolean", "description": "Show staged changes (--staged)"}, "stat": map[string]any{"type": "boolean", "description": "Show diffstat summary only"}, "base": textParam("Optional base git ref to diff against")}, nil, false},
+	{"git_log", "Inspect recent git commit history (read-only).", map[string]any{"path": textParam("Optional relative path filter"), "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 50, "description": "Maximum commits to return (default 10)"}}, nil, false},
+	{"spawn_subagent", "Delegate a read-only codebase investigation or dependency tracing subtask to an isolated fresh-context research subagent and receive a concise factual report.", map[string]any{"task": textParam("Specific read-only research or symbol-tracing task"), "max_rounds": map[string]any{"type": "integer", "minimum": 1, "maximum": 12, "description": "Maximum tool rounds for the subagent (default 10)"}}, []string{"task"}, false},
 }
 
 func nativeTools() []*genai.Tool {
@@ -224,6 +229,7 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 		if ctx.Err() != nil {
 			return contents, answer.String(), ctx.Err()
 		}
+		contents = compactLoopContents(contents, c, hooks.emit)
 		activeP := coderProvider
 		if activeP == nil {
 			activeP = p
@@ -303,7 +309,77 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 			return contents
 		}
 		reads := map[string]toolResult{}
-		for _, call := range calls {
+		preResults := make([]*toolResult, len(calls))
+		preApprovals := make([]string, len(calls))
+		if !greeting && len(calls) > 1 && isConcurrentReadOnlyBatch(calls) {
+			type pendingRead struct {
+				idx  int
+				key  string
+				call *genai.FunctionCall
+			}
+			var batch []pendingRead
+			seenInBatch := map[string]bool{}
+			for i, call := range calls {
+				if ctx.Err() != nil {
+					return partialContents(), answer.String(), ctx.Err()
+				}
+				if noHostFlags(call.Args) != nil {
+					continue
+				}
+				if contract != nil && !contract.Check(call.Name, call.Args).Allowed {
+					continue
+				}
+				if hooks.hook != nil {
+					if ok, _ := hooks.hook(ctx, "PreToolUse", call.Name, call.Args, nil); !ok {
+						continue
+					}
+				}
+				allowed, reason, err := hooks.approve(ctx, call.Name, call.Args, fileChange{})
+				if err != nil {
+					return partialContents(), answer.String(), err
+				}
+				if !allowed {
+					r := failed(fmt.Errorf("access declined: %s", reason))
+					preResults[i] = &r
+					continue
+				}
+				preApprovals[i] = reason
+				keyBytes, _ := json.Marshal(call.Args)
+				key := call.Name + string(keyBytes)
+				if old, ok := reads[key]; ok {
+					var reused toolResult
+					b, _ := json.Marshal(old)
+					json.Unmarshal(b, &reused)
+					reused.Reused = true
+					preResults[i] = &reused
+					continue
+				}
+				if seenInBatch[key] {
+					// Leave preResults[i] nil so the sequential loop reuses reads[key] with Reused=true.
+					continue
+				}
+				seenInBatch[key] = true
+				batch = append(batch, pendingRead{idx: i, key: key, call: call})
+			}
+			if len(batch) > 0 {
+				var wg sync.WaitGroup
+				for _, item := range batch {
+					wg.Add(1)
+					go func(it pendingRead) {
+						defer wg.Done()
+						r := executeReadOnlyTool(ctx, activeP, router, s, c, it.call)
+						preResults[it.idx] = &r
+					}(item)
+				}
+				wg.Wait()
+				for _, item := range batch {
+					if preResults[item.idx] != nil {
+						reads[item.key] = *preResults[item.idx]
+					}
+				}
+			}
+		}
+		for idx, call := range calls {
 			if ctx.Err() != nil {
 				return partialContents(), answer.String(), ctx.Err()
 			}
@@ -420,6 +496,11 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 					counted = true
 				}
 			default:
+				if preResults[idx] != nil {
+					approval = preApprovals[idx]
+					result = *preResults[idx]
+					break
+				}
 				allowed, reason, err := hooks.approve(ctx, call.Name, call.Args, fileChange{})
 				if err != nil {
 					return partialContents(), answer.String(), err
@@ -436,48 +517,7 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 					json.Unmarshal(bytes, &result)
 					result.Reused = true
 				} else {
-					switch call.Name {
-					case "read_file":
-						result = fileRead(ctx, s, call.Args)
-					case "list_files":
-						result = fileList(ctx, s, call.Args)
-					case "glob":
-						result = fileGlob(ctx, s, call.Args)
-					case "search_code":
-						result = searchCode(ctx, s, call.Args)
-					case "inspect_data":
-						result = inspectDataTool(ctx, s, call.Args)
-					case "aggregate_data":
-						result = aggregateDataTool(ctx, s, call.Args)
-					case "inspect_3d_asset":
-						result = inspect3DAssetTool(ctx, s, call.Args)
-					case "solve_spatial_constraints":
-						result = solveSpatialConstraintsTool(ctx, call.Args)
-					case "publish_artifact":
-						stateRootPath := s.workspace
-						if r, err := stateRoot(); err == nil {
-							stateRootPath = r
-						}
-						result = publishArtifactTool(ctx, s, stateRootPath, call.Args)
-					case "export_pdf":
-						result = exportPDFTool(ctx, s, call.Args)
-					case "price_option":
-						result = priceOptionTool(ctx, call.Args)
-					case "optimize_portfolio":
-						result = optimizePortfolioTool(ctx, call.Args)
-					case "run_backtest":
-						result = runBacktestTool(ctx, call.Args)
-					case "verify_changes":
-						result = verifyChangesTool(ctx, *s, call.Args)
-					case "web_fetch", "web_search":
-						if !c.boolean("network_enabled", true) {
-							result = failed(errors.New("network access is off for this session (network_enabled=false)"))
-						} else if call.Name == "web_fetch" {
-							result = webFetch(ctx, call.Args)
-						} else {
-							result = webSearch(ctx, call.Args)
-						}
-					}
+					result = executeReadOnlyTool(ctx, activeP, router, s, c, call)
 					reads[key] = result
 				}
 			}
@@ -616,4 +656,72 @@ func sanitizeModelAnswer(text string) string {
 	}
 	text = cjkBrokenNewlinePattern.ReplaceAllString(text, "$1$2")
 	return text
+}
+
+func isConcurrentReadOnlyBatch(calls []*genai.FunctionCall) bool {
+	for _, call := range calls {
+		if call == nil || call.Name == "run_command" || call.Name == "publish_artifact" {
+			return false
+		}
+		d, known := definitionFor(call.Name)
+		if !known || d.mutate {
+			return false
+		}
+	}
+	return true
+}
+
+func executeReadOnlyTool(ctx context.Context, activeP modelProvider, router *roleRouter, s *scope, c config, call *genai.FunctionCall) toolResult {
+	switch call.Name {
+	case "read_file":
+		return fileRead(ctx, s, call.Args)
+	case "list_files":
+		return fileList(ctx, s, call.Args)
+	case "glob":
+		return fileGlob(ctx, s, call.Args)
+	case "search_code":
+		return searchCode(ctx, s, call.Args)
+	case "inspect_data":
+		return inspectDataTool(ctx, s, call.Args)
+	case "aggregate_data":
+		return aggregateDataTool(ctx, s, call.Args)
+	case "inspect_3d_asset":
+		return inspect3DAssetTool(ctx, s, call.Args)
+	case "solve_spatial_constraints":
+		return solveSpatialConstraintsTool(ctx, call.Args)
+	case "publish_artifact":
+		stateRootPath := s.workspace
+		if r, err := stateRoot(); err == nil {
+			stateRootPath = r
+		}
+		return publishArtifactTool(ctx, s, stateRootPath, call.Args)
+	case "export_pdf":
+		return exportPDFTool(ctx, s, call.Args)
+	case "price_option":
+		return priceOptionTool(ctx, call.Args)
+	case "optimize_portfolio":
+		return optimizePortfolioTool(ctx, call.Args)
+	case "run_backtest":
+		return runBacktestTool(ctx, call.Args)
+	case "verify_changes":
+		return verifyChangesTool(ctx, *s, call.Args)
+	case "git_status":
+		return gitStatusTool(ctx, s, call.Args)
+	case "git_diff":
+		return gitDiffTool(ctx, s, call.Args)
+	case "git_log":
+		return gitLogTool(ctx, s, call.Args)
+	case "spawn_subagent":
+		return spawnSubagentTool(ctx, activeP, router, s, c, call.Args)
+	case "web_fetch", "web_search":
+		if !c.boolean("network_enabled", true) {
+			return failed(errors.New("network access is off for this session (network_enabled=false)"))
+		}
+		if call.Name == "web_fetch" {
+			return webFetch(ctx, call.Args)
+		}
+		return webSearch(ctx, call.Args)
+	default:
+		return failed(fmt.Errorf("unknown native tool: %s", call.Name))
+	}
 }

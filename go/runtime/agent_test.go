@@ -38,6 +38,10 @@ func TestNativeToolsDeclarations(t *testing.T) {
 		"optimize_portfolio":        false,
 		"run_backtest":              false,
 		"verify_changes":            false,
+		"git_status":                false,
+		"git_diff":                  false,
+		"git_log":                   false,
+		"spawn_subagent":            false,
 	}
 	for _, tool := range tools {
 		for _, decl := range tool.FunctionDeclarations {
