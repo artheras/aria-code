@@ -174,3 +174,57 @@ func TestNewFilesAreAtomicAndAmbiguousEditsRemainUnchanged(t *testing.T) {
 		t.Fatal(files, err)
 	}
 }
+
+func TestFuzzyEditMatching(t *testing.T) {
+	root := t.TempDir()
+	scope, err := newScope(root, nil, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := "package main\n\nfunc compute() int {\n    val := 10\n    return val * 2\n}\n"
+	path := filepath.Join(root, "calc.go")
+	if err := os.WriteFile(path, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Edit with trailing whitespace in old_string should still match and replace
+	fuzzyOld := "    val := 10   \n    return val * 2  \n"
+	fuzzyNew := "    val := 20\n    return val * 3\n"
+	change, err := propose(scope, "edit_file", map[string]any{
+		"path":       "calc.go",
+		"old_string": fuzzyOld,
+		"new_string": fuzzyNew,
+	})
+	if err != nil {
+		t.Fatalf("propose with fuzzy trailing whitespace failed: %v", err)
+	}
+	if res := applyChange(scope, change); !res.Success {
+		t.Fatalf("applyChange failed: %v", res)
+	}
+	content, _ := os.ReadFile(path)
+	if !strings.Contains(string(content), "val := 20\n    return val * 3") {
+		t.Fatalf("expected updated content, got:\n%s", string(content))
+	}
+
+	// 2. Multi-edit with indentation tolerance
+	multiEdits := []any{
+		map[string]any{
+			"old_string": "val := 20\nreturn val * 3", // missing leading indent in old_string
+			"new_string": "    val := 50\n    return val * 10\n",
+		},
+	}
+	mChange, err := propose(scope, "multi_edit", map[string]any{
+		"path":  "calc.go",
+		"edits": multiEdits,
+	})
+	if err != nil {
+		t.Fatalf("propose multi_edit with indent tolerance failed: %v", err)
+	}
+	if res := applyChange(scope, mChange); !res.Success {
+		t.Fatalf("applyChange multi_edit failed: %v", res)
+	}
+	content, _ = os.ReadFile(path)
+	if !strings.Contains(string(content), "val := 50\n    return val * 10") {
+		t.Fatalf("expected updated content after multi_edit, got:\n%s", string(content))
+	}
+}
