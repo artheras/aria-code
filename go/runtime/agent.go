@@ -225,6 +225,11 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 	router := newRoleRouter(p, c)
 	coderProvider := router.ProviderForRole(RoleCoder)
 	reviewerProvider := router.ProviderForRole(RoleReviewer)
+	if !greeting && !s.readOnly && (c.text("planner_model", "") != "" || c.boolean("planner_enabled", false)) {
+		if plan := runPlannerPhase(ctx, router.ProviderForRole(RolePlanner), request+references, hooks.emit); plan != "" {
+			userContent.Parts[0] = genai.NewPartFromText("[Planner Blueprint]\n" + plan + "\n\n[User Request]\n" + request + references)
+		}
+	}
 	for round := 0; round < budget; round++ {
 		if ctx.Err() != nil {
 			return contents, answer.String(), ctx.Err()
@@ -724,4 +729,41 @@ func executeReadOnlyTool(ctx context.Context, activeP modelProvider, router *rol
 	default:
 		return failed(fmt.Errorf("unknown native tool: %s", call.Name))
 	}
+}
+
+func runPlannerPhase(ctx context.Context, planner modelProvider, requestText string, emit func(string, map[string]any)) string {
+	if planner == nil || strings.TrimSpace(requestText) == "" {
+		return ""
+	}
+	if emit != nil {
+		emit("turn.status", map[string]any{
+			"state":   "planning",
+			"message": "Planning implementation steps with planner role",
+		})
+	}
+	planCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	planPrompt := "Create a concise, concrete engineering plan for the following request. List the target files to inspect/edit, key invariants, and verification commands. Do not output full file contents.\n\n" + capText(requestText, 8000)
+	reply, err := planner.Generate(
+		planCtx,
+		[]*genai.Content{genai.NewContentFromText(planPrompt, genai.RoleUser)},
+		"You are Aria's software architect planner. Be concise, structured, and factual.",
+		nil,
+		func(string) {},
+	)
+	if err != nil || reply == nil {
+		return ""
+	}
+	plan := strings.TrimSpace(contentText(reply))
+	if plan == "" {
+		return ""
+	}
+	if emit != nil {
+		emit("turn.status", map[string]any{
+			"state":   "plan_ready",
+			"message": "Implementation plan ready",
+		})
+	}
+	return capText(plan, 4000)
 }

@@ -361,3 +361,39 @@ func TestDesktopGatewayAuthComplianceAndSSE(t *testing.T) {
 		t.Fatal("expected persisted compliance logs to reload on gateway restart")
 	}
 }
+
+func TestServerEmitForwardsToGatewaySSE(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("ARIA_HOME", root)
+
+	gw, err := startDesktopGateway(root, workspace, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stopDesktopGateway()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	recSSE := httptest.NewRecorder()
+	reqSSE := httptest.NewRequest(http.MethodGet, "/api/v2/events?token="+gw.token, nil).WithContext(ctx)
+	done := make(chan struct{})
+	go func() {
+		gw.httpServer.Handler.ServeHTTP(recSSE, reqSSE)
+		close(done)
+	}()
+	time.Sleep(30 * time.Millisecond)
+
+	var out strings.Builder
+	srv := &server{out: &out}
+	if err := srv.emit("tool.started", "turn-1", map[string]any{"tool": "git_status"}); err != nil {
+		t.Fatalf("srv.emit failed: %v", err)
+	}
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+	<-done
+
+	sseBody := recSSE.Body.String()
+	if !strings.Contains(sseBody, "event: tool.started") || !strings.Contains(sseBody, `"tool":"git_status"`) {
+		t.Fatalf("expected tool.started forwarded to SSE, got %q", sseBody)
+	}
+}

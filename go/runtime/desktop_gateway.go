@@ -560,14 +560,31 @@ func loadComplianceLogs(stateRoot string, limit int) []ComplianceAuditEntry {
 	return entries
 }
 
+func publishGatewayEvent(eventType string, data map[string]any) {
+	activeGatewayMu.Lock()
+	gw := activeGateway
+	activeGatewayMu.Unlock()
+	if gw == nil {
+		return
+	}
+	gw.PublishEvent(eventType, data)
+}
+
 func (gw *desktopGatewayServer) PublishEvent(eventType string, data map[string]any) {
 	if gw == nil {
 		return
 	}
+	var cloned map[string]any
+	if data != nil {
+		cloned = make(map[string]any, len(data))
+		for k, v := range data {
+			cloned[k] = v
+		}
+	}
 	ev := gatewayEvent{
 		Type:      eventType,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Data:      data,
+		Data:      cloned,
 	}
 	gw.mu.RLock()
 	subs := make([]chan gatewayEvent, 0, len(gw.subscribers))
