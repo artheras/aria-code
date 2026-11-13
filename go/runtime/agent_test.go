@@ -34,6 +34,8 @@ func TestNativeToolsDeclarations(t *testing.T) {
 		"solve_spatial_constraints": false,
 		"publish_artifact":          false,
 		"export_pdf":                false,
+		"price_option":              false,
+		"optimize_portfolio":        false,
 	}
 	for _, tool := range tools {
 		for _, decl := range tool.FunctionDeclarations {

@@ -1,0 +1,21 @@
+[package]
+name = "aria-quant"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "High-performance quantitative finance, options pricing, Monte Carlo, and portfolio optimization engine"
+
+[dependencies]
+rayon = "1.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[[bin]]
+name = "aria-quant"
+path = "src/main.rs"
+
+[lib]
+name = "aria_quant"
+path = "src/lib.rs"
