@@ -815,30 +815,70 @@ const canvasShellHTML = `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>Aria Canvas Live Preview</title>
+<title>Aria Canvas & Computer Use Studio</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-         background: #0d1117; color: #c9d1d9; height: 100vh; display: flex; flex-direction: column; }
-  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px;
-           border-bottom: 1px solid #21262d; background: #161b22; }
-  header .title { font-weight: 600; font-size: 14px; color: #58a6ff; }
-  header .empty { color: #8b949e; font-size: 13px; }
+         background: #0b0f17; color: #c9d1d9; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  header { display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+           border-bottom: 1px solid #1e293b; background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(12px); z-index: 20; }
+  header .title { font-weight: 600; font-size: 14px; color: #38bdf8; display: flex; align-items: center; gap: 6px; }
+  header .empty { color: #94a3b8; font-size: 12px; }
+  .nav-tabs { display: flex; gap: 4px; background: #0f172a; padding: 3px; border-radius: 8px; border: 1px solid #1e293b; }
+  .nav-tabs button { background: transparent; color: #94a3b8; border: none; border-radius: 6px; padding: 4px 10px;
+                     font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+  .nav-tabs button.active { background: #1e293b; color: #f8fafc; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
   .stepper { display: flex; align-items: center; gap: 6px; margin-left: auto; }
-  .stepper button { background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
-                     border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 13px; }
+  .stepper button, .hud-btn { background: #1e293b; color: #e2e8f0; border: 1px solid #334155;
+                     border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; transition: all 0.15s; }
+  .stepper button:hover, .hud-btn:hover { background: #334155; }
   .stepper button:disabled { opacity: 0.4; cursor: default; }
-  .stepper span { font-size: 12px; color: #8b949e; min-width: 48px; text-align: center; }
-  main { flex: 1; position: relative; }
+  .stepper span { font-size: 12px; color: #94a3b8; min-width: 48px; text-align: center; }
+  main { flex: 1; position: relative; overflow: hidden; }
   iframe, img { width: 100%; height: 100%; border: none; display: block; object-fit: contain; background: #fff; }
   .placeholder { display: flex; align-items: center; justify-content: center;
                  height: 100%; color: #8b949e; font-size: 14px; text-align: center; padding: 20px; }
+
+  /* Computer Use Studio Viewport */
+  #cu-studio { display: none; width: 100%; height: 100%; flex-direction: column; background: #090d16; }
+  #cu-studio.pip-mode { position: fixed; right: 18px; bottom: 18px; width: 380px; height: 260px;
+                        border-radius: 14px; border: 1.5px solid #10b981; box-shadow: 0 18px 48px rgba(0,0,0,0.75); z-index: 999; overflow: hidden; }
+  .cu-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: #0f172a; border-bottom: 1px solid #1e293b; font-size: 12px; }
+  .cu-url-pill { flex: 1; background: #090d16; border: 1px solid #1e293b; border-radius: 6px; padding: 4px 10px;
+                 color: #94a3b8; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mode-pill { padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid transparent; }
+  .mode-autonomous { background: rgba(16, 185, 129, 0.15); color: #34d399; border-color: rgba(16, 185, 129, 0.4); }
+  .mode-takeover { background: rgba(245, 158, 11, 0.18); color: #fbbf24; border-color: rgba(245, 158, 11, 0.5); }
+  .mode-paused { background: rgba(239, 68, 68, 0.18); color: #f87171; border-color: rgba(239, 68, 68, 0.5); }
+  .cu-stage { flex: 1; position: relative; margin: 12px; border-radius: 10px; overflow: hidden;
+              border: 1.5px solid rgba(16, 185, 129, 0.45); background: radial-gradient(circle at 50% 30%, #111827, #090d16);
+              box-shadow: 0 0 28px rgba(16, 185, 129, 0.08); }
+  .cu-stage.takeover { border-color: #f59e0b; box-shadow: 0 0 32px rgba(245, 158, 11, 0.16); cursor: crosshair; }
+  #cu-virtual-cursor { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 30;
+                       transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1); }
+  .cursor-halo { position: absolute; left: -12px; top: -12px; width: 28px; height: 28px; border-radius: 50%;
+                 border: 2px solid #10b981; background: rgba(16, 185, 129, 0.18); animation: pulse 1.6s infinite; }
+  .thought-bubble { position: absolute; left: 18px; top: -8px; background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(8px);
+                    color: #ecfdf5; border: 1px solid #10b981; border-radius: 8px; padding: 5px 10px; font-size: 11px;
+                    white-space: nowrap; box-shadow: 0 6px 20px rgba(0,0,0,0.45); }
+  #cu-diff-box { position: absolute; border: 1.5px dashed #38bdf8; background: rgba(56, 189, 248, 0.08);
+                 border-radius: 6px; pointer-events: none; transition: all 0.2s ease; display: none; z-index: 20; }
+  .cu-timeline { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: #0f172a; border-top: 1px solid #1e293b; font-size: 11px; }
+  .trail-dots { display: flex; align-items: center; gap: 6px; flex: 1; overflow-x: auto; padding: 2px 0; }
+  .trail-dot { width: 10px; height: 10px; border-radius: 50%; background: #10b981; border: 1.5px solid #090d16;
+               cursor: pointer; transition: transform 0.15s; flex-shrink: 0; }
+  .trail-dot:hover { transform: scale(1.4); }
+  @keyframes pulse { 0% { transform: scale(0.85); opacity: 0.9; } 70% { transform: scale(1.35); opacity: 0.2; } 100% { transform: scale(0.85); opacity: 0.9; } }
 </style>
 </head>
 <body>
 <header>
-  <span class="title">Aria Canvas</span>
+  <span class="title">⚡ Aria Canvas</span>
+  <div class="nav-tabs">
+    <button id="tab-artifacts" class="active">🎨 Artifacts</button>
+    <button id="tab-cu">🖥️ Computer Use HUD</button>
+  </div>
   <span class="empty" id="status">Waiting for the first artifact&hellip;</span>
   <div class="stepper" id="stepper" style="display:none">
     <button id="prev">&lsaquo;</button>
@@ -849,9 +889,60 @@ const canvasShellHTML = `<!doctype html>
 <main id="main">
   <div class="placeholder">Run a command or let Aria publish an artifact — it will render here live with instant version stepping.</div>
 </main>
+<section id="cu-studio">
+  <div class="cu-toolbar">
+    <span id="cu-mode-badge" class="mode-pill mode-autonomous">🟢 Autonomous</span>
+    <span id="cu-url" class="cu-url-pill">https://aria.local/computer-use-sandbox</span>
+    <span id="cu-diff-badge" style="color:#38bdf8;font-size:11px;">Diff: 0.0%</span>
+    <button class="hud-btn" id="btn-takeover" title="Pause Aria and take over mouse/keyboard">✋ Takeover (我来操作)</button>
+    <button class="hud-btn" id="btn-demo" title="Simulate agent trajectory">▶ Demo Trajectory</button>
+    <button class="hud-btn" id="btn-pip" title="Toggle Picture-in-Picture mini window">🗗 PiP</button>
+  </div>
+  <div class="cu-stage" id="cu-stage">
+    <svg id="cu-trail-svg" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:15;"></svg>
+    <div id="cu-diff-box"></div>
+    <div id="cu-virtual-cursor" style="transform: translate(180px, 140px);">
+      <div class="cursor-halo"></div>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="#10b981" stroke="#fff" stroke-width="2">
+        <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/>
+      </svg>
+      <div class="thought-bubble" id="cu-thought">Aria: Ready — observing viewport</div>
+    </div>
+    <div id="cu-mock-surface" style="padding:28px;color:#94a3b8;font-size:13px;user-select:none;">
+      <div style="display:flex;gap:14px;flex-wrap:wrap;">
+        <div style="background:#1e293b;border:1px solid #334155;padding:12px 18px;border-radius:8px;color:#f8fafc;">
+          <span style="background:#f43f5e;color:#fff;font-size:10px;padding:1px 5px;border-radius:4px;margin-right:6px;">[1]</span>Filter Invoices
+        </div>
+        <div style="background:#1e293b;border:1px solid #334155;padding:12px 18px;border-radius:8px;color:#f8fafc;">
+          <span style="background:#f43f5e;color:#fff;font-size:10px;padding:1px 5px;border-radius:4px;margin-right:6px;">[2]</span>Verify Total ($4,280.00)
+        </div>
+        <div style="background:#065f46;border:1px solid #10b981;padding:12px 18px;border-radius:8px;color:#ecfdf5;">
+          <span style="background:#f43f5e;color:#fff;font-size:10px;padding:1px 5px;border-radius:4px;margin-right:6px;">[3]</span>Export PDF Report
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="cu-timeline">
+    <span style="color:#94a3b8;font-weight:600;">⏺ Keyframe Trail</span>
+    <div class="trail-dots" id="cu-trail-dots"></div>
+    <span id="cu-frames-count" style="color:#64748b;">0 frames</span>
+  </div>
+</section>
 <script>
 let state = { threads: {}, active_thread_id: null };
 let activeIndex = 0;
+let cuState = {
+  mode: 'autonomous',
+  cursor_x: 180,
+  cursor_y: 140,
+  thought: 'Aria: Ready — observing viewport',
+  url: 'https://aria.local/computer-use-sandbox',
+  visual_diff_pct: 0,
+  changed_region: null,
+  recorded_frames: 0,
+  action_trail: []
+};
+let cursorHistory = [{x: 180, y: 140}];
 
 function render() {
   const main = document.getElementById('main');
@@ -884,6 +975,136 @@ function render() {
     main.innerHTML = '<iframe id="canvas-frame" src="' + url + '" sandbox="allow-scripts"></iframe>';
   }
 }
+
+function renderComputerUse() {
+  const cursor = document.getElementById('cu-virtual-cursor');
+  const thoughtEl = document.getElementById('cu-thought');
+  const badge = document.getElementById('cu-mode-badge');
+  const stage = document.getElementById('cu-stage');
+  const takeoverBtn = document.getElementById('btn-takeover');
+  const diffBox = document.getElementById('cu-diff-box');
+
+  const cx = cuState.cursor_x || 180;
+  const cy = cuState.cursor_y || 140;
+  cursor.style.transform = 'translate(' + cx + 'px, ' + cy + 'px)';
+  thoughtEl.textContent = cuState.thought ? ('Aria: ' + cuState.thought) : 'Aria: Observing';
+  document.getElementById('cu-url').textContent = cuState.url || 'https://aria.local/computer-use';
+  document.getElementById('cu-diff-badge').textContent = 'Diff: ' + Number(cuState.visual_diff_pct || 0).toFixed(1) + '%';
+  document.getElementById('cu-frames-count').textContent = (cuState.recorded_frames || cursorHistory.length) + ' frames';
+
+  if (cuState.mode === 'takeover') {
+    badge.className = 'mode-pill mode-takeover';
+    badge.textContent = '✋ Human Takeover';
+    stage.classList.add('takeover');
+    takeoverBtn.textContent = '✅ Return to Aria (交还)';
+  } else if (cuState.mode === 'paused') {
+    badge.className = 'mode-pill mode-paused';
+    badge.textContent = '⏸ Paused';
+    stage.classList.remove('takeover');
+    takeoverBtn.textContent = '✋ Takeover (我来操作)';
+  } else {
+    badge.className = 'mode-pill mode-autonomous';
+    badge.textContent = '🟢 Autonomous';
+    stage.classList.remove('takeover');
+    takeoverBtn.textContent = '✋ Takeover (我来操作)';
+  }
+
+  if (cuState.changed_region && cuState.changed_region.w > 0) {
+    diffBox.style.display = 'block';
+    diffBox.style.left = cuState.changed_region.x + 'px';
+    diffBox.style.top = cuState.changed_region.y + 'px';
+    diffBox.style.width = cuState.changed_region.w + 'px';
+    diffBox.style.height = cuState.changed_region.h + 'px';
+  } else {
+    diffBox.style.display = 'none';
+  }
+
+  // Draw motion trail SVG
+  const last = cursorHistory[cursorHistory.length - 1];
+  if (!last || last.x !== cx || last.y !== cy) {
+    cursorHistory.push({x: cx, y: cy});
+    if (cursorHistory.length > 6) cursorHistory.shift();
+  }
+  const svg = document.getElementById('cu-trail-svg');
+  if (cursorHistory.length > 1) {
+    const pts = cursorHistory.map(p => p.x + ',' + p.y).join(' ');
+    svg.innerHTML = '<polyline points="' + pts + '" fill="none" stroke="rgba(16,185,129,0.4)" stroke-width="2" stroke-dasharray="4 4"/>';
+  }
+
+  const dots = document.getElementById('cu-trail-dots');
+  const trail = cuState.action_trail || [];
+  dots.innerHTML = trail.map((item, idx) =>
+    '<div class="trail-dot" title="Step ' + (idx + 1) + ': ' + (item.thought || item.action || '') + '"></div>'
+  ).join('');
+}
+
+async function syncComputerUseState(patch) {
+  Object.assign(cuState, patch);
+  renderComputerUse();
+  try {
+    const resp = await fetch('/api/v2/computer-use/state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch)
+    });
+    if (resp.ok) {
+      cuState = await resp.json();
+      renderComputerUse();
+    }
+  } catch (e) {}
+}
+
+document.getElementById('tab-artifacts').onclick = () => {
+  document.getElementById('tab-artifacts').classList.add('active');
+  document.getElementById('tab-cu').classList.remove('active');
+  document.getElementById('main').style.display = 'block';
+  document.getElementById('cu-studio').style.display = 'none';
+};
+document.getElementById('tab-cu').onclick = () => {
+  document.getElementById('tab-cu').classList.add('active');
+  document.getElementById('tab-artifacts').classList.remove('active');
+  document.getElementById('main').style.display = 'none';
+  document.getElementById('cu-studio').style.display = 'flex';
+  renderComputerUse();
+};
+document.getElementById('btn-takeover').onclick = () => {
+  const nextMode = cuState.mode === 'takeover' ? 'autonomous' : 'takeover';
+  const nextThought = nextMode === 'takeover'
+    ? 'Human takeover active — waiting for user input'
+    : 'Resumed autonomous control from user handoff';
+  syncComputerUseState({ mode: nextMode, thought: nextThought });
+};
+document.getElementById('btn-pip').onclick = () => {
+  document.getElementById('cu-studio').classList.toggle('pip-mode');
+};
+document.getElementById('cu-stage').onclick = (e) => {
+  if (cuState.mode !== 'takeover') return;
+  const rect = e.currentTarget.getBoundingClientRect();
+  const x = Math.round(e.clientX - rect.left);
+  const y = Math.round(e.clientY - rect.top);
+  syncComputerUseState({
+    cursor_x: x,
+    cursor_y: y,
+    thought: 'User clicked (' + x + ', ' + y + ') during takeover',
+    action_entry: { action: 'human_click', x, y, thought: 'Human takeover click' }
+  });
+};
+document.getElementById('btn-demo').onclick = () => {
+  const steps = [
+    { cursor_x: 95, cursor_y: 52, thought: 'Clicking [1] Filter Invoices', visual_diff_pct: 12.4, changed_region: {x: 28, y: 28, w: 145, h: 46} },
+    { cursor_x: 265, cursor_y: 52, thought: 'Inspecting [2] Total ($4,280.00)', visual_diff_pct: 6.8, changed_region: {x: 185, y: 28, w: 180, h: 46} },
+    { cursor_x: 455, cursor_y: 52, thought: 'Clicking [3] Export PDF Report', visual_diff_pct: 24.1, changed_region: {x: 380, y: 28, w: 165, h: 46} }
+  ];
+  steps.forEach((step, idx) => {
+    setTimeout(() => {
+      syncComputerUseState({
+        ...step,
+        recorded_frames: (cuState.recorded_frames || 0) + 1,
+        action_entry: { action: 'click', thought: step.thought }
+      });
+    }, idx * 700);
+  });
+};
 
 async function refreshState(jumpToLatest) {
   try {
@@ -922,6 +1143,9 @@ es.onmessage = (event) => {
     const msg = JSON.parse(event.data);
     if (msg.type === 'new-version') {
       refreshState(true);
+    } else if (msg.type === 'computer-use') {
+      Object.assign(cuState, msg);
+      renderComputerUse();
     }
   } catch(e) {}
 };

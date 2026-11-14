@@ -301,19 +301,95 @@ def _resolve_xy(x: int, y: int, coord_space: str = "screen") -> tuple[int, int]:
     return x, y
 
 
+def _sync_gateway_computer_use_state(patch: dict) -> None:
+    """Best-effort push of live virtual cursor, thought HUD, and frame-diff state to Desktop Gateway."""
+    gw_url = os.environ.get("ARIA_GATEWAY_URL", "").strip()
+    if not gw_url:
+        return
+    try:
+        import json as _json
+        import urllib.request
+        endpoint = gw_url.rstrip("/") + "/api/v2/computer-use/state"
+        req = urllib.request.Request(
+            endpoint,
+            data=_json.dumps(patch).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=0.6):
+            pass
+    except Exception:
+        pass
+
+
 def _tool_computer_screenshot(params: dict) -> dict:
     """
-    Capture a screenshot of the current desktop screen.
+    Capture a screenshot of the current desktop screen (or a specific background window_id on macOS).
     Returns the image with this tool result for vision-model injection.
     """
     try:
         monitor_idx = int(params.get("monitor", 1))
         max_dim = int(params.get("max_dim", 1920))
         mark_grid = bool(params.get("mark_grid", False))
+        window_id = params.get("window_id")
+        if window_id is not None:
+            window_id = int(window_id)
+            if window_id <= 0:
+                raise ValueError("window_id must be a positive integer")
         if monitor_idx < 0 or not 64 <= max_dim <= 4096:
             raise ValueError("monitor must be nonnegative; max_dim must be 64..4096")
     except (ValueError, TypeError) as exc:
         return {"success": False, "error": str(exc)}
+
+    # --- macOS background window-level capture (non-intrusive, works even when occluded) ---
+    if window_id is not None and sys.platform == "darwin":
+        tmp = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+                tmp = f.name
+            subprocess.run(["screencapture", "-l", str(window_id), "-x", tmp], check=True, timeout=10)
+            from PIL import Image
+            img = Image.open(tmp)
+            w, h = img.size
+            if max(w, h) > max_dim:
+                scale = max_dim / max(w, h)
+                img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.LANCZOS)
+            if mark_grid:
+                img = _apply_grid_overlay(img)
+            meta = _record_capture_meta(img.width, img.height, w, h)
+            thought = str(params.get("thought", "") or "")[:120]
+            if thought:
+                _VIRTUAL_CURSOR_STATE["thought"] = thought
+            png_bytes, diff_pct = _finalize_desktop_frame(img, thought=thought)
+            b64 = base64.b64encode(png_bytes).decode()
+            _sync_gateway_computer_use_state({
+                "thought": _VIRTUAL_CURSOR_STATE.get("thought", ""),
+                "visual_diff_pct": diff_pct,
+                "recorded_frames": len(_VIRTUAL_CURSOR_STATE.get("frames", [])),
+            })
+            return {
+                "success": True,
+                "_vision_image": b64,
+                "data": {
+                    "window_id": window_id,
+                    "width": img.width,
+                    "height": img.height,
+                    "logical_width": meta["logical_width"],
+                    "logical_height": meta["logical_height"],
+                    "scale_x": meta["scale_x"],
+                    "scale_y": meta["scale_y"],
+                    "visual_diff_pct": diff_pct,
+                    "thought": _VIRTUAL_CURSOR_STATE.get("thought", ""),
+                    "recorded_frames": len(_VIRTUAL_CURSOR_STATE.get("frames", [])),
+                    "size_kb": len(png_bytes) // 1024,
+                    "note": f"Background window {window_id} captured ({img.width}×{img.height}).",
+                },
+            }
+        except Exception as exc:
+            return {"success": False, "error": f"Window capture failed for window_id={window_id}: {exc}"}
+        finally:
+            if tmp and os.path.exists(tmp):
+                os.unlink(tmp)
 
     # --- mss path (fast, cross-platform) ---
     try:
@@ -429,16 +505,25 @@ def _record_desktop_trail(action: str, x: int | None, y: int | None, thought: st
         _VIRTUAL_CURSOR_STATE["y"] = y
     if thought:
         _VIRTUAL_CURSOR_STATE["thought"] = thought[:120]
-    trail = _VIRTUAL_CURSOR_STATE.setdefault("trail", [])
-    trail.append({
+    entry = {
         "ts": round(time.time(), 3),
         "action": action,
         "x": _VIRTUAL_CURSOR_STATE.get("x"),
         "y": _VIRTUAL_CURSOR_STATE.get("y"),
         "thought": _VIRTUAL_CURSOR_STATE.get("thought", ""),
-    })
+    }
+    trail = _VIRTUAL_CURSOR_STATE.setdefault("trail", [])
+    trail.append(entry)
     if len(trail) > 50:
         _VIRTUAL_CURSOR_STATE["trail"] = trail[-50:]
+    patch = {
+        "thought": _VIRTUAL_CURSOR_STATE.get("thought", ""),
+        "action_entry": entry,
+    }
+    if _VIRTUAL_CURSOR_STATE.get("x") is not None:
+        patch["cursor_x"] = _VIRTUAL_CURSOR_STATE["x"]
+        patch["cursor_y"] = _VIRTUAL_CURSOR_STATE["y"]
+    _sync_gateway_computer_use_state(patch)
 
 
 def _tool_computer_action(params: dict) -> dict:
@@ -682,6 +767,10 @@ COMPUTER_USE_SCHEMAS = [
                     "monitor": {
                         "type": "integer",
                         "description": "Monitor index: 1 = primary (default), 0 = all monitors",
+                    },
+                    "window_id": {
+                        "type": "integer",
+                        "description": "macOS CGWindowID to capture a specific background application window without bringing it to front",
                     },
                     "max_dim": {
                         "type": "integer",

@@ -178,6 +178,8 @@ type ComputerUseState struct {
 	Thought        string           `json:"thought"`
 	URL            string           `json:"url,omitempty"`
 	VisualDiffPct  float64          `json:"visual_diff_pct"`
+	ChangedRegion  map[string]int   `json:"changed_region,omitempty"`
+	FrameB64       string           `json:"frame_b64,omitempty"`
 	TakeoverActive bool             `json:"takeover_active"`
 	RecordedFrames int              `json:"recorded_frames"`
 	RecordingPath  string           `json:"recording_path,omitempty"`
@@ -976,6 +978,8 @@ func (gw *desktopGatewayServer) handleComputerUseState(w http.ResponseWriter, r 
 			Thought        *string        `json:"thought,omitempty"`
 			URL            *string        `json:"url,omitempty"`
 			VisualDiffPct  *float64       `json:"visual_diff_pct,omitempty"`
+			ChangedRegion  map[string]int `json:"changed_region,omitempty"`
+			FrameB64       *string        `json:"frame_b64,omitempty"`
 			RecordedFrames *int           `json:"recorded_frames,omitempty"`
 			RecordingPath  *string        `json:"recording_path,omitempty"`
 			ActionEntry    map[string]any `json:"action_entry,omitempty"`
@@ -1011,6 +1015,12 @@ func (gw *desktopGatewayServer) handleComputerUseState(w http.ResponseWriter, r 
 		if req.VisualDiffPct != nil {
 			gw.computerUse.VisualDiffPct = *req.VisualDiffPct
 		}
+		if len(req.ChangedRegion) > 0 {
+			gw.computerUse.ChangedRegion = req.ChangedRegion
+		}
+		if req.FrameB64 != nil {
+			gw.computerUse.FrameB64 = *req.FrameB64
+		}
 		if req.RecordedFrames != nil {
 			gw.computerUse.RecordedFrames = *req.RecordedFrames
 		}
@@ -1025,9 +1035,11 @@ func (gw *desktopGatewayServer) handleComputerUseState(w http.ResponseWriter, r 
 		}
 		gw.computerUse.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 		snapshot := gw.computerUse
+		canvas := gw.canvas
 		gw.mu.Unlock()
 
-		gw.PublishEvent("computer_use.updated", map[string]any{
+		evPayload := map[string]any{
+			"type":            "computer-use",
 			"mode":            snapshot.Mode,
 			"takeover_active": snapshot.TakeoverActive,
 			"cursor_x":        snapshot.CursorX,
@@ -1035,9 +1047,15 @@ func (gw *desktopGatewayServer) handleComputerUseState(w http.ResponseWriter, r 
 			"thought":         snapshot.Thought,
 			"url":             snapshot.URL,
 			"visual_diff_pct": snapshot.VisualDiffPct,
+			"changed_region":  snapshot.ChangedRegion,
 			"recorded_frames": snapshot.RecordedFrames,
+			"action_trail":    snapshot.ActionTrail,
 			"updated_at":      snapshot.UpdatedAt,
-		})
+		}
+		gw.PublishEvent("computer_use.updated", evPayload)
+		if canvas != nil {
+			canvas.broadcast(evPayload)
+		}
 
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(snapshot)
