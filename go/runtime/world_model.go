@@ -192,20 +192,98 @@ func simulateActionTool(ctx context.Context, s *scope, params map[string]any) to
 	}
 
 	cpID, _ := latestCheckpointHint(ctx)
+	var empiricalRate float64 = 1.0
+	var codeSamples int
+	if root, err := stateRoot(); err == nil && root != "" {
+		stats := summarizeWorldTransitions(loadWorldTransitions(root, 200))
+		if cs, ok := stats["code"]; ok && cs.Total > 0 {
+			empiricalRate = cs.SuccessRate
+			codeSamples = cs.Total
+			if cs.Total >= 4 && cs.SuccessRate < 0.5 && risk == "low" {
+				risk = "medium"
+			}
+		}
+	}
 
 	return toolResult{
 		Success: true,
 		Data: map[string]any{
-			"candidate_paths":    paths,
-			"impact_summary":     impactSummary,
-			"impacted_files":     impactedFiles,
-			"affected_tests":     affectedTests,
-			"predicted_risk":     risk,
-			"fanout_count":       fanout,
-			"recommended_checks": plan.Commands,
-			"plan_reason":        plan.Reason,
-			"rollback_ready":     cpID != "",
-			"latest_checkpoint":  cpID,
+			"candidate_paths":        paths,
+			"impact_summary":         impactSummary,
+			"impacted_files":         impactedFiles,
+			"affected_tests":         affectedTests,
+			"predicted_risk":         risk,
+			"fanout_count":           fanout,
+			"recommended_checks":     plan.Commands,
+			"plan_reason":            plan.Reason,
+			"rollback_ready":         cpID != "",
+			"latest_checkpoint":      cpID,
+			"empirical_success_rate": empiricalRate,
+			"historical_samples":     codeSamples,
 		},
 	}
+}
+
+type WorldDomainStats struct {
+	Total       int     `json:"total"`
+	Succeeded   int     `json:"succeeded"`
+	Failed      int     `json:"failed"`
+	SuccessRate float64 `json:"success_rate"`
+	AvgReward   float64 `json:"avg_reward"`
+}
+
+func summarizeWorldTransitions(entries []WorldTransition) map[string]WorldDomainStats {
+	out := map[string]WorldDomainStats{}
+	rewardSum := map[string]float64{}
+	for _, e := range entries {
+		domain := e.Domain
+		if domain == "" {
+			domain = "general"
+		}
+		st := out[domain]
+		st.Total++
+		if e.OutcomeOK {
+			st.Succeeded++
+		} else {
+			st.Failed++
+		}
+		rewardSum[domain] += e.RewardScore
+		out[domain] = st
+	}
+	for domain, st := range out {
+		if st.Total > 0 {
+			st.SuccessRate = float64(st.Succeeded) / float64(st.Total)
+			st.AvgReward = rewardSum[domain] / float64(st.Total)
+			out[domain] = st
+		}
+	}
+	return out
+}
+
+// ExportWorldDPOPairs pairs consecutive failed->succeeded transitions in the same
+// domain into preference pairs for Critic / DPO training.
+func ExportWorldDPOPairs(entries []WorldTransition) []map[string]any {
+	var pairs []map[string]any
+	lastFailedByDomain := map[string]*WorldTransition{}
+	for i := range entries {
+		e := entries[i]
+		if !e.OutcomeOK || e.RewardScore < 0 {
+			copied := e
+			lastFailedByDomain[e.Domain] = &copied
+			continue
+		}
+		if prev := lastFailedByDomain[e.Domain]; prev != nil && e.RewardScore > prev.RewardScore {
+			pairs = append(pairs, map[string]any{
+				"domain":        e.Domain,
+				"chosen_tool":   e.ActionTool,
+				"chosen_args":   e.ActionArgs,
+				"rejected_tool": prev.ActionTool,
+				"rejected_args": prev.ActionArgs,
+				"rejected_err":  prev.ErrorSummary,
+				"reward_margin": e.RewardScore - prev.RewardScore,
+			})
+			delete(lastFailedByDomain, e.Domain)
+		}
+	}
+	return pairs
 }

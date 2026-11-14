@@ -863,10 +863,15 @@ func (gw *desktopGatewayServer) handleWorldTransitions(w http.ResponseWriter, r 
 		return
 	}
 	entries := loadWorldTransitions(gw.stateRoot, 200)
+	stats := summarizeWorldTransitions(entries)
+	dpoPairs := ExportWorldDPOPairs(entries)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"entries": entries,
-		"count":   len(entries),
+		"entries":         entries,
+		"count":           len(entries),
+		"domain_stats":    stats,
+		"dpo_pairs":       dpoPairs,
+		"dpo_pairs_count": len(dpoPairs),
 	})
 }
 
