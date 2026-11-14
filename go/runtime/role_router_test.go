@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"google.golang.org/genai"
@@ -60,5 +61,36 @@ func TestRoleRouterSpecializedRoles(t *testing.T) {
 	// Verify caching on subsequent calls
 	if rr.ProviderForRole(RoleCoder) != coder {
 		t.Fatal("expected cached coder provider")
+	}
+}
+
+type failingRoleModel struct{}
+
+func (f *failingRoleModel) Generate(_ context.Context, _ []*genai.Content, _ string, _ []*genai.Tool, _ func(string)) (*genai.Content, error) {
+	return nil, errors.New("planner unavailable")
+}
+
+func TestRunPlannerPhase(t *testing.T) {
+	var states []string
+	emit := func(kind string, fields map[string]any) {
+		if kind == "turn.status" {
+			if st, ok := fields["state"].(string); ok {
+				states = append(states, st)
+			}
+		}
+	}
+
+	plan := runPlannerPhase(context.Background(), &dummyRoleModel{id: "1. Edit agent.go\n2. Run go test"}, "Refactor agent loop", emit)
+	if plan == "" {
+		t.Fatal("expected non-empty plan from planner")
+	}
+	if len(states) != 2 || states[0] != "planning" || states[1] != "plan_ready" {
+		t.Fatalf("unexpected planner status events: %v", states)
+	}
+
+	// Graceful degradation on error
+	fallback := runPlannerPhase(context.Background(), &failingRoleModel{}, "Refactor agent loop", nil)
+	if fallback != "" {
+		t.Fatalf("expected empty plan on error, got %q", fallback)
 	}
 }

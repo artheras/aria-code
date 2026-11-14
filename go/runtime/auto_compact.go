@@ -160,3 +160,23 @@ func summarizeDropped(contents []*genai.Content) string {
 	}
 	return b.String()
 }
+
+// compactLoopContents performs local sliding-window and payload compaction
+// inside a multi-round tool loop before the next model generation call.
+func compactLoopContents(contents []*genai.Content, cfg config, emit func(string, map[string]any)) []*genai.Content {
+	if !shouldAutoCompact(contents, "", cfg) {
+		return contents
+	}
+	before := estimateTokens(contents)
+	next := compactContents(contents)
+	if estimateTokens(next) >= before {
+		return contents
+	}
+	if emit != nil {
+		emit("turn.status", map[string]any{
+			"state":   "auto_compact",
+			"message": "Tool loop context neared window; older tool outputs were compacted locally",
+		})
+	}
+	return next
+}

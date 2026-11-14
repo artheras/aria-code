@@ -147,6 +147,95 @@ func optimizePortfolioTool(ctx context.Context, params map[string]any) toolResul
 	}
 }
 
+func runBacktestTool(ctx context.Context, params map[string]any) toolResult {
+	barsRaw, ok := params["bars"].([]any)
+	if !ok || len(barsRaw) == 0 {
+		return failed(errors.New("parameter 'bars' must be a non-empty array of bar objects {date, close, signal, ...}"))
+	}
+	bars := make([]quant.SignalBarInput, 0, len(barsRaw))
+	for i, item := range barsRaw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			return failed(fmt.Errorf("bar at index %d must be an object", i))
+		}
+		closePrice, okClose := num(m, "close")
+		if !okClose || closePrice <= 0 {
+			return failed(fmt.Errorf("bar at index %d missing positive 'close' price", i))
+		}
+		dateStr, _ := m["date"].(string)
+		if dateStr == "" {
+			dateStr = fmt.Sprintf("bar-%d", i)
+		}
+		openPrice, _ := num(m, "open")
+		highPrice, _ := num(m, "high")
+		lowPrice, _ := num(m, "low")
+		vol, _ := num(m, "volume")
+		signal, _ := num(m, "signal")
+		bars = append(bars, quant.SignalBarInput{
+			Date:   dateStr,
+			Open:   openPrice,
+			High:   highPrice,
+			Low:    lowPrice,
+			Close:  closePrice,
+			Volume: vol,
+			Signal: signal,
+		})
+	}
+
+	cfg := quant.SignalBacktestConfig{
+		InitialCapital: 100000.0,
+		CommissionBps:  5.0,
+		SlippageBps:    5.0,
+		RiskFreeRate:   0.02,
+		PeriodsPerYear: 252.0,
+	}
+	if capVal, ok := num(params, "initial_capital"); ok && capVal > 0 {
+		cfg.InitialCapital = capVal
+	}
+	if comm, ok := num(params, "commission_bps"); ok && comm >= 0 {
+		cfg.CommissionBps = comm
+	}
+	if slip, ok := num(params, "slippage_bps"); ok && slip >= 0 {
+		cfg.SlippageBps = slip
+	}
+	if allowShort, ok := params["allow_short"].(bool); ok {
+		cfg.AllowShort = allowShort
+	}
+	if rf, ok := num(params, "risk_free_rate"); ok {
+		cfg.RiskFreeRate = rf
+	}
+	if ppy, ok := num(params, "periods_per_year"); ok && ppy > 0 {
+		cfg.PeriodsPerYear = ppy
+	}
+
+	res := quant.RunSignalBacktest(bars, cfg)
+	// Return concise summary + truncated curve/trades if huge to keep LLM context clean
+	maxTrades := 50
+	tradesOut := res.Trades
+	if len(tradesOut) > maxTrades {
+		tradesOut = tradesOut[len(tradesOut)-maxTrades:]
+	}
+	return toolResult{
+		Success: true,
+		Data: map[string]any{
+			"initial_capital":           res.InitialCapital,
+			"final_equity":              res.FinalEquity,
+			"total_return_pct":          res.TotalReturnPct,
+			"annualized_return_pct":     res.AnnualizedReturnPct,
+			"annualized_volatility_pct": res.AnnualizedVolatilityPct,
+			"sharpe_ratio":              res.SharpeRatio,
+			"sortino_ratio":             res.SortinoRatio,
+			"max_drawdown_pct":          res.MaxDrawdownPct,
+			"calmar_ratio":              res.CalmarRatio,
+			"win_rate_pct":              res.WinRatePct,
+			"profit_factor":             res.ProfitFactor,
+			"total_trades":              res.TotalTrades,
+			"total_commission":          res.TotalCommission,
+			"recent_trades":             tradesOut,
+		},
+	}
+}
+
 func num(params map[string]any, key string) (float64, bool) {
 	val, exists := params[key]
 	if !exists {

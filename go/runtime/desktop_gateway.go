@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -166,12 +169,31 @@ type ComplianceAuditEntry struct {
 	CancellationStatus string `json:"cancellation_status,omitempty"`
 }
 
+// ComputerUseState tracks the live virtual cursor, thought HUD, recording progress,
+// and human takeover handoff state for the Desktop Computer Use viewport.
+type ComputerUseState struct {
+	Mode           string           `json:"mode"` // "autonomous", "takeover", "paused"
+	CursorX        int              `json:"cursor_x"`
+	CursorY        int              `json:"cursor_y"`
+	Thought        string           `json:"thought"`
+	URL            string           `json:"url,omitempty"`
+	VisualDiffPct  float64          `json:"visual_diff_pct"`
+	ChangedRegion  map[string]int   `json:"changed_region,omitempty"`
+	FrameB64       string           `json:"frame_b64,omitempty"`
+	TakeoverActive bool             `json:"takeover_active"`
+	RecordedFrames int              `json:"recorded_frames"`
+	RecordingPath  string           `json:"recording_path,omitempty"`
+	ActionTrail    []map[string]any `json:"action_trail,omitempty"`
+	UpdatedAt      string           `json:"updated_at"`
+}
+
 // desktopGatewayServer is the local daemon HTTP server that bridges Desktop, VS Code, and CLI.
 type desktopGatewayServer struct {
 	mu             sync.RWMutex
 	listener       net.Listener
 	httpServer     *http.Server
 	url            string
+	token          string
 	stateRoot      string
 	workspace      string
 	activeSession  string
@@ -182,6 +204,23 @@ type desktopGatewayServer struct {
 	childTasks     map[string]*ChildTaskRecord
 	complianceLogs []ComplianceAuditEntry
 	diagnostics    map[string][]LSPDiagnosticItem
+	computerUse    ComputerUseState
+	subscribers    map[chan gatewayEvent]struct{}
+	canvas         *canvasServer
+}
+
+type gatewayEvent struct {
+	Type      string         `json:"type"`
+	Timestamp string         `json:"timestamp"`
+	Data      map[string]any `json:"data,omitempty"`
+}
+
+func generateGatewayToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err == nil {
+		return hex.EncodeToString(b)
+	}
+	return fmt.Sprintf("aria-%d", time.Now().UnixNano())
 }
 
 type LSPDiagnosticItem struct {
@@ -263,6 +302,7 @@ func startDesktopGateway(root, workspace string, port int) (*desktopGatewayServe
 	gw := &desktopGatewayServer{
 		listener:   listener,
 		url:        url,
+		token:      generateGatewayToken(),
 		stateRoot:  root,
 		workspace:  workspace,
 		approvals:  map[string]pendingApproval{},
@@ -279,12 +319,19 @@ func startDesktopGateway(root, workspace string, port int) (*desktopGatewayServe
 			},
 		},
 		childTasks:     map[string]*ChildTaskRecord{},
-		complianceLogs: []ComplianceAuditEntry{},
+		complianceLogs: loadComplianceLogs(root, 500),
 		diagnostics:    map[string][]LSPDiagnosticItem{},
+		computerUse: ComputerUseState{
+			Mode:      "autonomous",
+			UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+		},
+		subscribers: map[chan gatewayEvent]struct{}{},
+		canvas:      attachCanvasToGateway(url),
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", gw.handleHealth)
+	mux.HandleFunc("/api/v2/events", gw.handleEvents)
 	mux.HandleFunc("/api/v2/runtime/status", gw.handleRuntimeStatus)
 	mux.HandleFunc("/api/v2/sessions", gw.handleSessions)
 	mux.HandleFunc("/api/v2/approvals", gw.handleApprovals)
@@ -295,9 +342,18 @@ func startDesktopGateway(root, workspace string, port int) (*desktopGatewayServe
 	mux.HandleFunc("/api/v2/analytics/usage", gw.handleAnalyticsUsage)
 	mux.HandleFunc("/api/v2/compliance/logs", gw.handleComplianceLogs)
 	mux.HandleFunc("/api/v2/diagnostics/report", gw.handleDiagnosticsReport)
+	mux.HandleFunc("/api/v2/computer-use/state", gw.handleComputerUseState)
+	mux.HandleFunc("/api/v2/world/transitions", gw.handleWorldTransitions)
+	if gw.canvas != nil && gw.canvas.handler != nil {
+		mux.HandleFunc("/canvas", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/canvas/", http.StatusMovedPermanently)
+		})
+		mux.Handle("/canvas/", http.StripPrefix("/canvas", gw.canvas.handler))
+		mux.Handle("/api/v2/canvas/", http.StripPrefix("/api/v2/canvas", gw.canvas.handler))
+	}
 
 	gw.httpServer = &http.Server{
-		Handler:      corsMiddleware(mux),
+		Handler:      corsMiddleware(gw.authMiddleware(mux)),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 60 * time.Second,
 	}
@@ -313,6 +369,7 @@ func startDesktopGateway(root, workspace string, port int) (*desktopGatewayServe
 		_ = os.MkdirAll(filepath.Dir(discPath), 0o755)
 		data, _ := json.MarshalIndent(map[string]any{
 			"url":        url,
+			"token":      gw.token,
 			"pid":        os.Getpid(),
 			"started_at": float64(time.Now().UnixNano()) / 1e9,
 			"version":    version,
@@ -338,20 +395,60 @@ func stopDesktopGateway() error {
 	defer cancel()
 
 	_ = gw.httpServer.Shutdown(ctx)
+	detachGatewayCanvas(gw.canvas)
 	if gw.discovery != "" {
 		_ = os.Remove(gw.discovery)
 	}
 	return nil
 }
 
+func isAllowedLocalOrigin(origin string) bool {
+	return strings.HasPrefix(origin, "http://127.0.0.1") ||
+		strings.HasPrefix(origin, "http://localhost") ||
+		strings.HasPrefix(origin, "https://127.0.0.1") ||
+		strings.HasPrefix(origin, "https://localhost") ||
+		strings.HasPrefix(origin, "app://") ||
+		strings.HasPrefix(origin, "vscode-webview://")
+}
+
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if origin != "" && isAllowedLocalOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (gw *desktopGatewayServer) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+		queryToken := strings.TrimSpace(r.URL.Query().Get("token"))
+		provided := ""
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			provided = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+		} else if queryToken != "" {
+			provided = queryToken
+		}
+		// Enforce token when credentials are presented, on browser cross-origin
+		// requests, or when explicitly requested via query param.
+		if provided != "" || r.Header.Get("Origin") != "" || r.URL.Query().Get("require_auth") == "1" {
+			if gw.token == "" || provided != gw.token {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -377,6 +474,7 @@ func (gw *desktopGatewayServer) handleRuntimeStatus(w http.ResponseWriter, r *ht
 		"version":                     version,
 		"workspace":                   gw.workspace,
 		"active_session":              gw.activeSession,
+		"canvas_url":                  gw.url + "/canvas/",
 		"model":                       cfg.text("model", "gemini-3.8-flash"),
 		"provider":                    providerName(cfg),
 		"network":                     cfg.boolean("network_enabled", true),
@@ -461,15 +559,174 @@ func (gw *desktopGatewayServer) activeChildTaskListLocked() []ChildTaskRecord {
 	return active
 }
 
+func complianceAuditFilePath(stateRoot string) string {
+	if strings.TrimSpace(stateRoot) == "" {
+		return ""
+	}
+	return filepath.Join(stateRoot, "compliance_audit.jsonl")
+}
+
+func loadComplianceLogs(stateRoot string, limit int) []ComplianceAuditEntry {
+	path := complianceAuditFilePath(stateRoot)
+	if path == "" {
+		return []ComplianceAuditEntry{}
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return []ComplianceAuditEntry{}
+	}
+	defer f.Close()
+
+	var entries []ComplianceAuditEntry
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 16*1024), 256*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var entry ComplianceAuditEntry
+		if err := json.Unmarshal([]byte(line), &entry); err == nil {
+			entries = append(entries, entry)
+		}
+	}
+	if limit > 0 && len(entries) > limit {
+		entries = entries[len(entries)-limit:]
+	}
+	return entries
+}
+
+func publishGatewayEvent(eventType string, data map[string]any) {
+	activeGatewayMu.Lock()
+	gw := activeGateway
+	activeGatewayMu.Unlock()
+	if gw == nil {
+		return
+	}
+	gw.PublishEvent(eventType, data)
+}
+
+func (gw *desktopGatewayServer) PublishEvent(eventType string, data map[string]any) {
+	if gw == nil {
+		return
+	}
+	var cloned map[string]any
+	if data != nil {
+		cloned = make(map[string]any, len(data))
+		for k, v := range data {
+			cloned[k] = v
+		}
+	}
+	ev := gatewayEvent{
+		Type:      eventType,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Data:      cloned,
+	}
+	gw.mu.RLock()
+	subs := make([]chan gatewayEvent, 0, len(gw.subscribers))
+	for ch := range gw.subscribers {
+		subs = append(subs, ch)
+	}
+	gw.mu.RUnlock()
+	for _, ch := range subs {
+		select {
+		case ch <- ev:
+		default:
+		}
+	}
+}
+
+func (gw *desktopGatewayServer) handleEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{})
+
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	ch := make(chan gatewayEvent, 32)
+	gw.mu.Lock()
+	if gw.subscribers == nil {
+		gw.subscribers = map[chan gatewayEvent]struct{}{}
+	}
+	gw.subscribers[ch] = struct{}{}
+	gw.mu.Unlock()
+
+	defer func() {
+		gw.mu.Lock()
+		delete(gw.subscribers, ch)
+		gw.mu.Unlock()
+	}()
+
+	writeEvent := func(ev gatewayEvent) bool {
+		payload, err := json.Marshal(ev)
+		if err != nil {
+			return true
+		}
+		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, payload); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
+
+	if !writeEvent(gatewayEvent{
+		Type:      "gateway.connected",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Data:      map[string]any{"agent_id": gw.identity.AgentID, "workspace": gw.workspace},
+	}) {
+		return
+	}
+
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case ev := <-ch:
+			if !writeEvent(ev) {
+				return
+			}
+		case <-ticker.C:
+			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
 func (gw *desktopGatewayServer) recordComplianceLocked(eventType, action, childTaskID, cancelStatus string) {
-	gw.complianceLogs = append(gw.complianceLogs, ComplianceAuditEntry{
+	entry := ComplianceAuditEntry{
 		Timestamp:          time.Now().UTC().Format(time.RFC3339),
 		EventType:          eventType,
 		AgentID:            gw.identity.AgentID,
 		ChildTaskID:        childTaskID,
 		Action:             action,
 		CancellationStatus: cancelStatus,
-	})
+	}
+	gw.complianceLogs = append(gw.complianceLogs, entry)
+	if path := complianceAuditFilePath(gw.stateRoot); path != "" {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err == nil {
+			if line, err := json.Marshal(entry); err == nil {
+				if f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
+					_, _ = f.Write(append(line, '\n'))
+					_ = f.Close()
+				}
+			}
+		}
+	}
 }
 
 func (gw *desktopGatewayServer) handleLifecycleAction(w http.ResponseWriter, r *http.Request) {
@@ -624,6 +881,24 @@ func (gw *desktopGatewayServer) handleComplianceLogs(w http.ResponseWriter, r *h
 	})
 }
 
+func (gw *desktopGatewayServer) handleWorldTransitions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	entries := loadWorldTransitions(gw.stateRoot, 200)
+	stats := summarizeWorldTransitions(entries)
+	dpoPairs := ExportWorldDPOPairs(entries)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"entries":         entries,
+		"count":           len(entries),
+		"domain_stats":    stats,
+		"dpo_pairs":       dpoPairs,
+		"dpo_pairs_count": len(dpoPairs),
+	})
+}
+
 func (gw *desktopGatewayServer) handleTaskContext(w http.ResponseWriter, r *http.Request) {
 	gw.mu.RLock()
 	ws := gw.workspace
@@ -660,6 +935,7 @@ func (gw *desktopGatewayServer) handleDiagnosticsReport(w http.ResponseWriter, r
 		}
 		count := len(gw.diagnostics[req.Path])
 		gw.mu.Unlock()
+		gw.PublishEvent("diagnostics.updated", map[string]any{"path": req.Path, "count": count})
 
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -691,6 +967,110 @@ func (gw *desktopGatewayServer) handleDiagnosticsReport(w http.ResponseWriter, r
 		"files_count":    len(gw.diagnostics),
 		"diagnostics":    gw.diagnostics,
 	})
+}
+
+func (gw *desktopGatewayServer) handleComputerUseState(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		var req struct {
+			Mode           string         `json:"mode,omitempty"`
+			CursorX        *int           `json:"cursor_x,omitempty"`
+			CursorY        *int           `json:"cursor_y,omitempty"`
+			Thought        *string        `json:"thought,omitempty"`
+			URL            *string        `json:"url,omitempty"`
+			VisualDiffPct  *float64       `json:"visual_diff_pct,omitempty"`
+			ChangedRegion  map[string]int `json:"changed_region,omitempty"`
+			FrameB64       *string        `json:"frame_b64,omitempty"`
+			RecordedFrames *int           `json:"recorded_frames,omitempty"`
+			RecordingPath  *string        `json:"recording_path,omitempty"`
+			ActionEntry    map[string]any `json:"action_entry,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		gw.mu.Lock()
+		if req.Mode != "" {
+			switch req.Mode {
+			case "autonomous", "takeover", "paused":
+				gw.computerUse.Mode = req.Mode
+				gw.computerUse.TakeoverActive = (req.Mode == "takeover")
+			default:
+				gw.mu.Unlock()
+				http.Error(w, "unsupported mode; use autonomous, takeover, or paused", http.StatusBadRequest)
+				return
+			}
+		}
+		if req.CursorX != nil {
+			gw.computerUse.CursorX = *req.CursorX
+		}
+		if req.CursorY != nil {
+			gw.computerUse.CursorY = *req.CursorY
+		}
+		if req.Thought != nil {
+			gw.computerUse.Thought = *req.Thought
+		}
+		if req.URL != nil {
+			gw.computerUse.URL = *req.URL
+		}
+		if req.VisualDiffPct != nil {
+			gw.computerUse.VisualDiffPct = *req.VisualDiffPct
+		}
+		if len(req.ChangedRegion) > 0 {
+			gw.computerUse.ChangedRegion = req.ChangedRegion
+		}
+		if req.FrameB64 != nil {
+			gw.computerUse.FrameB64 = *req.FrameB64
+		}
+		if req.RecordedFrames != nil {
+			gw.computerUse.RecordedFrames = *req.RecordedFrames
+		}
+		if req.RecordingPath != nil {
+			gw.computerUse.RecordingPath = *req.RecordingPath
+		}
+		if len(req.ActionEntry) > 0 {
+			gw.computerUse.ActionTrail = append(gw.computerUse.ActionTrail, req.ActionEntry)
+			if len(gw.computerUse.ActionTrail) > 50 {
+				gw.computerUse.ActionTrail = gw.computerUse.ActionTrail[len(gw.computerUse.ActionTrail)-50:]
+			}
+		}
+		gw.computerUse.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		snapshot := gw.computerUse
+		canvas := gw.canvas
+		gw.mu.Unlock()
+
+		evPayload := map[string]any{
+			"type":            "computer-use",
+			"mode":            snapshot.Mode,
+			"takeover_active": snapshot.TakeoverActive,
+			"cursor_x":        snapshot.CursorX,
+			"cursor_y":        snapshot.CursorY,
+			"thought":         snapshot.Thought,
+			"url":             snapshot.URL,
+			"visual_diff_pct": snapshot.VisualDiffPct,
+			"changed_region":  snapshot.ChangedRegion,
+			"recorded_frames": snapshot.RecordedFrames,
+			"action_trail":    snapshot.ActionTrail,
+			"updated_at":      snapshot.UpdatedAt,
+		}
+		gw.PublishEvent("computer_use.updated", evPayload)
+		if canvas != nil {
+			canvas.broadcast(evPayload)
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(snapshot)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	gw.mu.RLock()
+	snapshot := gw.computerUse
+	gw.mu.RUnlock()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(snapshot)
 }
 
 // daemonServeCommand is the CLI entry point for `aria-runtime serve`.

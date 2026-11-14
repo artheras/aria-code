@@ -5,6 +5,8 @@ from aria_code.packs.base import BaseDomainPack, EntityMatch
 TOOLS = ("health_capabilities", "health_search_pubmed", "health_fetch_article",
          "health_create_bundle", "health_audit_bundle", "health_export_bundle", "health_list_records")
 _PMID = re.compile(r"(?i)(?<![A-Za-z0-9_])(?:PMID\s*:\s*|https://pubmed\.ncbi\.nlm\.nih\.gov/)([1-9][0-9]{0,8})(?![0-9A-Za-z_])")
+_PMCID = re.compile(r"(?<![A-Za-z0-9_])(PMC[1-9][0-9]{4,8})(?![0-9A-Za-z_])")
+_NCT = re.compile(r"(?<![A-Za-z0-9_])(NCT[0-9]{8})(?![0-9A-Za-z_])")
 
 
 class HealthcarePack(BaseDomainPack):
@@ -12,8 +14,15 @@ class HealthcarePack(BaseDomainPack):
 
     def resolve_entities(self, message):
         found = {}
-        for match in _PMID.finditer(message or ""):
+        text = message or ""
+        for match in _PMID.finditer(text):
             found.setdefault(match[1], EntityMatch(pack=self.name, kind="pmid", value=match[1],
+                                                  surface=match[0], position=match.start(), confidence=0.99))
+        for match in _PMCID.finditer(text):
+            found.setdefault(match[1], EntityMatch(pack=self.name, kind="pmcid", value=match[1],
+                                                  surface=match[0], position=match.start(), confidence=0.99))
+        for match in _NCT.finditer(text):
+            found.setdefault(match[1], EntityMatch(pack=self.name, kind="nct", value=match[1],
                                                   surface=match[0], position=match.start(), confidence=0.99))
         return tuple(found.values())
 

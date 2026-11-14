@@ -124,5 +124,12 @@ condition = "AND"
 paths = ['''(^|/)go/runtime/account_memory_test\.go$''']
 regexes = ['''eyJhbGciOiJIUzI1NiJ9\.eyJhdWQiOiJhcnRoZXJhLTY2ZTViIiwiaXNzIjoiaHR0cHM6Ly9zZWN1cmV0b2tlbi5nb29nbGUuY29tL2FydGhlcmEtNjZlNWIiLCJzdWIiOiJ1c2VyXzEyMyJ9\.sig''']
 
+[[allowlists]]
+description = "Synthetic test fixture in world_model_test.go (commit c5ba48b)."
+condition = "AND"
+paths = ['''(^|/)go/runtime/world_model_test\.go$''']
+regexes = ['''sk-secret123456''']
+
+
 
 

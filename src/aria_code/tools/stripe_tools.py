@@ -65,33 +65,45 @@ def tool_analyze_stripe_data(params: Dict[str, Any]) -> Dict[str, Any]:
             ),
         }
 
+    data_source = "file_path" if file_path else "caller-supplied records"
     try:
         from aria_code.packages.quant_engine.services.stripe_analytics_service import StripeAnalyticsService
         service = StripeAnalyticsService()
         res = service.analyze_stripe_data(charges, subscriptions).to_dict()
     except Exception:
-        gpv = sum(float(c.get("amount_usd", 0.0)) for c in charges)
+        succeeded = [c for c in charges if str(c.get("status", "succeeded")).lower() == "succeeded"]
+        failed = [c for c in charges if str(c.get("status", "")).lower() == "failed"]
+        gpv = sum(float(c.get("amount_usd", 0.0) or 0.0) for c in succeeded)
+        fees = sum(float(c.get("fee_usd", 0.0) or 0.0) for c in succeeded)
+        refunds = sum(float(c.get("refunded_amount_usd", 0.0) or 0.0) for c in charges)
+        failed_amt = sum(float(c.get("amount_usd", 0.0) or 0.0) for c in failed)
+        active_subs = [s for s in subscriptions if str(s.get("status", "active")).lower() == "active"]
+        canceled_subs = [s for s in subscriptions if str(s.get("status", "")).lower() in {"canceled", "cancelled"}]
+        mrr = sum(float(s.get("mrr_usd", 0.0) or 0.0) for s in active_subs)
+        total_subs = len(active_subs) + len(canceled_subs)
+        churn = round((len(canceled_subs) / total_subs) * 100.0, 2) if total_subs > 0 else 0.0
         res = {
-            "gross_payment_volume_usd": gpv,
-            "net_revenue_usd": gpv * 0.96,
-            "mrr_usd": 1820.0,
-            "arr_usd": 21840.0,
-            "active_subscribers_count": 4,
-            "monthly_churn_rate_pct": 20.0,
-            "net_revenue_retention_pct": 102.0,
-            "failed_payment_amount_usd": 120.0,
-            "recoverable_dunning_amount_usd": 66.0,
-            "revenue_growth_recommendations": ["已成功提取 Stripe 核心交易指标"],
+            "gross_payment_volume_usd": round(gpv, 2),
+            "net_revenue_usd": round(gpv - fees - refunds, 2),
+            "mrr_usd": round(mrr, 2),
+            "arr_usd": round(mrr * 12.0, 2),
+            "active_subscribers_count": len(active_subs),
+            "monthly_churn_rate_pct": churn,
+            "net_revenue_retention_pct": round(100.0 - churn, 2) if total_subs > 0 else 0.0,
+            "failed_payment_amount_usd": round(failed_amt, 2),
+            "recoverable_dunning_amount_usd": round(failed_amt * 0.55, 2),
+            "revenue_growth_recommendations": ["已基于提供的 Stripe 记录完成交易与订阅指标汇总"],
         }
+    res["data_source"] = data_source
 
     return {
         "success": True,
         "data": res,
         "summary": (
-            f"已诊断 {business_name} Stripe 数据：总流水 ¥{res.get('gross_payment_volume_usd', 0):,.2f}，"
-            f"MRR ¥{res.get('mrr_usd', 0):,.2f} (ARR ¥{res.get('arr_usd', 0):,.2f})，"
+            f"已诊断 {business_name} Stripe 数据（来源：{data_source}）：总流水 ${res.get('gross_payment_volume_usd', 0):,.2f}，"
+            f"MRR ${res.get('mrr_usd', 0):,.2f} (ARR ${res.get('arr_usd', 0):,.2f})，"
             f"活跃订阅 {res.get('active_subscribers_count', 0)} 户，月流失率 {res.get('monthly_churn_rate_pct', 0)}%，"
-            f"失败扣款 ¥{res.get('failed_payment_amount_usd', 0):,.2f}。"
+            f"失败扣款 ${res.get('failed_payment_amount_usd', 0):,.2f}。"
         ),
     }
 

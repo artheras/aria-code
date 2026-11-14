@@ -16,7 +16,7 @@ import (
 )
 
 // Files read as project instructions, in the order a reader should check.
-var projectContextFiles = []string{"ARIA.md", "AGENTS.md", "CLAUDE.md"}
+var projectContextFiles = []string{"ARIA.md", "AGENTS.md", "CLAUDE.md", ".cursorrules"}
 
 // clearConversation forgets the conversation but keeps the session, its
 // settings and its checkpoints: the next turn starts with no history.

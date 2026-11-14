@@ -24,12 +24,12 @@ from aria_code.packs.base import BaseDomainPack, EntityMatch, PackActivation
 
 PACK_NAME = "realty"
 
-# Empty on purpose. get_house_price_index/get_re_investment exist as functions
-# in realty_data_tools but have no register_* wrapper, so they are not in
-# LOCAL_TOOLS. Naming them here told the model about a capability it does not
-# have, which costs a wasted round and a confusing "unknown tool" error.
-# The pack still contributes its handler and its prompt guidance.
-REALTY_TOOLS: tuple[str, ...] = ()
+REALTY_TOOLS: tuple[str, ...] = (
+    "get_house_price_index",
+    "get_re_investment",
+    "get_reits_list",
+    "calc_rental_yield",
+)
 
 _RESOLVED = 0.95
 _CITY_ONLY = 0.3

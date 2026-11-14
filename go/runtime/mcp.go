@@ -83,35 +83,73 @@ func mcpToolName(server, tool string) string {
 	return "mcp__" + s + "__" + t
 }
 
+func parseMCPConfigFile(path string) ([]mcpServerConfig, error) {
+	var raw struct {
+		Servers    []mcpServerConfig          `json:"servers"`
+		MCPServers map[string]mcpServerConfig `json:"mcpServers"`
+	}
+	if err := readJSON(path, &raw); err != nil {
+		return nil, err
+	}
+	out := append([]mcpServerConfig(nil), raw.Servers...)
+	if len(raw.MCPServers) > 0 {
+		names := make([]string, 0, len(raw.MCPServers))
+		for k := range raw.MCPServers {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			cfg := raw.MCPServers[name]
+			if cfg.Name == "" {
+				cfg.Name = name
+			}
+			out = append(out, cfg)
+		}
+	}
+	return out, nil
+}
+
 func loadMCPConfig(root string) ([]mcpServerConfig, error) {
-	var file struct {
-		Servers []mcpServerConfig `json:"servers"`
-	}
-	if err := readJSON(filepath.Join(root, "mcp_servers.json"), &file); err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("mcp_servers.json: %w", err)
-	}
-	// A host that runs the engine for someone else (the chat bots) adds its
-	// own servers here without editing the user's file. The user's entry of
-	// the same name wins.
-	if extra := strings.TrimSpace(os.Getenv("ARIA_MCP_EXTRA_CONFIG")); extra != "" {
-		var more struct {
-			Servers []mcpServerConfig `json:"servers"`
-		}
-		if err := readJSON(extra, &more); err != nil {
-			return file.Servers, fmt.Errorf("ARIA_MCP_EXTRA_CONFIG: %w", err)
-		}
-		names := map[string]bool{}
-		for _, cfg := range file.Servers {
-			names[cfg.Name] = true
-		}
-		for _, cfg := range more.Servers {
-			if !names[cfg.Name] {
-				file.Servers = append(file.Servers, cfg)
+	var servers []mcpServerConfig
+	names := map[string]bool{}
+	merge := func(list []mcpServerConfig) {
+		for _, cfg := range list {
+			if cfg.Name != "" && !names[cfg.Name] {
+				servers = append(servers, cfg)
 				names[cfg.Name] = true
 			}
 		}
 	}
-	return file.Servers, nil
+
+	for _, rel := range []string{
+		"mcp_servers.json",
+		".mcp.json",
+		filepath.Join(".cursor", "mcp.json"),
+	} {
+		list, err := parseMCPConfigFile(filepath.Join(root, rel))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			if rel == "mcp_servers.json" {
+				return nil, fmt.Errorf("mcp_servers.json: %w", err)
+			}
+			continue
+		}
+		merge(list)
+	}
+
+	// A host that runs the engine for someone else (the chat bots) adds its
+	// own servers here without editing the user's file. The user's entry of
+	// the same name wins.
+	if extra := strings.TrimSpace(os.Getenv("ARIA_MCP_EXTRA_CONFIG")); extra != "" {
+		more, err := parseMCPConfigFile(extra)
+		if err != nil {
+			return servers, fmt.Errorf("ARIA_MCP_EXTRA_CONFIG: %w", err)
+		}
+		merge(more)
+	}
+	return servers, nil
 }
 
 type rpcMessage struct {

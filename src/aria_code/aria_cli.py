@@ -1227,6 +1227,17 @@ except Exception as _exc:
     logger.debug("Stripe tools init error: %s", _exc)
 
 try:
+    try:
+        from aria_code.tools.realty_data_tools import register_realty_tools as _reg_realty
+    except ImportError:
+        from tools.realty_data_tools import register_realty_tools as _reg_realty  # type: ignore[no-redef]
+    _n_realty = _reg_realty(LOCAL_TOOLS, LOCAL_TOOL_SCHEMAS)
+    if _n_realty:
+        logger.info("Registered %d realty tools", _n_realty)
+except Exception as _exc:
+    logger.debug("Realty tools init error: %s", _exc)
+
+try:
     from tools.broker_tools import register_broker_tools as _reg_broker
     _n_broker = _reg_broker(LOCAL_TOOLS, LOCAL_TOOL_SCHEMAS)
     if _n_broker:

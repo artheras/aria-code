@@ -1,9 +1,13 @@
+pub mod backtest;
 pub mod binomial_tree;
 pub mod black_scholes;
 pub mod implied_vol;
 pub mod monte_carlo;
 pub mod portfolio;
 
+pub use backtest::{
+    run_backtest, BacktestConfig, BacktestRequest, BacktestResult, BarInput, TradeRecord,
+};
 pub use binomial_tree::price_american_crr;
 pub use black_scholes::{calculate_greeks, norm_cdf, norm_pdf, Greeks, OptionSpec};
 pub use implied_vol::implied_volatility;
@@ -121,5 +125,52 @@ mod tests {
         let vol_mv = portfolio_volatility(&mv, &cov);
         let vol_rp = portfolio_volatility(&rp, &cov);
         assert!(vol_mv <= vol_rp + 1e-6);
+    }
+
+    #[test]
+    fn test_backtest_engine() {
+        let bars = vec![
+            BarInput {
+                date: "2026-01-01".into(),
+                open: 100.0,
+                high: 102.0,
+                low: 99.0,
+                close: 100.0,
+                volume: 1000.0,
+                signal: 1.0,
+            },
+            BarInput {
+                date: "2026-01-02".into(),
+                open: 100.0,
+                high: 112.0,
+                low: 100.0,
+                close: 110.0,
+                volume: 1200.0,
+                signal: 1.0,
+            },
+            BarInput {
+                date: "2026-01-03".into(),
+                open: 110.0,
+                high: 110.0,
+                low: 104.0,
+                close: 105.0,
+                volume: 900.0,
+                signal: 0.0,
+            },
+        ];
+        let cfg = BacktestConfig {
+            initial_capital: 100_000.0,
+            commission_bps: 5.0,
+            slippage_bps: 5.0,
+            allow_short: false,
+            risk_free_rate: 0.02,
+            periods_per_year: 252.0,
+        };
+        let res = run_backtest(&bars, &cfg);
+        assert_eq!(res.equity_curve.len(), 3);
+        assert!(res.total_trades >= 2);
+        assert!(res.total_return_pct > 0.0);
+        assert!(res.max_drawdown_pct > 0.0);
+        assert!(res.win_rate_pct > 0.0);
     }
 }

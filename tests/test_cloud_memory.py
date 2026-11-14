@@ -144,3 +144,14 @@ if __name__ == "__main__":
 
 def test_retired_domain_cannot_receive_a_memory_token():
     assert CloudMemoryClient('https://api.arthera.finance','token').api_url == 'https://api.arthera.xyz'
+
+
+def test_offline_queue_persists_and_flushes(tmp_path):
+    queue_file = tmp_path / "pending.json"
+    client = CloudMemoryClient("https://api.example.com", "a-token", queue_path=queue_file)
+    with mock.patch("urllib.request.urlopen", side_effect=OSError("offline")):
+        assert client.push_item("remember offline note") is None
+    assert queue_file.is_file()
+    with mock.patch("urllib.request.urlopen", return_value=_FakeResponse({"id": "synced-1"})):
+        assert client.flush_pending() == 1
+    assert not queue_file.exists()

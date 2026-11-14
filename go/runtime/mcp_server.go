@@ -73,6 +73,23 @@ var mcpServerTools = []mcpServedTool{
 			"name":      map[string]any{"type": "string", "description": "Skill name from aria.skill.list."},
 			"reference": map[string]any{"type": "string", "description": "Optional reference file name from the skill's references/ directory."},
 		}, "name"),
+	readOnlyTool("aria.world.simulate", "Pre-flight world model simulation for candidate file changes: computes dependency blast radius, affected tests, verification commands, checkpoint status, and empirical success rate.",
+		map[string]any{
+			"paths": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Candidate file paths to evaluate before editing."},
+			"root":  rootProperty,
+		}, "paths"),
+	readOnlyTool("aria.quant.price_option", "Deterministic Black-Scholes / American CRR option pricing, full Greeks (Delta, Gamma, Vega, Theta, Rho, Vanna, Volga), and implied volatility.",
+		map[string]any{
+			"s":            map[string]any{"type": "number", "description": "Spot price (> 0)."},
+			"k":            map[string]any{"type": "number", "description": "Strike price (> 0)."},
+			"t":            map[string]any{"type": "number", "description": "Time to maturity in years (> 0)."},
+			"r":            map[string]any{"type": "number", "description": "Risk-free rate (decimal, e.g. 0.05)."},
+			"q":            map[string]any{"type": "number", "description": "Dividend yield (decimal, default 0)."},
+			"sigma":        map[string]any{"type": "number", "description": "Annualized volatility (decimal, default 0.20)."},
+			"is_call":      map[string]any{"type": "boolean", "description": "True for Call, False for Put (default true)."},
+			"american":     map[string]any{"type": "boolean", "description": "Also compute American option price via 500-step CRR tree."},
+			"market_price": map[string]any{"type": "number", "description": "Optional observed option price to solve implied volatility."},
+		}, "s", "k", "t"),
 }
 
 // mcpProjectRoot is an existing directory under the server's working
@@ -373,13 +390,35 @@ func init() {
 	}
 }
 
+func mcpWorldSimulate(ctx context.Context, args map[string]any) map[string]any {
+	root, err := mcpProjectRoot(args["root"])
+	if err != nil {
+		return mcpFail(err.Error())
+	}
+	res := simulateActionTool(ctx, &scope{workspace: root}, args)
+	if !res.Success {
+		return mcpFail(res.Error)
+	}
+	return map[string]any{"success": true, "simulation": res.Data}
+}
+
+func mcpQuantPriceOption(ctx context.Context, args map[string]any) map[string]any {
+	res := priceOptionTool(ctx, args)
+	if !res.Success {
+		return mcpFail(res.Error)
+	}
+	return map[string]any{"success": true, "pricing": res.Data}
+}
+
 var mcpServerHandlers = map[string]func(context.Context, map[string]any) map[string]any{
-	"aria.risk.assess":      mcpRiskAssess,
-	"aria.contract.check":   mcpContractCheck,
-	"aria.project.impact":   mcpProjectImpact,
-	"aria.project.commands": mcpProjectCommands,
-	"aria.skill.list":       mcpSkillList,
-	"aria.skill.get":        mcpSkillGet,
+	"aria.risk.assess":        mcpRiskAssess,
+	"aria.contract.check":     mcpContractCheck,
+	"aria.project.impact":     mcpProjectImpact,
+	"aria.project.commands":   mcpProjectCommands,
+	"aria.skill.list":         mcpSkillList,
+	"aria.skill.get":          mcpSkillGet,
+	"aria.world.simulate":     mcpWorldSimulate,
+	"aria.quant.price_option": mcpQuantPriceOption,
 }
 
 func mcpReply(out io.Writer, id any, result any, rpcErr map[string]any) error {
