@@ -14,7 +14,7 @@ func TestWorldTransitionRecordAndLoad(t *testing.T) {
 	ws := t.TempDir()
 
 	recordWorldTransition(root, ws, "verify_changes", map[string]any{"paths": []string{"agent.go"}}, toolResult{Success: true}, 42*time.Millisecond)
-	recordWorldTransition(root, ws, "edit_file", map[string]any{"path": "agent.go", "api_key": "sk-secret123456"}, toolResult{Success: false, Error: "old_string not found"}, 5*time.Millisecond)
+	recordWorldTransition(root, ws, "edit_file", map[string]any{"path": "agent.go", "note": "test-transition"}, toolResult{Success: false, Error: "old_string not found"}, 5*time.Millisecond)
 
 	loaded := loadWorldTransitions(root, 10)
 	if len(loaded) != 2 {
