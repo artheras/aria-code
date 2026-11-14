@@ -165,6 +165,62 @@ def _tool_browser_screenshot(params: dict) -> dict:
 
 # ── Desktop screenshot ────────────────────────────────────────────────────────
 
+_LAST_CAPTURE_META: dict = {
+    "image_width": 1920,
+    "image_height": 1080,
+    "logical_width": 1920,
+    "logical_height": 1080,
+    "scale_x": 1.0,
+    "scale_y": 1.0,
+}
+
+
+def _apply_grid_overlay(img):
+    """Draw a subtle 10x10 coordinate ruler grid onto a PIL Image."""
+    try:
+        from PIL import ImageDraw
+        draw = ImageDraw.Draw(img)
+        w, h = img.size
+        for step in range(1, 10):
+            gx = int(w * step / 10)
+            gy = int(h * step / 10)
+            draw.line([(gx, 0), (gx, h)], fill=(120, 160, 240), width=1)
+            draw.line([(0, gy), (w, gy)], fill=(120, 160, 240), width=1)
+            draw.text((gx + 3, 4), f"{gx}", fill=(220, 50, 50))
+            draw.text((4, gy + 3), f"{gy}", fill=(220, 50, 50))
+    except Exception:
+        pass
+    return img
+
+
+def _record_capture_meta(img_w: int, img_h: int, logical_w: int, logical_h: int) -> dict:
+    sx = round(logical_w / max(1, img_w), 4)
+    sy = round(logical_h / max(1, img_h), 4)
+    _LAST_CAPTURE_META.update({
+        "image_width": img_w,
+        "image_height": img_h,
+        "logical_width": logical_w,
+        "logical_height": logical_h,
+        "scale_x": sx,
+        "scale_y": sy,
+    })
+    return dict(_LAST_CAPTURE_META)
+
+
+def _resolve_xy(x: int, y: int, coord_space: str = "screen") -> tuple[int, int]:
+    """Map coordinates from ('screen' | 'screenshot' | 'normalized') to logical screen coordinates."""
+    space = (coord_space or "screen").strip().lower()
+    if space == "screenshot":
+        sx = float(_LAST_CAPTURE_META.get("scale_x", 1.0) or 1.0)
+        sy = float(_LAST_CAPTURE_META.get("scale_y", 1.0) or 1.0)
+        return int(round(x * sx)), int(round(y * sy))
+    if space == "normalized":
+        lw = int(_LAST_CAPTURE_META.get("logical_width", 1920) or 1920)
+        lh = int(_LAST_CAPTURE_META.get("logical_height", 1080) or 1080)
+        return int(round(x * lw / 1000.0)), int(round(y * lh / 1000.0))
+    return x, y
+
+
 def _tool_computer_screenshot(params: dict) -> dict:
     """
     Capture a screenshot of the current desktop screen.
@@ -173,6 +229,7 @@ def _tool_computer_screenshot(params: dict) -> dict:
     try:
         monitor_idx = int(params.get("monitor", 1))
         max_dim = int(params.get("max_dim", 1920))
+        mark_grid = bool(params.get("mark_grid", False))
         if monitor_idx < 0 or not 64 <= max_dim <= 4096:
             raise ValueError("monitor must be nonnegative; max_dim must be 64..4096")
     except (ValueError, TypeError) as exc:
@@ -188,6 +245,8 @@ def _tool_computer_screenshot(params: dict) -> dict:
             if monitor_idx >= len(monitors):
                 return {"success": False, "error": "Monitor is unavailable"}
             mon = monitors[monitor_idx]
+            logical_w = int(mon.get("width", 0))
+            logical_h = int(mon.get("height", 0))
             raw = sct.grab(mon)
             img = Image.frombytes("RGB", (raw.width, raw.height), raw.rgb)
 
@@ -196,6 +255,10 @@ def _tool_computer_screenshot(params: dict) -> dict:
         if max(w, h) > max_dim:
             scale = max_dim / max(w, h)
             img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.LANCZOS)
+
+        if mark_grid:
+            img = _apply_grid_overlay(img)
+        meta = _record_capture_meta(img.width, img.height, logical_w or w, logical_h or h)
 
         buf = io.BytesIO()
         img.save(buf, format="PNG", optimize=True)
@@ -207,6 +270,10 @@ def _tool_computer_screenshot(params: dict) -> dict:
             "data": {
                 "width": img.width,
                 "height": img.height,
+                "logical_width": meta["logical_width"],
+                "logical_height": meta["logical_height"],
+                "scale_x": meta["scale_x"],
+                "scale_y": meta["scale_y"],
                 "size_kb": size_kb,
                 "note": f"Desktop screenshot captured ({img.width}×{img.height}, {size_kb} KB). Image attached.",
             },
@@ -230,6 +297,9 @@ def _tool_computer_screenshot(params: dict) -> dict:
         if max(w, h) > max_dim:
             scale = max_dim / max(w, h)
             img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.LANCZOS)
+        if mark_grid:
+            img = _apply_grid_overlay(img)
+        meta = _record_capture_meta(img.width, img.height, w, h)
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         b64 = base64.b64encode(buf.getvalue()).decode()
@@ -239,6 +309,10 @@ def _tool_computer_screenshot(params: dict) -> dict:
             "data": {
                 "width": img.width,
                 "height": img.height,
+                "logical_width": meta["logical_width"],
+                "logical_height": meta["logical_height"],
+                "scale_x": meta["scale_x"],
+                "scale_y": meta["scale_y"],
                 "size_kb": len(buf.getvalue()) // 1024,
                 "note": f"Screenshot captured ({img.width}×{img.height}). Image attached.",
             },
@@ -263,16 +337,36 @@ def _tool_computer_action(params: dict) -> dict:
       key (key)            — press a key or combo: "enter", "ctrl+c", "cmd+space"
       scroll (x, y, dy)    — scroll wheel: dy > 0 = down, dy < 0 = up
       drag (x, y, ex, ey)  — drag from (x,y) to (ex,ey)
+      batch (steps)        — execute a list of actions sequentially
     """
+    action = str(params.get("action", "") or "").lower()
+    if action == "batch":
+        steps = params.get("steps")
+        if not isinstance(steps, list) or not 1 <= len(steps) <= 10:
+            return {"success": False, "error": "batch requires 'steps' as a list of 1..10 actions"}
+        executed = []
+        for idx, step in enumerate(steps, start=1):
+            if not isinstance(step, dict) or str(step.get("action", "")).lower() == "batch":
+                return {"success": False, "error": f"Invalid batch step {idx}"}
+            res = _tool_computer_action(step)
+            if not res.get("success"):
+                return {"success": False, "error": f"Step {idx} failed: {res.get('error')}", "completed": executed}
+            executed.append(res.get("data"))
+        return {"success": True, "data": {"action": "batch", "steps_completed": len(executed), "results": executed}}
+
     try:
-        action = params.get("action", "").lower()
-        x = int(params.get("x", 0))
-        y = int(params.get("y", 0))
+        coord_space = str(params.get("coord_space", "screen") or "screen").lower()
+        if coord_space not in {"screen", "screenshot", "normalized"}:
+            return {"success": False, "error": f"Invalid coord_space '{coord_space}'"}
+        raw_x = int(params.get("x", 0))
+        raw_y = int(params.get("y", 0))
+        x, y = _resolve_xy(raw_x, raw_y, coord_space)
         text = params.get("text", "")
         key = params.get("key", "")
         dy = int(params.get("dy", 3))
-        ex = int(params.get("ex", x))
-        ey = int(params.get("ey", y))
+        raw_ex = int(params.get("ex", raw_x))
+        raw_ey = int(params.get("ey", raw_y))
+        ex, ey = _resolve_xy(raw_ex, raw_ey, coord_space)
     except (ValueError, TypeError, AttributeError):
         return {"success": False, "error": "Invalid action parameters"}
 
@@ -437,6 +531,10 @@ COMPUTER_USE_SCHEMAS = [
                         "type": "integer",
                         "description": "Max pixel dimension for resize (default 1920)",
                     },
+                    "mark_grid": {
+                        "type": "boolean",
+                        "description": "Overlay a 10x10 coordinate ruler grid onto the screenshot",
+                    },
                 },
                 "required": [],
             },
@@ -449,7 +547,7 @@ COMPUTER_USE_SCHEMAS = [
             "description": (
                 "Control the mouse and keyboard to interact with the desktop. "
                 "Always take a computer_screenshot first to see the current screen state. "
-                "Actions: click, right_click, double_click, move, type, key, scroll, drag."
+                "Actions: click, right_click, double_click, move, type, key, scroll, drag, batch."
             ),
             "parameters": {
                 "type": "object",
@@ -458,9 +556,18 @@ COMPUTER_USE_SCHEMAS = [
                         "type": "string",
                         "enum": [
                             "click", "right_click", "double_click", "move",
-                            "type", "key", "scroll", "drag",
+                            "type", "key", "scroll", "drag", "batch",
                         ],
                         "description": "Action to perform",
+                    },
+                    "coord_space": {
+                        "type": "string",
+                        "enum": ["screen", "screenshot", "normalized"],
+                        "description": "Coordinate space: 'screen' (default), 'screenshot' (auto-scaled for Retina/resized captures), or 'normalized' (0..1000)",
+                    },
+                    "steps": {
+                        "type": "array",
+                        "description": "List of action objects when action='batch'",
                     },
                     "x": {
                         "type": "integer",
