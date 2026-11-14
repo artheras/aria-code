@@ -174,6 +174,15 @@ _LAST_CAPTURE_META: dict = {
     "scale_y": 1.0,
 }
 
+_VIRTUAL_CURSOR_STATE: dict = {
+    "x": None,
+    "y": None,
+    "thought": "",
+    "trail": [],
+    "frames": [],
+    "last_png": b"",
+}
+
 
 def _apply_grid_overlay(img):
     """Draw a subtle 10x10 coordinate ruler grid onto a PIL Image."""
@@ -191,6 +200,77 @@ def _apply_grid_overlay(img):
     except Exception:
         pass
     return img
+
+
+def _apply_virtual_cursor_hud(img, cx: int | None, cy: int | None, thought: str = ""):
+    """Draw Aria's virtual agent cursor, ripple halo, and floating thought bubble HUD onto a PIL Image."""
+    try:
+        from PIL import ImageDraw
+        draw = ImageDraw.Draw(img)
+        w, h = img.size
+        sx = float(_LAST_CAPTURE_META.get("scale_x", 1.0) or 1.0)
+        sy = float(_LAST_CAPTURE_META.get("scale_y", 1.0) or 1.0)
+        if cx is not None and cy is not None:
+            ix = max(0, min(w - 1, int(round(cx / max(sx, 0.01)))))
+            iy = max(0, min(h - 1, int(round(cy / max(sy, 0.01)))))
+            draw.ellipse([ix - 12, iy - 12, ix + 12, iy + 12], outline=(16, 185, 129), width=2)
+            draw.polygon([(ix, iy), (ix, iy + 14), (ix + 4, iy + 10), (ix + 10, iy + 10)], fill=(16, 185, 129))
+            if thought:
+                snippet = thought[:48]
+                bw = min(w - 4, len(snippet) * 6 + 16)
+                bx = min(max(4, ix + 14), max(4, w - bw - 4))
+                by = min(max(4, iy - 22), max(4, h - 22))
+                draw.rectangle([bx, by, bx + bw, by + 18], fill=(15, 23, 42), outline=(16, 185, 129), width=1)
+                draw.text((bx + 6, by + 3), f"Aria: {snippet}", fill=(236, 253, 245))
+        elif thought:
+            snippet = thought[:60]
+            bw = min(w - 8, len(snippet) * 6 + 20)
+            draw.rectangle([8, 8, 8 + bw, 26], fill=(15, 23, 42), outline=(16, 185, 129), width=1)
+            draw.text((14, 11), f"Aria: {snippet}", fill=(236, 253, 245))
+    except Exception:
+        pass
+    return img
+
+
+def _finalize_desktop_frame(img, thought: str = "") -> tuple[bytes, float]:
+    """Compute visual frame-diff % vs previous screenshot, overlay HUD, and append to recording buffer."""
+    raw_buf = io.BytesIO()
+    img.save(raw_buf, format="PNG")
+    raw_bytes = raw_buf.getvalue()
+    diff_pct = 100.0
+    prev_bytes = _VIRTUAL_CURSOR_STATE.get("last_png", b"")
+    if prev_bytes:
+        try:
+            from PIL import Image, ImageChops
+            prev_img = Image.open(io.BytesIO(prev_bytes)).convert("RGB")
+            cur_img = img.convert("RGB")
+            if prev_img.size == cur_img.size:
+                diff = ImageChops.difference(prev_img, cur_img).convert("L")
+                hist = diff.histogram()
+                total = max(1, cur_img.size[0] * cur_img.size[1])
+                changed = sum(hist[16:])
+                diff_pct = round(changed * 100.0 / total, 2)
+        except Exception:
+            pass
+    _VIRTUAL_CURSOR_STATE["last_png"] = raw_bytes
+    active_thought = thought or _VIRTUAL_CURSOR_STATE.get("thought", "")
+    cx, cy = _VIRTUAL_CURSOR_STATE.get("x"), _VIRTUAL_CURSOR_STATE.get("y")
+    if cx is not None or active_thought:
+        img = _apply_virtual_cursor_hud(img.copy(), cx, cy, active_thought)
+    out_buf = io.BytesIO()
+    img.save(out_buf, format="PNG", optimize=True)
+    out_bytes = out_buf.getvalue()
+    frames = _VIRTUAL_CURSOR_STATE.setdefault("frames", [])
+    frames.append({
+        "ts": round(time.time(), 3),
+        "thought": active_thought,
+        "cursor": {"x": cx, "y": cy} if cx is not None else None,
+        "visual_diff_pct": diff_pct,
+        "png_b64": base64.b64encode(out_bytes).decode("ascii"),
+    })
+    if len(frames) > 60:
+        _VIRTUAL_CURSOR_STATE["frames"] = frames[-60:]
+    return out_bytes, diff_pct
 
 
 def _record_capture_meta(img_w: int, img_h: int, logical_w: int, logical_h: int) -> dict:
@@ -259,11 +339,12 @@ def _tool_computer_screenshot(params: dict) -> dict:
         if mark_grid:
             img = _apply_grid_overlay(img)
         meta = _record_capture_meta(img.width, img.height, logical_w or w, logical_h or h)
-
-        buf = io.BytesIO()
-        img.save(buf, format="PNG", optimize=True)
-        b64 = base64.b64encode(buf.getvalue()).decode()
-        size_kb = len(buf.getvalue()) // 1024
+        thought = str(params.get("thought", "") or "")[:120]
+        if thought:
+            _VIRTUAL_CURSOR_STATE["thought"] = thought
+        png_bytes, diff_pct = _finalize_desktop_frame(img, thought=thought)
+        b64 = base64.b64encode(png_bytes).decode()
+        size_kb = len(png_bytes) // 1024
         return {
             "success": True,
             "_vision_image": b64,
@@ -274,6 +355,13 @@ def _tool_computer_screenshot(params: dict) -> dict:
                 "logical_height": meta["logical_height"],
                 "scale_x": meta["scale_x"],
                 "scale_y": meta["scale_y"],
+                "visual_diff_pct": diff_pct,
+                "cursor": {
+                    "x": _VIRTUAL_CURSOR_STATE.get("x"),
+                    "y": _VIRTUAL_CURSOR_STATE.get("y"),
+                } if _VIRTUAL_CURSOR_STATE.get("x") is not None else None,
+                "thought": _VIRTUAL_CURSOR_STATE.get("thought", ""),
+                "recorded_frames": len(_VIRTUAL_CURSOR_STATE.get("frames", [])),
                 "size_kb": size_kb,
                 "note": f"Desktop screenshot captured ({img.width}×{img.height}, {size_kb} KB). Image attached.",
             },
@@ -300,9 +388,11 @@ def _tool_computer_screenshot(params: dict) -> dict:
         if mark_grid:
             img = _apply_grid_overlay(img)
         meta = _record_capture_meta(img.width, img.height, w, h)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        b64 = base64.b64encode(buf.getvalue()).decode()
+        thought = str(params.get("thought", "") or "")[:120]
+        if thought:
+            _VIRTUAL_CURSOR_STATE["thought"] = thought
+        png_bytes, diff_pct = _finalize_desktop_frame(img, thought=thought)
+        b64 = base64.b64encode(png_bytes).decode()
         return {
             "success": True,
             "_vision_image": b64,
@@ -313,7 +403,14 @@ def _tool_computer_screenshot(params: dict) -> dict:
                 "logical_height": meta["logical_height"],
                 "scale_x": meta["scale_x"],
                 "scale_y": meta["scale_y"],
-                "size_kb": len(buf.getvalue()) // 1024,
+                "visual_diff_pct": diff_pct,
+                "cursor": {
+                    "x": _VIRTUAL_CURSOR_STATE.get("x"),
+                    "y": _VIRTUAL_CURSOR_STATE.get("y"),
+                } if _VIRTUAL_CURSOR_STATE.get("x") is not None else None,
+                "thought": _VIRTUAL_CURSOR_STATE.get("thought", ""),
+                "recorded_frames": len(_VIRTUAL_CURSOR_STATE.get("frames", [])),
+                "size_kb": len(png_bytes) // 1024,
                 "note": f"Screenshot captured ({img.width}×{img.height}). Image attached.",
             },
         }
@@ -325,6 +422,24 @@ def _tool_computer_screenshot(params: dict) -> dict:
 
 
 # ── Computer action ───────────────────────────────────────────────────────────
+
+def _record_desktop_trail(action: str, x: int | None, y: int | None, thought: str = "") -> None:
+    if x is not None and y is not None:
+        _VIRTUAL_CURSOR_STATE["x"] = x
+        _VIRTUAL_CURSOR_STATE["y"] = y
+    if thought:
+        _VIRTUAL_CURSOR_STATE["thought"] = thought[:120]
+    trail = _VIRTUAL_CURSOR_STATE.setdefault("trail", [])
+    trail.append({
+        "ts": round(time.time(), 3),
+        "action": action,
+        "x": _VIRTUAL_CURSOR_STATE.get("x"),
+        "y": _VIRTUAL_CURSOR_STATE.get("y"),
+        "thought": _VIRTUAL_CURSOR_STATE.get("thought", ""),
+    })
+    if len(trail) > 50:
+        _VIRTUAL_CURSOR_STATE["trail"] = trail[-50:]
+
 
 def _tool_computer_action(params: dict) -> dict:
     """
@@ -338,8 +453,41 @@ def _tool_computer_action(params: dict) -> dict:
       scroll (x, y, dy)    — scroll wheel: dy > 0 = down, dy < 0 = up
       drag (x, y, ex, ey)  — drag from (x,y) to (ex,ey)
       batch (steps)        — execute a list of actions sequentially
+      export_recording     — export recorded desktop frames as an animated GIF
     """
     action = str(params.get("action", "") or "").lower()
+    thought = str(params.get("thought", "") or "")[:120]
+    if action == "export_recording":
+        frames = _VIRTUAL_CURSOR_STATE.get("frames", [])
+        if not frames:
+            return {"success": False, "error": "No recorded frames available; call computer_screenshot first"}
+        out_path = params.get("output_path") or os.path.join(
+            tempfile.gettempdir(), f"aria_desktop_recording_{int(time.time())}.gif"
+        )
+        try:
+            from PIL import Image
+            pil_frames = [
+                Image.open(io.BytesIO(base64.b64decode(f["png_b64"]))).convert("RGB")
+                for f in frames
+            ]
+            pil_frames[0].save(
+                out_path,
+                save_all=True,
+                append_images=pil_frames[1:],
+                duration=450,
+                loop=0,
+            )
+        except Exception as exc:
+            return {"success": False, "error": f"Failed to export recording: {exc}"}
+        return {
+            "success": True,
+            "data": {
+                "action": "export_recording",
+                "path": out_path,
+                "frames": len(frames),
+                "trail": list(_VIRTUAL_CURSOR_STATE.get("trail", [])[-20:]),
+            },
+        }
     if action == "batch":
         steps = params.get("steps")
         if not isinstance(steps, list) or not 1 <= len(steps) <= 10:
@@ -380,19 +528,23 @@ def _tool_computer_action(params: dict) -> dict:
 
         if action == "click":
             pyautogui.click(x, y)
-            return {"success": True, "data": {"action": "click", "x": x, "y": y}}
+            _record_desktop_trail("click", x, y, thought)
+            return {"success": True, "data": {"action": "click", "x": x, "y": y, "thought": _VIRTUAL_CURSOR_STATE.get("thought", "")}}
 
         elif action == "right_click":
             pyautogui.rightClick(x, y)
-            return {"success": True, "data": {"action": "right_click", "x": x, "y": y}}
+            _record_desktop_trail("right_click", x, y, thought)
+            return {"success": True, "data": {"action": "right_click", "x": x, "y": y, "thought": _VIRTUAL_CURSOR_STATE.get("thought", "")}}
 
         elif action == "double_click":
             pyautogui.doubleClick(x, y)
-            return {"success": True, "data": {"action": "double_click", "x": x, "y": y}}
+            _record_desktop_trail("double_click", x, y, thought)
+            return {"success": True, "data": {"action": "double_click", "x": x, "y": y, "thought": _VIRTUAL_CURSOR_STATE.get("thought", "")}}
 
         elif action == "move":
             pyautogui.moveTo(x, y, duration=0.2)
-            return {"success": True, "data": {"action": "move", "x": x, "y": y}}
+            _record_desktop_trail("move", x, y, thought)
+            return {"success": True, "data": {"action": "move", "x": x, "y": y, "thought": _VIRTUAL_CURSOR_STATE.get("thought", "")}}
 
         elif action == "type":
             if not text:
@@ -405,7 +557,8 @@ def _tool_computer_action(params: dict) -> dict:
                 time.sleep(0.15)
             finally:
                 pyperclip.copy(previous)
-            return {"success": True, "data": {"action": "type", "chars": len(text)}}
+            _record_desktop_trail("type", None, None, thought)
+            return {"success": True, "data": {"action": "type", "chars": len(text), "thought": _VIRTUAL_CURSOR_STATE.get("thought", "")}}
 
         elif action == "key":
             if not key:
@@ -419,16 +572,19 @@ def _tool_computer_action(params: dict) -> dict:
                 pyautogui.hotkey(*parts)
             else:
                 pyautogui.press(parts[0])
-            return {"success": True, "data": {"action": "key", "key": key}}
+            _record_desktop_trail("key", None, None, thought)
+            return {"success": True, "data": {"action": "key", "key": key, "thought": _VIRTUAL_CURSOR_STATE.get("thought", "")}}
 
         elif action == "scroll":
             pyautogui.scroll(-dy, x=x, y=y)
-            return {"success": True, "data": {"action": "scroll", "x": x, "y": y, "dy": dy}}
+            _record_desktop_trail("scroll", x, y, thought)
+            return {"success": True, "data": {"action": "scroll", "x": x, "y": y, "dy": dy, "thought": _VIRTUAL_CURSOR_STATE.get("thought", "")}}
 
         elif action == "drag":
             pyautogui.moveTo(x, y)
             pyautogui.dragTo(ex, ey, duration=0.5, button="left")
-            return {"success": True, "data": {"action": "drag", "from": [x, y], "to": [ex, ey]}}
+            _record_desktop_trail("drag", ex, ey, thought)
+            return {"success": True, "data": {"action": "drag", "from": [x, y], "to": [ex, ey], "thought": _VIRTUAL_CURSOR_STATE.get("thought", "")}}
 
         else:
             return {
@@ -535,6 +691,10 @@ COMPUTER_USE_SCHEMAS = [
                         "type": "boolean",
                         "description": "Overlay a 10x10 coordinate ruler grid onto the screenshot",
                     },
+                    "thought": {
+                        "type": "string",
+                        "description": "Current agent reasoning/progress note to display on the virtual cursor HUD",
+                    },
                 },
                 "required": [],
             },
@@ -547,7 +707,7 @@ COMPUTER_USE_SCHEMAS = [
             "description": (
                 "Control the mouse and keyboard to interact with the desktop. "
                 "Always take a computer_screenshot first to see the current screen state. "
-                "Actions: click, right_click, double_click, move, type, key, scroll, drag, batch."
+                "Actions: click, right_click, double_click, move, type, key, scroll, drag, batch, export_recording."
             ),
             "parameters": {
                 "type": "object",
@@ -556,9 +716,13 @@ COMPUTER_USE_SCHEMAS = [
                         "type": "string",
                         "enum": [
                             "click", "right_click", "double_click", "move",
-                            "type", "key", "scroll", "drag", "batch",
+                            "type", "key", "scroll", "drag", "batch", "export_recording",
                         ],
                         "description": "Action to perform",
+                    },
+                    "thought": {
+                        "type": "string",
+                        "description": "Current agent reasoning/progress note shown on the virtual cursor HUD",
                     },
                     "coord_space": {
                         "type": "string",

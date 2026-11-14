@@ -15,7 +15,9 @@ import re
 import secrets
 import subprocess
 import sys
+import tempfile
 import time
+from pathlib import Path
 from urllib.parse import urlsplit
 
 PROTOCOL = "2024-11-05"
@@ -46,15 +48,18 @@ def detect_prompt_injection(text: str) -> list[str]:
     return warnings
 
 
-def _annotate_set_of_marks(png_bytes: bytes, elements: list[dict]) -> bytes:
-    """Overlay numbered Set-of-Marks badges (#1, #2, ...) on screenshot when rects exist."""
-    if not png_bytes or not elements or not any(isinstance(e.get("rect"), dict) for e in elements):
+def _annotate_set_of_marks(png_bytes: bytes, elements: list[dict], cursor_pos: tuple[int, int] | None = None, thought: str = "") -> bytes:
+    """Overlay numbered Set-of-Marks badges (#1, #2, ...) and Aria's virtual cursor + thought HUD."""
+    if not png_bytes:
+        return png_bytes
+    has_rects = bool(elements and any(isinstance(e.get("rect"), dict) for e in elements))
+    if not has_rects and not cursor_pos and not thought:
         return png_bytes
     try:
         from PIL import Image, ImageDraw
         img = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
         draw = ImageDraw.Draw(img)
-        for el in elements:
+        for el in (elements or []):
             rect = el.get("rect")
             eid = el.get("element_id")
             if not isinstance(rect, dict) or not eid:
@@ -70,11 +75,56 @@ def _annotate_set_of_marks(png_bytes: bytes, elements: list[dict]) -> bytes:
             by = max(0, y - 16)
             draw.rectangle([x, by, x + tw, by + 16], fill=color)
             draw.text((x + 3, by + 2), tag, fill=(255, 255, 255, 255))
+        if cursor_pos and (cursor_pos[0] > 0 or cursor_pos[1] > 0):
+            cx, cy = int(cursor_pos[0]), int(cursor_pos[1])
+            # Draw click ripple ring and virtual pointer triangle
+            draw.ellipse([cx - 12, cy - 12, cx + 12, cy + 12], outline=(16, 185, 129, 230), width=2)
+            draw.polygon([(cx, cy), (cx + 14, cy + 6), (cx + 6, cy + 14)], fill=(16, 185, 129, 240))
+            if thought:
+                label = f"Aria: {thought[:60]}"
+                bw = min(img.width - 10, max(80, 7 * len(label) + 12))
+                bx = min(max(4, cx + 16), max(4, img.width - bw - 4))
+                by = min(max(4, cy + 16), max(4, img.height - 24))
+                draw.rectangle([bx, by, bx + bw, by + 20], fill=(15, 23, 42, 230), outline=(16, 185, 129, 240))
+                draw.text((bx + 6, by + 4), label, fill=(255, 255, 255, 255))
         out = io.BytesIO()
         img.convert("RGB").save(out, format="PNG")
         return out.getvalue()
     except Exception:
         return png_bytes
+
+
+def _compute_visual_progress(prev_png: bytes | None, cur_png: bytes | None) -> dict:
+    """Compare two PNG frames to measure visual pixel change percentage and bounding box."""
+    if not prev_png or not cur_png:
+        return {"visual_diff_pct": 0.0, "changed_region": None}
+    if prev_png == cur_png:
+        return {"visual_diff_pct": 0.0, "changed_region": None}
+    try:
+        from PIL import Image, ImageChops
+        im1 = Image.open(io.BytesIO(prev_png)).convert("RGB")
+        im2 = Image.open(io.BytesIO(cur_png)).convert("RGB")
+        if im1.size != im2.size:
+            im1 = im1.resize(im2.size)
+        diff = ImageChops.difference(im1, im2).convert("L")
+        bbox = diff.point(lambda p: 255 if p > 18 else 0).getbbox()
+        if not bbox:
+            return {"visual_diff_pct": 0.0, "changed_region": None}
+        hist = diff.histogram()
+        total = max(1, im2.width * im2.height)
+        changed_pixels = sum(hist[19:])
+        pct = round((changed_pixels / total) * 100.0, 2)
+        return {
+            "visual_diff_pct": pct,
+            "changed_region": {
+                "x": bbox[0],
+                "y": bbox[1],
+                "w": bbox[2] - bbox[0],
+                "h": bbox[3] - bbox[1],
+            },
+        }
+    except Exception:
+        return {"visual_diff_pct": 100.0 if prev_png != cur_png else 0.0, "changed_region": None}
 
 
 def origin(url: str) -> str:
@@ -119,6 +169,12 @@ class BrowserSession:
         self.page = self.context = self.browser = self.driver = None
         self.observation = None
         self._element_map: dict[int, str] = {}
+        self._element_rects: dict[str, dict] = {}
+        self.cursor_pos: tuple[int, int] = (0, 0)
+        self.last_thought: str = ""
+        self._last_png: bytes | None = None
+        self.recording_frames: list[dict] = []
+        self.action_trail: list[dict] = []
         self.console_errors: list[str] = []
         self.failed_requests: list[dict] = []
 
@@ -132,9 +188,13 @@ class BrowserSession:
             self.page = self.context = self.browser = self.driver = None
             self.observation = None
             self._element_map = {}
+            self._element_rects = {}
+            self.cursor_pos = (0, 0)
+            self.last_thought = ""
+            self._last_png = None
             self.console_errors = []
             self.failed_requests = []
-        return {"closed": True}
+        return {"closed": True, "recorded_frames": len(self.recording_frames)}
 
     def _allowed(self, url):
         if origin(url) not in self.origins:
@@ -215,6 +275,7 @@ class BrowserSession:
         })""")
         elements = []
         self._element_map = {}
+        self._element_rects = {}
         for idx, item in enumerate(raw_elements or [], start=1):
             enriched = dict(item)
             enriched["element_id"] = idx
@@ -224,13 +285,38 @@ class BrowserSession:
             elements.append(enriched)
             if isinstance(enriched.get("selector"), str):
                 self._element_map[idx] = enriched["selector"]
+                if isinstance(enriched.get("rect"), dict):
+                    self._element_rects[enriched["selector"]] = enriched["rect"]
         png_bytes = self.page.screenshot(caret="initial")
-        if mark_elements:
-            png_bytes = _annotate_set_of_marks(png_bytes, elements)
+        progress = _compute_visual_progress(self._last_png, png_bytes)
+        self._last_png = png_bytes
+        if mark_elements or self.cursor_pos != (0, 0) or self.last_thought:
+            png_bytes = _annotate_set_of_marks(
+                png_bytes,
+                elements if mark_elements else [],
+                cursor_pos=self.cursor_pos if self.cursor_pos != (0, 0) else None,
+                thought=self.last_thought,
+            )
+        if len(self.recording_frames) >= 60:
+            self.recording_frames.pop(0)
+        self.recording_frames.append({
+            "timestamp": self.clock(),
+            "url": self.page.url,
+            "cursor": {"x": self.cursor_pos[0], "y": self.cursor_pos[1]},
+            "thought": self.last_thought,
+            "visual_diff_pct": progress["visual_diff_pct"],
+            "png": png_bytes,
+        })
         result = {
             "observation_id": self.observation[0], "url": self.page.url,
             "title": self.page.title(), "text": raw_text,
             "elements": elements,
+            "cursor": {"x": self.cursor_pos[0], "y": self.cursor_pos[1]},
+            "thought": self.last_thought,
+            "visual_diff_pct": progress["visual_diff_pct"],
+            "changed_region": progress["changed_region"],
+            "recorded_frames": len(self.recording_frames),
+            "action_trail": list(self.action_trail[-10:]),
             "untrusted_content": True,
             "_image": base64.b64encode(png_bytes).decode(),
         }
@@ -290,6 +376,79 @@ class BrowserSession:
         risk_tag = " [HIGH RISK]" if _SENSITIVE_LABEL_RE.search(selector) else ""
         return tool_name, target, selector, value, f"{detail}{risk_tag}", selector
 
+    def _update_cursor_and_trail(self, tool_name: str, selector: str, step_args: dict) -> None:
+        rect = self._element_rects.get(selector)
+        if rect:
+            cx = int(rect["x"] + max(rect["w"], 8) / 2)
+            cy = int(rect["y"] + max(rect["h"], 8) / 2)
+            self.cursor_pos = (cx, cy)
+        elif "x" in step_args and "y" in step_args:
+            try:
+                self.cursor_pos = (int(step_args["x"]), int(step_args["y"]))
+            except (ValueError, TypeError):
+                pass
+        if "thought" in step_args and step_args.get("thought"):
+            self.last_thought = str(step_args["thought"])[:120]
+        if self.page and self.cursor_pos:
+            try:
+                self.page.evaluate(
+                    """({x, y, thought}) => {
+                        let hud = document.getElementById('__aria_cursor_hud__');
+                        if (!hud) {
+                            hud = document.createElement('div');
+                            hud.id = '__aria_cursor_hud__';
+                            hud.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;transition:left 0.18s ease,top 0.18s ease;';
+                            document.documentElement.appendChild(hud);
+                        }
+                        hud.style.left = x + 'px';
+                        hud.style.top = y + 'px';
+                        hud.innerHTML = `<div style="width:14px;height:14px;border-radius:50%;background:rgba(16,185,129,0.85);border:2px solid #fff;box-shadow:0 0 8px rgba(16,185,129,0.6);"></div>` +
+                            (thought ? `<div style="margin-top:4px;padding:3px 8px;border-radius:6px;background:rgba(15,23,42,0.92);color:#ecfdf5;font:11px/1.3 system-ui;white-space:nowrap;border:1px solid #10b981;">Aria: ${thought}</div>` : '');
+                    }""",
+                    {"x": self.cursor_pos[0], "y": self.cursor_pos[1], "thought": self.last_thought},
+                )
+            except Exception:
+                pass
+        self.action_trail.append({
+            "ts": round(self.clock(), 3),
+            "action": tool_name,
+            "selector": selector,
+            "cursor": {"x": self.cursor_pos[0], "y": self.cursor_pos[1]} if self.cursor_pos else None,
+            "thought": self.last_thought,
+        })
+        if len(self.action_trail) > 50:
+            self.action_trail = self.action_trail[-50:]
+
+    def export_recording(self, output_path: str | None = None) -> dict:
+        if not self.recording_frames:
+            raise ValueError("No recorded frames available; call browser_observe first")
+        out_file = Path(output_path) if output_path else Path(tempfile.gettempdir()) / f"aria_browser_recording_{int(self.clock())}.gif"
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            from PIL import Image
+            pil_frames = []
+            for f in self.recording_frames:
+                raw = f["png"] if isinstance(f.get("png"), bytes) else base64.b64decode(f.get("png_b64", ""))
+                pil_frames.append(Image.open(io.BytesIO(raw)).convert("RGB"))
+            if pil_frames:
+                pil_frames[0].save(
+                    str(out_file),
+                    save_all=True,
+                    append_images=pil_frames[1:],
+                    duration=450,
+                    loop=0,
+                )
+        except Exception:
+            out_file = out_file.with_suffix(".png")
+            last = self.recording_frames[-1]
+            raw = last["png"] if isinstance(last.get("png"), bytes) else base64.b64decode(last.get("png_b64", ""))
+            out_file.write_bytes(raw)
+        return {
+            "path": str(out_file),
+            "frames": len(self.recording_frames),
+            "action_trail": list(self.action_trail[-20:]),
+        }
+
     def _finalize_mutation(self, prev_fp: str, prev_url: str) -> dict:
         out = self.observe()
         changed = (self.observation[2] != prev_fp) or (self.page.url != prev_url)
@@ -302,10 +461,15 @@ class BrowserSession:
         if name == "browser_capabilities":
             return {"origins": sorted(self.origins), "isolated_profile": True,
                     "approval": "native macOS dialog per action; deny on other platforms",
-                    "desktop_input": False, "transport": "stdio"}
+                    "desktop_input": False, "transport": "stdio",
+                    "virtual_cursor": True, "screen_recording": True}
         if name == "browser_close":
             return self.close()
+        if name == "browser_export_recording":
+            return self.export_recording(output_path=args.get("output_path"))
         if name == "browser_observe":
+            if args.get("thought"):
+                self.last_thought = str(args["thought"])[:120]
             return self.observe(mark_elements=bool(args.get("mark_elements", False)))
         if name == "browser_open":
             url = args.get("url", "")
@@ -331,7 +495,7 @@ class BrowserSession:
                 action = str(step.get("action") or "").lower()
                 mapped = {"click": "browser_click", "fill": "browser_fill", "press": "browser_press"}.get(action, action)
                 item = self._prepare_step(mapped, step)
-                prepared.append(item)
+                prepared.append((item, step))
                 lines.append(f"{idx}. {item[4]} -> {item[5]}")
             summary = f"Batch ({len(prepared)} steps)\nSite: {origin(self.page.url)}\n" + "\n".join(lines) + "\nThis may submit or publish content. Approve only after reviewing the page."
             if not self.approval(summary):
@@ -339,8 +503,9 @@ class BrowserSession:
             self._fresh(args.get("observation_id"))
             prev_fp, prev_url = self.observation[2], self.page.url
             self.observation = None
-            for tool_name, target, _, value, _, _ in prepared:
+            for (tool_name, target, selector, value, _, _), step_dict in prepared:
                 self._allowed(self.page.url)
+                self._update_cursor_and_trail(tool_name, selector, step_dict)
                 if tool_name == "browser_fill":
                     target.fill(value)
                 elif tool_name == "browser_press":
@@ -358,6 +523,7 @@ class BrowserSession:
         self._fresh(args.get("observation_id"))
         prev_fp, prev_url = self.observation[2], self.page.url
         self.observation = None
+        self._update_cursor_and_trail(tool_name, selector, args)
         if tool_name == "browser_fill":
             target.fill(value)
         elif tool_name == "browser_press":
@@ -380,6 +546,7 @@ TARGET = {
     "observation_id": {"type": "string"},
     "selector": {"type": "string"},
     "element_id": {"type": "integer"},
+    "thought": {"type": "string"},
 }
 TOOLS = [
     tool_schema("browser_capabilities", "Check local browser permissions and allowed origins."),

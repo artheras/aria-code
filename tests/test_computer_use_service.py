@@ -354,3 +354,24 @@ def test_desktop_coordinate_calibration_and_batch(monkeypatch):
         ],
     })
     assert batch['success'] and batch['data']['steps_completed'] == 2
+
+
+def test_virtual_cursor_thought_hud_visual_diff_and_recording_export(session, tmp_path):
+    obs = session.observe()
+    res = session.call('browser_click', {
+        'observation_id': obs['observation_id'],
+        'element_id': 1,
+        'thought': 'Clicking submit button to verify progress',
+    })
+    assert res['thought'] == 'Clicking submit button to verify progress'
+    assert res['cursor'] is not None
+    assert res['recorded_frames'] >= 2
+    assert len(res['action_trail']) == 1
+    assert res['action_trail'][0]['thought'] == 'Clicking submit button to verify progress'
+    assert 'visual_diff_pct' in res
+
+    out_gif = tmp_path / 'browser_trail.gif'
+    rec = session.call('browser_export_recording', {'output_path': str(out_gif)})
+    assert rec['frames'] >= 2
+    assert out_gif.exists() or out_gif.with_suffix('.png').exists()
+

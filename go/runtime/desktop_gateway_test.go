@@ -404,4 +404,24 @@ func TestServerEmitForwardsToGatewaySSE(t *testing.T) {
 	if recCanvas.Code != http.StatusOK || !strings.Contains(recCanvas.Body.String(), `"threads"`) {
 		t.Fatalf("expected unified /canvas/state to return 200 with threads, got %d %s", recCanvas.Code, recCanvas.Body.String())
 	}
+
+	// Verify /api/v2/computer-use/state virtual cursor, thought HUD, and human takeover toggle
+	recCU := httptest.NewRecorder()
+	reqCU := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v2/computer-use/state",
+		strings.NewReader(`{"mode":"takeover","cursor_x":420,"cursor_y":310,"thought":"Waiting for user 2FA login","visual_diff_pct":18.4,"recorded_frames":5,"action_entry":{"action":"click","selector":"#login"}}`),
+	)
+	reqCU.Header.Set("Content-Type", "application/json")
+	gw.httpServer.Handler.ServeHTTP(recCU, reqCU)
+	if recCU.Code != http.StatusOK || !strings.Contains(recCU.Body.String(), `"takeover_active":true`) || !strings.Contains(recCU.Body.String(), `"cursor_x":420`) {
+		t.Fatalf("unexpected POST /api/v2/computer-use/state response: %d %s", recCU.Code, recCU.Body.String())
+	}
+
+	recCUGet := httptest.NewRecorder()
+	reqCUGet := httptest.NewRequest(http.MethodGet, "/api/v2/computer-use/state", nil)
+	gw.httpServer.Handler.ServeHTTP(recCUGet, reqCUGet)
+	if recCUGet.Code != http.StatusOK || !strings.Contains(recCUGet.Body.String(), `"Waiting for user 2FA login"`) {
+		t.Fatalf("unexpected GET /api/v2/computer-use/state response: %d %s", recCUGet.Code, recCUGet.Body.String())
+	}
 }

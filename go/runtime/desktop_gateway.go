@@ -169,6 +169,22 @@ type ComplianceAuditEntry struct {
 	CancellationStatus string `json:"cancellation_status,omitempty"`
 }
 
+// ComputerUseState tracks the live virtual cursor, thought HUD, recording progress,
+// and human takeover handoff state for the Desktop Computer Use viewport.
+type ComputerUseState struct {
+	Mode           string           `json:"mode"` // "autonomous", "takeover", "paused"
+	CursorX        int              `json:"cursor_x"`
+	CursorY        int              `json:"cursor_y"`
+	Thought        string           `json:"thought"`
+	URL            string           `json:"url,omitempty"`
+	VisualDiffPct  float64          `json:"visual_diff_pct"`
+	TakeoverActive bool             `json:"takeover_active"`
+	RecordedFrames int              `json:"recorded_frames"`
+	RecordingPath  string           `json:"recording_path,omitempty"`
+	ActionTrail    []map[string]any `json:"action_trail,omitempty"`
+	UpdatedAt      string           `json:"updated_at"`
+}
+
 // desktopGatewayServer is the local daemon HTTP server that bridges Desktop, VS Code, and CLI.
 type desktopGatewayServer struct {
 	mu             sync.RWMutex
@@ -186,6 +202,7 @@ type desktopGatewayServer struct {
 	childTasks     map[string]*ChildTaskRecord
 	complianceLogs []ComplianceAuditEntry
 	diagnostics    map[string][]LSPDiagnosticItem
+	computerUse    ComputerUseState
 	subscribers    map[chan gatewayEvent]struct{}
 	canvas         *canvasServer
 }
@@ -302,8 +319,12 @@ func startDesktopGateway(root, workspace string, port int) (*desktopGatewayServe
 		childTasks:     map[string]*ChildTaskRecord{},
 		complianceLogs: loadComplianceLogs(root, 500),
 		diagnostics:    map[string][]LSPDiagnosticItem{},
-		subscribers:    map[chan gatewayEvent]struct{}{},
-		canvas:         attachCanvasToGateway(url),
+		computerUse: ComputerUseState{
+			Mode:      "autonomous",
+			UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+		},
+		subscribers: map[chan gatewayEvent]struct{}{},
+		canvas:      attachCanvasToGateway(url),
 	}
 
 	mux := http.NewServeMux()
@@ -319,6 +340,7 @@ func startDesktopGateway(root, workspace string, port int) (*desktopGatewayServe
 	mux.HandleFunc("/api/v2/analytics/usage", gw.handleAnalyticsUsage)
 	mux.HandleFunc("/api/v2/compliance/logs", gw.handleComplianceLogs)
 	mux.HandleFunc("/api/v2/diagnostics/report", gw.handleDiagnosticsReport)
+	mux.HandleFunc("/api/v2/computer-use/state", gw.handleComputerUseState)
 	mux.HandleFunc("/api/v2/world/transitions", gw.handleWorldTransitions)
 	if gw.canvas != nil && gw.canvas.handler != nil {
 		mux.HandleFunc("/canvas", func(w http.ResponseWriter, r *http.Request) {
@@ -943,6 +965,94 @@ func (gw *desktopGatewayServer) handleDiagnosticsReport(w http.ResponseWriter, r
 		"files_count":    len(gw.diagnostics),
 		"diagnostics":    gw.diagnostics,
 	})
+}
+
+func (gw *desktopGatewayServer) handleComputerUseState(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		var req struct {
+			Mode           string         `json:"mode,omitempty"`
+			CursorX        *int           `json:"cursor_x,omitempty"`
+			CursorY        *int           `json:"cursor_y,omitempty"`
+			Thought        *string        `json:"thought,omitempty"`
+			URL            *string        `json:"url,omitempty"`
+			VisualDiffPct  *float64       `json:"visual_diff_pct,omitempty"`
+			RecordedFrames *int           `json:"recorded_frames,omitempty"`
+			RecordingPath  *string        `json:"recording_path,omitempty"`
+			ActionEntry    map[string]any `json:"action_entry,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		gw.mu.Lock()
+		if req.Mode != "" {
+			switch req.Mode {
+			case "autonomous", "takeover", "paused":
+				gw.computerUse.Mode = req.Mode
+				gw.computerUse.TakeoverActive = (req.Mode == "takeover")
+			default:
+				gw.mu.Unlock()
+				http.Error(w, "unsupported mode; use autonomous, takeover, or paused", http.StatusBadRequest)
+				return
+			}
+		}
+		if req.CursorX != nil {
+			gw.computerUse.CursorX = *req.CursorX
+		}
+		if req.CursorY != nil {
+			gw.computerUse.CursorY = *req.CursorY
+		}
+		if req.Thought != nil {
+			gw.computerUse.Thought = *req.Thought
+		}
+		if req.URL != nil {
+			gw.computerUse.URL = *req.URL
+		}
+		if req.VisualDiffPct != nil {
+			gw.computerUse.VisualDiffPct = *req.VisualDiffPct
+		}
+		if req.RecordedFrames != nil {
+			gw.computerUse.RecordedFrames = *req.RecordedFrames
+		}
+		if req.RecordingPath != nil {
+			gw.computerUse.RecordingPath = *req.RecordingPath
+		}
+		if len(req.ActionEntry) > 0 {
+			gw.computerUse.ActionTrail = append(gw.computerUse.ActionTrail, req.ActionEntry)
+			if len(gw.computerUse.ActionTrail) > 50 {
+				gw.computerUse.ActionTrail = gw.computerUse.ActionTrail[len(gw.computerUse.ActionTrail)-50:]
+			}
+		}
+		gw.computerUse.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		snapshot := gw.computerUse
+		gw.mu.Unlock()
+
+		gw.PublishEvent("computer_use.updated", map[string]any{
+			"mode":            snapshot.Mode,
+			"takeover_active": snapshot.TakeoverActive,
+			"cursor_x":        snapshot.CursorX,
+			"cursor_y":        snapshot.CursorY,
+			"thought":         snapshot.Thought,
+			"url":             snapshot.URL,
+			"visual_diff_pct": snapshot.VisualDiffPct,
+			"recorded_frames": snapshot.RecordedFrames,
+			"updated_at":      snapshot.UpdatedAt,
+		})
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(snapshot)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	gw.mu.RLock()
+	snapshot := gw.computerUse
+	gw.mu.RUnlock()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(snapshot)
 }
 
 // daemonServeCommand is the CLI entry point for `aria-runtime serve`.
