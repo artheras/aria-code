@@ -159,7 +159,7 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 		if s.readOnly {
 			system += " This turn is read-only: read and search, but do not try to change files or run commands."
 		}
-		system += healthcarePromptGuardrail(prompt)
+		system += domainPromptGuardrails(prompt)
 		system += hooks.instructions
 	}
 	// The project's change contract bounds this request: the model reads it

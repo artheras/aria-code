@@ -69,3 +69,19 @@ func TestOfflineQuantFallbackWhenFinanceServiceMissing(t *testing.T) {
 		t.Fatal("expected /quote to still require external financial-service")
 	}
 }
+
+func TestPaymentsAndLogisticsGuardrails(t *testing.T) {
+	if !isValidISO6346Container("CSQU3054383") || isValidISO6346Container("CSQU3054384") {
+		t.Fatal("ISO 6346 check digit verification failed")
+	}
+	if g := logisticsPromptGuardrail("Check container CSQU3054383 and SF1234567890123"); !strings.Contains(g, "CSQU3054383") || !strings.Contains(g, "SF1234567890123") {
+		t.Fatalf("expected logistics guardrail for valid container and waybill, got %q", g)
+	}
+	if g := logisticsPromptGuardrail("Check invalid SKU MSKU1234567"); g != "" {
+		t.Fatalf("expected no logistics guardrail for invalid container check digit, got %q", g)
+	}
+	fakeKey := "sk_" + "live_" + "EXAMPLEONLY" + strings.Repeat("0", 12)
+	if g := paymentsPromptGuardrail("Inspect " + fakeKey); !strings.Contains(g, "rotate the key") {
+		t.Fatalf("expected key rotation warning in payments guardrail, got %q", g)
+	}
+}
