@@ -32,6 +32,7 @@ try:
     HAS_RICH = True
 except ImportError:
     HAS_RICH = False
+    Console = Markdown = Live = Text = Status = Syntax = Panel = Rule = rich_box = Theme = None
 
 # ── prompt_toolkit ─────────────────────────────────────────────────────────────
 

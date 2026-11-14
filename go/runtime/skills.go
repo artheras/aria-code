@@ -34,9 +34,14 @@ func skillRoots(root, workspace string) []string {
 			roots = append(roots, expandUser(item))
 		}
 	}
-	roots = append(roots, filepath.Join(root, "skills"), filepath.Join(workspace, ".aria", "skills"))
+	roots = append(roots, filepath.Join(root, "skills"))
+	if strings.TrimSpace(workspace) != "" {
+		for _, dir := range []string{".aria", ".claude", ".codex", ".cursor"} {
+			roots = append(roots, filepath.Join(workspace, dir, "skills"))
+		}
+	}
 	if home, err := os.UserHomeDir(); err == nil {
-		for _, dir := range []string{".aria", ".claude", ".codex"} {
+		for _, dir := range []string{".aria", ".claude", ".codex", ".cursor"} {
 			roots = append(roots, filepath.Join(home, dir, "skills"))
 		}
 	}
@@ -102,6 +107,9 @@ var skillToolAliases = map[string]string{
 	"get_risk_metrics":   "mcp:" + financeServer + ":financial_risk_metrics",
 	"optimize_positions": "mcp:" + financeServer + ":financial_optimize_weights",
 	"analyze_news":       "mcp:" + financeServer + ":financial_news",
+	"price_options":      "price_option",
+	"signal_backtest":    "run_backtest",
+	"portfolio_optimize": "optimize_portfolio",
 	"generate_image":     "aria.report.generate_image",
 	"edit_image":         "aria.report.edit_image",
 }
@@ -219,6 +227,26 @@ func mentionedSkills(root, workspace, prompt string) string {
 		return ""
 	}
 	return "\n\nThe user activated these skills for this request; follow them:" + b.String()
+}
+
+// availableSkillsCatalog returns a compact index of discovered skills so the
+// model knows which $skill workflows exist in the workspace.
+func availableSkillsCatalog(root, workspace string) string {
+	skills := discoverSkills(root, workspace)
+	if len(skills) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n\n<available_skills>")
+	limit := len(skills)
+	if limit > 15 {
+		limit = 15
+	}
+	for _, sk := range skills[:limit] {
+		fmt.Fprintf(&b, "\n- $%s: %s", sk.name, capText(oneLine(sk.description), 120))
+	}
+	b.WriteString("\n</available_skills>")
+	return b.String()
 }
 
 func (s *server) skillsCommand(text string) (string, error) {

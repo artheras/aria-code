@@ -85,6 +85,12 @@ func projectInstructions(root, workspace string) string {
 			}
 		}
 	}
+	if cat := availableSkillsCatalog(root, workspace); cat != "" && b.Len()+len(cat) <= instructionTotalLimit {
+		b.WriteString(cat)
+	}
+	if plug := discoverPluginCatalog(workspace); plug != "" && b.Len()+len(plug) <= instructionTotalLimit {
+		b.WriteString(plug)
+	}
 	if b.Len() == 0 {
 		return ""
 	}
