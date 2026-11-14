@@ -42,6 +42,7 @@ func TestNativeToolsDeclarations(t *testing.T) {
 		"git_diff":                  false,
 		"git_log":                   false,
 		"spawn_subagent":            false,
+		"simulate_action":           false,
 	}
 	for _, tool := range tools {
 		for _, decl := range tool.FunctionDeclarations {

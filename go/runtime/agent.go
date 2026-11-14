@@ -60,6 +60,7 @@ var fileDefinitions = []definition{
 	{"git_diff", "Inspect git diff for unstaged or staged changes (read-only, bounded output).", map[string]any{"path": textParam("Optional relative path filter"), "staged": map[string]any{"type": "boolean", "description": "Show staged changes (--staged)"}, "stat": map[string]any{"type": "boolean", "description": "Show diffstat summary only"}, "base": textParam("Optional base git ref to diff against")}, nil, false},
 	{"git_log", "Inspect recent git commit history (read-only).", map[string]any{"path": textParam("Optional relative path filter"), "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 50, "description": "Maximum commits to return (default 10)"}}, nil, false},
 	{"spawn_subagent", "Delegate a read-only codebase investigation or dependency tracing subtask to an isolated fresh-context research subagent and receive a concise factual report.", map[string]any{"task": textParam("Specific read-only research or symbol-tracing task"), "max_rounds": map[string]any{"type": "integer", "minimum": 1, "maximum": 12, "description": "Maximum tool rounds for the subagent (default 10)"}}, []string{"task"}, false},
+	{"simulate_action", "Pre-flight world-model simulation: predict cross-file blast radius, affected tests, risk tier, and verification checks for candidate file paths BEFORE making edits.", map[string]any{"path": textParam("Single candidate file path"), "paths": map[string]any{"type": "array", "description": "List of candidate file paths to simulate", "items": textParam("File path")}}, nil, false},
 }
 
 func nativeTools() []*genai.Tool {
@@ -564,6 +565,11 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 			if fullEvents() {
 				fields["result"] = fullResult(result)
 			}
+			if worldTrajectoriesEnabled() {
+				if root, err := stateRoot(); err == nil {
+					recordWorldTransition(root, s.workspace, call.Name, call.Args, result, time.Since(started))
+				}
+			}
 			hooks.emit("tool.completed", fields)
 			outbound := result
 			callKeyBytes, _ := json.Marshal(call.Args)
@@ -718,6 +724,8 @@ func executeReadOnlyTool(ctx context.Context, activeP modelProvider, router *rol
 		return gitLogTool(ctx, s, call.Args)
 	case "spawn_subagent":
 		return spawnSubagentTool(ctx, activeP, router, s, c, call.Args)
+	case "simulate_action":
+		return simulateActionTool(ctx, s, call.Args)
 	case "web_fetch", "web_search":
 		if !c.boolean("network_enabled", true) {
 			return failed(errors.New("network access is off for this session (network_enabled=false)"))

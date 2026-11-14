@@ -319,6 +319,7 @@ func startDesktopGateway(root, workspace string, port int) (*desktopGatewayServe
 	mux.HandleFunc("/api/v2/analytics/usage", gw.handleAnalyticsUsage)
 	mux.HandleFunc("/api/v2/compliance/logs", gw.handleComplianceLogs)
 	mux.HandleFunc("/api/v2/diagnostics/report", gw.handleDiagnosticsReport)
+	mux.HandleFunc("/api/v2/world/transitions", gw.handleWorldTransitions)
 	if gw.canvas != nil && gw.canvas.handler != nil {
 		mux.HandleFunc("/canvas", func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/canvas/", http.StatusMovedPermanently)
@@ -853,6 +854,19 @@ func (gw *desktopGatewayServer) handleComplianceLogs(w http.ResponseWriter, r *h
 		"residency": gw.identity.Residency,
 		"entries":   logs,
 		"count":     len(logs),
+	})
+}
+
+func (gw *desktopGatewayServer) handleWorldTransitions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	entries := loadWorldTransitions(gw.stateRoot, 200)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"entries": entries,
+		"count":   len(entries),
 	})
 }
 
