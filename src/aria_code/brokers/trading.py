@@ -45,6 +45,9 @@ class TradingPolicy:
     max_order_value_weight: float = 0.10
     allow_short: bool = False
     allow_fractional: bool = False
+    max_drawdown_pct: float = 0.25
+    max_daily_loss_pct: float = 0.05
+    approval_required_above_weight: float = 0.15
 
     def rules(self) -> RiskRuleSet:
         return RiskRuleSet(
@@ -53,6 +56,18 @@ class TradingPolicy:
             max_order_value_weight=self.max_order_value_weight,
             allow_short=self.allow_short,
             allow_fractional=self.allow_fractional,
+        )
+
+    def to_risk_policy(self):
+        from aria_code.domain.risk_policy import RiskPolicy
+
+        return RiskPolicy(
+            name=f"broker:{self.mode}",
+            max_position_weight=self.max_single_position_weight,
+            max_drawdown_pct=self.max_drawdown_pct,
+            min_cash_reserve_pct=self.min_cash_reserve_weight,
+            allow_short=self.allow_short,
+            approval_required_above_weight=self.approval_required_above_weight,
         )
 
 
@@ -91,6 +106,9 @@ def policy_from_config(config: Dict[str, Any], broker_type: str = "") -> Trading
         max_order_value_weight=float(config.get("max_order_value_weight", 0.10) or 0.10),
         allow_short=bool(config.get("allow_short", False)),
         allow_fractional=bool(config.get("allow_fractional", False)),
+        max_drawdown_pct=float(config.get("max_drawdown_pct", 0.25) or 0.25),
+        max_daily_loss_pct=float(config.get("max_daily_loss_pct", 0.05) or 0.05),
+        approval_required_above_weight=float(config.get("approval_required_above_weight", 0.15) or 0.15),
     )
 
 
@@ -153,9 +171,31 @@ def build_order_preview(broker: Any, intent: OrderIntent) -> Dict[str, Any]:
         order_type=intent.order_type,
         rules=policy.rules(),
     )
+    from dataclasses import asdict
+    from aria_code.domain.risk_policy import check_order_compliance
+
     plan_dict = planned.to_dict()
     preview_id = "tp_" + uuid.uuid4().hex[:12]
+    meta = dict(intent.metadata or {})
+    est = plan_dict.get("estimated_order") or {}
+    projected_weight = float(
+        intent.target_weight
+        if intent.target_weight is not None
+        else (est.get("projected_position_weight", 0.0) if isinstance(est, dict) else 0.0)
+        or 0.0
+    )
+    compliance = check_order_compliance(
+        policy.to_risk_policy(),
+        target_weight=projected_weight,
+        gross_leverage=float(meta.get("gross_leverage", 1.0) or 1.0),
+        current_drawdown_pct=float(meta.get("current_drawdown_pct", 0.0) or 0.0),
+        cash_reserve_pct=float(meta.get("cash_reserve_pct", 1.0) or 1.0),
+        is_short=(intent.side.lower() == "short"),
+    )
     blockers = _execution_blockers(policy, plan_dict)
+    for violation in compliance.violations:
+        if violation not in blockers:
+            blockers.append(violation)
     preview = {
         "preview_id": preview_id,
         "created_at": int(time.time()),
@@ -175,6 +215,7 @@ def build_order_preview(broker: Any, intent: OrderIntent) -> Dict[str, Any]:
             "source": intent.source,
         },
         "order_plan": plan_dict,
+        "risk_compliance": asdict(compliance),
         "execution_blockers": blockers,
         "can_execute": not blockers,
         "audit_path": str(TRADE_AUDIT_PATH),

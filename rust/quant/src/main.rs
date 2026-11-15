@@ -1,8 +1,9 @@
 use aria_quant::{
-    calculate_greeks, implied_volatility, optimize_min_variance, optimize_risk_parity,
-    portfolio_return, portfolio_volatility, price_american_crr, run_backtest,
-    simulate_gbm_parallel, BacktestRequest, MonteCarloConfig, OptionSpec, PortfolioAllocation,
-    PortfolioInput,
+    calculate_greeks, check_order_compliance, implied_volatility, optimize_min_variance,
+    optimize_risk_parity, portfolio_return, portfolio_volatility, price_american_crr, run_backtest,
+    simulate_gbm_parallel, validate_point_in_time, validate_research_backtest, BacktestRequest,
+    MonteCarloConfig, OptionSpec, PitCheckRequest, PortfolioAllocation, PortfolioInput,
+    ResearchValidationRequest, RiskPolicy,
 };
 use std::env;
 use std::io::{self, Read};
@@ -193,6 +194,62 @@ fn main() {
             };
             let res = run_backtest(&req.bars, &req.config);
             println!("{}", serde_json::to_string_pretty(&res).unwrap());
+        }
+        "validate-backtest" => {
+            let req: ResearchValidationRequest = match serde_json::from_str(&raw_json) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Invalid ResearchValidationRequest JSON: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            let report = validate_research_backtest(&req);
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        }
+        "check-risk" => {
+            #[derive(serde::Deserialize)]
+            struct RiskRequest {
+                policy: RiskPolicy,
+                target_weight: f64,
+                #[serde(default = "default_one")]
+                gross_leverage: f64,
+                #[serde(default)]
+                current_drawdown_pct: f64,
+                #[serde(default = "default_one")]
+                cash_reserve_pct: f64,
+                #[serde(default)]
+                is_short: bool,
+            }
+            fn default_one() -> f64 {
+                1.0
+            }
+            let req: RiskRequest = match serde_json::from_str(&raw_json) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Invalid RiskRequest JSON: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            let out = check_order_compliance(
+                &req.policy,
+                req.target_weight,
+                req.gross_leverage,
+                req.current_drawdown_pct,
+                req.cash_reserve_pct,
+                req.is_short,
+            );
+            println!("{}", serde_json::to_string_pretty(&out).unwrap());
+        }
+        "check-pit" => {
+            let req: PitCheckRequest = match serde_json::from_str(&raw_json) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Invalid PitCheckRequest JSON: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            let out = validate_point_in_time(&req);
+            println!("{}", serde_json::to_string_pretty(&out).unwrap());
         }
         _ => {
             eprintln!("Unknown command: {}", command);

@@ -51,18 +51,40 @@ def strategy_order_to_intent(order: StrategyOrder, *, price: float | None = None
     return OrderIntent(symbol=order.symbol, side=order.action, quantity=order.quantity, price=price, source=source)
 
 
-def load_bars(symbol: str, days: int = 365, interval: str = "1d") -> List[Bar]:
-    """Pull OHLC history via DataService and adapt to Bar objects (for real runs)."""
-    from aria_code.data_service import DataService
+def load_bars(
+    symbol: str,
+    days: int = 365,
+    interval: str = "1d",
+    *,
+    as_of: str | None = None,
+    enforce_pit: bool = True,
+) -> List[Bar]:
+    """Pull OHLC history via DataService and adapt to Bar objects (for real runs).
+
+    When ``enforce_pit`` is enabled and ``as_of`` is provided, rejects payloads
+    whose ``available_at`` is after ``as_of`` and filters out any bars dated
+    after ``as_of[:10]`` to prevent look-ahead leakage.
+    """
+    from aria_code.data_service import DataService, validate_point_in_time
 
     res = DataService().history(symbol, days=days, interval=interval)
+    if enforce_pit and as_of is not None:
+        pit = validate_point_in_time(res, as_of=as_of)
+        if not pit["passed"]:
+            raise ValueError(
+                f"Point-in-Time gate rejected bars for {symbol}: {'; '.join(pit['reasons'])}"
+            )
     rows = (res.data or {}).get("data") or []
+    as_of_date = str(as_of)[:10] if (enforce_pit and as_of is not None) else None
     out: List[Bar] = []
     for r in rows:
         try:
+            bar_date = str(r.get("date"))[:10]
+            if as_of_date is not None and bar_date > as_of_date:
+                continue
             out.append(
                 Bar(
-                    date=str(r.get("date"))[:10],
+                    date=bar_date,
                     open=float(r.get("open", 0) or 0),
                     high=float(r.get("high", 0) or 0),
                     low=float(r.get("low", 0) or 0),

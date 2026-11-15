@@ -245,6 +245,56 @@ class StrategyVault:
             )
             conn.commit()
 
+    def validate_and_save_backtest(
+        self,
+        version_id: int,
+        result: Dict[str, Any],
+        *,
+        n_trials: int = 1,
+        pit_passed: bool = True,
+        risk_policy: Optional[Any] = None,
+        target_weight: float = 0.0,
+    ):
+        """Persist a backtest result and run the independent DSR/PIT/RiskPolicy gate."""
+        from aria_code.domain.research_validation import validate_research_backtest
+
+        self.save_backtest(version_id, result)
+        sharpe = float(result.get("sharpe", result.get("sharpe_ratio", 0.0)) or 0.0)
+        is_sharpe = float(result.get("is_sharpe", sharpe) or sharpe)
+        oos_sharpe = float(result.get("oos_sharpe", sharpe) or sharpe)
+        n_obs = int(
+            result.get("n_obs")
+            or result.get("trading_days")
+            or len(result.get("equity_curve") or [])
+            or 0
+        )
+        max_dd = abs(float(result.get("max_drawdown_pct", result.get("max_drawdown", 0.0)) or 0.0))
+        if max_dd > 1.0:
+            max_dd = max_dd / 100.0
+        report = validate_research_backtest(
+            is_sharpe=is_sharpe,
+            oos_sharpe=oos_sharpe,
+            n_obs=n_obs,
+            n_trials=n_trials,
+            max_drawdown_pct=max_dd,
+            skew=float(result.get("skew", 0.0) or 0.0),
+            kurtosis=float(result.get("kurtosis", 3.0) or 3.0),
+            pit_passed=pit_passed,
+            risk_policy=risk_policy,
+            target_weight=target_weight,
+        )
+        existing_review: Dict[str, Any] = {}
+        with _get_db() as conn:
+            row = conn.execute("SELECT review_result FROM strategies WHERE id=?", (version_id,)).fetchone()
+            if row and row["review_result"]:
+                try:
+                    existing_review = json.loads(row["review_result"]) or {}
+                except Exception:
+                    existing_review = {}
+        existing_review["validation_gate"] = report.to_dict()
+        self.save_review(version_id, existing_review)
+        return report
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # AI Strategy Reviewer (过拟合 / 前视偏差 / 代码质量)
