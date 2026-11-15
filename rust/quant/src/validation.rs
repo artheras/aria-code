@@ -6,6 +6,7 @@ use crate::risk_policy::{check_order_compliance, RiskPolicy};
 const EULER_GAMMA: f64 = 0.577_215_664_901_532_9;
 
 /// Acklam's rational approximation for the standard normal inverse CDF.
+#[allow(clippy::excessive_precision)]
 pub fn norm_ppf(p: f64) -> f64 {
     if p <= 0.0 || p >= 1.0 {
         panic!("p must be in (0, 1)");

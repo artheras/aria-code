@@ -20,9 +20,7 @@ pub use portfolio::{
     optimize_min_variance, optimize_risk_parity, portfolio_return, portfolio_volatility,
     PortfolioAllocation, PortfolioInput,
 };
-pub use risk_policy::{
-    check_order_compliance, resolve_risk_policy, RiskCheckOutcome, RiskPolicy,
-};
+pub use risk_policy::{check_order_compliance, resolve_risk_policy, RiskCheckOutcome, RiskPolicy};
 pub use validation::{
     deflated_sharpe_ratio, expected_max_sharpe, minimum_backtest_length_years,
     validate_research_backtest, ResearchValidationReport, ResearchValidationRequest,
