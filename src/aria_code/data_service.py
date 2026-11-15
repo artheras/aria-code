@@ -441,6 +441,10 @@ class DataService:
         status = "ok" if success and not missing and not stale else (
             "stale" if success and stale else "partial" if success else "unavailable"
         )
+        retrieved_at = _utc_timestamp()
+        event_time = str(data.get("event_time") or payload_ts or retrieved_at)
+        available_at = str(data.get("available_at") or event_time)
+        adjustment = str(data.get("adjustment") or ("split_adjusted" if kind == "history" else "raw"))
         return DataServiceResult(
             kind=kind,
             symbol=symbol,
@@ -461,6 +465,10 @@ class DataService:
                 "missing_fields": missing,
                 "warnings": warnings[:5],
                 "errors": errors[:5],
+                "event_time": event_time,
+                "available_at": available_at,
+                "retrieved_at": retrieved_at,
+                "adjustment": adjustment,
             },
             timestamp=timestamp,
         )
@@ -518,3 +526,44 @@ class DataService:
             if not _is_present(technical.data.get(key)):
                 missing.append(key)
         return _dedupe(missing)
+
+
+def validate_point_in_time(
+    result: DataServiceResult,
+    *,
+    as_of: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Point-in-Time & data quality gate for research/backtest consumers.
+
+    Rejects lookahead leakage when ``available_at > as_of`` as well as
+    unavailable payloads or non-positive quote prices.
+    """
+    reasons: List[str] = []
+    if not result.success:
+        reasons.append("data_unavailable")
+    if result.kind == "quote":
+        price = result.data.get("price")
+        try:
+            if price is None or float(price) <= 0:
+                reasons.append("invalid_price")
+        except (TypeError, ValueError):
+            reasons.append("invalid_price")
+
+    as_of_dt = _parse_timestamp(as_of)
+    avail_raw = (result.quality or {}).get("available_at") or result.timestamp
+    avail_dt = _parse_timestamp(avail_raw)
+    if as_of_dt is not None and avail_dt is not None and avail_dt > as_of_dt:
+        reasons.append(f"lookahead_leakage: available_at ({avail_raw}) > as_of ({as_of})")
+
+    if reasons:
+        quality_status = "rejected"
+    elif result.stale or result.missing_fields:
+        quality_status = "degraded"
+    else:
+        quality_status = "verified"
+
+    return {
+        "passed": not reasons,
+        "quality_status": quality_status,
+        "reasons": reasons,
+    }

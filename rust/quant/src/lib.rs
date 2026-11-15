@@ -4,6 +4,8 @@ pub mod black_scholes;
 pub mod implied_vol;
 pub mod monte_carlo;
 pub mod portfolio;
+pub mod risk_policy;
+pub mod validation;
 
 pub use backtest::{
     run_backtest, BacktestConfig, BacktestRequest, BacktestResult, BarInput, TradeRecord,
@@ -15,6 +17,13 @@ pub use monte_carlo::{simulate_gbm_parallel, MonteCarloConfig, MonteCarloResult}
 pub use portfolio::{
     optimize_min_variance, optimize_risk_parity, portfolio_return, portfolio_volatility,
     PortfolioAllocation, PortfolioInput,
+};
+pub use risk_policy::{
+    check_order_compliance, resolve_risk_policy, RiskCheckOutcome, RiskPolicy,
+};
+pub use validation::{
+    deflated_sharpe_ratio, expected_max_sharpe, minimum_backtest_length_years,
+    validate_research_backtest, ResearchValidationReport, ResearchValidationRequest,
 };
 
 #[cfg(test)]
@@ -172,5 +181,64 @@ mod tests {
         assert!(res.total_return_pct > 0.0);
         assert!(res.max_drawdown_pct > 0.0);
         assert!(res.win_rate_pct > 0.0);
+    }
+
+    #[test]
+    fn test_risk_policy_strictest_wins_and_compliance() {
+        let account = RiskPolicy {
+            name: "account".into(),
+            max_position_weight: 0.40,
+            max_leverage: 1.5,
+            max_drawdown_pct: 0.25,
+            approval_required_above_weight: 0.20,
+            min_cash_reserve_pct: 0.05,
+            allow_short: true,
+        };
+        let execution = RiskPolicy {
+            name: "execution".into(),
+            max_position_weight: 0.15,
+            max_leverage: 1.0,
+            max_drawdown_pct: 0.15,
+            approval_required_above_weight: 0.10,
+            min_cash_reserve_pct: 0.10,
+            allow_short: false,
+        };
+        let eff = resolve_risk_policy(&[account, execution], "effective");
+        assert!((eff.max_position_weight - 0.15).abs() < 1e-9);
+        assert!((eff.min_cash_reserve_pct - 0.10).abs() < 1e-9);
+        assert!(!eff.allow_short);
+
+        let blocked = check_order_compliance(&eff, 0.20, 1.2, 0.16, 0.05, true);
+        assert!(!blocked.allowed);
+        assert_eq!(blocked.violations.len(), 5);
+    }
+
+    #[test]
+    fn test_validation_dsr_and_gate() {
+        let dsr_1 = deflated_sharpe_ratio(1.8, 500, 1, 0.0, 3.0, 0.5, 252);
+        let dsr_100 = deflated_sharpe_ratio(1.8, 500, 100, 0.0, 3.0, 0.5, 252);
+        assert!(dsr_1 > 0.99);
+        assert!(dsr_100 < dsr_1);
+
+        let btl_1 = minimum_backtest_length_years(1.5, 1, 252);
+        let btl_50 = minimum_backtest_length_years(1.5, 50, 252);
+        assert!(btl_50 > btl_1 && btl_1 > 0.0);
+
+        let report = validate_research_backtest(&ResearchValidationRequest {
+            is_sharpe: 2.0,
+            oos_sharpe: 1.6,
+            n_obs: 750,
+            n_trials: 5,
+            max_drawdown_pct: 0.10,
+            skew: 0.0,
+            kurtosis: 3.0,
+            pit_passed: true,
+            risk_policy: Some(RiskPolicy::default()),
+            target_weight: 0.10,
+            dsr_threshold: 0.95,
+            min_oos_retention: 0.40,
+        });
+        assert!(report.passed);
+        assert_eq!(report.verdict, "approved");
     }
 }
