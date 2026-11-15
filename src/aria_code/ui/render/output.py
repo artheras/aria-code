@@ -551,20 +551,29 @@ def print_tool_result(
         elif tool_name == "edit_file":
             old = params.get("old_string", "")
             new = params.get("new_string", "")
-            if old and new and has_rich:
-                diff = list(difflib.unified_diff(
-                    old.splitlines(keepends=True),
-                    new.splitlines(keepends=True),
-                    lineterm="",
-                ))
-                if diff:
-                    _hdr = "  [dim]⎿[/dim]  [#C08050]file tool[/#C08050]"
+            full_diff = data.get("diff") if isinstance(data.get("diff"), str) else ""
+            symbols = data.get("symbols") if isinstance(data.get("symbols"), list) else []
+            sym_suffix = f"  [dim]· {', '.join(str(s) for s in symbols[:3])}[/dim]" if symbols else ""
+            if (full_diff or (old and new)) and has_rich:
+                if full_diff:
+                    diff_lines = [
+                        ln for ln in full_diff.splitlines(keepends=True)
+                        if not ln.startswith(("--- ", "+++ "))
+                    ]
+                else:
+                    diff_lines = list(difflib.unified_diff(
+                        old.splitlines(keepends=True),
+                        new.splitlines(keepends=True),
+                        lineterm="",
+                    ))[2:]
+                if diff_lines:
+                    _hdr = f"  [dim]⎿[/dim]  [#C08050]file tool[/#C08050]{sym_suffix}"
                     console.print(f"{_hdr}{ts}")
                     from rich.syntax import Syntax
                     from rich.panel import Panel
-                    diff_text = "".join(diff[2:])
+                    diff_text = "".join(diff_lines)
                     console.print(Panel(
-                        Syntax(diff_text, "diff", theme="monokai", padding=(0, 1)),
+                        Syntax(diff_text, "diff", theme="ansi_dark", padding=(0, 1)),
                         border_style="dim",
                         box=rich_box.SIMPLE,
                     ))

@@ -180,3 +180,32 @@ def test_run_command_can_leave_its_outcome_to_the_transcript(capsys):
                               console=None, has_rich=False, quiet=True)
     assert result["success"] and "hi" in result["data"]["stdout"]
     assert "Command exit" not in capsys.readouterr().out
+
+
+def test_edit_file_action_displays_semantic_symbols_and_reindents_fuzzy_match(tmp_path):
+    from aria_code.apps.cli.tools.write_tools import _reindent_fuzzy_replacement
+
+    view = ActionView()
+    done = view.done(
+        "edit_file",
+        {"path": "src/auth/session.py"},
+        {
+            "success": True,
+            "data": {
+                "diff": "--- a\n+++ b\n-x\n+y\n+z\n",
+                "symbols": ["Session.refresh() modified", "Session.close() added"],
+            },
+        },
+        0.015,
+    )
+    assert _texts(done) == [
+        "   └ ✓ +2 -1 · Session.refresh() modified, Session.close() added · 15ms"
+    ]
+
+    orig_old = "def refresh(self):\n    return 1\n"
+    matched_old = "    def refresh(self):\n        return 1\n"
+    new_str = "def refresh(self):\n    return 2\n"
+    assert _reindent_fuzzy_replacement(orig_old, matched_old, new_str) == (
+        "    def refresh(self):\n        return 2\n"
+    )
+

@@ -251,7 +251,7 @@ func (s *server) approve(ctx context.Context, name string, params map[string]any
 	if isWebTool(name) {
 		grant = name + ":" + webHost(name, params)
 	}
-	policy, err := persistentToolPolicy(s.opts.root, name)
+	policy, err := persistentToolPolicyWithParams(s.opts.root, name, params)
 	if err != nil {
 		return false, "invalid persistent policy: " + err.Error(), nil
 	}

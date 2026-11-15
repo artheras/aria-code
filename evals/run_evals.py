@@ -2,6 +2,9 @@
 import sys
 import os
 import pathlib
+import subprocess
+import tempfile
+import time
 import yaml
 import asyncio
 import inspect
@@ -93,14 +96,22 @@ async def run_evaluation(case):
     prompt = case["prompt"]
     expected_contains = case.get("expected_output_contains", [])
     eval_rubric = case.get("eval_rubric", None)
+    verify_command = case.get("verify_command", None)
+    use_sandbox = bool(case.get("sandbox", False))
+    started_at = time.monotonic()
     
     mock_console = MockConsole()
     
     # Monkeypatch global console in aria_cli so all commands write to our buffer
     original_console = getattr(aria_cli, "console", None)
     aria_cli.console = mock_console
+    original_cwd = os.getcwd()
+    sandbox_dir = None
 
     try:
+        if use_sandbox:
+            sandbox_dir = tempfile.TemporaryDirectory(prefix="aria-eval-")
+            os.chdir(sandbox_dir.name)
         # Initialize the real Terminal to use real data & models
         config = aria_cli.load_config()
         # Override model if needed, but we'll use user's default (probably Gemini or local)
@@ -137,6 +148,8 @@ async def run_evaluation(case):
     finally:
         if original_console:
             aria_cli.console = original_console
+        if use_sandbox:
+            os.chdir(original_cwd)
         
     # Evaluate Output
     full_output = mock_console.get_full_output()
@@ -152,14 +165,40 @@ async def run_evaluation(case):
         if expected not in full_output:
             passed = False
             fail_reasons.append(f"Missing expected string: '{expected}'")
+
+    if verify_command:
+        verify_cwd = sandbox_dir.name if sandbox_dir else original_cwd
+        proc = subprocess.run(
+            verify_command,
+            shell=True,
+            cwd=verify_cwd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if proc.returncode != 0:
+            passed = False
+            tail = (proc.stderr or proc.stdout or "").strip()[-300:]
+            fail_reasons.append(f"verify_command failed (exit {proc.returncode}): {tail}")
             
     if eval_rubric:
         judge_res = llm_judge(prompt, full_output, eval_rubric)
         if not judge_res.passed:
             passed = False
             fail_reasons.append(f"LLM Judge Failed: {judge_res.reason}")
-            
-    return passed, fail_reasons, full_output
+
+    if sandbox_dir is not None:
+        sandbox_dir.cleanup()
+
+    elapsed_s = round(time.monotonic() - started_at, 2)
+    return {
+        "name": case.get("name", prompt[:30]),
+        "passed": passed,
+        "reasons": fail_reasons,
+        "elapsed_s": elapsed_s,
+        "output_preview": full_output[:100].replace("\n", " ") + "..."
+    }
+
 
 async def main():
     config_path = pathlib.Path(__file__).parent / "datasets" / "basic_dev.yaml"
@@ -172,18 +211,20 @@ async def main():
     table = Table(title="Agentic Evaluation Harness Results (Real Data)")
     table.add_column("ID", style="cyan")
     table.add_column("Result", style="bold")
+    table.add_column("Time", style="dim")
     table.add_column("Details", style="dim")
     
     total = len(cases)
     passed_count = 0
     
     for case in cases:
-        passed, fail_reasons, _ = await run_evaluation(case)
-        if passed:
+        res = await run_evaluation(case)
+        elapsed_str = f"{res['elapsed_s']}s"
+        if res["passed"]:
             passed_count += 1
-            table.add_row(case["id"], "[green]PASS[/green]", "Matched rubric/expects")
+            table.add_row(case["id"], "[green]PASS[/green]", elapsed_str, "Matched rubric/expects")
         else:
-            table.add_row(case["id"], "[red]FAIL[/red]", "\n".join(fail_reasons))
+            table.add_row(case["id"], "[red]FAIL[/red]", elapsed_str, "\n".join(res["reasons"]))
             
     console.print(table)
     console.print(f"\n[bold]Total: {total} | Passed: {passed_count} | Failed: {total - passed_count}[/bold]")

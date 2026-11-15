@@ -16,6 +16,7 @@ realty_data_tools.py — 不动产市场数据层
 from __future__ import annotations
 
 import logging
+import math
 import os
 from datetime import datetime
 from pathlib import Path
@@ -23,26 +24,27 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-try:
-    import akshare as ak
-    _HAS_AK = True
-# Not just ImportError: akshare reads bundled data files and calendars on
-# import, and a partial install (or a frozen binary without its data) raises
-# FileNotFoundError or worse. Optional means optional — never crash the CLI.
-except Exception:  # noqa: BLE001
-    _HAS_AK = False
+_AK_MODULE: Any = None
+_AK_TRIED = False
+_HAS_AK = False
 
-try:
-    import pandas as pd
-    _HAS_PD = True
-except ImportError:
-    _HAS_PD = False
 
-try:
-    import numpy as np
-    _HAS_NP = True
-except ImportError:
-    _HAS_NP = False
+def _get_ak() -> Any:
+    """Lazy-import akshare so importing realty_data_tools never loads pandas/numpy at CLI startup."""
+    global _AK_MODULE, _AK_TRIED, _HAS_AK
+    if not _AK_TRIED:
+        _AK_TRIED = True
+        try:
+            import akshare as ak
+            _AK_MODULE = ak
+            _HAS_AK = True
+        # Not just ImportError: akshare reads bundled data files and calendars on
+        # import, and a partial install (or a frozen binary without its data) raises
+        # FileNotFoundError or worse. Optional means optional — never crash the CLI.
+        except Exception:  # noqa: BLE001
+            _AK_MODULE = None
+            _HAS_AK = False
+    return _AK_MODULE
 
 try:
     import requests as _req
@@ -75,7 +77,8 @@ def get_house_price_index(city: str = "北京", city2: str = "上海") -> dict:
     city: 主要城市（默认北京）
     city2: 对比城市（默认上海）
     """
-    if not _HAS_AK:
+    ak = _get_ak()
+    if ak is None:
         return {"success": False, "error": "akshare 未安装"}
     try:
         df = ak.macro_china_new_house_price(city_first=city, city_second=city2)
@@ -121,7 +124,8 @@ def get_re_investment() -> dict:
     中国房地产开发投资额（月度累计同比）。
     反映房地产行业景气度。
     """
-    if not _HAS_AK:
+    ak = _get_ak()
+    if ak is None:
         return {"success": False, "error": "akshare 未安装"}
     try:
         df = ak.macro_china_real_estate()
@@ -145,7 +149,8 @@ def get_multi_city_comparison(cities: Optional[List[str]] = None) -> dict:
     多城市房价指数对比（同比涨跌幅热力图数据）。
     默认对比 8 个核心城市（两两调用拼合）。
     """
-    if not _HAS_AK:
+    ak = _get_ak()
+    if ak is None:
         return {"success": False, "error": "akshare 未安装"}
 
     if cities is None:
@@ -204,7 +209,8 @@ def get_multi_city_comparison(cities: Optional[List[str]] = None) -> dict:
 
 def get_reits_list() -> dict:
     """获取中国 REITs 实时行情列表（东方财富）。"""
-    if not _HAS_AK:
+    ak = _get_ak()
+    if ak is None:
         return {"success": False, "error": "akshare 未安装"}
     try:
         df = ak.reits_realtime_em()
@@ -228,7 +234,8 @@ def get_reit_analysis(code: str) -> dict:
 
     code: REIT 代码，如 "508603" (唯品商业)
     """
-    if not _HAS_AK:
+    ak = _get_ak()
+    if ak is None:
         return {"success": False, "error": "akshare 未安装"}
     try:
         import yfinance as yf
@@ -260,9 +267,9 @@ def get_reit_analysis(code: str) -> dict:
                 result["return_1m"]  = round((prices.iloc[-1]/prices.iloc[-20] - 1)*100, 2)
 
             # Volatility
-            if _HAS_NP and len(prices) >= 20:
+            if len(prices) >= 20:
                 rets = prices.pct_change().dropna()
-                result["volatility_annual"] = round(float(rets.std() * np.sqrt(252) * 100), 2)
+                result["volatility_annual"] = round(float(rets.std() * math.sqrt(252) * 100), 2)
 
             result["history_tail"] = df_hist.tail(5).to_dict("records")
     except Exception as e:
@@ -410,18 +417,15 @@ def property_valuation(params: dict) -> dict:
 
     # ── 2. DCF 法 ──────────────────────────────────────────────────────────
     dcf_value = 0.0
-    if _HAS_NP:
-        cf = noi
-        for yr in range(1, hold_years + 1):
-            dcf_value += cf / (1 + discount_rate) ** yr
-            cf *= (1 + annual_growth)
-        # Terminal value (Gordon growth)
-        terminal_growth = min(annual_growth, 0.015)
-        terminal_cf = noi * (1 + annual_growth) ** hold_years
-        terminal_val = terminal_cf / (discount_rate - terminal_growth)
-        dcf_value += terminal_val / (1 + discount_rate) ** hold_years
-    else:
-        dcf_value = income_value  # fallback
+    cf = noi
+    for yr in range(1, hold_years + 1):
+        dcf_value += cf / (1 + discount_rate) ** yr
+        cf *= (1 + annual_growth)
+    # Terminal value (Gordon growth)
+    terminal_growth = min(annual_growth, 0.015)
+    terminal_cf = noi * (1 + annual_growth) ** hold_years
+    terminal_val = terminal_cf / (discount_rate - terminal_growth)
+    dcf_value += terminal_val / (1 + discount_rate) ** hold_years
 
     # ── 3. 市场比较法 (Market Comparable) ─────────────────────────────────
     ref_price_per_sqm = float(params.get("price_per_sqm", 0))

@@ -15,9 +15,10 @@ Usage:
 
 from __future__ import annotations
 
+import fnmatch
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, Mapping, Optional
 from aria_code.packages.aria_core.paths import aria_home
 
 PolicyVerdict = Literal["allow", "deny", "ask", "default"]
@@ -55,8 +56,39 @@ def save_tool_policy(policy: dict) -> None:
     f.write_text(json.dumps(policy, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def check_tool_policy(tool_name: str) -> PolicyVerdict:
-    """Return the persistent verdict for *tool_name*.
+def _rule_target(tool_name: str, params: Optional[Mapping[str, Any]]) -> str:
+    if not params:
+        return ""
+    if tool_name == "run_command":
+        return str(params.get("command") or "").strip()
+    for key in ("path", "file_path", "filename", "url", "query", "pattern"):
+        if params.get(key):
+            return str(params[key]).strip()
+    return ""
+
+
+def matches_policy_rule(rule: str, tool_name: str, params: Optional[Mapping[str, Any]] = None) -> bool:
+    """Match either an exact tool name ('run_command') or a parameterized rule ('run_command(pytest *)')."""
+    rule = str(rule or "").strip()
+    if not rule:
+        return False
+    if "(" in rule and rule.endswith(")"):
+        rule_tool, pattern = rule[:-1].split("(", 1)
+        if rule_tool.strip() != tool_name:
+            return False
+        target = _rule_target(tool_name, params)
+        if not target:
+            return False
+        return fnmatch.fnmatch(target, pattern.strip())
+    return rule == tool_name
+
+
+def check_tool_policy(tool_name: str, params: Optional[Mapping[str, Any]] = None) -> PolicyVerdict:
+    """Return the persistent verdict for *tool_name* (and optional *params*).
+
+    Parameter-specific rules (e.g. ``run_command(pytest *)``) are evaluated
+    before generic tool-level rules so users can allow safe test commands while
+    keeping ``run_command`` itself guarded.
 
     "allow"   → auto-approve, skip confirmation prompt
     "deny"    → block, never execute
@@ -64,12 +96,22 @@ def check_tool_policy(tool_name: str) -> PolicyVerdict:
     "default" → no override, fall through to normal flow
     """
     policy = load_tool_policy()
-    if tool_name in policy.get("denied", []):
-        return "deny"
-    if tool_name in policy.get("allowed", []):
-        return "allow"
-    if tool_name in policy.get("ask_always", []):
-        return "ask"
+    buckets: tuple[tuple[str, PolicyVerdict], ...] = (
+        ("denied", "deny"),
+        ("allowed", "allow"),
+        ("ask_always", "ask"),
+    )
+    # Pass 1: parameterized rules take precedence over blanket tool rules.
+    if params:
+        for key, verdict in buckets:
+            for rule in policy.get(key, []):
+                if "(" in str(rule) and matches_policy_rule(str(rule), tool_name, params):
+                    return verdict
+    # Pass 2: exact tool-level rules.
+    for key, verdict in buckets:
+        for rule in policy.get(key, []):
+            if "(" not in str(rule) and matches_policy_rule(str(rule), tool_name, params):
+                return verdict
     return "default"
 
 

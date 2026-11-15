@@ -349,7 +349,13 @@ def _write_policy_confirm(p: pathlib.Path, content: str, existed: bool) -> tuple
 
 # ── Rich diff helper ─────────────────────────────────────────────────────────
 
-def _print_inline_diff(old_str: str, new_str: str, console, max_lines: int = 12) -> None:
+def _print_inline_diff(
+    old_str: str,
+    new_str: str,
+    console,
+    max_lines: int = 12,
+    start_line: int | None = None,
+) -> None:
     """Print a compact color-coded inline diff after an edit_file call."""
     old_lines = old_str.splitlines()
     new_lines = new_str.splitlines()
@@ -359,12 +365,14 @@ def _print_inline_diff(old_str: str, new_str: str, console, max_lines: int = 12)
         console.print(f"  [dim]  (diff too large to display inline — {total_changed} lines)[/dim]")
         return
 
-    for line in old_lines:
+    for idx, line in enumerate(old_lines):
         display = line[:120]
-        console.print(f"  [red dim]-  {display}[/red dim]")
-    for line in new_lines:
+        lineno = f"{start_line + idx:>4} " if start_line is not None else ""
+        console.print(f"  [red dim]{lineno}-  {display}[/red dim]")
+    for idx, line in enumerate(new_lines):
         display = line[:120]
-        console.print(f"  [green dim]+  {display}[/green dim]")
+        lineno = f"{start_line + idx:>4} " if start_line is not None else ""
+        console.print(f"  [green dim]{lineno}+  {display}[/green dim]")
 
 
 # ── Public tool functions ─────────────────────────────────────────────────────
@@ -785,6 +793,29 @@ def _locate_fuzzy_match(content: str, old: str) -> tuple[str, int]:
     return "", 0
 
 
+def _reindent_fuzzy_replacement(orig_old: str, matched_old: str, new_str: str) -> str:
+    """Adjust new_str's base indentation when fuzzy matching matched a differently-indented block."""
+    orig_nonempty = [ln for ln in orig_old.splitlines() if ln.strip()]
+    match_nonempty = [ln for ln in matched_old.splitlines() if ln.strip()]
+    if not orig_nonempty or not match_nonempty:
+        return new_str
+    orig_indent = len(orig_nonempty[0]) - len(orig_nonempty[0].lstrip(" "))
+    match_indent = len(match_nonempty[0]) - len(match_nonempty[0].lstrip(" "))
+    delta = match_indent - orig_indent
+    if delta == 0:
+        return new_str
+    adjusted = []
+    for ln in new_str.splitlines(keepends=True):
+        if not ln.strip():
+            adjusted.append(ln)
+        elif delta > 0:
+            adjusted.append((" " * delta) + ln)
+        else:
+            remove = min(-delta, len(ln) - len(ln.lstrip(" ")))
+            adjusted.append(ln[remove:])
+    return "".join(adjusted)
+
+
 def tool_edit_file(params: dict) -> dict:
     """Edit a file by replacing old_string with new_string.
 
@@ -823,7 +854,10 @@ def tool_edit_file(params: dict) -> dict:
         before_mode = _stat.S_IMODE(p.stat().st_mode)
         if content.count(old_str) == 0:
             matched, f_count = _locate_fuzzy_match(content, old_str)
-            if f_count > 0:
+            if f_count == 1 and matched:
+                new_str = _reindent_fuzzy_replacement(old_str, matched, new_str)
+                old_str = matched
+            elif f_count > 0:
                 old_str = matched
         if content.count(old_str) == 0:
             preview = "\n".join(content.splitlines()[:10])
@@ -841,7 +875,19 @@ def tool_edit_file(params: dict) -> dict:
                     f"or pass replace_all=true to change every one."}
 
         replacements = occurrences if replace_all else 1
+        first_match_pos = content.find(old_str)
+        start_line = content.count("\n", 0, first_match_pos) + 1 if first_match_pos >= 0 else None
         new_content = content.replace(old_str, new_str, -1 if replace_all else 1)
+        sym_labels: list[str] = []
+        try:
+            from aria_code.runtime.repo_map import LANGUAGES
+            from aria_code.runtime.semantic_diff import symbol_changes
+
+            lang = LANGUAGES.get(p.suffix.lower(), "")
+            if lang:
+                sym_labels = [c.label() for c in symbol_changes(content, new_content, lang)[:6]]
+        except Exception:
+            sym_labels = []
         leak = _client_isolation_error(p, new_content)
         if leak:
             return {"success": False, "error": leak, "data": {"client_isolation": True}}
@@ -882,8 +928,9 @@ def tool_edit_file(params: dict) -> dict:
             if removed > 0:
                 parts.append(f"[red]-{removed}[/red]")
             short_path = str(p.name) if len(str(p)) > 60 else str(p)
-            console.print(f"  [dim]✎ [bold]{short_path}[/bold]  ({', '.join(parts)} lines)[/dim]")
-            _print_inline_diff(old_str, new_str, console)
+            sym_note = f" · {', '.join(sym_labels[:3])}" if sym_labels else ""
+            console.print(f"  [dim]✎ [bold]{short_path}[/bold]  ({', '.join(parts)} lines{sym_note})[/dim]")
+            _print_inline_diff(old_str, new_str, console, start_line=start_line)
         else:
             print(f"  Applied (+{added}, -{removed} lines)")
 
@@ -898,6 +945,8 @@ def tool_edit_file(params: dict) -> dict:
             "before_hash": applied.before_hash, "after_hash": applied.after_hash,
             "diff": applied.diff, "staged": True, "applied": True,
         }
+        if sym_labels:
+            _data["symbols"] = sym_labels
         if checkpoint_id:
             _data["checkpoint_id"] = checkpoint_id
         if checkpoint_error:

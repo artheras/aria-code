@@ -154,12 +154,14 @@ class RegistryConsistencyTests(unittest.TestCase):
         from aria_code.runtime.tool_executor import ToolExecutor
 
         executor = ToolExecutor(cli.LOCAL_TOOLS)
-        for name in ("send_slack_notification", "query_snowflake_data"):
+        for name in ("get_quickbooks_pnl", "query_snowflake_data"):
             with self.subTest(tool=name):
                 result = executor.execute_local(name, {})
                 self.assertFalse(result["success"])
-                self.assertIn("not implemented", result["error"])
-                self.assertTrue(result.get("stub"))
+                self.assertTrue(
+                    "not configured" in result["error"] or "requires" in result["error"],
+                    msg=f"unexpected error message for unconfigured connector {name}: {result['error']}",
+                )
 
     def test_every_handler_is_stored_as_a_handler_description_pair(self):
         # ToolExecutor indexes local_tools[name][0]; a bare function raises

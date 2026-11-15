@@ -23,11 +23,14 @@ OpenAI's Codex CLI (Apache-2.0):
 from __future__ import annotations
 
 import json
+import logging
 import re
 import subprocess
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable, Iterable
+
+logger = logging.getLogger(__name__)
 
 PRIORITIES = ("P0", "P1", "P2", "P3")
 DEFAULT_MAX_CHARS = 60_000
@@ -403,6 +406,7 @@ def automated_hints(inp: ReviewInput) -> str:
     try:
         from aria_code.agents.code_review import CodeReviewAgent
     except Exception:
+        logger.debug("CodeReviewAgent unavailable for automated_hints", exc_info=True)
         return ""
     rows = []
     for name, section in _split_files(inp.diff):

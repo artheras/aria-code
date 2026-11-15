@@ -1250,8 +1250,8 @@ try:
         from aria_code.tools.extended_tools import register_extended_tools as _reg_ext
     except ImportError:
         from tools.extended_tools import register_extended_tools as _reg_ext  # type: ignore[no-redef]
-    _reg_ext(LOCAL_TOOLS)
-    logger.info("Registered extended enterprise tools (Slack, Feishu, TradingView, QuickBooks, Shopify, Snowflake)")
+    _reg_ext(LOCAL_TOOLS, LOCAL_TOOL_SCHEMAS)
+    logger.info("Registered extended enterprise tools (Slack, Feishu, TradingView real services; guarded stubs for unconfigured connectors)")
 except Exception as _exc:
     logger.debug("Extended tools init error: %s", _exc)
 

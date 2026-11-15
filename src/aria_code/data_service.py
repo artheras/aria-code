@@ -9,10 +9,13 @@ so report/backtest code does not need to know provider-specific schemas.
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 try:
     from aria_code.packages.aria_services.cache import DistributedCacheManager
@@ -49,7 +52,7 @@ def _to_dict(value: Any) -> Dict[str, Any]:
         try:
             return dict(value.to_dict())
         except Exception:
-            pass
+            logger.debug("to_dict() conversion failed for %s", type(value).__name__, exc_info=True)
     if hasattr(value, "__dict__"):
         return dict(value.__dict__)
     return {}
@@ -159,6 +162,7 @@ class DataService:
                     from datasources.router import get_router
                     router = get_router()
                 except Exception:
+                    logger.debug("Failed to initialize datasources.router", exc_info=True)
                     router = None
         self.market_client = market_client
         self.router = router
@@ -360,7 +364,7 @@ class DataService:
                     _bar_str = f"{len(_c)} 个交易日"
                     warnings.append(f"数据不足（仅 {_bar_str}）— 新上市标的，TA 指标需至少 14 日历史")
             except Exception:
-                pass
+                logger.debug("Yahoo v8 fallback history check failed for %s", symbol, exc_info=True)
 
         return self._result("technical", symbol, data, warnings, required=["rsi", "macd", "ma20"])
 
