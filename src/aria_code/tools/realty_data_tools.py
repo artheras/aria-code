@@ -26,21 +26,24 @@ logger = logging.getLogger(__name__)
 
 _AK_MODULE: Any = None
 _AK_TRIED = False
+_HAS_AK = False
 
 
 def _get_ak() -> Any:
     """Lazy-import akshare so importing realty_data_tools never loads pandas/numpy at CLI startup."""
-    global _AK_MODULE, _AK_TRIED
+    global _AK_MODULE, _AK_TRIED, _HAS_AK
     if not _AK_TRIED:
         _AK_TRIED = True
         try:
             import akshare as ak
             _AK_MODULE = ak
+            _HAS_AK = True
         # Not just ImportError: akshare reads bundled data files and calendars on
         # import, and a partial install (or a frozen binary without its data) raises
         # FileNotFoundError or worse. Optional means optional — never crash the CLI.
         except Exception:  # noqa: BLE001
             _AK_MODULE = None
+            _HAS_AK = False
     return _AK_MODULE
 
 try:
