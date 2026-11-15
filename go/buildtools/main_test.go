@@ -167,6 +167,13 @@ func TestRelativeCargoTargetDirectory(t *testing.T) {
 	if err := os.Rename(built, filepath.Join(bin, executable("aria-native"))); err != nil {
 		t.Fatal(err)
 	}
+	builtQuant, err := copyTemporary(binary, bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(builtQuant, filepath.Join(bin, executable("aria-quant"))); err != nil {
+		t.Fatal(err)
+	}
 	cargoDir := t.TempDir()
 	cargo, err := copyTemporary(binary, cargoDir)
 	if err != nil {
@@ -192,6 +199,9 @@ func TestRelativeCargoTargetDirectory(t *testing.T) {
 	}
 	if err := regular(filepath.Join(dir, executable("aria-runtime"))); err != nil {
 		t.Fatal("the Go engine was not bundled", err)
+	}
+	if err := regular(filepath.Join(contentsDir(dir), executable("aria-quant"))); err != nil {
+		t.Fatal("aria-quant was not bundled", err)
 	}
 }
 

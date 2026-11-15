@@ -96,6 +96,7 @@ jobs:
       ARIA_OFFLINE: '1'
       PYTHONPATH: ${{ github.workspace }}/src
       ARIA_NATIVE_BINARY: ${{ github.workspace }}/rust/target/release/aria-native${{ matrix.exe }}
+      ARIA_QUANT_BINARY: ${{ github.workspace }}/rust/target/release/aria-quant${{ matrix.exe }}
     defaults:
       run:
         shell: bash
@@ -140,5 +141,6 @@ jobs:
           name: aria-native-prototype-${{ matrix.os }}
           path: |
             rust/target/release/aria-native${{ matrix.exe }}
+            rust/target/release/aria-quant${{ matrix.exe }}
             rust/target/benchmark.json
           if-no-files-found: error

@@ -135,6 +135,9 @@ func bundle(root, onedir string, frontend bool, output io.Writer) error {
 	if err := installNative(built, onedir, frontend, output); err != nil {
 		return err
 	}
+	if err := installQuant(root, targetDir, onedir, output); err != nil {
+		return err
+	}
 	if frontend {
 		return installRuntime(root, onedir, output)
 	}
@@ -149,13 +152,41 @@ var glibcSuffix = regexp.MustCompile(`\.\d+\.\d+$`)
 // platform wheel that carries it, run on older distributions than the
 // build machine.
 func rustBuild(targetDir string) ([]string, string) {
+	return rustBuildPackage(targetDir, "aria-native", "aria-native")
+}
+
+func rustBuildPackage(targetDir, pkg, bin string) ([]string, string) {
 	target := strings.TrimSpace(os.Getenv("ARIA_RUST_TARGET"))
 	if target == "" {
-		return []string{"build", "--release", "--locked", "-p", "aria-native"}, filepath.Join(targetDir, "release", executable("aria-native"))
+		return []string{"build", "--release", "--locked", "-p", pkg}, filepath.Join(targetDir, "release", executable(bin))
 	}
 	triple := glibcSuffix.ReplaceAllString(target, "")
-	return []string{"zigbuild", "--release", "--locked", "-p", "aria-native", "--target", target},
-		filepath.Join(targetDir, triple, "release", executable("aria-native"))
+	return []string{"zigbuild", "--release", "--locked", "-p", pkg, "--target", target},
+		filepath.Join(targetDir, triple, "release", executable(bin))
+}
+
+func installQuant(root, targetDir, onedir string, output io.Writer) error {
+	args, built := rustBuildPackage(targetDir, "aria-quant", "aria-quant")
+	build := exec.Command("cargo", args...)
+	build.Dir = filepath.Join(root, "rust")
+	build.Stdout, build.Stderr = output, output
+	if err := build.Run(); err != nil {
+		return fmt.Errorf("Rust aria-quant build failed: %w", err)
+	}
+	if err := regular(built); err != nil {
+		return err
+	}
+	target := filepath.Join(contentsDir(onedir), executable("aria-quant"))
+	temp, err := copyTemporary(built, filepath.Dir(target))
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(temp, target); err != nil {
+		os.Remove(temp)
+		return err
+	}
+	fmt.Fprintf(output, "bundled aria-quant at %s\n", target)
+	return nil
 }
 
 var pyprojectVersion = regexp.MustCompile(`(?m)^version\s*=\s*"([^"]+)"`)
