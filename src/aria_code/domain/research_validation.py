@@ -129,8 +129,43 @@ def validate_research_backtest(
     target_weight: float = 0.0,
     dsr_threshold: float = 0.95,
     min_oos_retention: float = 0.40,
+    prefer_native: bool = True,
 ) -> ResearchValidationReport:
     """Audit a completed backtest independently of the strategy/engine that ran it."""
+    if prefer_native:
+        from aria_code.domain.rust_quant import run_aria_quant
+
+        native = run_aria_quant(
+            "validate-backtest",
+            {
+                "is_sharpe": is_sharpe,
+                "oos_sharpe": oos_sharpe,
+                "n_obs": n_obs,
+                "n_trials": n_trials,
+                "max_drawdown_pct": max_drawdown_pct,
+                "skew": skew,
+                "kurtosis": kurtosis,
+                "pit_passed": pit_passed,
+                "risk_policy": risk_policy.to_dict() if risk_policy is not None else None,
+                "target_weight": target_weight,
+                "dsr_threshold": dsr_threshold,
+                "min_oos_retention": min_oos_retention,
+            },
+        )
+        if native is not None and "passed" in native and "verdict" in native:
+            return ResearchValidationReport(
+                passed=bool(native["passed"]),
+                verdict=str(native["verdict"]),
+                dsr=float(native.get("dsr", 0.0)),
+                min_btl_years=(
+                    float("inf")
+                    if native.get("min_btl_years") is None
+                    else float(native["min_btl_years"])
+                ),
+                oos_retention=float(native.get("oos_retention", 0.0)),
+                reasons=list(native.get("reasons") or []),
+                warnings=list(native.get("warnings") or []),
+            )
     reasons: List[str] = []
     warnings: List[str] = []
 

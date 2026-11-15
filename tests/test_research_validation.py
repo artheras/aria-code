@@ -101,3 +101,37 @@ def test_strategy_vault_validate_and_save_backtest(tmp_path, monkeypatch):
     assert loaded is not None
     assert loaded.backtest_result["oos_sharpe"] == 1.6
     assert loaded.review_result["validation_gate"]["verdict"] == "approved"
+
+
+def test_native_rust_validation_matches_python():
+    from aria_code.domain.rust_quant import find_aria_quant_binary
+
+    if find_aria_quant_binary() is None:
+        return
+    policy = RiskPolicy(max_position_weight=0.25, max_drawdown_pct=0.20, approval_required_above_weight=0.15)
+    py_rep = validate_research_backtest(
+        is_sharpe=2.0,
+        oos_sharpe=1.6,
+        n_obs=750,
+        n_trials=5,
+        max_drawdown_pct=0.10,
+        pit_passed=True,
+        risk_policy=policy,
+        target_weight=0.10,
+        prefer_native=False,
+    )
+    rs_rep = validate_research_backtest(
+        is_sharpe=2.0,
+        oos_sharpe=1.6,
+        n_obs=750,
+        n_trials=5,
+        max_drawdown_pct=0.10,
+        pit_passed=True,
+        risk_policy=policy,
+        target_weight=0.10,
+        prefer_native=True,
+    )
+    assert rs_rep.passed == py_rep.passed
+    assert rs_rep.verdict == py_rep.verdict
+    assert abs(rs_rep.dsr - py_rep.dsr) < 1e-6
+    assert abs(rs_rep.min_btl_years - py_rep.min_btl_years) < 1e-2
