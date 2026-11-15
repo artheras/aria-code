@@ -3,6 +3,7 @@ pub mod binomial_tree;
 pub mod black_scholes;
 pub mod implied_vol;
 pub mod monte_carlo;
+pub mod pit;
 pub mod portfolio;
 pub mod risk_policy;
 pub mod validation;
@@ -14,6 +15,7 @@ pub use binomial_tree::price_american_crr;
 pub use black_scholes::{calculate_greeks, norm_cdf, norm_pdf, Greeks, OptionSpec};
 pub use implied_vol::implied_volatility;
 pub use monte_carlo::{simulate_gbm_parallel, MonteCarloConfig, MonteCarloResult};
+pub use pit::{validate_point_in_time, PitCheckRequest, PitCheckResult};
 pub use portfolio::{
     optimize_min_variance, optimize_risk_parity, portfolio_return, portfolio_volatility,
     PortfolioAllocation, PortfolioInput,
@@ -240,5 +242,33 @@ mod tests {
         });
         assert!(report.passed);
         assert_eq!(report.verdict, "approved");
+    }
+
+    #[test]
+    fn test_pit_gate_blocks_lookahead_and_bad_price() {
+        let ok = validate_point_in_time(&PitCheckRequest {
+            kind: "quote".into(),
+            success: true,
+            price: Some(210.5),
+            available_at: Some("2026-11-10T16:00:00Z".into()),
+            as_of: Some("2026-11-11T00:00:00Z".into()),
+            stale: false,
+            missing_fields: vec![],
+        });
+        assert!(ok.passed);
+        assert_eq!(ok.quality_status, "verified");
+
+        let leaked = validate_point_in_time(&PitCheckRequest {
+            kind: "quote".into(),
+            success: true,
+            price: Some(0.0),
+            available_at: Some("2026-11-10T16:00:00Z".into()),
+            as_of: Some("2026-11-09T00:00:00Z".into()),
+            stale: false,
+            missing_fields: vec![],
+        });
+        assert!(!leaked.passed);
+        assert_eq!(leaked.quality_status, "rejected");
+        assert_eq!(leaked.reasons.len(), 2);
     }
 }
