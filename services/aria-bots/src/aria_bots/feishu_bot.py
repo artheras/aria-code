@@ -1352,7 +1352,11 @@ async def _standalone_handle(request):
 def _standalone_app():
     from aiohttp import web
 
+    async def _health(_request):
+        return web.json_response({"status": "ok", "service": "aria-feishu-bot"})
+
     app = web.Application()
+    app.router.add_get("/health", _health)
     app.router.add_post("/feishu/event", _standalone_handle)
     app.router.add_post("/api/v1/feishu/event", _standalone_handle)
     return app

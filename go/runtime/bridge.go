@@ -80,7 +80,7 @@ func bridgeTool(ctx context.Context, workspace, root, approved, name string, arg
 	if err := noHostFlags(args); err != nil {
 		return failed(err)
 	}
-	policy, err := persistentToolPolicy(root, name)
+	policy, err := persistentToolPolicyWithParams(root, name, args)
 	if err != nil {
 		return failed(err)
 	}

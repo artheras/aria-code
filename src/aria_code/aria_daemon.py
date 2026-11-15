@@ -24,9 +24,8 @@ Config via env vars (or ~/.aria/.env):
   ARIA_WEBHOOK_SECRET       — Passphrase TradingView puts in the alert body
                               (TradingView cannot send headers)
   ARIA_WEBHOOK_HOST         — Daemon webhook host (default: 127.0.0.1)
-  ARIA_WEBHOOK_PORT         — Daemon webhook port (default: 8765 — the same
-                              default as the relay server; set this when both
-                              run on one machine)
+  ARIA_WEBHOOK_PORT         — Daemon webhook port (default: 8766, avoiding
+                              conflict with relay server on 8765)
   (the FastAPI backend URL is the `api_url` config key, not an env var —
    set it with `/config set api_url=...`)
   ARIA_CODE_DIR             — Path to aria-code directory
@@ -832,7 +831,7 @@ async def _webhook_http_server() -> None:
 
     token = os.environ.get("TRADINGVIEW_WEBHOOK_SECRET") or os.environ.get("WEBHOOK_TOKEN", "")
     host = os.environ.get("ARIA_WEBHOOK_HOST", "127.0.0.1")
-    port = int(os.environ.get("ARIA_WEBHOOK_PORT", "8765"))
+    port = int(os.environ.get("ARIA_WEBHOOK_PORT", "8766"))
 
     def _authorized(request) -> bool:
         if not token:
@@ -893,7 +892,11 @@ async def _webhook_http_server() -> None:
         status = 202 if result.get("success") else 400
         return web.json_response(result, status=status)
 
+    async def _handle_health(_request):
+        return web.json_response({"status": "ok", "service": "aria-daemon", "port": port})
+
     app = web.Application()
+    app.router.add_get("/health", _handle_health)
     app.router.add_post("/api/v1/webhook/tradingview", _handle_tradingview)
     app.router.add_post("/api/v1/tradingview/webhook", _handle_tradingview)
 

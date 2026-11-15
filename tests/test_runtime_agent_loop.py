@@ -838,6 +838,30 @@ class LoopGuardTests(unittest.TestCase):
         g.record("t", {"a": 1}, fail)
         self.assertTrue(g.should_break)
 
+    def test_file_hash_oscillation_detected(self):
+        from aria_code.runtime import LoopGuard
+        g = LoopGuard()
+        ok = lambda h: {"success": True, "data": {"path": "a.py", "after_hash": h}}
+        self.assertIsNone(g.record("edit_file", {"path": "a.py", "old": "1", "new": "2"}, ok("hashA")))
+        self.assertIsNone(g.record("edit_file", {"path": "a.py", "old": "2", "new": "3"}, ok("hashB")))
+        advisory = g.record("edit_file", {"path": "a.py", "old": "3", "new": "1"}, ok("hashA"))
+        self.assertIsNotNone(advisory)
+        self.assertIn("震荡", advisory)
+        self.assertTrue(g.should_break)
+
+    def test_read_only_soft_threshold_advisory_and_reset(self):
+        from aria_code.runtime import LoopGuard
+        g = LoopGuard(read_only_soft_threshold=3)
+        ok = {"success": True, "data": {}}
+        self.assertIsNone(g.record("read_file", {"path": "a.py"}, ok))
+        self.assertIsNone(g.record("search_code", {"query": "foo"}, ok))
+        advisory = g.record("glob", {"pattern": "*.py"}, ok)
+        self.assertIsNotNone(advisory)
+        self.assertIn("只读", advisory)
+        # Writing resets the counter
+        self.assertIsNone(g.record("edit_file", {"path": "a.py"}, ok))
+        self.assertIsNone(g.record("read_file", {"path": "b.py"}, ok))
+
 
 class TodoTrackerTests(unittest.TestCase):
     def test_update_and_normalize(self):

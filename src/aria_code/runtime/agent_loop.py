@@ -66,6 +66,7 @@ class LoopGuard:
         soft_threshold: int = 2,
         hard_threshold: int = 4,
         tool_soft_threshold: int = 3,
+        read_only_soft_threshold: int = 10,
     ) -> None:
         self.soft_threshold = soft_threshold
         self.hard_threshold = hard_threshold
@@ -77,6 +78,7 @@ class LoopGuard:
         # legitimately fail with varying params, so the hard break stays
         # signature-exact.
         self.tool_soft_threshold = tool_soft_threshold
+        self.read_only_soft_threshold = read_only_soft_threshold
         self._fail_counts: Dict[str, int] = {}
         self._tool_fail_counts: Dict[str, int] = {}
         self._tool_fail_sigs: Dict[str, set] = {}
@@ -85,6 +87,9 @@ class LoopGuard:
         self.should_break: bool = False
         self._last_successful_write: str | None = None
         self._successful_write_repeats = 0
+        self._file_hashes: Dict[str, list[str]] = {}
+        self._consecutive_reads: int = 0
+        self._read_budget_warned: bool = False
 
     @staticmethod
     def _signature(tool_name: str, params: dict) -> str:
@@ -118,7 +123,33 @@ class LoopGuard:
     def record(self, tool_name: str, params: dict, result) -> "str | None":
         """Record one tool result. Return a directive string if a loop is detected."""
         sig = self._signature(tool_name, params)
+        read_only_tools = {"read_file", "search_code", "grep", "glob", "list_files", "repo_map", "find_symbol"}
+        if tool_name in read_only_tools and not self.is_failure(result):
+            self._consecutive_reads += 1
+            if self._consecutive_reads >= self.read_only_soft_threshold and not self._read_budget_warned:
+                self._read_budget_warned = True
+                return (
+                    f"⚠ 已连续执行 {self._consecutive_reads} 次只读探索操作而未做任何修改或执行。"
+                    f"请基于已收集的上下文立即开始实施修改、运行验证命令，或直接向用户汇报结论。"
+                )
+        elif tool_name not in read_only_tools:
+            self._consecutive_reads = 0
+            self._read_budget_warned = False
+
         if tool_name in {"write_file", "edit_file", "multi_edit"} and not self.is_failure(result):
+            data = result.get("data") if isinstance(result, dict) else None
+            fpath = str((data.get("path") if isinstance(data, dict) else None) or (params or {}).get("path") or "")
+            after_hash = str(data.get("after_hash") or "") if isinstance(data, dict) else ""
+            if fpath and after_hash:
+                seen = self._file_hashes.setdefault(fpath, [])
+                if seen and after_hash in seen[:-1]:
+                    self.should_break = True
+                    return (
+                        f"⛔ 检测到对 `{fpath}` 的修改在历史状态间来回震荡（A→B→A）。"
+                        f"立即停止重复修改，重新审视问题根因或向用户确认需求。"
+                    )
+                if not seen or seen[-1] != after_hash:
+                    seen.append(after_hash)
             self._successful_write_repeats = self._successful_write_repeats + 1 if sig == self._last_successful_write else 1
             self._last_successful_write = sig
             if self._successful_write_repeats >= self.hard_threshold:

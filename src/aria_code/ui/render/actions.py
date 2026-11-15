@@ -92,6 +92,21 @@ def _diff_counts(result: Any) -> Optional[tuple[int, int]]:
     return added, removed
 
 
+def _symbol_summary(result: Any, max_symbols: int = 3) -> str:
+    data = result.get("data") if isinstance(result, Mapping) else None
+    data = data if isinstance(data, Mapping) else (result if isinstance(result, Mapping) else {})
+    symbols = data.get("symbols")
+    if not isinstance(symbols, (list, tuple)) or not symbols:
+        return ""
+    clean = [str(s).strip() for s in symbols if str(s).strip()]
+    if not clean:
+        return ""
+    shown = ", ".join(clean[:max_symbols])
+    if len(clean) > max_symbols:
+        shown += f" +{len(clean) - max_symbols}"
+    return shown
+
+
 def _error(result: Any) -> str:
     if isinstance(result, Mapping):
         return _short(result.get("error") or "", 90)
@@ -231,6 +246,9 @@ class ActionView:
             counts = _diff_counts(result)
             if counts:
                 parts.append(f"+{counts[0]} -{counts[1]}")
+            symbols = _symbol_summary(result)
+            if symbols:
+                parts.append(symbols)
         if took:
             parts.append(took)
         return [("green", "   └ ✓" + (f" {' · '.join(parts)}" if parts else ""))]

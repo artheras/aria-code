@@ -79,3 +79,27 @@ def test_corrupt_file_returns_defaults(tmp_policy_file):
     assert "allowed" in policy
     assert "denied" in policy
     assert "ask_always" in policy
+
+
+def test_parameterized_command_rule_allow_and_deny(tmp_policy_file):
+    from runtime.tool_policy import add_to_policy, check_tool_policy
+
+    add_to_policy("run_command(pytest *)", "allow")
+    add_to_policy("run_command(rm -rf *)", "deny")
+
+    assert check_tool_policy("run_command", {"command": "pytest tests/test_tool_policy.py"}) == "allow"
+    assert check_tool_policy("run_command", {"command": "rm -rf /tmp/foo"}) == "deny"
+    assert check_tool_policy("run_command", {"command": "ls -la"}) == "default"
+    assert check_tool_policy("run_command") == "default"
+
+
+def test_parameterized_rule_precedence_over_tool_rule(tmp_policy_file):
+    from runtime.tool_policy import add_to_policy, check_tool_policy
+
+    add_to_policy("write_file", "ask")
+    add_to_policy("write_file(tests/*.py)", "allow")
+    add_to_policy("write_file(*.env)", "deny")
+
+    assert check_tool_policy("write_file", {"path": "tests/test_a.py"}) == "allow"
+    assert check_tool_policy("write_file", {"path": ".env"}) == "deny"
+    assert check_tool_policy("write_file", {"path": "src/main.py"}) == "ask"

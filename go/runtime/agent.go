@@ -216,7 +216,7 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 	contents = append(contents, userContent)
 	var answer strings.Builder
 	textToolRetries, promptEchoRetries := 0, 0
-	failedCallCounts := map[string]int{}
+	guard := newLoopGuard(defaultReadOnlySoftThreshold)
 	budget := c.number("max_tool_rounds", 20)
 	if budget < 1 {
 		budget = 1
@@ -573,24 +573,18 @@ func nativeTurn(ctx context.Context, p modelProvider, s *scope, c config, conten
 			}
 			hooks.emit("tool.completed", fields)
 			outbound := result
-			callKeyBytes, _ := json.Marshal(call.Args)
-			callKey := call.Name + ":" + string(callKeyBytes)
-			if !result.Success || (result.Data != nil && result.Data["exit_code"] != nil && result.Data["exit_code"] != 0) {
-				failedCallCounts[callKey]++
-				if count := failedCallCounts[callKey]; count >= 2 {
-					warning := fmt.Sprintf(" [Warning: this exact call failed %d times consecutively. Do not repeat identical parameters; change arguments or try another approach.]", count)
-					outbound.Error += warning
-					if outbound.Data != nil {
-						if prevErr, ok := outbound.Data["error"].(string); ok && prevErr != "" {
-							outbound.Data["error"] = prevErr + warning
-						}
+			if warning, advisory := guard.record(call.Name, call.Args, result, counted || d.mutate); warning != "" {
+				outbound.Error += warning
+				if outbound.Data != nil {
+					if prevErr, ok := outbound.Data["error"].(string); ok && prevErr != "" {
+						outbound.Data["error"] = prevErr + warning
 					}
 				}
-			} else {
-				delete(failedCallCounts, callKey)
-				if counted || (d.mutate && result.Success) {
-					failedCallCounts = map[string]int{}
+			} else if advisory != "" {
+				if outbound.Data == nil {
+					outbound.Data = map[string]any{}
 				}
+				outbound.Data["loop_guard_advisory"] = advisory
 			}
 			if call.Name == "read_file" && result.Success {
 				if note, unchanged := hooks.evidence.collapseUnchangedRead(call.Args, result); unchanged {
