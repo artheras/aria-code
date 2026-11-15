@@ -49,14 +49,34 @@ async def daemon(*args: str, timeout: float = 60) -> str:
     return stdout.decode("utf-8", errors="replace").strip()
 
 
+def _parse_daemon_json(raw: str) -> dict:
+    text = (raw or "").strip()
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return data
+    except ValueError:
+        pass
+    for line in reversed(text.splitlines()):
+        candidate = line.strip()
+        if candidate.startswith("{") and candidate.endswith("}"):
+            try:
+                data = json.loads(candidate)
+                if isinstance(data, dict):
+                    return data
+            except ValueError:
+                continue
+    raise MarketError("daemon 返回了无效的 JSON 数据")
+
+
 async def quote(symbol: str) -> dict:
     """{symbol, price, currency, source[, change_pct]}."""
-    return json.loads(await daemon("quote", symbol, "--json"))
+    return _parse_daemon_json(await daemon("quote", symbol, "--json"))
 
 
 async def brief(command: str = "morning-brief") -> tuple[str, str]:
     """(title, body) of a brief: morning-brief, evening-brief or weekly-recap."""
-    data = json.loads(await daemon("once", command, "--json", timeout=120))
+    data = _parse_daemon_json(await daemon("once", command, "--json", timeout=120))
     return data["title"], data["body"]
 
 

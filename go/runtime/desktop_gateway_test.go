@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTaskBriefAndDualStateOutcome(t *testing.T) {
@@ -281,5 +283,145 @@ func TestDiagnosticsReportEndpoint(t *testing.T) {
 	_ = json.Unmarshal(recGet2.Body.Bytes(), &res2)
 	if res2["files_count"] != float64(0) {
 		t.Fatalf("expected 0 files after clearing, got %+v", res2)
+	}
+}
+
+func TestDesktopGatewayAuthComplianceAndSSE(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("ARIA_HOME", root)
+
+	gw, err := startDesktopGateway(root, workspace, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if gw.token == "" {
+		t.Fatal("expected non-empty gateway token")
+	}
+
+	// 1. Cross-origin request without token must be rejected with 401
+	recUnauth := httptest.NewRecorder()
+	reqUnauth := httptest.NewRequest(http.MethodGet, "/api/v2/runtime/status", nil)
+	reqUnauth.Header.Set("Origin", "http://localhost:3000")
+	gw.httpServer.Handler.ServeHTTP(recUnauth, reqUnauth)
+	if recUnauth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for cross-origin without token, got %d", recUnauth.Code)
+	}
+
+	// 2. Valid Bearer token succeeds and sets local CORS header
+	recAuth := httptest.NewRecorder()
+	reqAuth := httptest.NewRequest(http.MethodGet, "/api/v2/runtime/status", nil)
+	reqAuth.Header.Set("Origin", "http://localhost:3000")
+	reqAuth.Header.Set("Authorization", "Bearer "+gw.token)
+	gw.httpServer.Handler.ServeHTTP(recAuth, reqAuth)
+	if recAuth.Code != http.StatusOK {
+		t.Fatalf("expected 200 with valid bearer token, got %d", recAuth.Code)
+	}
+	if recAuth.Header().Get("Access-Control-Allow-Origin") != "http://localhost:3000" {
+		t.Fatalf("unexpected CORS origin header: %q", recAuth.Header().Get("Access-Control-Allow-Origin"))
+	}
+
+	// 3. SSE /api/v2/events emits gateway.connected and diagnostics.updated
+	ctx, cancel := context.WithCancel(context.Background())
+	recSSE := httptest.NewRecorder()
+	reqSSE := httptest.NewRequest(http.MethodGet, "/api/v2/events?token="+gw.token, nil).WithContext(ctx)
+	done := make(chan struct{})
+	go func() {
+		gw.httpServer.Handler.ServeHTTP(recSSE, reqSSE)
+		close(done)
+	}()
+	time.Sleep(30 * time.Millisecond)
+	gw.PublishEvent("diagnostics.updated", map[string]any{"path": "main.go", "count": 2})
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+	<-done
+
+	sseBody := recSSE.Body.String()
+	if !strings.Contains(sseBody, "event: gateway.connected") || !strings.Contains(sseBody, "event: diagnostics.updated") {
+		t.Fatalf("expected SSE events in body, got %q", sseBody)
+	}
+
+	// 4. Record compliance event, stop gateway, restart, verify persisted logs load back
+	gw.mu.Lock()
+	gw.recordComplianceLocked("agent.lifecycle", "pause_agent", "", "paused")
+	gw.mu.Unlock()
+	_ = stopDesktopGateway()
+
+	gw2, err := startDesktopGateway(root, workspace, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stopDesktopGateway()
+
+	gw2.mu.RLock()
+	loadedCount := len(gw2.complianceLogs)
+	gw2.mu.RUnlock()
+	if loadedCount == 0 {
+		t.Fatal("expected persisted compliance logs to reload on gateway restart")
+	}
+}
+
+func TestServerEmitForwardsToGatewaySSE(t *testing.T) {
+	root := t.TempDir()
+	workspace := t.TempDir()
+	t.Setenv("ARIA_HOME", root)
+
+	gw, err := startDesktopGateway(root, workspace, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stopDesktopGateway()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	recSSE := httptest.NewRecorder()
+	reqSSE := httptest.NewRequest(http.MethodGet, "/api/v2/events?token="+gw.token, nil).WithContext(ctx)
+	done := make(chan struct{})
+	go func() {
+		gw.httpServer.Handler.ServeHTTP(recSSE, reqSSE)
+		close(done)
+	}()
+	time.Sleep(30 * time.Millisecond)
+
+	var out strings.Builder
+	srv := &server{out: &out}
+	if err := srv.emit("tool.started", "turn-1", map[string]any{"tool": "git_status"}); err != nil {
+		t.Fatalf("srv.emit failed: %v", err)
+	}
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+	<-done
+
+	sseBody := recSSE.Body.String()
+	if !strings.Contains(sseBody, "event: tool.started") || !strings.Contains(sseBody, `"tool":"git_status"`) {
+		t.Fatalf("expected tool.started forwarded to SSE, got %q", sseBody)
+	}
+
+	// Verify unified Canvas routes mounted on Desktop Gateway
+	recCanvas := httptest.NewRecorder()
+	reqCanvas := httptest.NewRequest(http.MethodGet, "/canvas/state", nil)
+	gw.httpServer.Handler.ServeHTTP(recCanvas, reqCanvas)
+	if recCanvas.Code != http.StatusOK || !strings.Contains(recCanvas.Body.String(), `"threads"`) {
+		t.Fatalf("expected unified /canvas/state to return 200 with threads, got %d %s", recCanvas.Code, recCanvas.Body.String())
+	}
+
+	// Verify /api/v2/computer-use/state virtual cursor, thought HUD, and human takeover toggle
+	recCU := httptest.NewRecorder()
+	reqCU := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v2/computer-use/state",
+		strings.NewReader(`{"mode":"takeover","cursor_x":420,"cursor_y":310,"thought":"Waiting for user 2FA login","visual_diff_pct":18.4,"recorded_frames":5,"action_entry":{"action":"click","selector":"#login"}}`),
+	)
+	reqCU.Header.Set("Content-Type", "application/json")
+	gw.httpServer.Handler.ServeHTTP(recCU, reqCU)
+	if recCU.Code != http.StatusOK || !strings.Contains(recCU.Body.String(), `"takeover_active":true`) || !strings.Contains(recCU.Body.String(), `"cursor_x":420`) {
+		t.Fatalf("unexpected POST /api/v2/computer-use/state response: %d %s", recCU.Code, recCU.Body.String())
+	}
+
+	recCUGet := httptest.NewRecorder()
+	reqCUGet := httptest.NewRequest(http.MethodGet, "/api/v2/computer-use/state", nil)
+	gw.httpServer.Handler.ServeHTTP(recCUGet, reqCUGet)
+	if recCUGet.Code != http.StatusOK || !strings.Contains(recCUGet.Body.String(), `"Waiting for user 2FA login"`) {
+		t.Fatalf("unexpected GET /api/v2/computer-use/state response: %d %s", recCUGet.Code, recCUGet.Body.String())
 	}
 }

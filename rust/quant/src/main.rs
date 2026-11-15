@@ -1,7 +1,8 @@
 use aria_quant::{
     calculate_greeks, implied_volatility, optimize_min_variance, optimize_risk_parity,
-    portfolio_return, portfolio_volatility, price_american_crr, simulate_gbm_parallel,
-    MonteCarloConfig, OptionSpec, PortfolioAllocation, PortfolioInput,
+    portfolio_return, portfolio_volatility, price_american_crr, run_backtest,
+    simulate_gbm_parallel, BacktestRequest, MonteCarloConfig, OptionSpec, PortfolioAllocation,
+    PortfolioInput,
 };
 use std::env;
 use std::io::{self, Read};
@@ -15,6 +16,7 @@ fn print_usage() {
            american      Calculate American option price via CRR binomial tree\n\
            monte-carlo   Run parallel multi-threaded Monte Carlo path simulation\n\
            portfolio     Compute Risk Parity & Minimum Variance portfolio weights\n\
+           backtest      Run high-speed event-driven strategy backtest\n\
          If json_payload is omitted, payload is read from stdin."
     );
 }
@@ -180,6 +182,17 @@ fn main() {
                 }
             });
             println!("{}", serde_json::to_string_pretty(&result).unwrap());
+        }
+        "backtest" => {
+            let req: BacktestRequest = match serde_json::from_str(&raw_json) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Invalid BacktestRequest JSON: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            let res = run_backtest(&req.bars, &req.config);
+            println!("{}", serde_json::to_string_pretty(&res).unwrap());
         }
         _ => {
             eprintln!("Unknown command: {}", command);

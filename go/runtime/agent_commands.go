@@ -7,12 +7,14 @@ package main
 // /workflow and /wf, and /consult.
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -279,10 +281,18 @@ func (s *server) agentsCommand() (string, error) {
 }
 
 // delegateCommand runs the task as a subagent: a fresh context with the same
-// tools, scope and approvals. Its answer joins the conversation.
+// tools, scope and approvals, or delegates to an external headless CLI (claude / codex).
 func (s *server) delegateCommand(ctx context.Context, turn, text string) (string, error) {
 	task := text
 	var agent *projectAgent
+	if fields := strings.Fields(text); len(fields) >= 2 && (fields[0] == "--cli" || fields[0] == "--backend") {
+		cliName := strings.ToLower(fields[1])
+		task = strings.TrimSpace(rest(rest(text, fields[0]), fields[1]))
+		if task == "" {
+			return "", errors.New("usage: /delegate [--cli claude|codex | --agent <name>] <task>")
+		}
+		return s.delegateExternalCLI(ctx, cliName, task)
+	}
 	if fields := strings.Fields(text); len(fields) >= 2 && fields[0] == "--agent" {
 		for _, a := range projectAgents(s.scope.workspace) {
 			if a.name == fields[1] {
@@ -312,6 +322,67 @@ func (s *server) delegateCommand(ctx context.Context, turn, text string) (string
 	}
 	s.contents = append(settlePending(s.contents),
 		genai.NewContentFromText("I delegated this task to a subagent: "+task, genai.RoleUser),
+		genai.NewContentFromText(label+" reported:\n"+answer, genai.RoleModel))
+	return label + " reported:\n\n" + answer, nil
+}
+
+func buildExternalCLIArgs(cliName, task string) (string, []string, error) {
+	switch strings.ToLower(strings.TrimSpace(cliName)) {
+	case "claude":
+		return "claude", []string{"-p", task}, nil
+	case "codex":
+		return "codex", []string{"exec", task}, nil
+	default:
+		return "", nil, fmt.Errorf("unsupported external CLI backend %q (expected claude or codex)", cliName)
+	}
+}
+
+func (s *server) delegateExternalCLI(ctx context.Context, cliName, task string) (string, error) {
+	bin, args, err := buildExternalCLIArgs(cliName, task)
+	if err != nil {
+		return "", err
+	}
+	if s.scope.readOnly {
+		return "", errors.New("external CLI delegation is not allowed in read-only mode")
+	}
+	ok, reason, err := s.approve(ctx, "run_command", map[string]any{
+		"command": bin + " " + strings.Join(args, " "),
+		"cwd":     s.scope.workspace,
+	}, fileChange{})
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("external CLI delegation declined: %s", reason)
+	}
+	if _, err := exec.LookPath(bin); err != nil {
+		return "", fmt.Errorf("%s CLI not found on PATH; install it first", bin)
+	}
+
+	runCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(runCtx, bin, args...)
+	cmd.Dir = s.scope.workspace
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		errOut := strings.TrimSpace(stderr.String())
+		if errOut == "" {
+			errOut = strings.TrimSpace(stdout.String())
+		}
+		if errOut == "" {
+			errOut = err.Error()
+		}
+		return "", fmt.Errorf("%s CLI failed: %s", bin, capText(errOut, 2000))
+	}
+	answer := capText(strings.TrimSpace(stdout.String()), 16000)
+	if answer == "" {
+		answer = "(completed with no output)"
+	}
+	label := "External CLI (" + bin + ")"
+	s.contents = append(settlePending(s.contents),
+		genai.NewContentFromText("I delegated this task to "+label+": "+task, genai.RoleUser),
 		genai.NewContentFromText(label+" reported:\n"+answer, genai.RoleModel))
 	return label + " reported:\n\n" + answer, nil
 }

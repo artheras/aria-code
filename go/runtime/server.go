@@ -139,6 +139,7 @@ func (s *server) emit(kind, turn string, fields map[string]any) error {
 	} else {
 		fields["turn_id"] = turn
 	}
+	publishGatewayEvent(kind, fields)
 	body, err := json.Marshal(fields)
 	if err != nil {
 		return err

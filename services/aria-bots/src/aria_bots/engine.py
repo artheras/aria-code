@@ -48,7 +48,7 @@ def find_engine() -> Optional[str]:
 
 
 def mcp_config() -> Path:
-    """The servers the bots add to every engine turn (rewritten each time)."""
+    """The servers the bots add to every engine turn (written atomically when changed)."""
     folder = state_dir()
     folder.mkdir(parents=True, exist_ok=True)
     server = {
@@ -58,7 +58,15 @@ def mcp_config() -> Path:
         "description": "Freight analysis, carrier scoring and inventory policy, scoped per shipper",
     }
     path = folder / "mcp_servers.json"
-    path.write_text(json.dumps({"servers": [server]}, indent=2), encoding="utf-8")
+    rendered = json.dumps({"servers": [server]}, indent=2)
+    try:
+        if path.is_file() and path.read_text(encoding="utf-8") == rendered:
+            return path
+    except OSError:
+        pass
+    tmp = folder / f".mcp_servers.{os.getpid()}.tmp"
+    tmp.write_text(rendered, encoding="utf-8")
+    tmp.replace(path)
     return path
 
 

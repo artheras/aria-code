@@ -22,12 +22,14 @@ import logging
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 _TIMEOUT_SECONDS = 8
 _MAX_CONTENT_CHARS = 4_000  # matches MemoryItemCreate.content on the server
+_MAX_PENDING_ITEMS = 100
 
 
 class CloudMemoryClient:
@@ -38,11 +40,12 @@ class CloudMemoryClient:
     check rather than relying on every method quietly no-opping.
     """
 
-    def __init__(self, api_url: str, token: Optional[str]) -> None:
+    def __init__(self, api_url: str, token: Optional[str], *, queue_path: Optional[Path] = None) -> None:
         from aria_code.service_endpoints import current_url
         self.api_url = current_url(api_url)
         self.token = (token or "").strip()
         self.last_status = None
+        self.queue_path = Path(queue_path) if queue_path else None
 
     @property
     def available(self) -> bool:
@@ -132,9 +135,59 @@ class CloudMemoryClient:
 
         result = self._request("POST", "/api/v2/memory/items", body=payload)
         if not isinstance(result, dict):
+            self._enqueue_pending(payload)
             return None
         item_id = result.get("id") or (result.get("item") or {}).get("id")
         return str(item_id) if item_id else None
+
+    def _read_pending(self) -> List[Dict[str, Any]]:
+        if not self.queue_path or not self.queue_path.is_file():
+            return []
+        try:
+            items = json.loads(self.queue_path.read_text(encoding="utf-8"))
+            return items if isinstance(items, list) else []
+        except (OSError, ValueError):
+            return []
+
+    def _write_pending(self, items: List[Dict[str, Any]]) -> None:
+        if not self.queue_path:
+            return
+        try:
+            self.queue_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if not items:
+                self.queue_path.unlink(missing_ok=True)
+                return
+            self.queue_path.write_text(
+                json.dumps(items[-_MAX_PENDING_ITEMS:], ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+
+    def _enqueue_pending(self, payload: Dict[str, Any]) -> None:
+        if not self.queue_path:
+            return
+        items = self._read_pending()
+        items.append(payload)
+        self._write_pending(items)
+
+    def flush_pending(self) -> int:
+        """Replay queued offline memories when credentials and network are available."""
+        if not self.available or not self.queue_path:
+            return 0
+        pending = self._read_pending()
+        if not pending:
+            return 0
+        remaining: List[Dict[str, Any]] = []
+        synced = 0
+        for item in pending:
+            result = self._request("POST", "/api/v2/memory/items", body=item)
+            if isinstance(result, dict) and (result.get("id") or (result.get("item") or {}).get("id")):
+                synced += 1
+            else:
+                remaining.append(item)
+        self._write_pending(remaining)
+        return synced
 
     def list_items(
         self,

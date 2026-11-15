@@ -85,3 +85,29 @@ func TestOptimizePortfolioTool(t *testing.T) {
 		t.Fatalf("expected weights sum to 1.0, got %f", sum)
 	}
 }
+
+func TestRunBacktestTool(t *testing.T) {
+	ctx := context.Background()
+
+	res := runBacktestTool(ctx, map[string]any{
+		"bars": []any{
+			map[string]any{"date": "2026-01-01", "close": 100.0, "signal": 1.0},
+			map[string]any{"date": "2026-01-02", "close": 110.0, "signal": 1.0},
+			map[string]any{"date": "2026-01-03", "close": 105.0, "signal": 0.0},
+		},
+		"initial_capital": 100000.0,
+		"commission_bps":  5.0,
+		"slippage_bps":    5.0,
+	})
+	if !res.Success {
+		t.Fatalf("runBacktestTool failed: %s", res.Error)
+	}
+	ret, ok := res.Data["total_return_pct"].(float64)
+	if !ok || ret <= 0 {
+		t.Fatalf("expected positive total_return_pct, got %v", res.Data["total_return_pct"])
+	}
+	trades, ok := res.Data["total_trades"].(int)
+	if !ok || trades < 2 {
+		t.Fatalf("expected at least 2 trades, got %v", res.Data["total_trades"])
+	}
+}

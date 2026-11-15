@@ -80,6 +80,20 @@ def test_cleanup_expired_workspace(tmp_path):
     assert not (tmp_path / manifest.workspace_id).exists()
 
 
+def test_get_rejects_and_removes_expired_workspace(tmp_path):
+    service = WorkspaceService(tmp_path)
+    manifest = service.create_from_archive(
+        _zip({"README.md": "hello"}), "project.zip", owner_id="owner-a", run_id="run-a"
+    )
+    path = tmp_path / manifest.workspace_id / ".aria-workspace.json"
+    data = json.loads(path.read_text())
+    data["expires_at"] = "2020-01-01T00:00:00+00:00"
+    path.write_text(json.dumps(data))
+    with pytest.raises(WorkspaceServiceError, match="not found"):
+        service.get(manifest.workspace_id, owner_id="owner-a")
+    assert not (tmp_path / manifest.workspace_id).exists()
+
+
 def test_bound_read_tools_use_relative_paths_and_hide_host_root(tmp_path):
     service = WorkspaceService(tmp_path)
     manifest = service.create_from_archive(

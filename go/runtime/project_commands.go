@@ -67,6 +67,30 @@ func projectInstructions(root, workspace string) string {
 	for _, name := range projectContextFiles {
 		add("project_instructions", filepath.Join(workspace, name))
 	}
+	for _, ruleDir := range []string{
+		filepath.Join(workspace, ".cursor", "rules"),
+		filepath.Join(workspace, ".claude", "rules"),
+	} {
+		entries, err := os.ReadDir(ruleDir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			lower := strings.ToLower(entry.Name())
+			if strings.HasSuffix(lower, ".mdc") || strings.HasSuffix(lower, ".md") {
+				add("project_rule", filepath.Join(ruleDir, entry.Name()))
+			}
+		}
+	}
+	if cat := availableSkillsCatalog(root, workspace); cat != "" && b.Len()+len(cat) <= instructionTotalLimit {
+		b.WriteString(cat)
+	}
+	if plug := discoverPluginCatalog(workspace); plug != "" && b.Len()+len(plug) <= instructionTotalLimit {
+		b.WriteString(plug)
+	}
 	if b.Len() == 0 {
 		return ""
 	}

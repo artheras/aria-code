@@ -94,6 +94,7 @@ class WorkspaceService:
             raise WorkspaceServiceError("owner_id and run_id are required.")
         if not payload or len(payload) > MAX_ARCHIVE_BYTES:
             raise WorkspaceServiceError("Project archive is empty or exceeds the upload limit.")
+        self.cleanup_expired()
 
         workspace_id = f"ws_{secrets.token_hex(12)}"
         final_dir = self._workspace_dir(workspace_id)
@@ -159,6 +160,15 @@ class WorkspaceService:
         if not secrets.compare_digest(manifest.owner_hash, _subject_hash(owner_id)):
             # Do not reveal whether another tenant owns the identifier.
             raise WorkspaceServiceError("Workspace not found.")
+        try:
+            expires = datetime.fromisoformat(str(manifest.expires_at))
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+            if expires <= _now():
+                shutil.rmtree(directory, ignore_errors=True)
+                raise WorkspaceServiceError("Workspace not found.")
+        except ValueError as exc:
+            raise WorkspaceServiceError("Workspace not found.") from exc
         return manifest
 
     def files(self, workspace_id: str, *, owner_id: str) -> WorkspaceFiles:

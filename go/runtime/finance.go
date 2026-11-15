@@ -39,6 +39,10 @@ var financeCommands = graphSetOf(strings.Fields(`/accuracy /alert /analyze /asha
 // directFinance are answered without the model.
 var directFinance = map[string]bool{"/broker": true, "/positions": true, "/orders": true, "/account": true}
 
+// offlineQuantCommands can be answered with built-in deterministic Rust/Go quant tools
+// even when the external arthera-financial-service MCP server is not connected.
+var offlineQuantCommands = map[string]bool{"/backtest": true, "/optimize": true, "/optimize-port": true, "/options": true}
+
 // financeTools are the service's tools as the model sees them.
 func (s *server) financeTools(ctx context.Context) []string {
 	s.mcp.ensure(ctx)
@@ -67,11 +71,17 @@ func (s *server) requireFinance(ctx context.Context) ([]string, error) {
 
 // financePrompt is the read-only turn for a finance command.
 func (s *server) financePrompt(ctx context.Context, name, extra string) (string, error) {
+	request := strings.TrimSpace(name + " " + extra)
 	tools, err := s.requireFinance(ctx)
 	if err != nil {
+		if offlineQuantCommands[name] {
+			return "The user ran the quantitative finance command " + request + ".\n\n" +
+				"The external Arthera financial-service is not connected, so answer using the built-in deterministic quant tools " +
+				"(price_option, optimize_portfolio, run_backtest, inspect_data, aggregate_data) with data supplied by the user or workspace files. " +
+				"Never invent live market quotes. This is analysis, not investment advice.", nil
+		}
 		return "", err
 	}
-	request := strings.TrimSpace(name + " " + extra)
 	return "The user ran the finance command " + request + ".\n\n" +
 		"Answer it with the Arthera financial-service tools (" + strings.Join(tools, ", ") + "). " +
 		"Use only figures those tools return or the user supplied, cite each tool result's source and as-of date, " +

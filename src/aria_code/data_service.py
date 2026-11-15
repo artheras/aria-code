@@ -15,9 +15,12 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from packages.aria_services.cache import DistributedCacheManager
+    from aria_code.packages.aria_services.cache import DistributedCacheManager
 except ImportError:
-    DistributedCacheManager = None
+    try:
+        from packages.aria_services.cache import DistributedCacheManager
+    except ImportError:
+        DistributedCacheManager = None
 
 from aria_code.packages.aria_services.provider_health import (
     GLOBAL_PROVIDER_HEALTH,

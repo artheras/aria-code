@@ -660,3 +660,77 @@ def _safe_float(val) -> Optional[float]:
         return float(val) if val is not None and str(val) not in ("nan","None","") else None
     except (ValueError, TypeError):
         return None
+
+
+def tool_get_house_price_index(params: Dict[str, Any]) -> Dict[str, Any]:
+    return get_house_price_index(
+        city=str(params.get("city") or "北京"),
+        city2=str(params.get("city2") or "上海"),
+    )
+
+
+def tool_get_re_investment(params: Dict[str, Any]) -> Dict[str, Any]:
+    return get_re_investment()
+
+
+def tool_get_reits_list(params: Dict[str, Any]) -> Dict[str, Any]:
+    return get_reits_list()
+
+
+def register_realty_tools(tools_dict: Dict[str, Any], schemas_list: List[Dict[str, Any]]) -> int:
+    """Register real estate & REITs analysis tools into LOCAL_TOOLS."""
+    entries = [
+        (
+            "get_house_price_index",
+            tool_get_house_price_index,
+            "获取中国70城新房与二手房价格指数（同比/环比）",
+            {
+                "type": "object",
+                "properties": {
+                    "city": {"type": "string", "description": "主要城市名称，例如 北京、上海、深圳"},
+                    "city2": {"type": "string", "description": "对比城市名称，例如 上海"},
+                },
+            },
+        ),
+        (
+            "get_re_investment",
+            tool_get_re_investment,
+            "获取中国房地产开发投资额月度累计同比序列",
+            {"type": "object", "properties": {}},
+        ),
+        (
+            "get_reits_list",
+            tool_get_reits_list,
+            "获取中国公募 REITs 实时行情列表",
+            {"type": "object", "properties": {}},
+        ),
+        (
+            "calc_rental_yield",
+            calc_rental_yield,
+            "计算物业毛/净租金收益率、杠杆收益率、Cap Rate 与回本周期",
+            {
+                "type": "object",
+                "properties": {
+                    "purchase_price": {"type": "number", "description": "购入总价（万元）"},
+                    "monthly_rent": {"type": "number", "description": "月租金（元）"},
+                    "annual_costs": {"type": "number", "description": "年维护成本（元，默认0）"},
+                    "tax_rate": {"type": "number", "description": "租金税率（小数，默认0.05）"},
+                    "loan_ratio": {"type": "number", "description": "贷款成数（0-1，默认0）"},
+                    "loan_rate": {"type": "number", "description": "贷款年利率（小数，默认0.04）"},
+                    "loan_years": {"type": "integer", "description": "贷款年数（默认30）"},
+                },
+                "required": ["purchase_price", "monthly_rent"],
+            },
+        ),
+    ]
+    for name, fn, desc, params_schema in entries:
+        tools_dict[name] = (fn, desc)
+        schemas_list.append({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": desc,
+                "parameters": params_schema,
+            },
+        })
+    return len(entries)
