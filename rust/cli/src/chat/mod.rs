@@ -64,7 +64,9 @@ pub fn run(
     let cancelled = Arc::new(AtomicBool::new(false));
     let signal = cancelled.clone();
     ctrlc::set_handler(move || signal.store(true, Ordering::SeqCst)).map_err(|e| e.to_string())?;
-    let with_python = args.iter().any(|a| a == "--with-python");
+    let with_python = args.iter().any(|a| a == "--with-python")
+        || std::env::args_os().any(|a| a == "--python")
+        || std::env::var_os("ARIA_PYTHON").is_some_and(|v| !v.is_empty());
     let has_external_runtime = std::env::var_os("ARIA_RUNTIME").is_some_and(|v| !v.is_empty());
     let native_only = !jsonl && !with_python && !has_external_runtime;
     let mut session = if native_only {
@@ -110,6 +112,7 @@ pub fn run(
         app.event(json!({
             "protocol": 1,
             "type": "session.ready",
+            "session_id": "native",
             "model": default_model,
             "provider": "ollama",
             "workspace": ws,
@@ -305,6 +308,7 @@ pub fn run(
                             let _ = native_tx.send(json!({
                                 "protocol": 1,
                                 "type": "session.ready",
+                                "session_id": "native",
                                 "model": mdl,
                                 "provider": prov,
                                 "workspace": ws,
@@ -346,6 +350,7 @@ pub fn run(
                         let _ = native_tx.send(json!({
                             "protocol": 1,
                             "type": "session.ready",
+                            "session_id": "native",
                             "model": app.model,
                             "provider": app.provider,
                             "workspace": app.workspace,
@@ -615,6 +620,7 @@ fn try_dispatch_native_turn(
                     let _ = tx.send(json!({
                         "protocol": 1,
                         "type": "session.ready",
+                        "session_id": "native",
                         "model": next_model,
                         "provider": "ollama",
                         "workspace": workspace,
