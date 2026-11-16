@@ -1,8 +1,14 @@
-use super::app::{App, Dialog, Risk};
-use super::{hang, mark, markdown, theme::Palette};
+use super::app::App;
+use super::{
+    dialogs::{context_lines, draw_picker, risk_card},
+    hang,
+    labels::{display_provider, example_prompt, HELP, HELP_ZH},
+    mark, markdown,
+    theme::Palette,
+};
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Margin, Rect},
-    style::{Color, Modifier, Style},
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, BorderType, Borders, Clear, Padding, Paragraph, Wrap},
     Frame,
@@ -107,39 +113,6 @@ fn display_model(id: &str) -> String {
         .join(" ")
 }
 
-fn display_provider(id: &str) -> String {
-    match id {
-        "google" => "Google".into(),
-        "vertexai" | "vertex-ai" => "Vertex AI".into(),
-        "openai" => "OpenAI".into(),
-        "anthropic" => "Anthropic".into(),
-        "ollama" => "Ollama".into(),
-        "lmstudio" => "LM Studio".into(),
-        "vllm" => "vLLM".into(),
-        "llamacpp" => "llama.cpp".into(),
-        "deepseek" => "DeepSeek".into(),
-        "groq" => "Groq".into(),
-        "zhipu" => "Zhipu".into(),
-        "moonshot" => "Moonshot".into(),
-        "dashscope" => "DashScope".into(),
-        "siliconflow" => "SiliconFlow".into(),
-        "together" => "Together".into(),
-        "xai" => "xAI".into(),
-        "openrouter" => "OpenRouter".into(),
-        other => {
-            let mut chars = other.chars();
-            match chars.next() {
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-                None => String::new(),
-            }
-        }
-    }
-}
-
-const HELP: &str = "Aria interactive interface\n\nEnter  send · Alt+Enter / Ctrl+J  newline\nArrow keys  edit / browse history · /  list commands · @  pick a file · Tab  fill in\nCtrl+U / K / W  delete line / end / previous word\nPgUp / PgDn or mouse wheel  scroll transcript\nCtrl+O  toggle tool details · F1  this help\nEsc or Ctrl+C  cancel current task / dismiss dialog\nCtrl+D  exit (or delete character when input is non-empty)\n\n/new  start a new session · /resume ID  restore a session\n/sessions  list saved sessions · /help  all Aria commands\n/model  choose your model · /health  check configured services\n@file:path  reference a file · !command  run a shell command\n\nFile permissions, task isolation, checks and model routing are managed by Aria.\nApproval menus require your choice. Hidden reasoning and secret inputs\nare never written to the native transcript.";
-
-const HELP_ZH: &str = "Aria 交互界面\n\nEnter 发送 · Alt+Enter / Ctrl+J 换行\n方向键编辑 / 浏览输入历史 · 输入 / 列出命令 · @ 选择文件 · Tab 补全\nCtrl+U / K / W 删除行首 / 行尾 / 前一个词\nPgUp / PgDn 或鼠标滚轮查看对话历史\nCtrl+O 展开工具详情 · F1 打开帮助\nEsc / Ctrl+C 取消当前任务或关闭对话框\nCtrl+D 退出（输入非空时删除字符）\n\n/new 新会话 · /resume ID 恢复会话\n/sessions 会话列表 · /help 所有命令\n/model 选择模型 · /health 服务检查\n@file:path 引用文件 · !command 执行命令\naria -C <项目目录> 在指定项目中启动\n/config set ui_lang=zh 设置中文界面\n\n运行时管理文件权限、任务隔离与验证。\n审批需要你明确选择；秘密输入与隐藏推理不会写入界面记录。";
-
 fn tool_label<'a>(tool: &'a str, app: &App) -> &'a str {
     let name = tool.rsplit("__").next().unwrap_or(tool);
     match name {
@@ -162,7 +135,7 @@ fn tool_label<'a>(tool: &'a str, app: &App) -> &'a str {
         _ => tool,
     }
 }
-fn popup(area: Rect, width: u16, height: u16) -> Rect {
+pub(super) fn popup(area: Rect, width: u16, height: u16) -> Rect {
     let w = width.min(area.width);
     let h = height.min(area.height);
     Rect::new(
@@ -174,7 +147,7 @@ fn popup(area: Rect, width: u16, height: u16) -> Rect {
 }
 
 /// `text` cut to at most `max` display columns, with an ellipsis when it was cut.
-fn fit(text: &str, max: usize) -> String {
+pub(super) fn fit(text: &str, max: usize) -> String {
     if text.width() <= max {
         return text.to_owned();
     }
@@ -309,6 +282,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
     }
     frame.render_widget(Paragraph::new(header), header_area);
     let mut lines = Vec::new();
+    if parts[0].height > 1 {
+        lines.push(Line::default());
+    }
     let (group_start, grouped) = inspection_groups(app);
     for (index, entry) in app.entries.iter().enumerate() {
         if entry.text.trim().is_empty() || (entry.detail && !app.details) {
@@ -594,10 +570,17 @@ pub fn draw(frame: &mut Frame, app: &App) {
         } else {
             &example_prompt(app)
         };
-        frame.render_widget(
-            Paragraph::new(placeholder).style(Style::new().fg(p.muted)),
-            inside,
-        );
+        let placeholder_area = Rect {
+            x: inside.x.saturating_add(1),
+            width: inside.width.saturating_sub(1),
+            ..inside
+        };
+        if placeholder_area.width > 0 {
+            frame.render_widget(
+                Paragraph::new(placeholder).style(Style::new().fg(p.muted)),
+                placeholder_area,
+            );
+        }
     } else {
         let text = input_rows[first..].join("\n");
         if text.starts_with('/') {
@@ -746,10 +729,21 @@ pub fn draw(frame: &mut Frame, app: &App) {
         status_line.push(Span::styled(mode, Style::new().fg(p.accent)));
         status_line.push(Span::raw(" · "));
     }
+    let status_style = if app.turn.is_some() {
+        Style::new().fg(p.accent)
+    } else {
+        Style::new().fg(p.muted)
+    };
+    status_line.push(Span::styled(
+        format!("{}{elapsed}{cancel}", app.status),
+        status_style,
+    ));
+    if !scroll.is_empty() {
+        status_line.push(Span::styled(scroll, Style::new().fg(p.warn)));
+    }
     status_line.push(Span::styled(
         format!(
-            "{}{elapsed}{cancel}{scroll} · {}",
-            app.status,
+            " · {}",
             app.tr("F1 help · Ctrl+O details", "F1 帮助 · Ctrl+O 详情")
         ),
         Style::new().fg(p.muted),
@@ -984,257 +978,6 @@ fn inspection_summary(app: &App, reads: usize, others: usize) -> String {
 
 /// An approval's context, with any unified diff in it drawn the way an editor
 /// shows one: line numbers, added lines on green, removed lines on red.
-/// Lines outside a hunk are shown as plain context.
-fn context_lines(context: &str, p: Palette) -> Vec<Line<'static>> {
-    let (add_bg, del_bg) = if p.selection_fg == Color::White {
-        (Color::Rgb(218, 251, 225), Color::Rgb(255, 235, 233))
-    } else {
-        (Color::Rgb(18, 58, 30), Color::Rgb(74, 22, 26))
-    };
-    let mut out = Vec::new();
-    let mut hunk: Option<(usize, usize)> = None; // (old line, new line)
-    let width = 4;
-    for line in context.lines() {
-        if let Some(rest) = line.strip_prefix("@@ ") {
-            // @@ -a,b +c,d @@
-            let mut parts = rest.split_whitespace();
-            let old = parts
-                .next()
-                .and_then(|t| t.trim_start_matches('-').split(',').next()?.parse().ok());
-            let new = parts
-                .next()
-                .and_then(|t| t.trim_start_matches('+').split(',').next()?.parse().ok());
-            hunk = old.zip(new);
-            out.push(Line::styled(line.to_owned(), Style::new().fg(p.muted)));
-            continue;
-        }
-        let Some((old, new)) = hunk.as_mut() else {
-            out.push(Line::styled(line.to_owned(), Style::new().fg(p.assistant)));
-            continue;
-        };
-        let (number, sign, body, bg) = if let Some(body) = line.strip_prefix('+') {
-            let n = *new;
-            *new += 1;
-            (n, "+", body, Some(add_bg))
-        } else if let Some(body) = line.strip_prefix('-') {
-            let n = *old;
-            *old += 1;
-            (n, "-", body, Some(del_bg))
-        } else {
-            let n = *new;
-            *old += 1;
-            *new += 1;
-            (n, " ", line.strip_prefix(' ').unwrap_or(line), None)
-        };
-        let mut style = Style::new();
-        if let Some(bg) = bg {
-            style = style.bg(bg);
-        }
-        out.push(Line::from(vec![
-            Span::styled(format!("{number:>width$} "), Style::new().fg(p.muted)),
-            Span::styled(format!("{sign}{body}"), style),
-        ]));
-    }
-    out
-}
-
-/// What an action reaches, drawn above its approval: a coloured level, then
-/// the hosts, files and systems it touches and why it is rated that way.
-fn risk_card(app: &App, risk: &Risk, p: Palette) -> Vec<Line<'static>> {
-    let level_color = match risk.level {
-        0 | 1 => p.assistant,
-        2 => Color::Yellow,
-        _ => Color::Red,
-    };
-    let undo = if risk.reversible {
-        app.tr("reversible", "可撤销")
-    } else {
-        app.tr("not reversible", "不可撤销")
-    };
-    let mut lines = vec![Line::from(vec![
-        Span::styled(
-            format!("{:<9}", app.tr("Risk", "风险")),
-            Style::new().fg(p.muted),
-        ),
-        Span::styled(
-            format!("L{} {}", risk.level, risk.name),
-            Style::new().fg(level_color).bold(),
-        ),
-        Span::styled(
-            format!(" · {}/100 · {undo}", risk.score),
-            Style::new().fg(p.muted),
-        ),
-    ])];
-    let mut row = |label: &str, values: &[String]| {
-        if values.is_empty() {
-            return;
-        }
-        let shown: Vec<&str> = values.iter().take(4).map(String::as_str).collect();
-        let more = values.len().saturating_sub(4);
-        let tail = if more > 0 {
-            format!(" +{more}")
-        } else {
-            String::new()
-        };
-        lines.push(Line::from(vec![
-            Span::styled(format!("{label:<9}"), Style::new().fg(p.muted)),
-            Span::raw(format!("{}{tail}", shown.join(", "))),
-        ]));
-    };
-    row(app.tr("Network", "网络"), &risk.hosts);
-    row(app.tr("Files", "文件"), &risk.files);
-    if !risk.impact.is_empty() {
-        row(app.tr("Impact", "影响"), std::slice::from_ref(&risk.impact));
-    }
-    row(app.tr("Affects", "涉及"), &risk.systems);
-    let why: Vec<String> = risk.reasons.iter().take(2).cloned().collect();
-    row(app.tr("Why", "原因"), &why);
-    lines
-}
-
-/// The model picker: a searchable list, one row per model under group
-/// headings, with the highlighted model's details beneath it.
-fn draw_picker(frame: &mut Frame, app: &App, dialog: &Dialog, area: Rect, p: Palette) {
-    let visible = dialog.visible();
-    // Rows to draw: (group heading, or the choice index).
-    let mut lines_spec: Vec<(Option<&str>, usize)> = Vec::new();
-    let mut last_group: Option<&str> = None;
-    for &i in &visible {
-        if let Some(group) = dialog.groups.get(i).map(String::as_str) {
-            if last_group != Some(group) && !group.is_empty() {
-                lines_spec.push((Some(group), i));
-                last_group = Some(group);
-            }
-        }
-        lines_spec.push((None, i));
-    }
-    let list_rows = lines_spec.len().clamp(1, 20);
-    let height = (list_rows + 6 + 2).min(usize::from(area.height)) as u16;
-    let rect = popup(area, 100, height);
-    frame.render_widget(Clear, rect);
-    let block = Block::bordered()
-        .border_type(BorderType::Rounded)
-        .border_style(Style::new().fg(p.accent))
-        .title(Line::styled(
-            app.tr(" Choose ", " 选择 "),
-            Style::new().fg(p.accent),
-        ))
-        .title_bottom(Line::styled(
-            app.tr(
-                " ↑↓ choose · Enter select · type to search · Esc close ",
-                " ↑↓ 选择 · Enter 确认 · 输入即搜索 · Esc 关闭 ",
-            ),
-            Style::new().fg(p.muted),
-        ));
-    let inside = block.inner(rect).inner(Margin::new(1, 0));
-    frame.render_widget(block, rect);
-    let width = usize::from(inside.width);
-    let rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Min(1),
-        Constraint::Length(3),
-    ])
-    .split(inside);
-    frame.render_widget(
-        Paragraph::new(Line::styled(
-            fit(dialog.title.lines().next().unwrap_or(""), width),
-            Style::new().bold(),
-        )),
-        rows[0],
-    );
-    // Search box, with how many models match.
-    let count = format!("{}/{}", visible.len(), dialog.choices.len());
-    let label = app.tr("Search: ", "搜索：");
-    let typed = if dialog.filter.is_empty() {
-        Span::styled(
-            app.tr("type a name, size or provider", "输入名称、规格或服务商"),
-            Style::new().fg(p.muted),
-        )
-    } else {
-        Span::raw(dialog.filter.clone())
-    };
-    let pad = width.saturating_sub(label.width() + typed.width() + count.width());
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(label, Style::new().fg(p.accent)),
-            typed,
-            Span::raw(" ".repeat(pad)),
-            Span::styled(count, Style::new().fg(p.muted)),
-        ])),
-        rows[1],
-    );
-    frame.set_cursor_position((
-        rows[1].x + (label.width() + dialog.filter.width()).min(width.saturating_sub(1)) as u16,
-        rows[1].y,
-    ));
-    // The list, scrolled so the highlighted row stays in view.
-    let list = rows[2];
-    let room = usize::from(list.height);
-    let at = lines_spec
-        .iter()
-        .position(|(group, i)| group.is_none() && *i == dialog.selected)
-        .unwrap_or(0);
-    let start = at
-        .saturating_sub(room / 2)
-        .min(lines_spec.len().saturating_sub(room));
-    let name_width = visible
-        .iter()
-        .map(|&i| dialog.choices[i].0.width())
-        .max()
-        .unwrap_or(0)
-        .min(36);
-    let mut drawn: Vec<Line> = Vec::new();
-    for (group, i) in lines_spec.iter().skip(start).take(room) {
-        if let Some(group) = group {
-            drawn.push(Line::styled(
-                format!(" {}", fit(group, width.saturating_sub(1))),
-                Style::new().fg(p.muted).bold(),
-            ));
-            continue;
-        }
-        let (name, help) = &dialog.choices[*i];
-        let name = fit(name, name_width);
-        let detail = fit(help, width.saturating_sub(name_width + 6));
-        if *i == dialog.selected {
-            drawn.push(Line::styled(
-                format!(" › {name:<name_width$}  {detail}"),
-                Style::new().fg(p.selection_fg).bg(p.accent),
-            ));
-        } else {
-            drawn.push(Line::from(vec![
-                Span::raw(format!("   {name:<name_width$}")),
-                Span::styled(format!("  {detail}"), Style::new().fg(p.muted)),
-            ]));
-        }
-    }
-    if visible.is_empty() {
-        drawn.push(Line::styled(
-            format!(
-                " {}",
-                app.tr("No model matches that search.", "没有匹配的模型。")
-            ),
-            Style::new().fg(p.muted),
-        ));
-    }
-    frame.render_widget(Paragraph::new(drawn), list);
-    // The full line for the highlighted model, which the row may have cut.
-    if let Some((name, help)) = dialog
-        .choices
-        .get(dialog.selected)
-        .filter(|_| !visible.is_empty())
-    {
-        frame.render_widget(
-            Paragraph::new(vec![
-                Line::styled(fit(name, width), Style::new().fg(p.accent)),
-                Line::styled(help.clone(), Style::new().fg(p.muted)),
-            ])
-            .wrap(Wrap { trim: true }),
-            rows[3],
-        );
-    }
-}
-
 /// The delivery report, coloured as the Python REPL prints it: the status by
 /// outcome, headings dim, ✓ green, ✗ red, × and ⚠ highlighted.
 /// The runtime's delivery report, read quietly: "DONE" becomes one "✓ Done"
@@ -1287,29 +1030,6 @@ fn delivery_lines(text: &str, p: Palette) -> Vec<Line<'static>> {
         out.push(Line::styled(format!("{indent}{trimmed}"), style));
     }
     out
-}
-
-/// One concrete thing to try, like Claude Code's `Try "fix typecheck errors"`,
-/// picked from the session id so it stays put while the session lasts.
-fn example_prompt(app: &App) -> String {
-    const EN: [&str; 4] = [
-        "Add tests for utils.py",
-        "Explain how this project is structured",
-        "Fix the failing test",
-        "Review recent changes and check for edge cases",
-    ];
-    const ZH: [&str; 4] = [
-        "给 utils.py 补上测试",
-        "讲讲这个项目的结构",
-        "修好失败的测试",
-        "审查最近的改动并检查边界情况",
-    ];
-    let pick = app.session.bytes().map(usize::from).sum::<usize>() % EN.len();
-    if app.zh() {
-        ZH[pick].to_string()
-    } else {
-        format!("Try \"{}\"", EN[pick])
-    }
 }
 
 /// Name, model, and directory: the three lines beside Claude Code's mascot.

@@ -12,6 +12,28 @@ while [[ -L "$SOURCE" ]]; do
   fi
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+# Prefer native Rust binary when built unless ARIA_USE_PYTHON=1 or --with-python is requested.
+NATIVE_BIN="${ARIA_NATIVE_BIN:-$SCRIPT_DIR/rust/target/release/aria-native}"
+if [[ "${ARIA_USE_PYTHON:-0}" != "1" && -x "$NATIVE_BIN" ]]; then
+  use_native=1
+  for arg in "$@"; do
+    case "$arg" in
+      --with-python|--python) use_native=0 ;;
+    esac
+  done
+  if [[ "$use_native" -eq 1 ]]; then
+    if [[ "$#" -eq 0 ]]; then
+      exec "$NATIVE_BIN" chat
+    fi
+    case "$1" in
+      -C|--version|-V|chat|health|ask|agent|mcp-tools|config|sessions|completions)
+        exec "$NATIVE_BIN" "$@"
+        ;;
+    esac
+  fi
+fi
+
 CLI_PY="$SCRIPT_DIR/src/aria_code/aria_cli.py"
 export PYTHONPATH="$SCRIPT_DIR/src"
 VENV_DIR="${ARIA_VENV:-$SCRIPT_DIR/.venv}"
