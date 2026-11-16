@@ -576,7 +576,7 @@ class ConfiguredProvider:
 
     async def _stream_vertex_open_model(self, prepared: list, tools: list, cancel_event):
         """Gemma and other managed open models, through Vertex's OpenAI-compatible endpoint."""
-        from aria_code.local_llm_provider import LocalLLMProvider
+        from aria_code.providers.local_llm_provider import LocalLLMProvider
 
         vertex = await asyncio.to_thread(vertex_openai_endpoint, self.config)
         if not vertex or vertex.get("error"):
@@ -660,7 +660,7 @@ class ConfiguredProvider:
             return
 
         if self.backend in self.LOCAL_OPENAI_BACKENDS | self.GENERIC_OPENAI_BACKENDS:
-            from aria_code.local_llm_provider import LocalLLMProvider
+            from aria_code.providers.local_llm_provider import LocalLLMProvider
 
             cfg = dict(self.config)
             cfg["model"] = self.model

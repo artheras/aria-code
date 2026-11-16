@@ -910,7 +910,7 @@ async def _call_backtest_run(args: Dict[str, Any]) -> Dict[str, Any]:
     import asyncio
     from dataclasses import asdict
 
-    from aria_code.backtest_engine import BacktestEngine, get_strategy, load_bars
+    from aria_code.domain.backtest_engine import BacktestEngine, get_strategy, load_bars
 
     symbol = str(args.get("symbol", "")).strip().upper()
     if not symbol:

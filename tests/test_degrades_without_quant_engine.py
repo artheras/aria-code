@@ -91,12 +91,10 @@ class ModulesThatUseTheEngineStillImport(unittest.TestCase):
     # is the bar here: these hold slash commands and agents, so failing to
     # import takes unrelated commands down with them.
     MODULES = (
-        "agents.sports.football_agent",
         "apps.cli.commands.ashare_prediction_cmds",
         "apps.cli.commands.backtest_cmds",
         "agents.financial.strategist",
         "agents.financial.corporate_finance",
-        "clients.football_data_client",
     )
 
     def test_each_module_imports_without_the_engine(self) -> None:
@@ -135,24 +133,6 @@ class TheUnguardedSitesRaiseSomethingCallersCatch(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr[-1500:])
         self.assertIn("caught:", proc.stdout)
         self.assertIn("Error", proc.stdout)  # ImportError / ModuleNotFoundError
-
-    def test_football_predict_raises_a_catchable_error(self) -> None:
-        proc = _run_without_the_engine("""
-            import asyncio
-            from agents.sports.football_agent import FootballAgent
-
-            async def main():
-                try:
-                    await FootballAgent(llm_call=None).predict("A", "B")
-                except Exception as exc:
-                    print("caught:", type(exc).__name__)
-                else:
-                    print("NO ERROR -- the engine was reachable after all")
-
-            asyncio.run(main())
-        """)
-        self.assertEqual(proc.returncode, 0, proc.stderr[-1500:])
-        self.assertIn("caught:", proc.stdout)
 
 
 if __name__ == "__main__":

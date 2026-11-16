@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import json
-import os
-
-
-import json
 import asyncio
 import datetime
-import time
+import json
+import os
 import shlex
-from typing import Dict, Any, Optional
+import sys
+import time
+from typing import Any, Dict, Optional
 
 
 def _health_targets(config: dict, api_url: str) -> tuple[list[tuple[str, str, str]], str]:
@@ -56,13 +54,6 @@ def _get_Syntax():
 def _get__SYNTAX_THEME():
     from aria_cli import _SYNTAX_THEME as val
     return val
-
-import json
-import asyncio
-import datetime
-import time
-import shlex
-import sys
 import os
 from typing import Dict, Any, Optional
 
@@ -216,14 +207,14 @@ class DiagnosticCommandsMixin:
         else:
             print("\nRuntime Trace")
             for turn in turns:
-                ok = "ok" if turn.success else "err"
+                ok_label = "ok" if turn.success else "err"
                 summary = turn.summary or turn.final_text[:120]
                 if len(summary) > 120:
                     summary = summary[:117] + "..."
-                print(f"  {ok:<3} {turn.provider or '?'} {summary}")
+                print(f"  {ok_label:<3} {turn.provider or '?'} {summary}")
             for call in calls:
-                ok = "ok" if call.result.get("success") else "err"
-                print(f"  {ok:<3} {call.tool} {call.elapsed_ms:.0f} ms")
+                ok_label = "ok" if call.result.get("success") else "err"
+                print(f"  {ok_label:<3} {call.tool} {call.elapsed_ms:.0f} ms")
             print()
 
     async def cmd_health(self, args: str):
@@ -260,26 +251,38 @@ class DiagnosticCommandsMixin:
             else:
                 print(f"  ? {message}")
         for label, url, path in urls:
+            t0 = time.monotonic()
             try:
                 async with aiohttp.ClientSession(trust_env=True) as session:
                     async with session.get(f"{str(url).rstrip('/')}{path}", timeout=aiohttp.ClientTimeout(total=5)) as resp:
                         resp.raise_for_status()
                         data = await resp.json()
+                        latency_ms = int((time.monotonic() - t0) * 1000)
                         if label == "Ollama":
-                            models = [m.get("name", "?") for m in data.get("models", [])[:3]]
-                            detail = ", ".join(models)
+                            models = [m.get("name", "?") for m in data.get("models", [])[:4]]
+                            detail = ", ".join(models) or "no models pulled"
                         else:
                             detail = f"v{data.get('version', '?')}"
+                        detail = f"{detail} ({latency_ms} ms)"
                         if self.context.has_rich:
                             self.context.console.print(f"  [green]●[/green] [dim]{label}[/dim]  {detail}")
                         else:
                             print(f"  + {label}  {detail}")
             except Exception as exc:
                 from aria_code.packages.aria_services.provider_health import classify_provider_error
-                category = classify_provider_error(label, exc).category
+                health = classify_provider_error(label, exc)
+                hint = f" · {health.suggestion}" if getattr(health, "suggestion", "") else ""
                 if self.context.has_rich:
-                    self.context.console.print(f"  [red]●[/red] [dim]{label}[/dim]  {category}")
+                    self.context.console.print(f"  [red]●[/red] [dim]{label}[/dim]  {health.category}{hint}")
                 else:
-                    print(f"  - {label}  {category}")
+                    print(f"  - {label}  {health.category}{hint}")
+        active_model = str(self.terminal.config.get("model") or "default")
+        cwd = os.getcwd()
+        tip = "Tip: /health --model tests live generation · /model switches model"
         if self.context.has_rich:
+            self.context.console.print(f"  [dim]Model[/dim]  {active_model}  [dim]·  Dir[/dim]  {cwd}")
+            self.context.console.print(f"  [dim]{tip}[/dim]")
             self.context.console.print()
+        else:
+            print(f"  * Model: {active_model} · Dir: {cwd}")
+            print(f"  * {tip}")

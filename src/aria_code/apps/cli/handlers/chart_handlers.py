@@ -123,7 +123,7 @@ def _fetch_mdc_history_frame(symbol: str, period: str, interval: str = "1d"):
         return None, None, "", "not an A-share symbol"
     try:
         import pandas as _pd
-        from aria_code.market_data_client import get_mdc
+        from aria_code.clients.market_data_client import get_mdc
 
         result = get_mdc().history(code, days=_days_for_period(period), interval=interval)
         if not result or not result.get("success"):
