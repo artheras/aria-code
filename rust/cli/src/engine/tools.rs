@@ -360,6 +360,45 @@ pub fn git_diff(workspace: &Path, rel: Option<&str>, staged: bool) -> Result<Val
     Ok(json!({ "diff": truncate_utf8(&output.stdout, 24_576) }))
 }
 
+fn glob_match(pattern: &str, text: &str) -> bool {
+    let p: Vec<char> = pattern.chars().collect();
+    let t: Vec<char> = text.chars().collect();
+    fn rec(p: &[char], t: &[char]) -> bool {
+        match (p.first(), t.first()) {
+            (None, None) => true,
+            (Some('*'), _) => rec(&p[1..], t) || (!t.is_empty() && rec(p, &t[1..])),
+            (Some('?'), Some(_)) => rec(&p[1..], &t[1..]),
+            (Some(pc), Some(tc)) if pc == tc => rec(&p[1..], &t[1..]),
+            _ => false,
+        }
+    }
+    rec(&p, &t)
+}
+
+/// Find workspace files matching a glob pattern (`*`, `?`, `**`), bounded by `limit`.
+pub fn glob_files(workspace: &Path, pattern: &str, limit: usize) -> Result<Vec<String>, String> {
+    let pat = pattern.trim().replace('\\', "/");
+    if pat.is_empty() {
+        return Err("Empty glob pattern".into());
+    }
+    let all = list_files(workspace, ".", limit.saturating_mul(10).max(500))?;
+    let mut matches: Vec<String> = all
+        .into_iter()
+        .filter(|rel| {
+            let norm = rel.replace('\\', "/");
+            glob_match(&pat, &norm)
+                || (!pat.contains('/')
+                    && Path::new(&norm)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| glob_match(&pat, n)))
+        })
+        .take(limit)
+        .collect();
+    matches.sort();
+    Ok(matches)
+}
+
 pub fn tool_schemas() -> Value {
     json!([
         {
@@ -474,6 +513,20 @@ pub fn tool_schemas() -> Value {
                     }
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "glob",
+                "description": "Find workspace files matching a glob pattern (e.g. '*.rs', 'src/**/*.py').",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "pattern": { "type": "string" }
+                    },
+                    "required": ["pattern"]
+                }
+            }
         }
     ])
 }
@@ -515,6 +568,10 @@ pub fn execute_tool(workspace: &Path, name: &str, args: &Value, allow_write: boo
             let rel = args.get("path").and_then(Value::as_str);
             let staged = args.get("staged").and_then(Value::as_bool).unwrap_or(false);
             git_diff(workspace, rel, staged)
+        }
+        "glob" => {
+            let pat = args.get("pattern").and_then(Value::as_str).unwrap_or("");
+            glob_files(workspace, pat, 200).map(|files| json!({ "files": files }))
         }
         other => Err(format!("Unknown native tool: {other}")),
     };
@@ -580,5 +637,16 @@ mod tests {
         assert!(st["status"].as_str().unwrap().contains("a.txt"));
         let df = git_diff(dir.path(), None, false).unwrap();
         assert!(df["diff"].as_str().is_some());
+    }
+
+    #[test]
+    fn glob_matches_nested_and_basename_patterns() {
+        let dir = tempdir().unwrap();
+        write_file(dir.path(), "src/lib.rs", "pub fn x() {}", true).unwrap();
+        write_file(dir.path(), "README.md", "# hi", true).unwrap();
+        let rs = glob_files(dir.path(), "*.rs", 20).unwrap();
+        assert_eq!(rs, vec!["src/lib.rs"]);
+        let nested = glob_files(dir.path(), "src/*.rs", 20).unwrap();
+        assert_eq!(nested, vec!["src/lib.rs"]);
     }
 }

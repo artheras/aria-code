@@ -106,6 +106,7 @@ enum Mode {
         prompt: String,
     },
     Agent {
+        provider: String,
         model: String,
         ollama_url: String,
         allow_write: bool,
@@ -304,6 +305,10 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                 };
             }
             Some("agent") => {
+                let mut provider = env::var("ARIA_PROVIDER")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| "ollama".to_owned());
                 let mut model = env::var("ARIA_MODEL")
                     .ok()
                     .filter(|s| !s.trim().is_empty())
@@ -316,6 +321,9 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                 let mut prompt_parts: Vec<String> = Vec::new();
                 while let Some(arg) = args.next() {
                     match arg.to_str() {
+                        Some("--provider") => {
+                            provider = utf8(args.next(), "Missing provider after --provider")?;
+                        }
                         Some("--model") => {
                             model = utf8(args.next(), "Missing model after --model")?;
                         }
@@ -330,10 +338,11 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                 let prompt = prompt_parts.join(" ");
                 if prompt.trim().is_empty() {
                     return Err(
-                        "Usage: agent [--model MODEL] [--url URL] [--allow-write] PROMPT".into(),
+                        "Usage: agent [--provider PROVIDER] [--model MODEL] [--url URL] [--allow-write] PROMPT".into(),
                     );
                 }
                 break Mode::Agent {
+                    provider,
                     model,
                     ollama_url,
                     allow_write,
@@ -704,31 +713,54 @@ fn run(options: Options) -> Result<i32, String> {
             Ok(0)
         }
         Mode::Agent {
+            provider,
             model,
             ollama_url,
             allow_write,
             prompt,
         } => {
-            let answer = engine::agent::run_native_agent(
-                &ollama_url,
-                &model,
-                &options.workspace,
-                &prompt,
-                allow_write,
-                8,
-                Duration::from_secs(120),
-                |tool, args, result| {
-                    let ok = result["ok"].as_bool().unwrap_or(false);
-                    if ok {
-                        eprintln!("[tool] {tool} {args} -> ok");
-                    } else {
-                        eprintln!(
-                            "[tool] {tool} {args} -> err: {}",
-                            result["error"].as_str().unwrap_or("")
-                        );
-                    }
-                },
-            )?;
+            let log_tool = |tool: &str, args: &serde_json::Value, result: &serde_json::Value| {
+                let ok = result["ok"].as_bool().unwrap_or(false);
+                if ok {
+                    eprintln!("[tool] {tool} {args} -> ok");
+                } else {
+                    eprintln!(
+                        "[tool] {tool} {args} -> err: {}",
+                        result["error"].as_str().unwrap_or("")
+                    );
+                }
+            };
+            let answer = if let Some(cloud) = engine::cloud::CloudProvider::from_id(&provider) {
+                let api_key = cloud.resolve_api_key().ok_or_else(|| {
+                    format!(
+                        "Missing API key for {} ({})",
+                        cloud.display_name(),
+                        cloud.api_key_env().join(" or ")
+                    )
+                })?;
+                engine::agent::run_cloud_agent(
+                    cloud,
+                    &api_key,
+                    &model,
+                    &options.workspace,
+                    &prompt,
+                    allow_write,
+                    8,
+                    Duration::from_secs(120),
+                    log_tool,
+                )?
+            } else {
+                engine::agent::run_native_agent(
+                    &ollama_url,
+                    &model,
+                    &options.workspace,
+                    &prompt,
+                    allow_write,
+                    8,
+                    Duration::from_secs(120),
+                    log_tool,
+                )?
+            };
             println!("{answer}");
             Ok(0)
         }
