@@ -281,7 +281,6 @@ from aria_code.apps.cli.tools.market_tools import (
     tool_broker_order       as _src_broker_order,
 )
 from aria_code.apps.cli.handlers.broker_handlers import handle_broker_query as _src_handle_broker_query
-from aria_code.apps.cli.handlers.realty_handlers import handle_realty_query as _src_handle_realty_query
 from aria_code.apps.cli.handlers.strategy_advice import handle_strategy_advice as _src_strategy_advice
 from aria_code.apps.cli.handlers.chart_handlers import (
     handle_stock_chart_analysis_direct as _src_chart_analysis_direct,
@@ -1227,17 +1226,6 @@ except Exception as _exc:
     logger.debug("Stripe tools init error: %s", _exc)
 
 try:
-    try:
-        from aria_code.tools.realty_data_tools import register_realty_tools as _reg_realty
-    except ImportError:
-        from tools.realty_data_tools import register_realty_tools as _reg_realty  # type: ignore[no-redef]
-    _n_realty = _reg_realty(LOCAL_TOOLS, LOCAL_TOOL_SCHEMAS)
-    if _n_realty:
-        logger.info("Registered %d realty tools", _n_realty)
-except Exception as _exc:
-    logger.debug("Realty tools init error: %s", _exc)
-
-try:
     from tools.broker_tools import register_broker_tools as _reg_broker
     _n_broker = _reg_broker(LOCAL_TOOLS, LOCAL_TOOL_SCHEMAS)
     if _n_broker:
@@ -1825,12 +1813,7 @@ def _try_handle_multi_market_snapshot(message: str, symbols: list) -> dict:
 
 
 def _try_handle_realty_query(message: str) -> dict:
-    return _src_handle_realty_query(
-        message,
-        is_realty_query=_is_realty_query,
-        cn_cities=_CN_CITIES,
-        intl_cities=_INTL_CITIES,
-    )
+    return {"success": False, "error": "realty_handlers_not_available"}
 
 
 def _try_handle_market_snapshot_analysis(message: str, history: list = None, *,
