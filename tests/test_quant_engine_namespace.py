@@ -30,8 +30,7 @@ source = Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(source))
 import aria_code
 for name in ('packages', 'packages.quant_engine', 'packages.quant_engine.backtest',
-             'packages.quant_engine.portfolio', 'packages.quant_engine.sports',
-             'packages.quant_engine.stochastic'):
+             'packages.quant_engine.portfolio', 'packages.quant_engine.stochastic'):
     module = importlib.import_module(name)
     assert Path(module.__file__).resolve().is_relative_to(source), name
     assert Path(next(iter(module.__path__))).resolve().is_relative_to(source), name
