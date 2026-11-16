@@ -261,9 +261,6 @@ from typing import Dict, Any, Optional
 def print_quote_result(*args, **kwargs):
     from aria_cli import print_quote_result as fn
     return fn(*args, **kwargs)
-def _football_fixtures(*args, **kwargs):
-    from aria_cli import _football_fixtures as fn
-    return fn(*args, **kwargs)
 # execute_aria_tool lives in apps/cli/tool_executor.py and needs nothing from
 # aria_cli — the cache it reads is owned there now, so the hop was pointless.
 from aria_code.apps.cli.tool_executor import execute_aria_tool
@@ -278,9 +275,6 @@ def _render_reits_list(*args, **kwargs):
     return fn(*args, **kwargs)
 def _render_multi_city(*args, **kwargs):
     from aria_cli import _render_multi_city as fn
-    return fn(*args, **kwargs)
-def _football_team(*args, **kwargs):
-    from aria_cli import _football_team as fn
     return fn(*args, **kwargs)
 def _get_LOCAL_TOOLS():
     # Owned by apps/cli/tool_registry.py; aria_cli fills it in place.
@@ -300,12 +294,6 @@ def _render_asset_score(*args, **kwargs):
     return fn(*args, **kwargs)
 def _render_rental_yield(*args, **kwargs):
     from aria_cli import _render_rental_yield as fn
-    return fn(*args, **kwargs)
-def _football_h2h(*args, **kwargs):
-    from aria_cli import _football_h2h as fn
-    return fn(*args, **kwargs)
-def _football_standings(*args, **kwargs):
-    from aria_cli import _football_standings as fn
     return fn(*args, **kwargs)
 def _render_house_price(*args, **kwargs):
     from aria_cli import _render_house_price as fn
@@ -571,16 +559,9 @@ class MarketCommandsMixin:
 
         sub = parts[0].lower()
 
-        # ── standings ──────────────────────────────────────────────────────────
-        if sub == "standings":
-            league = parts[1] if len(parts) > 1 else "pl"
-            await self._run_in_executor(_football_standings, league)
-
-        # ── fixtures ──────────────────────────────────────────────────────────
-        elif sub in ("fixtures", "schedule", "赛程"):
-            league  = parts[1] if len(parts) > 1 else "pl"
-            days    = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 7
-            await self._run_in_executor(_football_fixtures, league, days)
+        # ── standings / fixtures / team / h2h ─────────────────────────────────
+        if sub in ("standings", "fixtures", "schedule", "赛程", "team", "球队", "h2h", "历史", "对决"):
+            self.context.console.print("[yellow]Football data client is not available in this build.[/yellow]")
 
         # ── predict ───────────────────────────────────────────────────────────
         elif sub in ("predict", "预测", "prediction"):
@@ -590,13 +571,7 @@ class MarketCommandsMixin:
                 home    = raw[:idx].strip()
                 rest    = raw[idx + 4:].strip()
                 away_parts = rest.split()
-                # last token might be league code (including wc/世界杯)
-                from aria_code.clients.football_data_client import LEAGUE_IDS, TOURNAMENT_CODES
-                _all_codes = {**LEAGUE_IDS, **{k: v for k, v in TOURNAMENT_CODES.items()}}
-                if away_parts and away_parts[-1].lower().replace(" ", "") in _all_codes:
-                    league = away_parts[-1]
-                    away   = " ".join(away_parts[:-1])
-                elif away_parts and away_parts[-1].lower() in ("wc", "worldcup", "世界杯", "ca", "ec"):
+                if away_parts and away_parts[-1].lower() in ("wc", "worldcup", "世界杯", "ca", "ec", "pl", "bl", "ll", "sa", "fl1", "cl"):
                     league = away_parts[-1]
                     away   = " ".join(away_parts[:-1])
                 else:
@@ -605,38 +580,6 @@ class MarketCommandsMixin:
                 await self._football_predict(home, away, league)
             else:
                 self.context.console.print("[red]用法: /football predict <主队> vs <客队> [联赛/wc][/red]")
-
-        # ── team ──────────────────────────────────────────────────────────────
-        elif sub in ("team", "球队"):
-            rest  = " ".join(parts[1:])
-            from aria_code.clients.football_data_client import LEAGUE_IDS
-            tokens = rest.split()
-            if tokens and tokens[-1].lower() in LEAGUE_IDS:
-                league = tokens[-1]
-                team   = " ".join(tokens[:-1])
-            else:
-                league = "pl"
-                team   = rest
-            await self._run_in_executor(_football_team, team, league)
-
-        # ── h2h ───────────────────────────────────────────────────────────────
-        elif sub in ("h2h", "历史", "对决"):
-            raw = " ".join(parts[1:])
-            if " vs " in raw.lower():
-                idx  = raw.lower().index(" vs ")
-                t1   = raw[:idx].strip()
-                rest = raw[idx + 4:].strip()
-                from aria_code.clients.football_data_client import LEAGUE_IDS
-                tokens = rest.split()
-                if tokens and tokens[-1].lower() in LEAGUE_IDS:
-                    league = tokens[-1]
-                    t2     = " ".join(tokens[:-1])
-                else:
-                    league = "pl"
-                    t2     = rest
-                await self._run_in_executor(_football_h2h, t1, t2, league)
-            else:
-                self.context.console.print("[red]用法: /football h2h <队1> vs <队2> [联赛][/red]")
 
         else:
             # NL intent: /football 预测加拿大跟波黑... or /football 分析...

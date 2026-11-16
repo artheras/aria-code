@@ -1605,9 +1605,8 @@ from aria_code.apps.cli.intent import (
 )
 
 
-from aria_code.apps.cli.handlers.sports_handlers import (  # noqa: E402
-    try_prefetch_sports_data as _try_prefetch_sports_data,
-)
+def _try_prefetch_sports_data(_message: str) -> str:
+    return ""
 
 
 
@@ -5181,15 +5180,6 @@ Examples:
 
     # Mode 3: Interactive REPL (default)
     await terminal.run_interactive()
-
-
-# ── Football helper functions ─────────────────────────────────────────────────
-# 实现已移到 apps/cli/football_reports.py。这里必须用 _rebind_module_function_globals
-# 而不是普通 import：market_cmds.py 那个 mixin 用裸名字调 _football_standings(...)，
-# 靠的是 _rebind_mixin_globals 把它的 __globals__ 指向本模块；同时这些函数自身也
-# 依赖本模块的 console。重新绑定后两边才都能解析。与 tool_executor 同一套机制。
-import apps.cli.football_reports as _football_reports_module
-_rebind_module_function_globals(_football_reports_module, _football_reports_module.__all__)
 
 
 if __name__ == "__main__":
