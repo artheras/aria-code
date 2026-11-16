@@ -171,10 +171,8 @@ mod tests {
         let chunk = r#"{"model":"qwen2.5:7b","message":{"role":"assistant","content":"你好"},"done":false}"#;
         assert_eq!(parse_chat_chunk(chunk), Some(("你好".to_string(), false)));
 
-        let final_chunk = r#"{"model":"qwen2.5:7b","message":{"role":"assistant","content":""},"done":true}"#;
-        assert_eq!(
-            parse_chat_chunk(final_chunk),
-            Some(("".to_string(), true))
-        );
+        let final_chunk =
+            r#"{"model":"qwen2.5:7b","message":{"role":"assistant","content":""},"done":true}"#;
+        assert_eq!(parse_chat_chunk(final_chunk), Some(("".to_string(), true)));
     }
 }

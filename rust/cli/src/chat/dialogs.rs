@@ -120,13 +120,7 @@ pub(super) fn risk_card(app: &App, risk: &Risk, p: Palette) -> Vec<Line<'static>
 
 /// The model picker: a searchable list, one row per model under group
 /// headings, with the highlighted model's details beneath it.
-pub(super) fn draw_picker(
-    frame: &mut Frame,
-    app: &App,
-    dialog: &Dialog,
-    area: Rect,
-    p: Palette,
-) {
+pub(super) fn draw_picker(frame: &mut Frame, app: &App, dialog: &Dialog, area: Rect, p: Palette) {
     let visible = dialog.visible();
     // Rows to draw: (group heading, or the choice index).
     let mut lines_spec: Vec<(Option<&str>, usize)> = Vec::new();

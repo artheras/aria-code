@@ -191,12 +191,20 @@ pub fn run(
             if let Some(request) = app.next_queued() {
                 dirty = true;
                 deadline = Some(Instant::now() + timeout);
-                if try_dispatch_native_turn(&app, &request, &native_tx, &native_cancel, &mut native_picker_models, timeout) {
+                if try_dispatch_native_turn(
+                    &app,
+                    &request,
+                    &native_tx,
+                    &native_cancel,
+                    &mut native_picker_models,
+                    timeout,
+                ) {
                     native_active = true;
                 } else if let Some(ref mut sess) = session {
                     sess.send(request)?;
                 } else {
-                    let _ = native_tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+                    let _ = native_tx
+                        .send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
                 }
             }
         }
@@ -311,10 +319,12 @@ pub fn run(
                             } else {
                                 format!("Switched model to `{mdl}` ({prov})")
                             };
-                            let _ = native_tx.send(json!({"protocol": 1, "type": "answer.delta", "text": msg}));
+                            let _ = native_tx
+                                .send(json!({"protocol": 1, "type": "answer.delta", "text": msg}));
                         }
                     }
-                    let _ = native_tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+                    let _ = native_tx
+                        .send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
                     native_picker_models.clear();
                     deadline = None;
                 } else if kind == "turn.cancel" && native_active {
@@ -351,9 +361,17 @@ pub fn run(
                         && session.is_none()
                     {
                         app.help = true;
-                        let _ = native_tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+                        let _ = native_tx
+                            .send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
                         deadline = None;
-                    } else if try_dispatch_native_turn(&app, &request, &native_tx, &native_cancel, &mut native_picker_models, timeout) {
+                    } else if try_dispatch_native_turn(
+                        &app,
+                        &request,
+                        &native_tx,
+                        &native_cancel,
+                        &mut native_picker_models,
+                        timeout,
+                    ) {
                         native_active = true;
                     } else if let Some(ref mut sess) = session {
                         sess.send(request)?;
@@ -361,7 +379,8 @@ pub fn run(
                         app.closed = true;
                         break;
                     } else {
-                        let _ = native_tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+                        let _ = native_tx
+                            .send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
                     }
                 }
             }
@@ -442,7 +461,8 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
             }
         } else if is_ollama && !text.starts_with('/') && app.provider == "ollama" {
             // In native-only / pure-Ollama turns without Python context, allow native agent
-            if app.status == "Native ready" || app.status == "已完成" || app.status == "Completed" {
+            if app.status == "Native ready" || app.status == "已完成" || app.status == "Completed"
+            {
                 return Some(NativeRoute::OllamaAgent);
             }
         }
@@ -477,11 +497,23 @@ fn try_dispatch_native_turn(
         picker_models.clear();
         for m in &probe.models {
             picker_models.push(("ollama".to_owned(), m.clone()));
-            groups.push(if zh { "本地 Ollama".into() } else { "Local Ollama".into() });
-            let note = if *m == model {
-                if zh { "当前选中 · 本地推理" } else { "active · local" }
+            groups.push(if zh {
+                "本地 Ollama".into()
             } else {
-                if zh { "本地推理" } else { "local" }
+                "Local Ollama".into()
+            });
+            let note = if *m == model {
+                if zh {
+                    "当前选中 · 本地推理"
+                } else {
+                    "active · local"
+                }
+            } else {
+                if zh {
+                    "本地推理"
+                } else {
+                    "local"
+                }
             };
             choices.push(json!([m, note]));
         }
@@ -496,7 +528,11 @@ fn try_dispatch_native_turn(
             if let Some(cp) = crate::engine::cloud::CloudProvider::from_id(prov) {
                 if cp.resolve_api_key().is_some() {
                     picker_models.push((prov.to_owned(), mdl.to_owned()));
-                    groups.push(if zh { "云端 API".into() } else { "Cloud API".into() });
+                    groups.push(if zh {
+                        "云端 API".into()
+                    } else {
+                        "Cloud API".into()
+                    });
                     choices.push(json!([mdl, label]));
                 }
             }
@@ -532,9 +568,19 @@ fn try_dispatch_native_turn(
                 };
                 let body = if probe.ok {
                     let models = if probe.models.is_empty() {
-                        if zh { "暂无已拉取模型".to_owned() } else { "no models pulled".to_owned() }
+                        if zh {
+                            "暂无已拉取模型".to_owned()
+                        } else {
+                            "no models pulled".to_owned()
+                        }
                     } else {
-                        probe.models.iter().take(4).cloned().collect::<Vec<_>>().join(", ")
+                        probe
+                            .models
+                            .iter()
+                            .take(4)
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     };
                     if zh {
                         format!(
@@ -584,7 +630,8 @@ fn try_dispatch_native_turn(
                         format!("Switched model to `{next_model}` (Ollama)")
                     };
                     let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": msg}));
-                    let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+                    let _ =
+                        tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
                 } else {
                     let mut lines = Vec::new();
                     if probe.ok && !probe.models.is_empty() {
@@ -609,8 +656,11 @@ fn try_dispatch_native_turn(
                     } else {
                         "\nRun `/model <name>` to switch models.".to_owned()
                     });
-                    let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": lines.join("\n")}));
-                    let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+                    let _ = tx.send(
+                        json!({"protocol": 1, "type": "answer.delta", "text": lines.join("\n")}),
+                    );
+                    let _ =
+                        tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
                 }
             }
             NativeRoute::OllamaAgent => {
@@ -1499,10 +1549,16 @@ mod tests {
             ..App::default()
         };
         let health = json!({"type": "turn.submit", "text": "/health"});
-        assert_eq!(classify_native_route(&app, &health), Some(NativeRoute::Health));
+        assert_eq!(
+            classify_native_route(&app, &health),
+            Some(NativeRoute::Health)
+        );
 
         let cap = json!({"type": "turn.submit", "text": "你的health service有哪些服务以及能帮助我做什么"});
-        assert_eq!(classify_native_route(&app, &cap), Some(NativeRoute::OllamaChat));
+        assert_eq!(
+            classify_native_route(&app, &cap),
+            Some(NativeRoute::OllamaChat)
+        );
 
         let code = json!({"type": "turn.submit", "text": "fix src/main.rs"});
         assert_eq!(classify_native_route(&app, &code), None);

@@ -293,9 +293,15 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
             Some("mcp-tools") => {
                 let program = utf8(args.next(), "Usage: mcp-tools PROGRAM [ARGS...]")?;
                 let rest = args
-                    .map(|s| s.into_string().map_err(|_| "MCP args must be UTF-8".to_string()))
+                    .map(|s| {
+                        s.into_string()
+                            .map_err(|_| "MCP args must be UTF-8".to_string())
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
-                break Mode::McpTools { program, args: rest };
+                break Mode::McpTools {
+                    program,
+                    args: rest,
+                };
             }
             Some("agent") => {
                 let mut model = env::var("ARIA_MODEL")
@@ -323,7 +329,9 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                 }
                 let prompt = prompt_parts.join(" ");
                 if prompt.trim().is_empty() {
-                    return Err("Usage: agent [--model MODEL] [--url URL] [--allow-write] PROMPT".into());
+                    return Err(
+                        "Usage: agent [--model MODEL] [--url URL] [--allow-write] PROMPT".into(),
+                    );
                 }
                 break Mode::Agent {
                     model,
@@ -363,7 +371,10 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                 }
                 let prompt = prompt_parts.join(" ");
                 if prompt.trim().is_empty() {
-                    return Err("Usage: ask [--provider PROVIDER] [--model MODEL] [--url URL] PROMPT".into());
+                    return Err(
+                        "Usage: ask [--provider PROVIDER] [--model MODEL] [--url URL] PROMPT"
+                            .into(),
+                    );
                 }
                 break Mode::Ask {
                     provider,
@@ -686,7 +697,10 @@ fn run(options: Options) -> Result<i32, String> {
             let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
             let mut client = engine::mcp::McpStdioClient::spawn(&program, &arg_refs)?;
             let tools = client.list_tools()?;
-            println!("{}", serde_json::to_string_pretty(&tools).unwrap_or_default());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&tools).unwrap_or_default()
+            );
             Ok(0)
         }
         Mode::Agent {

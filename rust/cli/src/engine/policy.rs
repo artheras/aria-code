@@ -52,7 +52,10 @@ fn normalize_text(raw: &str) -> String {
     let stripped: String = trimmed
         .chars()
         .map(|c| {
-            if matches!(c, '!' | '！' | '?' | '？' | '。' | '，' | ',' | '.' | '~' | '～') {
+            if matches!(
+                c,
+                '!' | '！' | '?' | '？' | '。' | '，' | ',' | '.' | '~' | '～'
+            ) {
                 ' '
             } else {
                 c
@@ -78,19 +81,8 @@ pub fn is_capability_question(message: &str) -> bool {
 
     // Reject mixed action requests that happen to mention capabilities or files.
     if [
-        "read ",
-        "fix ",
-        "edit ",
-        "write ",
-        "run ",
-        "readme",
-        ".py",
-        ".rs",
-        ".ts",
-        "读取",
-        "修改",
-        "修复",
-        "运行",
+        "read ", "fix ", "edit ", "write ", "run ", "readme", ".py", ".rs", ".ts", "读取", "修改",
+        "修复", "运行",
     ]
     .iter()
     .any(|kw| norm.contains(kw))
@@ -176,7 +168,9 @@ mod tests {
 
     #[test]
     fn recognizes_health_service_capability_queries() {
-        assert!(is_capability_question("你的health service有哪些服务以及能帮助我做什么"));
+        assert!(is_capability_question(
+            "你的health service有哪些服务以及能帮助我做什么"
+        ));
         assert!(is_capability_question("What does your health service do?"));
         assert!(is_capability_question("what are your services"));
         assert!(!is_capability_question("fix health_service.py"));

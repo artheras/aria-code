@@ -12,8 +12,7 @@ pub struct ToolCall {
 
 /// Extract assistant text and native tool calls from an Ollama `/api/chat` response.
 pub fn parse_ollama_turn(body: &str) -> Result<(String, Vec<ToolCall>), String> {
-    let val: Value =
-        serde_json::from_str(body).map_err(|e| format!("Invalid Ollama JSON: {e}"))?;
+    let val: Value = serde_json::from_str(body).map_err(|e| format!("Invalid Ollama JSON: {e}"))?;
     let msg = val.get("message").ok_or("Missing message in response")?;
     let content = msg
         .get("content")
@@ -38,6 +37,7 @@ pub fn parse_ollama_turn(body: &str) -> Result<(String, Vec<ToolCall>), String> 
 }
 
 /// Run a bounded multi-round coding/inspection loop natively in Rust.
+#[allow(clippy::too_many_arguments)]
 pub fn run_native_agent(
     base_url: &str,
     model: &str,

@@ -420,7 +420,8 @@ pub fn execute_tool(workspace: &Path, name: &str, args: &Value, allow_write: boo
             let rel = args.get("path").and_then(Value::as_str).unwrap_or("");
             let old_s = args.get("old_string").and_then(Value::as_str).unwrap_or("");
             let new_s = args.get("new_string").and_then(Value::as_str).unwrap_or("");
-            edit_file(workspace, rel, old_s, new_s, allow_write).map(|msg| json!({ "message": msg }))
+            edit_file(workspace, rel, old_s, new_s, allow_write)
+                .map(|msg| json!({ "message": msg }))
         }
         "run_command" => {
             let cmd = args.get("command").and_then(Value::as_str).unwrap_or("");

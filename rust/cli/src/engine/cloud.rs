@@ -86,7 +86,10 @@ impl CloudProvider {
 
 /// Probe the private Arthera cloud backend (`/health`) natively without Python.
 pub fn probe_arthera_backend(timeout: Duration) -> (bool, u128, Option<String>) {
-    let url = format!("{}/health", CloudProvider::arthera_base_url().trim_end_matches('/'));
+    let url = format!(
+        "{}/health",
+        CloudProvider::arthera_base_url().trim_end_matches('/')
+    );
     let start = std::time::Instant::now();
     let agent = ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
@@ -294,15 +297,25 @@ mod tests {
             Some(("".into(), true))
         );
 
-        let gem = r#"{"candidates":[{"content":{"parts":[{"text":"Aria"}]},"finishReason":"STOP"}]}"#;
+        let gem =
+            r#"{"candidates":[{"content":{"parts":[{"text":"Aria"}]},"finishReason":"STOP"}]}"#;
         assert_eq!(parse_gemini_sse_data(gem), Some(("Aria".into(), true)));
     }
 
     #[test]
     fn maps_provider_ids_and_endpoints() {
-        assert_eq!(CloudProvider::from_id("arthera"), Some(CloudProvider::Arthera));
-        assert_eq!(CloudProvider::from_id("openai"), Some(CloudProvider::OpenAI));
-        assert_eq!(CloudProvider::from_id("google"), Some(CloudProvider::Gemini));
+        assert_eq!(
+            CloudProvider::from_id("arthera"),
+            Some(CloudProvider::Arthera)
+        );
+        assert_eq!(
+            CloudProvider::from_id("openai"),
+            Some(CloudProvider::OpenAI)
+        );
+        assert_eq!(
+            CloudProvider::from_id("google"),
+            Some(CloudProvider::Gemini)
+        );
         assert_eq!(
             CloudProvider::Arthera.endpoint("aria-pro", "k"),
             "https://api.arthera.xyz/v1/chat/completions"
