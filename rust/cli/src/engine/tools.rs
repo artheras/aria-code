@@ -384,14 +384,15 @@ pub fn glob_files(workspace: &Path, pattern: &str, limit: usize) -> Result<Vec<S
     let all = list_files(workspace, ".", limit.saturating_mul(10).max(500))?;
     let mut matches: Vec<String> = all
         .into_iter()
-        .filter(|rel| {
+        .filter_map(|rel| {
             let norm = rel.replace('\\', "/");
-            glob_match(&pat, &norm)
+            let matched = glob_match(&pat, &norm)
                 || (!pat.contains('/')
                     && Path::new(&norm)
                         .file_name()
                         .and_then(|n| n.to_str())
-                        .is_some_and(|n| glob_match(&pat, n)))
+                        .is_some_and(|n| glob_match(&pat, n)));
+            matched.then_some(norm)
         })
         .take(limit)
         .collect();
