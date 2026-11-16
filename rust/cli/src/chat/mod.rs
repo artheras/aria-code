@@ -65,7 +65,8 @@ pub fn run(
     let signal = cancelled.clone();
     ctrlc::set_handler(move || signal.store(true, Ordering::SeqCst)).map_err(|e| e.to_string())?;
     let with_python = args.iter().any(|a| a == "--with-python");
-    let native_only = !jsonl && !with_python;
+    let has_external_runtime = std::env::var_os("ARIA_RUNTIME").is_some_and(|v| !v.is_empty());
+    let native_only = !jsonl && !with_python && !has_external_runtime;
     let mut session = if native_only {
         None
     } else {

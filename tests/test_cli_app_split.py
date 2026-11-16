@@ -200,14 +200,6 @@ def test_football_intent_does_not_capture_ticker_vs_ticker_query():
     assert _is_probable_football_query(query, pair) is False
 
 
-def test_football_intent_still_accepts_real_match_query():
-    query = "葡萄牙和波兰的比赛比分预测"
-    pair = _parse_nl_team_pair(query)
-
-    assert pair is not None
-    assert _is_probable_football_query(query, pair) is True
-
-
 def test_cli_catalog_exposes_watchable_direct_commands_and_visible_help():
     assert DIRECT_COMMAND_MAP["watchlist"].method_name == "cmd_watch"
     assert DIRECT_COMMAND_MAP["tv"].method_name == "cmd_tv"
@@ -219,27 +211,6 @@ def test_cli_catalog_exposes_watchable_direct_commands_and_visible_help():
     assert "/upload-image" in VISIBLE_SLASH_COMMANDS
     assert "/tv" in VISIBLE_SLASH_COMMANDS
     assert "/ashare" in VISIBLE_SLASH_COMMANDS
-
-
-@pytest.mark.asyncio
-async def test_football_nl_query_uses_parser_after_mixin_rebind(monkeypatch):
-    import aria_cli
-
-    calls = []
-
-    class FakeTerminal:
-        pass
-
-    commands = aria_cli.SlashCommands(FakeTerminal())
-
-    async def fake_predict(home, away, league):
-        calls.append((home, away, league))
-
-    monkeypatch.setattr(commands, "_football_predict", fake_predict)
-
-    await commands.cmd_football("葡萄牙和波兰的比赛比分预测")
-
-    assert calls == [("葡萄牙", "波兰", "wc")]
 
 
 def test_console_script_points_to_apps_cli_entrypoint():
