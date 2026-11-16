@@ -38,11 +38,11 @@ ENGINE = SRC / "packages" / "quant_engine"
 # here. Adding a name to this list is a statement that the open side must not
 # depend on it unguarded; removing one means it was brought back into the tree.
 PRIVATE_SUBPACKAGES = frozenset({
-    "services", "agent_runtime", "risk", "analysis", "strategies", "mcp_server",
+    "services", "agent_runtime", "risk", "analysis", "strategies", "mcp_server", "sports",
 })
 
 # Subpackages that are in this tree and published under its license.
-PUBLIC_SUBPACKAGES = frozenset({"stochastic", "sports", "backtest", "portfolio"})
+PUBLIC_SUBPACKAGES = frozenset({"stochastic", "backtest", "portfolio"})
 
 
 def _engine_imports() -> list[tuple[str, int, str, bool]]:
