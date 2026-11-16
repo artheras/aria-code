@@ -302,6 +302,64 @@ pub fn run_command(workspace: &Path, cmd: &str, allow_write: bool) -> Result<Val
     }))
 }
 
+fn truncate_utf8(bytes: &[u8], limit: usize) -> String {
+    let s = String::from_utf8_lossy(bytes);
+    if s.len() <= limit {
+        return s.into_owned();
+    }
+    let end = s
+        .char_indices()
+        .take_while(|(idx, _)| *idx <= limit)
+        .last()
+        .map(|(idx, _)| idx)
+        .unwrap_or(0);
+    format!("{}…\n[truncated]", &s[..end])
+}
+
+/// Read-only `git status --short --branch` inside the workspace.
+pub fn git_status(workspace: &Path) -> Result<Value, String> {
+    let base = workspace
+        .canonicalize()
+        .map_err(|e| format!("Invalid workspace: {e}"))?;
+    let output = Command::new("git")
+        .args(["status", "--short", "--branch"])
+        .current_dir(&base)
+        .output()
+        .map_err(|e| format!("Failed to run git status: {e}"))?;
+    if !output.status.success() {
+        return Err(truncate_utf8(&output.stderr, 4096));
+    }
+    Ok(json!({ "status": truncate_utf8(&output.stdout, 16_384) }))
+}
+
+/// Read-only `git diff` inside the workspace, optionally scoped to `path` and `staged`.
+pub fn git_diff(workspace: &Path, rel: Option<&str>, staged: bool) -> Result<Value, String> {
+    let base = workspace
+        .canonicalize()
+        .map_err(|e| format!("Invalid workspace: {e}"))?;
+    let mut cmd = Command::new("git");
+    cmd.arg("diff");
+    if staged {
+        cmd.arg("--cached");
+    }
+    if let Some(raw_path) = rel.map(str::trim).filter(|s| !s.is_empty()) {
+        let confined = resolve_workspace_path(&base, raw_path)?;
+        let rel_path = confined
+            .strip_prefix(&base)
+            .unwrap_or(&confined)
+            .to_path_buf();
+        cmd.arg("--").arg(rel_path);
+    }
+    let output = cmd
+        .current_dir(&base)
+        .output()
+        .map_err(|e| format!("Failed to run git diff: {e}"))?;
+    if !output.status.success() {
+        return Err(truncate_utf8(&output.stderr, 4096));
+    }
+    Ok(json!({ "diff": truncate_utf8(&output.stdout, 24_576) }))
+}
+
 pub fn tool_schemas() -> Value {
     json!([
         {
@@ -391,6 +449,31 @@ pub fn tool_schemas() -> Value {
                     "required": ["command"]
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "git_status",
+                "description": "Show concise git status and current branch for the workspace.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "git_diff",
+                "description": "Show git diff for the workspace or a specific path.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" },
+                        "staged": { "type": "boolean" }
+                    }
+                }
+            }
         }
     ])
 }
@@ -426,6 +509,12 @@ pub fn execute_tool(workspace: &Path, name: &str, args: &Value, allow_write: boo
         "run_command" => {
             let cmd = args.get("command").and_then(Value::as_str).unwrap_or("");
             run_command(workspace, cmd, allow_write)
+        }
+        "git_status" => git_status(workspace),
+        "git_diff" => {
+            let rel = args.get("path").and_then(Value::as_str);
+            let staged = args.get("staged").and_then(Value::as_bool).unwrap_or(false);
+            git_diff(workspace, rel, staged)
         }
         other => Err(format!("Unknown native tool: {other}")),
     };
@@ -474,5 +563,22 @@ mod tests {
         let rw = run_command(dir.path(), "echo ok", true).unwrap();
         assert_eq!(rw["exit_code"], 0);
         assert_eq!(rw["stdout"].as_str().unwrap().trim(), "ok");
+    }
+
+    #[test]
+    fn git_status_and_diff_work_in_git_repo() {
+        let dir = tempdir().unwrap();
+        assert!(Command::new("git")
+            .args(["init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap()
+            .status
+            .success());
+        write_file(dir.path(), "a.txt", "hello\n", true).unwrap();
+        let st = git_status(dir.path()).unwrap();
+        assert!(st["status"].as_str().unwrap().contains("a.txt"));
+        let df = git_diff(dir.path(), None, false).unwrap();
+        assert!(df["diff"].as_str().is_some());
     }
 }

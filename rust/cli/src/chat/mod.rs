@@ -748,6 +748,64 @@ fn try_dispatch_native_turn(
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }
             NativeRoute::CloudChat(cloud) => {
+                let use_agent = !crate::engine::policy::is_conversation_only_message(&prompt)
+                    && !matches!(
+                        cloud,
+                        crate::engine::cloud::CloudProvider::Anthropic
+                            | crate::engine::cloud::CloudProvider::Gemini
+                    );
+                if use_agent {
+                    if let Some(api_key) = cloud.resolve_api_key() {
+                        let ws_path = Path::new(&workspace).to_path_buf();
+                        let res = crate::engine::agent::run_cloud_agent(
+                            cloud,
+                            &api_key,
+                            &model,
+                            &ws_path,
+                            &prompt,
+                            false,
+                            6,
+                            timeout,
+                            |tool, args, result| {
+                                let _ = tx.send(json!({
+                                    "protocol": 1,
+                                    "type": "tool.started",
+                                    "tool": tool,
+                                    "params": args
+                                }));
+                                let _ = tx.send(json!({
+                                    "protocol": 1,
+                                    "type": "tool.completed",
+                                    "tool": tool,
+                                    "success": result["ok"].as_bool().unwrap_or(false),
+                                    "output": result.to_string()
+                                }));
+                            },
+                        );
+                        let status = match res {
+                            Ok(answer) => {
+                                let _ = tx.send(json!({
+                                    "protocol": 1,
+                                    "type": "answer.delta",
+                                    "text": answer
+                                }));
+                                "ok"
+                            }
+                            Err(e) => {
+                                let _ = tx.send(json!({
+                                    "protocol": 1,
+                                    "type": "answer.delta",
+                                    "text": format!("\n[{e}]")
+                                }));
+                                "failed"
+                            }
+                        };
+                        let _ = tx.send(
+                            json!({"protocol": 1, "type": "turn.completed", "status": status}),
+                        );
+                        return;
+                    }
+                }
                 let sys = crate::engine::policy::general_system_prompt("today");
                 let res = crate::engine::cloud::stream_cloud_chat_cancelable(
                     cloud,
