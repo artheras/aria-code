@@ -1263,26 +1263,10 @@ class WorkspaceCommandsMixin:
             # Sub-command: launch wizard for just this channel
             if sub in ("feishu", "telegram"):
                 self.context.console.print() if self.context.has_rich else print()
-                try:
-                    # setup_wizard 是随包发布的顶层模块（见 pyproject py-modules），
-                    # 直接 import 即可。原先用 __file__ 往上数四层拼路径：这个方法
-                    # 的 __globals__ 被 _rebind_mixin_globals 换成了 aria_cli 的，
-                    # __file__ 因此指向仓库根的 aria_cli.py 而非本文件，四层 parent
-                    # 算出 /Users/setup_wizard.py，永远不存在——异常被下面的
-                    # except 吞掉，这条分支一直静默退化成"请手动运行"提示。
-                    from aria_code import setup_wizard as _wiz
-                    _e = _wiz._load_env()
-                    if sub == "feishu":
-                        _wiz.setup_feishu(_e)
-                    else:
-                        _wiz.setup_telegram(_e)
-                    _wiz._save_env(_e)
-                except Exception as _we:
-                    _fallback_flag = "--feishu" if sub == "feishu" else "--telegram"
-                    if self.context.has_rich:
-                        self.context.console.print(f"  [yellow]请运行: python3 -m aria_code.setup_wizard {_fallback_flag}[/yellow]")
-                    else:
-                        print(f"  Run: python3 -m aria_code.setup_wizard {_fallback_flag}")
+                if self.context.has_rich:
+                    self.context.console.print("  [yellow]请运行: aria-native setup --provider ... 或 /apikey set[/yellow]")
+                else:
+                    print("  Run: aria-native setup --provider ... or /apikey set")
                 return
 
             self.context.console.print() if self.context.has_rich else print()

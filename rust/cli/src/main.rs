@@ -96,6 +96,11 @@ enum Mode {
     },
     Render(bool),
     Config(bool),
+    Setup {
+        provider: Option<String>,
+        model: Option<String>,
+        api_key: Option<String>,
+    },
     Health {
         ollama_url: String,
     },
@@ -275,6 +280,34 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                     return Err("Unexpected config argument".into());
                 }
                 break Mode::Config(paths);
+            }
+            Some("setup") => {
+                let mut provider = None;
+                let mut model = None;
+                let mut api_key = None;
+                while let Some(arg) = args.next() {
+                    match arg.to_str() {
+                        Some("--provider") => {
+                            provider =
+                                Some(utf8(args.next(), "Missing provider after --provider")?);
+                        }
+                        Some("--model") => {
+                            model = Some(utf8(args.next(), "Missing model after --model")?);
+                        }
+                        Some("--api-key") => {
+                            api_key = Some(utf8(args.next(), "Missing value after --api-key")?);
+                        }
+                        _ => return Err(
+                            "Usage: setup [--provider PROVIDER] [--model MODEL] [--api-key KEY]"
+                                .into(),
+                        ),
+                    }
+                }
+                break Mode::Setup {
+                    provider,
+                    model,
+                    api_key,
+                };
             }
             Some("health") => {
                 let mut ollama_url = env::var("OLLAMA_HOST")
@@ -679,6 +712,27 @@ fn run(options: Options) -> Result<i32, String> {
             );
             Ok(0)
         }
+        Mode::Setup {
+            provider,
+            model,
+            api_key,
+        } => {
+            let home = env::var_os("HOME")
+                .or_else(|| env::var_os("USERPROFILE"))
+                .map(PathBuf::from)
+                .ok_or("Cannot determine home directory")?;
+            let result = run_setup_in_dir(
+                &home.join(".aria"),
+                provider.as_deref(),
+                model.as_deref(),
+                api_key.as_deref(),
+            )?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&result).unwrap_or_default()
+            );
+            Ok(0)
+        }
         Mode::Health { ollama_url } => {
             let report = engine::ollama::probe_ollama(&ollama_url, Duration::from_secs(5));
             let (cloud_ok, cloud_ms, cloud_err) =
@@ -977,6 +1031,72 @@ fn main() {
     std::process::exit(code);
 }
 
+fn run_setup_in_dir(
+    aria_dir: &std::path::Path,
+    provider: Option<&str>,
+    model: Option<&str>,
+    api_key: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    std::fs::create_dir_all(aria_dir)
+        .map_err(|e| format!("Failed to create {}: {e}", aria_dir.display()))?;
+    let cfg_path = aria_dir.join("config.json");
+    let mut cfg: serde_json::Value = std::fs::read_to_string(&cfg_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let obj = cfg
+        .as_object_mut()
+        .ok_or("config.json must be a JSON object")?;
+    if let Some(p) = provider.filter(|s| !s.trim().is_empty()) {
+        obj.insert("provider".into(), serde_json::json!(p.trim()));
+    } else if !obj.contains_key("provider") {
+        obj.insert("provider".into(), serde_json::json!("ollama"));
+    }
+    if let Some(m) = model.filter(|s| !s.trim().is_empty()) {
+        obj.insert("model".into(), serde_json::json!(m.trim()));
+    } else if !obj.contains_key("model") {
+        obj.insert("model".into(), serde_json::json!("qwen2.5:7b"));
+    }
+    std::fs::write(
+        &cfg_path,
+        serde_json::to_string_pretty(&obj).unwrap_or_else(|_| "{}".into()),
+    )
+    .map_err(|e| format!("Failed to write {}: {e}", cfg_path.display()))?;
+
+    let env_path = aria_dir.join(".env");
+    if let Some(key) = api_key.filter(|s| !s.trim().is_empty()) {
+        let env_name = match obj
+            .get("provider")
+            .and_then(|v| v.as_str())
+            .unwrap_or("ollama")
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "openai" => "OPENAI_API_KEY",
+            "anthropic" => "ANTHROPIC_API_KEY",
+            "gemini" | "google" => "GEMINI_API_KEY",
+            "deepseek" => "DEEPSEEK_API_KEY",
+            "openrouter" => "OPENROUTER_API_KEY",
+            _ => "ARIA_API_KEY",
+        };
+        let mut lines: Vec<String> = std::fs::read_to_string(&env_path)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| !l.starts_with(&format!("{env_name}=")))
+            .map(str::to_owned)
+            .collect();
+        lines.push(format!("{env_name}={}", key.trim()));
+        std::fs::write(&env_path, lines.join("\n") + "\n")
+            .map_err(|e| format!("Failed to write {}: {e}", env_path.display()))?;
+    }
+    Ok(serde_json::json!({
+        "config": cfg_path.to_string_lossy(),
+        "env": env_path.to_string_lossy(),
+        "provider": obj.get("provider"),
+        "model": obj.get("model"),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1047,5 +1167,23 @@ mod tests {
                 .mode,
             Mode::Tool { approved: true, .. }
         ));
+    }
+
+    #[test]
+    fn setup_writes_config_and_env_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = run_setup_in_dir(
+            dir.path(),
+            Some("openai"),
+            Some("gpt-4o"),
+            Some("sk-test-123"),
+        )
+        .unwrap();
+        assert_eq!(out["provider"], "openai");
+        assert_eq!(out["model"], "gpt-4o");
+        let cfg = std::fs::read_to_string(dir.path().join("config.json")).unwrap();
+        assert!(cfg.contains("\"gpt-4o\""));
+        let env_txt = std::fs::read_to_string(dir.path().join(".env")).unwrap();
+        assert!(env_txt.contains("OPENAI_API_KEY=sk-test-123"));
     }
 }
