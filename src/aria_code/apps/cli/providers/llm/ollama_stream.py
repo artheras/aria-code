@@ -102,9 +102,10 @@ from .offline_responses import (
 # aliases is what makes the import safe, because a wrapper is a different
 # function object from the thing it wraps.
 from aria_code.apps.cli.handlers.market_handlers import _try_prefetch_market_data
-from aria_code.apps.cli.handlers.sports_handlers import (
-    try_prefetch_sports_data as _try_prefetch_sports_data,
-)
+
+
+def _try_prefetch_sports_data(_message: str) -> str:
+    return ""
 from aria_code.apps.cli.message_processing import (
     build_broker_context_block as _build_broker_context_block,
 )

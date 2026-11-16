@@ -6,7 +6,6 @@ CLI 的会话状态：
     _rebind_module_function_globals(tool_executor, __all__)
     _rebind_module_function_globals(provider_endpoints, ["_test_api_key"])
     _rebind_module_function_globals(broker_render, __all__)
-    _rebind_module_function_globals(football_reports, __all__)
     stream_ollama = FunctionType(code, <merged globals>, ...)
 
 这套机制有两种静默失效，都不会在导入期报错，只在那行代码真正执行时炸：
@@ -39,7 +38,6 @@ REBOUND = {
     "apps/cli/tool_executor.py": None,
     "apps/cli/provider_endpoints.py": ["_test_api_key"],
     "apps/cli/broker_render.py": None,
-    "apps/cli/football_reports.py": None,
     "apps/cli/providers/llm/ollama_stream.py": ["stream_ollama"],
 }
 
