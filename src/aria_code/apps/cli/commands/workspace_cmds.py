@@ -1097,7 +1097,7 @@ class WorkspaceCommandsMixin:
         # ── Step 1: Detect LOCAL backends only (not cloud LLM providers) ───────
         _LOCAL_BACKENDS_ONLY = {"ollama", "lmstudio", "vllm", "llamacpp", "jan"}
         try:
-            from aria_code.local_llm_provider import probe_all_backends, BACKEND_DEFAULTS
+            from aria_code.providers.local_llm_provider import probe_all_backends, BACKEND_DEFAULTS
             _all_backends = probe_all_backends()
             # Filter to only true local backends — cloud providers appear in Step 3
             backends = {k: v for k, v in _all_backends.items() if k in _LOCAL_BACKENDS_ONLY}

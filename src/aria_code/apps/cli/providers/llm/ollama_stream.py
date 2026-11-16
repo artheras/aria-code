@@ -502,10 +502,14 @@ async def stream_ollama(ollama_url: str, message: str, history: list,
             if s.get("function", {}).get("name") not in _CU_TOOL_NAMES
         ]
     else:
-        # Coding/general: all local tools except CU (browser/computer control)
+        # Coding/general: exclude CU and (unless finance-related) finance tools so
+        # local models stay focused on software engineering and general tasks.
+        _excluded = set(_CU_TOOL_NAMES)
+        if not _has_finance_signal:
+            _excluded |= _FINANCE_TOOL_NAMES
         _schemas_for_context = [
             s for s in _available_tool_schemas
-            if s.get("function", {}).get("name") not in _CU_TOOL_NAMES
+            if s.get("function", {}).get("name") not in _excluded
         ]
 
     _skill_allowed_tools = {

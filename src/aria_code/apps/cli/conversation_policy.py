@@ -37,15 +37,22 @@ def is_capability_question(message: str) -> bool:
         chinese,
     ):
         return True
-    if re.fullmatch(r"(?:你|您|aria(?:code)?)(?:还)?(?:有|具备|支持)(?:哪些|什么)(?:能力|功能|用途)(?:吗|呢)?", chinese):
+    if re.fullmatch(r"(?:你|您|aria(?:code)?)(?:还)?(?:有|具备|支持)(?:哪些|什么)(?:能力|功能|用途|服务)(?:吗|呢)?", chinese):
         return True
-    if re.fullmatch(r"(?:介绍|说明)(?:一下)?(?:你|您|aria(?:code)?)(?:的)?(?:能力|功能|用途)", chinese):
+    if re.fullmatch(
+        r"(?:你|您|aria(?:code)?)(?:的)?(?:health\s*service|健康检查|服务检查|健康服务)"
+        r"(?:有|包含|包括)?(?:哪些|什么)(?:服务|功能|检查项)?(?:(?:以及|和|并)?(?:能|可以)?(?:帮我|帮助我)?(?:做|干)(?:些|什么)?)?(?:吗|呢)?",
+        chinese,
+    ):
+        return True
+    if re.fullmatch(r"(?:介绍|说明)(?:一下)?(?:你|您|aria(?:code)?)(?:的)?(?:能力|功能|用途|服务|healthservice)", chinese):
         return True
     return bool(re.fullmatch(
         r"(?:(?:besides|apart from|other than) [^.!?;]+[,，]? )?"
         r"what (?:else |other things )?can you (?:(?:help me )?(?:do|help with)|help me with)"
         r"(?: (?:besides|apart from|other than) [^.!?;]+)?"
-        r"|what are your (?:capabilities|features)", text,
+        r"|what are your (?:capabilities|features|services|health services?)"
+        r"|what does your health service (?:do|include|check)", text,
     ))
 
 

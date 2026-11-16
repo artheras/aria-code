@@ -68,7 +68,7 @@ def test_ashare_chart_uses_akshare_when_yfinance_unavailable(monkeypatch, tmp_pa
     monkeypatch.setitem(sys.modules, "yfinance", None)
     monkeypatch.setitem(
         sys.modules,
-        "aria_code.market_data_client",
+        "aria_code.clients.market_data_client",
         SimpleNamespace(get_mdc=lambda: SimpleNamespace(history=lambda *_a, **_k: {"success": False, "error": "mdc unavailable"})),
     )
 
@@ -106,7 +106,7 @@ def test_natural_language_ashare_chart_analysis_uses_akshare(monkeypatch, tmp_pa
     monkeypatch.setitem(sys.modules, "yfinance", None)
     monkeypatch.setitem(
         sys.modules,
-        "aria_code.market_data_client",
+        "aria_code.clients.market_data_client",
         SimpleNamespace(get_mdc=lambda: SimpleNamespace(history=lambda *_a, **_k: {"success": False, "error": "mdc unavailable"})),
     )
 
@@ -155,7 +155,7 @@ def test_ashare_chart_prefers_market_data_client(monkeypatch, tmp_path):
     ]
     monkeypatch.setitem(
         sys.modules,
-        "aria_code.market_data_client",
+        "aria_code.clients.market_data_client",
         SimpleNamespace(
             get_mdc=lambda: SimpleNamespace(
                 history=lambda *_a, **_k: {

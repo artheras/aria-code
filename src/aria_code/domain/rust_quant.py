@@ -6,23 +6,29 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 
 def find_aria_quant_binary() -> Optional[str]:
     """Locate the native `aria-quant` Rust binary if available."""
+    exe_name = "aria-quant.exe" if os.name == "nt" else "aria-quant"
     env_bin = os.getenv("ARIA_QUANT_BINARY", "").strip()
     if env_bin and Path(env_bin).is_file():
         return env_bin
     on_path = shutil.which("aria-quant")
     if on_path:
         return on_path
-    for parent in Path(__file__).resolve().parents:
-        cand = parent / "rust" / "target" / "release" / "aria-quant"
+    exe_dir = Path(sys.executable).resolve().parent
+    for cand in (exe_dir / exe_name, exe_dir / "_internal" / exe_name):
         if cand.is_file():
             return str(cand)
-        cand_dbg = parent / "rust" / "target" / "debug" / "aria-quant"
+    for parent in Path(__file__).resolve().parents:
+        cand = parent / "rust" / "target" / "release" / exe_name
+        if cand.is_file():
+            return str(cand)
+        cand_dbg = parent / "rust" / "target" / "debug" / exe_name
         if cand_dbg.is_file():
             return str(cand_dbg)
     return None

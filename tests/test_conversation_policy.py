@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from aria_code.apps.cli.conversation_policy import is_social_message
+from aria_code.apps.cli.conversation_policy import is_capability_question, is_social_message
 from aria_code.apps.cli.prompts.select import build_turn_system_prompt
 from aria_code.apps.cli.tool_scope import select_tool_schemas
 from aria_code.runtime.agent_loop import run_parallel_tools
@@ -92,3 +92,17 @@ def test_different_read_targets_and_side_effects_are_not_coalesced():
                [("read_file", "one"), ("read_file", "two"), ("custom", "same"), ("custom", "same")]]
     asyncio.run(run_parallel_tools(pending, executor))
     assert sorted(calls) == ["one", "same", "same", "two"]
+
+
+@pytest.mark.parametrize("text", [
+    "你的health service有哪些服务以及能帮助我做什么",
+    "Aria 的 health service 有哪些功能",
+    "What does your health service do?",
+    "what are your services",
+])
+def test_health_service_capability_question_explains_cli_services(text):
+    assert is_capability_question(text)
+    prompt = build_turn_system_prompt(text, project_context="PRIVATE_WORKSPACE_CONTENT")
+    assert "/health" in prompt
+    assert "PRIVATE_WORKSPACE_CONTENT" not in prompt
+    assert "Aria Code" in prompt

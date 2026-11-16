@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aria-code"
 version = "0.168.0"
-description = "Open-source AI agent for coding, financial analysis and logistics operations: numbers you can check, client data kept apart, actions a person approves"
+description = "Open-source terminal-first AI coding and task agent with local/cloud runtime"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 # Upper bound is real, not defensive: the finance/full extras include pandas_ta, which pulls numba, and
@@ -14,7 +14,7 @@ license = { text = "Apache-2.0" }
 # fails deep in the dependency tree on a numba source build — an error that
 # names neither aria-code nor pandas_ta. With it, pip refuses up front with a
 # clear "requires a different Python" message. Verified 3.13 installs and runs
-# (`aria-code --version` → 4.4.2); raise the bound once numba ships 3.14 wheels.
+# (`aria-code --version` → 0.168.0); raise the bound once numba ships 3.14 wheels.
 #
 # The bound was added in 1b2ca47 and silently dropped again in 4b46f32, a CI
 # commit about ruff and pytest paths, which left this comment sitting above a

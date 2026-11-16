@@ -1,5 +1,6 @@
 mod chat;
 mod completions;
+mod engine;
 mod frontend;
 mod render;
 mod runtime;
@@ -53,7 +54,7 @@ Exec options: --model, --url, --thinking, --local, --allow-tools,
 --dangerously-skip-permissions, --add-dir, --read-dir. Approvals are never added.
 Use --python or ARIA_PYTHON to select the installed Python Aria environment.
 Index imports/symbols read one JSON request on stdin and emit one JSON response.
-Chat is a persistent Rust terminal interface; --jsonl exposes its bidirectional application protocol.
+Chat is a persistent Rust terminal interface (native by default; pass --with-python for Python runtime, --jsonl for protocol).
 Chat options match exec; --resume ID restores a saved session. F1 shows native shortcuts.
 This prototype does not replace the stable aria/aria-code commands.
 Config/session inspection and update metadata checking execute in Rust without Python.
@@ -95,6 +96,25 @@ enum Mode {
     },
     Render(bool),
     Config(bool),
+    Health {
+        ollama_url: String,
+    },
+    Ask {
+        provider: String,
+        model: String,
+        ollama_url: String,
+        prompt: String,
+    },
+    Agent {
+        model: String,
+        ollama_url: String,
+        allow_write: bool,
+        prompt: String,
+    },
+    McpTools {
+        program: String,
+        args: Vec<String>,
+    },
     Sessions {
         action: String,
         argument: Option<String>,
@@ -254,6 +274,114 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                     return Err("Unexpected config argument".into());
                 }
                 break Mode::Config(paths);
+            }
+            Some("health") => {
+                let mut ollama_url = env::var("OLLAMA_HOST")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| "http://127.0.0.1:11434".to_owned());
+                while let Some(arg) = args.next() {
+                    match arg.to_str() {
+                        Some("--url") => {
+                            ollama_url = utf8(args.next(), "Missing URL after --url")?;
+                        }
+                        _ => return Err("Usage: health [--url URL]".into()),
+                    }
+                }
+                break Mode::Health { ollama_url };
+            }
+            Some("mcp-tools") => {
+                let program = utf8(args.next(), "Usage: mcp-tools PROGRAM [ARGS...]")?;
+                let rest = args
+                    .map(|s| {
+                        s.into_string()
+                            .map_err(|_| "MCP args must be UTF-8".to_string())
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                break Mode::McpTools {
+                    program,
+                    args: rest,
+                };
+            }
+            Some("agent") => {
+                let mut model = env::var("ARIA_MODEL")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| "qwen2.5:7b".to_owned());
+                let mut ollama_url = env::var("OLLAMA_HOST")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| "http://127.0.0.1:11434".to_owned());
+                let mut allow_write = false;
+                let mut prompt_parts: Vec<String> = Vec::new();
+                while let Some(arg) = args.next() {
+                    match arg.to_str() {
+                        Some("--model") => {
+                            model = utf8(args.next(), "Missing model after --model")?;
+                        }
+                        Some("--url") => {
+                            ollama_url = utf8(args.next(), "Missing URL after --url")?;
+                        }
+                        Some("--allow-write") => allow_write = true,
+                        Some(other) => prompt_parts.push(other.to_owned()),
+                        None => return Err("Prompt must be valid UTF-8".into()),
+                    }
+                }
+                let prompt = prompt_parts.join(" ");
+                if prompt.trim().is_empty() {
+                    return Err(
+                        "Usage: agent [--model MODEL] [--url URL] [--allow-write] PROMPT".into(),
+                    );
+                }
+                break Mode::Agent {
+                    model,
+                    ollama_url,
+                    allow_write,
+                    prompt,
+                };
+            }
+            Some("ask") => {
+                let mut provider = env::var("ARIA_PROVIDER")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| "ollama".to_owned());
+                let mut model = env::var("ARIA_MODEL")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| "qwen2.5:7b".to_owned());
+                let mut ollama_url = env::var("OLLAMA_HOST")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| "http://127.0.0.1:11434".to_owned());
+                let mut prompt_parts: Vec<String> = Vec::new();
+                while let Some(arg) = args.next() {
+                    match arg.to_str() {
+                        Some("--provider") => {
+                            provider = utf8(args.next(), "Missing provider after --provider")?;
+                        }
+                        Some("--model") => {
+                            model = utf8(args.next(), "Missing model after --model")?;
+                        }
+                        Some("--url") => {
+                            ollama_url = utf8(args.next(), "Missing URL after --url")?;
+                        }
+                        Some(other) => prompt_parts.push(other.to_owned()),
+                        None => return Err("Prompt must be valid UTF-8".into()),
+                    }
+                }
+                let prompt = prompt_parts.join(" ");
+                if prompt.trim().is_empty() {
+                    return Err(
+                        "Usage: ask [--provider PROVIDER] [--model MODEL] [--url URL] PROMPT"
+                            .into(),
+                    );
+                }
+                break Mode::Ask {
+                    provider,
+                    model,
+                    ollama_url,
+                    prompt,
+                };
             }
             Some("completions") => {
                 break Mode::Completions(utf8(args.next(), "Usage: completions bash|zsh|fish")?);
@@ -540,6 +668,107 @@ fn run(options: Options) -> Result<i32, String> {
                     state::config()?
                 }
             );
+            Ok(0)
+        }
+        Mode::Health { ollama_url } => {
+            let report = engine::ollama::probe_ollama(&ollama_url, Duration::from_secs(5));
+            let (cloud_ok, cloud_ms, cloud_err) =
+                engine::cloud::probe_arthera_backend(Duration::from_secs(3));
+            println!(
+                "{}",
+                json!({
+                    "service": "ollama",
+                    "url": ollama_url,
+                    "ok": report.ok,
+                    "latency_ms": report.latency_ms,
+                    "models": report.models,
+                    "error": report.error,
+                    "arthera_backend": {
+                        "url": engine::cloud::CloudProvider::arthera_base_url(),
+                        "ok": cloud_ok,
+                        "latency_ms": cloud_ms,
+                        "error": cloud_err,
+                    }
+                })
+            );
+            Ok(if report.ok { 0 } else { 1 })
+        }
+        Mode::McpTools { program, args } => {
+            let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+            let mut client = engine::mcp::McpStdioClient::spawn(&program, &arg_refs)?;
+            let tools = client.list_tools()?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&tools).unwrap_or_default()
+            );
+            Ok(0)
+        }
+        Mode::Agent {
+            model,
+            ollama_url,
+            allow_write,
+            prompt,
+        } => {
+            let answer = engine::agent::run_native_agent(
+                &ollama_url,
+                &model,
+                &options.workspace,
+                &prompt,
+                allow_write,
+                8,
+                Duration::from_secs(120),
+                |tool, args, result| {
+                    let ok = result["ok"].as_bool().unwrap_or(false);
+                    if ok {
+                        eprintln!("[tool] {tool} {args} -> ok");
+                    } else {
+                        eprintln!(
+                            "[tool] {tool} {args} -> err: {}",
+                            result["error"].as_str().unwrap_or("")
+                        );
+                    }
+                },
+            )?;
+            println!("{answer}");
+            Ok(0)
+        }
+        Mode::Ask {
+            provider,
+            model,
+            ollama_url,
+            prompt,
+        } => {
+            use std::io::Write;
+            let _conv_only = engine::policy::is_conversation_only_message(&prompt);
+            let sys = engine::policy::general_system_prompt("today");
+            let mut out = std::io::stdout().lock();
+            if let Some(cloud) = engine::cloud::CloudProvider::from_id(&provider) {
+                engine::cloud::stream_cloud_chat_cancelable(
+                    cloud,
+                    &model,
+                    &sys,
+                    &prompt,
+                    Duration::from_secs(120),
+                    || false,
+                    |delta| {
+                        let _ = out.write_all(delta.as_bytes());
+                        let _ = out.flush();
+                    },
+                )?;
+            } else {
+                engine::ollama::stream_chat(
+                    &ollama_url,
+                    &model,
+                    &sys,
+                    &prompt,
+                    Duration::from_secs(120),
+                    |delta| {
+                        let _ = out.write_all(delta.as_bytes());
+                        let _ = out.flush();
+                    },
+                )?;
+            }
+            let _ = out.write_all(b"\n");
             Ok(0)
         }
         Mode::Sessions {

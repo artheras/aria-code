@@ -1014,7 +1014,7 @@ def _screen_ashare(params: dict) -> dict:
     # Primary: direct eastmoney clist (host-rotating, proxy-resilient, small
     # paged query). Far more reliable than akshare's full-market spot endpoint.
     try:
-        from aria_code.market_data_client import screen_ashare as _em_screen
+        from aria_code.clients.market_data_client import screen_ashare as _em_screen
         _em = _em_screen(max_pe=max_pe, min_market_cap_yi=min_market_cap, limit=limit)
         if _em.get("success") and _em.get("stocks"):
             _em["criteria"] = params
@@ -3331,7 +3331,7 @@ def _run_portfolio_backtest(params: dict) -> dict:
         return {"success": False, "error": "symbols is required"}
 
     try:
-        from aria_code.backtest_engine import BacktestEngine, get_strategy, load_bars
+        from aria_code.domain.backtest_engine import BacktestEngine, get_strategy, load_bars
     except Exception as exc:
         return {"success": False, "error": f"backtest engine unavailable: {exc}"}
 

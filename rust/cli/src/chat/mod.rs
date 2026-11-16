@@ -1,6 +1,8 @@
 mod app;
+mod dialogs;
 mod editor;
 mod hang;
+mod labels;
 mod mark;
 mod markdown;
 mod phase;
@@ -62,9 +64,19 @@ pub fn run(
     let cancelled = Arc::new(AtomicBool::new(false));
     let signal = cancelled.clone();
     ctrlc::set_handler(move || signal.store(true, Ordering::SeqCst)).map_err(|e| e.to_string())?;
-    let mut session = Session::spawn(python, workspace, args)?;
+    let with_python = args.iter().any(|a| a == "--with-python")
+        || std::env::args_os().any(|a| a == "--python")
+        || std::env::var_os("ARIA_PYTHON").is_some_and(|v| !v.is_empty());
+    let has_external_runtime = std::env::var_os("ARIA_RUNTIME").is_some_and(|v| !v.is_empty());
+    let native_only = !jsonl && !with_python && !has_external_runtime;
+    let mut session = if native_only {
+        None
+    } else {
+        Some(Session::spawn(python, workspace, args)?)
+    };
     if jsonl {
-        return machine(&mut session, timeout, &cancelled);
+        let mut s = session.ok_or("--jsonl requires runtime session")?;
+        return machine(&mut s, timeout, &cancelled);
     }
     let _screen = Screen;
     enable_raw_mode().map_err(|e| e.to_string())?;
@@ -78,44 +90,103 @@ pub fn run(
     let mut terminal =
         Terminal::new(CrosstermBackend::new(io::stdout())).map_err(|e| e.to_string())?;
     let mut app = App {
-        status: "Starting Aria runtime…".into(),
+        status: if native_only {
+            "Native ready".into()
+        } else {
+            "Starting Aria runtime…".into()
+        },
         ..App::default()
     };
-    let mut deadline = Some(Instant::now() + timeout);
+    if native_only {
+        let ws = workspace
+            .canonicalize()
+            .unwrap_or_else(|_| workspace.to_path_buf())
+            .to_string_lossy()
+            .into_owned();
+        let probe = crate::engine::ollama::probe_ollama(&ollama_base_url(), Duration::from_secs(2));
+        let default_model = std::env::var("ARIA_MODEL")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| probe.models.first().cloned())
+            .unwrap_or_else(|| "qwen2.5:7b".to_owned());
+        app.event(json!({
+            "protocol": 1,
+            "type": "session.ready",
+            "session_id": "native",
+            "model": default_model,
+            "provider": "ollama",
+            "workspace": ws,
+            "commands": [
+                {"name": "/help", "description": "Show help"},
+                {"name": "/model", "description": "Choose or list models"},
+                {"name": "/health", "description": "Check configured services"},
+                {"name": "/new", "description": "Start a new session"}
+            ]
+        }))?;
+        app.status = "Native ready".into();
+    }
+    let mut deadline = if native_only {
+        None
+    } else {
+        Some(Instant::now() + timeout)
+    };
     let mut shutting_down = false;
     let mut external_signal = false;
     let mut dirty = true;
     let mut tick = Instant::now();
+    let (native_tx, native_rx) = mpsc::channel::<Value>();
+    let mut native_active = false;
+    let native_cancel = Arc::new(AtomicBool::new(false));
+    let mut native_picker_models: Vec<(String, String)> = Vec::new();
     loop {
+        if let Some(ref mut sess) = session {
+            for _ in 0..128 {
+                match sess.events.try_recv() {
+                    Ok(Ok(Some(value))) => {
+                        dirty = true;
+                        let kind = value["type"].as_str().unwrap_or("").to_owned();
+                        app.event(value)?;
+                        if !shutting_down
+                            && matches!(
+                                kind.as_str(),
+                                "session.ready"
+                                    | "turn.completed"
+                                    | "approval.requested"
+                                    | "input.requested"
+                            )
+                        {
+                            deadline = None;
+                        } else if !shutting_down && kind == "dialog.closed" {
+                            deadline = Some(Instant::now() + timeout);
+                        }
+                    }
+                    Ok(Ok(None)) => {
+                        if !app.closed {
+                            return Err("Application runtime disconnected unexpectedly".into());
+                        }
+                        break;
+                    }
+                    Ok(Err(error)) => return Err(error),
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(_) => return Err("Application reader disconnected".into()),
+                }
+            }
+        }
         for _ in 0..128 {
-            match session.events.try_recv() {
-                Ok(Ok(Some(value))) => {
+            match native_rx.try_recv() {
+                Ok(value) => {
                     dirty = true;
                     let kind = value["type"].as_str().unwrap_or("").to_owned();
                     app.event(value)?;
-                    if !shutting_down
-                        && matches!(
-                            kind.as_str(),
-                            "session.ready"
-                                | "turn.completed"
-                                | "approval.requested"
-                                | "input.requested"
-                        )
-                    {
-                        deadline = None;
-                    } else if !shutting_down && kind == "dialog.closed" {
-                        deadline = Some(Instant::now() + timeout);
+                    if kind == "turn.completed" {
+                        native_active = false;
+                        if !shutting_down {
+                            deadline = None;
+                        }
                     }
                 }
-                Ok(Ok(None)) => {
-                    if !app.closed {
-                        return Err("Application runtime disconnected unexpectedly".into());
-                    }
-                    break;
-                }
-                Ok(Err(error)) => return Err(error),
                 Err(mpsc::TryRecvError::Empty) => break,
-                Err(_) => return Err("Application reader disconnected".into()),
+                Err(mpsc::TryRecvError::Disconnected) => break,
             }
         }
         // A message queued while the last turn ran goes out as soon as that
@@ -124,7 +195,21 @@ pub fn run(
             if let Some(request) = app.next_queued() {
                 dirty = true;
                 deadline = Some(Instant::now() + timeout);
-                session.send(request)?;
+                if try_dispatch_native_turn(
+                    &app,
+                    &request,
+                    &native_tx,
+                    &native_cancel,
+                    &mut native_picker_models,
+                    timeout,
+                ) {
+                    native_active = true;
+                } else if let Some(ref mut sess) = session {
+                    sess.send(request)?;
+                } else {
+                    let _ = native_tx
+                        .send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+                }
             }
         }
         if app.turn.is_some() && tick.elapsed() >= Duration::from_secs(1) {
@@ -152,8 +237,13 @@ pub fn run(
         if cancelled.swap(false, Ordering::SeqCst) {
             external_signal = true;
             shutting_down = true;
-            session.send(json!({"type":"shutdown","protocol":1}))?;
-            deadline = Some(Instant::now() + Duration::from_secs(2));
+            if let Some(ref mut sess) = session {
+                sess.send(json!({"type":"shutdown","protocol":1}))?;
+                deadline = Some(Instant::now() + Duration::from_secs(2));
+            } else {
+                app.closed = true;
+                break;
+            }
         }
         if deadline.is_some_and(|end| Instant::now() >= end) {
             if shutting_down {
@@ -163,8 +253,10 @@ pub fn run(
                 "Application runtime timed out; worker and child processes were stopped".into(),
             );
         }
-        if let Some(status) = session.worker.child.try_wait().map_err(|e| e.to_string())? {
-            return Err(format!("Application runtime exited with {status}"));
+        if let Some(ref mut sess) = session {
+            if let Some(status) = sess.worker.child.try_wait().map_err(|e| e.to_string())? {
+                return Err(format!("Application runtime exited with {status}"));
+            }
         }
         if let Some(text) = app.clipboard.take() {
             let mut out = io::stdout();
@@ -201,22 +293,112 @@ pub fn run(
                 if kind == "shutdown" {
                     shutting_down = true;
                 }
-                deadline = Some(
-                    Instant::now()
-                        + if kind == "turn.cancel" || shutting_down {
-                            Duration::from_secs(2)
-                        } else {
-                            timeout
-                        },
-                );
-                session.send(request)?;
+                if kind == "dialog.respond"
+                    && request["request_id"].as_str() == Some("native-model-picker")
+                {
+                    let idx = request["choice"].as_i64().unwrap_or(-1);
+                    let _ = native_tx.send(json!({
+                        "protocol": 1,
+                        "type": "dialog.closed",
+                        "request_id": "native-model-picker"
+                    }));
+                    if idx >= 0 {
+                        if let Some((prov, mdl)) = native_picker_models.get(idx as usize) {
+                            let ws = app.workspace.clone();
+                            let _ = native_tx.send(json!({
+                                "protocol": 1,
+                                "type": "session.ready",
+                                "session_id": "native",
+                                "model": mdl,
+                                "provider": prov,
+                                "workspace": ws,
+                                "commands": [
+                                    {"name": "/help", "description": "Show help"},
+                                    {"name": "/model", "description": "Choose or list models"},
+                                    {"name": "/health", "description": "Check configured services"},
+                                    {"name": "/new", "description": "Start a new session"}
+                                ]
+                            }));
+                            let msg = if app.zh() {
+                                format!("已切换模型为 `{mdl}` ({prov})")
+                            } else {
+                                format!("Switched model to `{mdl}` ({prov})")
+                            };
+                            let _ = native_tx
+                                .send(json!({"protocol": 1, "type": "answer.delta", "text": msg}));
+                        }
+                    }
+                    let _ = native_tx
+                        .send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+                    native_picker_models.clear();
+                    deadline = None;
+                } else if kind == "turn.cancel" && native_active {
+                    native_cancel.store(true, Ordering::Relaxed);
+                    deadline = Some(Instant::now() + Duration::from_secs(2));
+                } else {
+                    deadline = Some(
+                        Instant::now()
+                            + if kind == "turn.cancel" || shutting_down {
+                                Duration::from_secs(2)
+                            } else {
+                                timeout
+                            },
+                    );
+                    if kind == "session.new" && session.is_none() {
+                        app.entries.clear();
+                        app.turn = None;
+                        let _ = native_tx.send(json!({
+                            "protocol": 1,
+                            "type": "session.ready",
+                            "session_id": "native",
+                            "model": app.model,
+                            "provider": app.provider,
+                            "workspace": app.workspace,
+                            "commands": [
+                                {"name": "/help", "description": "Show help"},
+                                {"name": "/model", "description": "Choose or list models"},
+                                {"name": "/health", "description": "Check configured services"},
+                                {"name": "/new", "description": "Start a new session"}
+                            ]
+                        }));
+                        deadline = None;
+                    } else if kind == "turn.submit"
+                        && request["text"].as_str().map(str::trim) == Some("/help")
+                        && session.is_none()
+                    {
+                        app.help = true;
+                        let _ = native_tx
+                            .send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+                        deadline = None;
+                    } else if try_dispatch_native_turn(
+                        &app,
+                        &request,
+                        &native_tx,
+                        &native_cancel,
+                        &mut native_picker_models,
+                        timeout,
+                    ) {
+                        native_active = true;
+                    } else if let Some(ref mut sess) = session {
+                        sess.send(request)?;
+                    } else if kind == "shutdown" {
+                        app.closed = true;
+                        break;
+                    } else {
+                        let _ = native_tx
+                            .send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+                    }
+                }
             }
         }
     }
+    let Some(mut sess) = session else {
+        return Ok(if external_signal { 130 } else { 0 });
+    };
     // A closed event is not sufficient to report success if Python exits 1.
     let end = Instant::now() + Duration::from_secs(2);
     loop {
-        if let Some(status) = session.worker.child.try_wait().map_err(|e| e.to_string())? {
+        if let Some(status) = sess.worker.child.try_wait().map_err(|e| e.to_string())? {
             return Ok(if external_signal {
                 130
             } else if app.failed || !status.success() {
@@ -230,6 +412,375 @@ pub fn run(
         }
         thread::sleep(Duration::from_millis(10));
     }
+}
+
+fn ollama_base_url() -> String {
+    std::env::var("OLLAMA_HOST")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "http://127.0.0.1:11434".to_owned())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum NativeRoute {
+    Health,
+    ModelList(Option<String>),
+    OllamaChat,
+    OllamaAgent,
+    CloudChat(crate::engine::cloud::CloudProvider),
+}
+
+fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
+    if request["type"].as_str() != Some("turn.submit") {
+        return None;
+    }
+    let text = request["text"].as_str().unwrap_or("").trim();
+    if text.is_empty() {
+        return None;
+    }
+    let is_ollama = app.provider.eq_ignore_ascii_case("ollama");
+    if text == "/health" && (is_ollama || app.provider.is_empty()) {
+        return Some(NativeRoute::Health);
+    }
+    if text == "/model" || text.starts_with("/model ") {
+        let arg = text.strip_prefix("/model").unwrap_or("").trim();
+        let target = if arg.is_empty() {
+            None
+        } else {
+            Some(arg.to_owned())
+        };
+        if is_ollama || app.provider.is_empty() {
+            return Some(NativeRoute::ModelList(target));
+        }
+    }
+    if !app.model.is_empty() {
+        if crate::engine::policy::is_conversation_only_message(text)
+            && app.entries.iter().filter(|e| e.role == "user").count() <= 1
+        {
+            if is_ollama {
+                return Some(NativeRoute::OllamaChat);
+            }
+            if let Some(cloud) = crate::engine::cloud::CloudProvider::from_id(&app.provider) {
+                if cloud.resolve_api_key().is_some() {
+                    return Some(NativeRoute::CloudChat(cloud));
+                }
+            }
+        } else if is_ollama && !text.starts_with('/') && app.provider == "ollama" {
+            // In native-only / pure-Ollama turns without Python context, allow native agent
+            if app.status == "Native ready" || app.status == "已完成" || app.status == "Completed"
+            {
+                return Some(NativeRoute::OllamaAgent);
+            }
+        }
+    }
+    None
+}
+
+fn try_dispatch_native_turn(
+    app: &App,
+    request: &Value,
+    tx: &mpsc::Sender<Value>,
+    cancel: &Arc<AtomicBool>,
+    picker_models: &mut Vec<(String, String)>,
+    timeout: Duration,
+) -> bool {
+    let Some(route) = classify_native_route(app, request) else {
+        return false;
+    };
+    cancel.store(false, Ordering::Relaxed);
+    let tx = tx.clone();
+    let cancel = Arc::clone(cancel);
+    let url = ollama_base_url();
+    let model = app.model.clone();
+    let workspace = app.workspace.clone();
+    let zh = app.zh();
+    let prompt = request["text"].as_str().unwrap_or("").trim().to_owned();
+
+    if matches!(route, NativeRoute::ModelList(None)) {
+        let probe = crate::engine::ollama::probe_ollama(&url, Duration::from_secs(2));
+        let mut choices: Vec<Value> = Vec::new();
+        let mut groups: Vec<String> = Vec::new();
+        picker_models.clear();
+        for m in &probe.models {
+            picker_models.push(("ollama".to_owned(), m.clone()));
+            groups.push(if zh {
+                "本地 Ollama".into()
+            } else {
+                "Local Ollama".into()
+            });
+            let note = if *m == model {
+                if zh {
+                    "当前选中 · 本地推理"
+                } else {
+                    "active · local"
+                }
+            } else {
+                if zh {
+                    "本地推理"
+                } else {
+                    "local"
+                }
+            };
+            choices.push(json!([m, note]));
+        }
+        let cloud_candidates = [
+            ("arthera", "aria-pro", "Arthera Backend (API)"),
+            ("openai", "gpt-4o", "OpenAI API"),
+            ("anthropic", "claude-3-7-sonnet-latest", "Anthropic API"),
+            ("google", "gemini-3.8-flash", "Google Gemini API"),
+            ("deepseek", "deepseek-chat", "DeepSeek API"),
+        ];
+        for (prov, mdl, label) in cloud_candidates {
+            if let Some(cp) = crate::engine::cloud::CloudProvider::from_id(prov) {
+                if cp.resolve_api_key().is_some() {
+                    picker_models.push((prov.to_owned(), mdl.to_owned()));
+                    groups.push(if zh {
+                        "云端 API".into()
+                    } else {
+                        "Cloud API".into()
+                    });
+                    choices.push(json!([mdl, label]));
+                }
+            }
+        }
+        if !choices.is_empty() {
+            let _ = tx.send(json!({"protocol": 1, "type": "turn.started"}));
+            let _ = tx.send(json!({
+                "protocol": 1,
+                "type": "input.requested",
+                "request_id": "native-model-picker",
+                "title": if zh { "选择模型" } else { "Select a model" },
+                "picker": true,
+                "selected": 0,
+                "groups": groups,
+                "choices": choices,
+            }));
+            return true;
+        }
+    }
+
+    thread::spawn(move || {
+        let _ = tx.send(json!({"protocol": 1, "type": "turn.started"}));
+        match route {
+            NativeRoute::Health => {
+                let probe = crate::engine::ollama::probe_ollama(&url, Duration::from_secs(5));
+                let (cloud_ok, cloud_ms, cloud_err) =
+                    crate::engine::cloud::probe_arthera_backend(Duration::from_secs(3));
+                let cloud_line = if cloud_ok {
+                    format!("● **Arthera Backend**  connected ({cloud_ms} ms)")
+                } else {
+                    let err = cloud_err.unwrap_or_else(|| "offline".to_owned());
+                    format!("○ **Arthera Backend**  {err} ({cloud_ms} ms)")
+                };
+                let body = if probe.ok {
+                    let models = if probe.models.is_empty() {
+                        if zh {
+                            "暂无已拉取模型".to_owned()
+                        } else {
+                            "no models pulled".to_owned()
+                        }
+                    } else {
+                        probe
+                            .models
+                            .iter()
+                            .take(4)
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    };
+                    if zh {
+                        format!(
+                            "● **Ollama**  已连接 · {} ({} ms)\n{}\n- 当前模型：`{}`\n- 工作区：`{}`\n- 提示：输入 `/health --model` 可测试模型实时生成，`/model` 可切换模型。",
+                            models, probe.latency_ms, cloud_line, model, workspace
+                        )
+                    } else {
+                        format!(
+                            "● **Ollama**  connected · {} ({} ms)\n{}\n- Active model: `{}`\n- Workspace: `{}`\n- Tip: run `/health --model` to test live generation, or `/model` to switch.",
+                            models, probe.latency_ms, cloud_line, model, workspace
+                        )
+                    }
+                } else {
+                    let err = probe.error.unwrap_or_else(|| "unreachable".to_owned());
+                    if zh {
+                        format!("● **Ollama**  未连接 ({err})\n{}\n- 请确认 Ollama 已启动 (`ollama serve`)，或输入 `/model` 切换云端模型。", cloud_line)
+                    } else {
+                        format!("● **Ollama**  offline ({err})\n{}\n- Start Ollama (`ollama serve`) or run `/model` to switch to a cloud model.", cloud_line)
+                    }
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": body}));
+                let _ = tx.send(json!({
+                    "protocol": 1,
+                    "type": "turn.completed",
+                    "status": if probe.ok { "ok" } else { "failed" }
+                }));
+            }
+            NativeRoute::ModelList(target) => {
+                let probe = crate::engine::ollama::probe_ollama(&url, Duration::from_secs(3));
+                if let Some(next_model) = target {
+                    let _ = tx.send(json!({
+                        "protocol": 1,
+                        "type": "session.ready",
+                        "session_id": "native",
+                        "model": next_model,
+                        "provider": "ollama",
+                        "workspace": workspace,
+                        "commands": [
+                            {"name": "/help", "description": "Show help"},
+                            {"name": "/model", "description": "Choose or list models"},
+                            {"name": "/health", "description": "Check configured services"},
+                            {"name": "/new", "description": "Start a new session"}
+                        ]
+                    }));
+                    let msg = if zh {
+                        format!("已切换模型为 `{next_model}` (Ollama)")
+                    } else {
+                        format!("Switched model to `{next_model}` (Ollama)")
+                    };
+                    let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": msg}));
+                    let _ =
+                        tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+                } else {
+                    let mut lines = Vec::new();
+                    if probe.ok && !probe.models.is_empty() {
+                        lines.push(if zh {
+                            "**本地 Ollama 可用模型：**".to_owned()
+                        } else {
+                            "**Available local Ollama models:**".to_owned()
+                        });
+                        for m in &probe.models {
+                            let mark = if *m == model { " (当前)" } else { "" };
+                            lines.push(format!("- `{m}`{mark}"));
+                        }
+                    } else {
+                        lines.push(if zh {
+                            "未检测到运行中的 Ollama 模型。".to_owned()
+                        } else {
+                            "No local Ollama models detected.".to_owned()
+                        });
+                    }
+                    lines.push(if zh {
+                        "\n输入 `/model <模型名>` 即可切换模型。".to_owned()
+                    } else {
+                        "\nRun `/model <name>` to switch models.".to_owned()
+                    });
+                    let _ = tx.send(
+                        json!({"protocol": 1, "type": "answer.delta", "text": lines.join("\n")}),
+                    );
+                    let _ =
+                        tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+                }
+            }
+            NativeRoute::OllamaAgent => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let res = crate::engine::agent::run_native_agent(
+                    &url,
+                    &model,
+                    &ws_path,
+                    &prompt,
+                    false,
+                    6,
+                    timeout,
+                    |tool, args, result| {
+                        let _ = tx.send(json!({
+                            "protocol": 1,
+                            "type": "tool.started",
+                            "tool": tool,
+                            "params": args
+                        }));
+                        let _ = tx.send(json!({
+                            "protocol": 1,
+                            "type": "tool.completed",
+                            "tool": tool,
+                            "success": result["ok"].as_bool().unwrap_or(false),
+                            "output": result.to_string()
+                        }));
+                    },
+                );
+                let status = match res {
+                    Ok(answer) => {
+                        let _ = tx.send(json!({
+                            "protocol": 1,
+                            "type": "answer.delta",
+                            "text": answer
+                        }));
+                        "ok"
+                    }
+                    Err(e) => {
+                        let _ = tx.send(json!({
+                            "protocol": 1,
+                            "type": "answer.delta",
+                            "text": format!("[{e}]")
+                        }));
+                        "failed"
+                    }
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::OllamaChat => {
+                let sys = crate::engine::policy::general_system_prompt("today");
+                let res = crate::engine::ollama::stream_chat_cancelable(
+                    &url,
+                    &model,
+                    &sys,
+                    &prompt,
+                    timeout,
+                    || cancel.load(Ordering::Relaxed),
+                    |delta| {
+                        let _ = tx.send(json!({
+                            "protocol": 1,
+                            "type": "answer.delta",
+                            "text": delta
+                        }));
+                    },
+                );
+                let status = match res {
+                    Ok(_) => "ok",
+                    Err(e) if e == "cancelled" => "cancelled",
+                    Err(e) => {
+                        let _ = tx.send(json!({
+                            "protocol": 1,
+                            "type": "answer.delta",
+                            "text": format!("\n[{e}]")
+                        }));
+                        "failed"
+                    }
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::CloudChat(cloud) => {
+                let sys = crate::engine::policy::general_system_prompt("today");
+                let res = crate::engine::cloud::stream_cloud_chat_cancelable(
+                    cloud,
+                    &model,
+                    &sys,
+                    &prompt,
+                    timeout,
+                    || cancel.load(Ordering::Relaxed),
+                    |delta| {
+                        let _ = tx.send(json!({
+                            "protocol": 1,
+                            "type": "answer.delta",
+                            "text": delta
+                        }));
+                    },
+                );
+                let status = match res {
+                    Ok(_) => "ok",
+                    Err(e) if e == "cancelled" => "cancelled",
+                    Err(e) => {
+                        let _ = tx.send(json!({
+                            "protocol": 1,
+                            "type": "answer.delta",
+                            "text": format!("\n[{e}]")
+                        }));
+                        "failed"
+                    }
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+        }
+    });
+    true
 }
 
 /// The OSC 52 sequence that puts text on the terminal's clipboard.
@@ -995,5 +1546,31 @@ mod tests {
             press(&mut app, KeyCode::Backspace);
         }
         assert_eq!(app.dialog.as_ref().unwrap().visible().len(), 4);
+    }
+
+    #[test]
+    fn native_route_intercepts_ollama_health_and_capability_turns() {
+        let mut app = App {
+            provider: "ollama".into(),
+            model: "qwen2.5:7b".into(),
+            ..App::default()
+        };
+        let health = json!({"type": "turn.submit", "text": "/health"});
+        assert_eq!(
+            classify_native_route(&app, &health),
+            Some(NativeRoute::Health)
+        );
+
+        let cap = json!({"type": "turn.submit", "text": "你的health service有哪些服务以及能帮助我做什么"});
+        assert_eq!(
+            classify_native_route(&app, &cap),
+            Some(NativeRoute::OllamaChat)
+        );
+
+        let code = json!({"type": "turn.submit", "text": "fix src/main.rs"});
+        assert_eq!(classify_native_route(&app, &code), None);
+
+        app.provider = "google".into();
+        assert_eq!(classify_native_route(&app, &cap), None);
     }
 }

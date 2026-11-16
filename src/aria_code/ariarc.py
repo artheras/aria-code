@@ -8,11 +8,11 @@ parent directories (walks up to filesystem root, stops at $HOME).
 
     {
       // Project identity
-      "project":      "Arthera Quant Engine",
-      "description":  "Quantitative trading system for A-share and US markets",
+      "project":      "My Software Project",
+      "description":  "Terminal-first software-engineering project",
 
       // Extra system prompt injected before every conversation
-      "system_prompt": "You are helping with an A-share quant strategy codebase...",
+      "system_prompt": "Follow repository conventions and run tests after edits...",
 
       // Files whose contents are prepended as context
       "context_files": ["README.md", "docs/architecture.md"],
