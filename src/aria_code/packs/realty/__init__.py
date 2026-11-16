@@ -145,7 +145,7 @@ class RealtyPack(BaseDomainPack):
         return (_handle,)
 
     def tool_names(self) -> Sequence[str]:
-        return REALTY_TOOLS
+        return ()
 
     def prompt_fragment(self, activation: PackActivation) -> str:
         cities = ", ".join(sorted({e.value for e in activation.entities}))

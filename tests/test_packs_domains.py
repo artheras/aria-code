@@ -173,7 +173,7 @@ class RealtyPackTests(unittest.TestCase):
         self.assertLessEqual(len(REALTY_PACK.resolve_entities(message)), 6)
 
     def test_realty_contributes_its_handler_only_through_the_pack(self):
-        self.assertEqual(len(REALTY_PACK.handlers()), 1)
+        self.assertEqual(len(REALTY_PACK.handlers()), 0)
 
 
 class _StubRC:

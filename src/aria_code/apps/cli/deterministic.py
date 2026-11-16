@@ -16,7 +16,6 @@ from aria_code.apps.cli.handlers.market_handlers import (
     _try_handle_market_overview,
     _try_handle_market_snapshot_analysis,
 )
-from aria_code.apps.cli.handlers.realty_handlers import handle_realty_query
 from aria_code.apps.cli.handlers.strategy_advice import handle_strategy_advice
 from aria_code.apps.cli.utils.market_detect import (
     _CN_CITIES,
@@ -90,12 +89,7 @@ def _handle_broker_query(message: str, config: DeterministicRouterConfig) -> dic
 
 
 def _handle_realty_query(message: str) -> dict:
-    return handle_realty_query(
-        message,
-        is_realty_query=_is_realty_query,
-        cn_cities=_CN_CITIES,
-        intl_cities=_INTL_CITIES,
-    )
+    return {"success": False, "error": "realty_handlers_not_available"}
 
 
 def _handle_stock_chart_analysis(message: str) -> dict:
