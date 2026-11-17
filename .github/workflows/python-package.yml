@@ -41,6 +41,12 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - name: Checkout pinned erp-service
+      uses: actions/checkout@v4
+      with:
+        repository: artheras/erp-service
+        ref: 67762d4e9c05aa76719a442761ff246d6e8ec2fb
+        path: vendor/erp-service
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
@@ -54,6 +60,7 @@ jobs:
         pip install fastapi uvicorn python-multipart
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         python -m pip install --no-deps -e .
+        python -m pip install --no-deps -e vendor/erp-service
     - name: Lint with flake8
       run: |
         # Stop the build on syntax errors or undefined names. The three

@@ -85,6 +85,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Checkout pinned erp-service
+        uses: actions/checkout@v4
+        with:
+          repository: artheras/erp-service
+          ref: 67762d4e9c05aa76719a442761ff246d6e8ec2fb
+          path: vendor/erp-service
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go/buildtools/go.mod
@@ -114,6 +121,8 @@ jobs:
           # check import-time behavior on a fresh interpreter, which pytest's
           # `pythonpath` ini setting does not reach.
           pip install --no-deps -e .
+          # Logistics math lives in erp-service; the bot only confines paths.
+          pip install --no-deps -e vendor/erp-service
 
       # 只把"能抓真 bug"的三类设成硬失败：name-defined / used-before-def /
       # no-redef。其余 280 个（多为缺类型注解）留作后续逐模块收紧——一次性
