@@ -28,7 +28,7 @@ def test_every_default_analyst_is_registered_under_either_root(module):
     import importlib
 
     registry = importlib.import_module(module).get_registry()
-    for name in ("macro", "fundamental", "technical", "risk", "synthesis", "debate"):
+    for name in ("coder", "tester", "portfolio", "supervisor"):
         assert registry.get(name) is not None, (module, name)
 
 
