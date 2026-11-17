@@ -420,6 +420,8 @@ fn native_commands_json() -> Value {
         {"name": "/diff", "description": "Show uncommitted git diff"},
         {"name": "/log", "description": "Show recent git commit log"},
         {"name": "/verify", "description": "Run workspace test/verification suite"},
+        {"name": "/map", "description": "Show workspace symbol map"},
+        {"name": "/rewind", "description": "Rewind the last file edit"},
         {"name": "/write-mode", "description": "Toggle workspace write permission (on|off)"},
         {"name": "/new", "description": "Start a new session"}
     ])
@@ -441,6 +443,8 @@ enum NativeRoute {
     Diff(Option<String>),
     Log(usize),
     Scan,
+    Map,
+    Rewind,
     Verify(Option<String>),
     WriteMode(Option<bool>),
     OllamaChat,
@@ -462,6 +466,12 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     }
     if text == "/scan" {
         return Some(NativeRoute::Scan);
+    }
+    if text == "/map" {
+        return Some(NativeRoute::Map);
+    }
+    if text == "/rewind" {
+        return Some(NativeRoute::Rewind);
     }
     if text == "/diff" || text.starts_with("/diff ") {
         let target = text.strip_prefix("/diff").unwrap_or("").trim();
@@ -912,6 +922,54 @@ fn try_dispatch_native_turn(
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
             }
             NativeRoute::WriteMode(_) => {}
+            NativeRoute::Map => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let text = match crate::engine::tools::repo_map(&ws_path, 40) {
+                    Ok(v) => {
+                        let files = v["files"].as_array().cloned().unwrap_or_default();
+                        if files.is_empty() {
+                            "No source symbols found.".to_owned()
+                        } else {
+                            files
+                                .iter()
+                                .map(|f| {
+                                    let p = f["path"].as_str().unwrap_or("?");
+                                    let syms = f["symbols"]
+                                        .as_array()
+                                        .map(|a| {
+                                            a.iter()
+                                                .filter_map(Value::as_str)
+                                                .collect::<Vec<_>>()
+                                                .join(", ")
+                                        })
+                                        .unwrap_or_default();
+                                    format!("- `{p}`: {syms}")
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        }
+                    }
+                    Err(e) => format!("[repo_map error: {e}]"),
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+            }
+            NativeRoute::Rewind => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) = match crate::engine::tools::restore_checkpoint(&ws_path) {
+                    Ok(v) => (
+                        format!(
+                            "Rewound `{}` (remaining checkpoints: {}).",
+                            v["restored"].as_str().unwrap_or("?"),
+                            v["remaining"].as_u64().unwrap_or(0)
+                        ),
+                        "ok",
+                    ),
+                    Err(e) => (format!("[rewind: {e}]"), "failed"),
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
             NativeRoute::Verify(target) => {
                 let ws_path = std::path::PathBuf::from(&workspace);
                 let (text, status) =
@@ -2027,6 +2085,14 @@ mod tests {
         assert_eq!(
             classify_native_route(&app, &json!({"type": "turn.submit", "text": "/scan"})),
             Some(NativeRoute::Scan)
+        );
+        assert_eq!(
+            classify_native_route(&app, &json!({"type": "turn.submit", "text": "/map"})),
+            Some(NativeRoute::Map)
+        );
+        assert_eq!(
+            classify_native_route(&app, &json!({"type": "turn.submit", "text": "/rewind"})),
+            Some(NativeRoute::Rewind)
         );
         assert_eq!(
             classify_native_route(
