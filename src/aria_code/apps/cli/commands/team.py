@@ -511,39 +511,6 @@ async def run_deep_cli(
     """Run the deep analysis pipeline (removed from core build)."""
     raise RuntimeError("Deep analysis vertical has been removed from the core build.")
 
-    llm_provider = build_team_llm_provider(config)
-    noisy = ["agents.base", "agents.team", "agents.deep", "datasources.router", "data_cleaner"]
-    saved = {name: logging.getLogger(name).level for name in noisy}
-    for name in noisy:
-        logging.getLogger(name).setLevel(logging.ERROR)
-
-    _real_stdout = sys.stdout
-
-    def _agent_done_proxy(name: str, result: Any) -> None:
-        if on_agent_done is None:
-            return
-        try:
-            with contextlib.redirect_stdout(_real_stdout):
-                on_agent_done(name, result)
-        except Exception as exc:
-            logger.debug("deep on_agent_done render failed: %s", exc)
-
-    cap_out, cap_err = io.StringIO(), io.StringIO()
-    try:
-        pipe = DeepAnalysisPipeline(
-            llm_provider=llm_provider, data_router=get_router(), lang=lang,
-        )
-        with contextlib.redirect_stdout(cap_out), contextlib.redirect_stderr(cap_err):
-            result = await pipe.run(
-                symbol,
-                agents=args.agent_names,
-                on_agent_done=_agent_done_proxy if on_agent_done else None,
-            )
-    finally:
-        for name, level in saved.items():
-            logging.getLogger(name).setLevel(level or logging.NOTSET)
-    return result
-
 
 def _agent_result_summary(team_result: Any) -> list[dict[str, Any]]:
     return [
