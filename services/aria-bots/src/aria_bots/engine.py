@@ -12,8 +12,7 @@ ARIA_BOT_ALLOW_TOOLS.
 The logistics tools reach the engine as an MCP server the bots register
 through ARIA_MCP_EXTRA_CONFIG, so the user's own mcp_servers.json is left
 alone. A conversation bound to a shipper passes ARIA_OWNER_SCOPE down; the
-engine hands its environment to the MCP server, where logistics.tenancy
-enforces it.
+engine hands its environment to the MCP server, and erp-service enforces it.
 """
 from __future__ import annotations
 
@@ -25,7 +24,7 @@ import sys
 from pathlib import Path
 from typing import Iterable, Optional
 
-from .logistics.tenancy import OWNER_SCOPE_ENV
+from .erp_logistics import OWNER_SCOPE_ENV
 
 ENGINE_ENV = "ARIA_RUNTIME"
 MAX_PROMPT = 65536
@@ -54,7 +53,7 @@ def mcp_config() -> Path:
     server = {
         "name": LOGISTICS_SERVER,
         "command": sys.executable,
-        "args": ["-m", "aria_bots.logistics.mcp_server"],
+        "args": ["-m", "aria_bots.erp_logistics"],
         "description": "Freight analysis, carrier scoring and inventory policy, scoped per shipper",
     }
     path = folder / "mcp_servers.json"

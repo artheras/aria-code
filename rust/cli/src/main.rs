@@ -44,7 +44,7 @@ Examples:
   aria-native -C ./project tool read_file '{\"path\":\"README.md\"}'
   aria-native -C ./project tool --approve-write edit_file '{\"path\":\"app.py\",\"old_string\":\"old\",\"new_string\":\"new\"}'
 
-Tools: read_file, list_files, search_code, write_file, edit_file.
+Tools: read_file, list_files, search_code, write_file, edit_file, multi_edit.
 Tool requests are confined to DIR (default: current directory); writes require
 explicit per-invocation --approve-write. Persistent tool denials still apply.
 Timeout: tools 30000 ms, exec 300000 ms by default. Tool stdout contains JSON only.

@@ -2,7 +2,10 @@
 tests/test_logistics_and_finance_agents.py — Tests for Logistics Tools
 """
 
-from aria_code.tools.logistics_tools import tool_analyze_logistics_data
+import pytest
+
+pytest.importorskip("erp_service")
+from aria_bots.erp_logistics import tool_analyze_logistics_data  # noqa: E402
 
 
 def test_logistics_tool_requires_actual_records(tmp_path, monkeypatch):

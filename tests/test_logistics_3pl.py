@@ -25,10 +25,13 @@ for _p in (str(ROOT / "src"), str(ROOT / "src" / "aria_code"), str(ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from aria_code.tools.logistics_carriers import tool_score_carriers, wilson_lower_bound  # noqa: E402
-from aria_code.tools.logistics_inventory import tool_plan_inventory_policy  # noqa: E402
-from aria_code.tools.logistics_tenancy import TenancyError, scope_records  # noqa: E402
-from aria_code.tools.logistics_tools import (  # noqa: E402
+import pytest
+
+pytest.importorskip("erp_service")
+from erp_service.logistics.carriers import tool_score_carriers, wilson_lower_bound  # noqa: E402
+from erp_service.logistics.inventory import tool_plan_inventory_policy  # noqa: E402
+from erp_service.logistics.tenancy import TenancyError, scope_records  # noqa: E402
+from aria_bots.erp_logistics import (  # noqa: E402
     register_logistics_tools,
     tool_analyze_logistics_data,
 )

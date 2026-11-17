@@ -42,7 +42,8 @@ def test_us_macro_is_english_in_an_english_session():
 
 
 def test_a_missing_logistics_file_names_the_files_that_are_there(tmp_path):
-    from aria_code.tools.logistics_io import load_records
+    pytest.importorskip("erp_service")
+    from erp_service.logistics.records import load_records
 
     (tmp_path / "waybills.csv").write_text("a\n1\n")
     with pytest.raises(ValueError) as info:

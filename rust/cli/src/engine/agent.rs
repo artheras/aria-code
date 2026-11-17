@@ -54,8 +54,8 @@ fn build_agent_messages(
 
 fn build_coding_system_prompt(workspace: &Path) -> String {
     let mut prompt = format!(
-        "{}\n\nYou are Aria Code's native coding agent. You have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `repo_map`, `write_file`, `edit_file`, `restore_checkpoint`, `run_command`, `git_status`, `git_diff`, `git_log`, `glob`, `project_scan`, `verify_workspace`) plus any configured MCP tools. \
-         Inspect relevant files before answering or editing. Prefer targeted reads, minimal verified edits, and run `verify_workspace` after code changes.",
+        "{}\n\nYou are Aria Code's native coding agent. You have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `repo_map`, `write_file`, `edit_file`, `multi_edit`, `restore_checkpoint`, `run_command`, `git_status`, `git_diff`, `git_log`, `glob`, `project_scan`, `verify_workspace`) plus any configured MCP tools. \
+         Inspect relevant files before answering or editing. Prefer targeted reads and minimal edits. `edit_file` fails when `old_string` is not unique; use more context or `multi_edit` for several unique replacements in one file. After code changes, run `verify_workspace` and fix failures before the final answer.",
         policy::general_system_prompt("today")
     );
     if let Ok(scan) = tools::project_scan(workspace) {
@@ -116,6 +116,17 @@ struct ToolLoopGuard {
     last_sig: Option<String>,
     repeat_count: usize,
     mcp: mcp::McpRegistry,
+    mutated: bool,
+    verified: bool,
+    nudge_sent: bool,
+}
+
+fn tool_mutates(name: &str, args: &Value) -> bool {
+    matches!(
+        name,
+        "write_file" | "edit_file" | "multi_edit" | "restore_checkpoint"
+    ) || (name == "git_worktree"
+        && args.get("action").and_then(Value::as_str).unwrap_or("list") != "list")
 }
 
 impl ToolLoopGuard {
@@ -124,7 +135,19 @@ impl ToolLoopGuard {
             last_sig: None,
             repeat_count: 0,
             mcp: mcp::McpRegistry::load_from_workspace(workspace),
+            mutated: false,
+            verified: false,
+            nudge_sent: false,
         }
+    }
+
+    /// Ask once for verification after a mutating tool, when this workspace has a runner.
+    fn verify_nudge(&mut self, workspace: &Path) -> Option<&'static str> {
+        if self.nudge_sent || !self.mutated || self.verified || !tools::has_verifier(workspace) {
+            return None;
+        }
+        self.nudge_sent = true;
+        Some("You changed workspace files without running verify_workspace. Call verify_workspace, repair any failure, then answer.")
     }
 
     fn all_tool_schemas(&self) -> Value {
@@ -150,6 +173,16 @@ impl ToolLoopGuard {
                 tools::execute_tool(workspace, &call.name, &call.arguments, allow_write)
             });
         on_tool(&call.name, &call.arguments, &output);
+        if tool_mutates(&call.name, &call.arguments) {
+            if self.verified {
+                self.nudge_sent = false;
+            }
+            self.mutated = true;
+            self.verified = false;
+        }
+        if call.name == "verify_workspace" {
+            self.verified = true;
+        }
         let sig = format!("{}:{}", call.name, call.arguments);
         if self.last_sig.as_deref() == Some(sig.as_str()) {
             self.repeat_count += 1;
@@ -235,6 +268,13 @@ pub fn run_native_agent_with_history(
             .map_err(|e| format!("Read response failed: {e}"))?;
         let (content, calls) = parse_ollama_turn(&raw)?;
         if calls.is_empty() {
+            if let Some(nudge) = guard.verify_nudge(workspace) {
+                if !content.is_empty() {
+                    messages.push(json!({ "role": "assistant", "content": content }));
+                }
+                messages.push(json!({ "role": "user", "content": nudge }));
+                continue;
+            }
             return Ok(content);
         }
 
@@ -397,6 +437,13 @@ fn run_messages_agent_with_history(
             .map_err(|e| format!("Read response failed: {e}"))?;
         let (content, calls) = parse_messages_turn(&raw)?;
         if calls.is_empty() {
+            if let Some(nudge) = guard.verify_nudge(workspace) {
+                if !content.is_empty() {
+                    messages.push(json!({ "role": "assistant", "content": content }));
+                }
+                messages.push(json!({ "role": "user", "content": nudge }));
+                continue;
+            }
             return Ok(content);
         }
 
@@ -521,6 +568,13 @@ fn run_gemini_agent_with_history(
             .map_err(|e| format!("Read response failed: {e}"))?;
         let (content, calls) = parse_gemini_turn(&raw)?;
         if calls.is_empty() {
+            if let Some(nudge) = guard.verify_nudge(workspace) {
+                if !content.is_empty() {
+                    contents.push(json!({ "role": "model", "parts": [{ "text": content }] }));
+                }
+                contents.push(json!({ "role": "user", "parts": [{ "text": nudge }] }));
+                continue;
+            }
             return Ok(content);
         }
 
@@ -648,6 +702,13 @@ pub fn run_cloud_agent_with_history(
             .map_err(|e| format!("Read response failed: {e}"))?;
         let (content, calls) = parse_openai_turn(&raw)?;
         if calls.is_empty() {
+            if let Some(nudge) = guard.verify_nudge(workspace) {
+                if !content.is_empty() {
+                    messages.push(json!({ "role": "assistant", "content": content }));
+                }
+                messages.push(json!({ "role": "user", "content": nudge }));
+                continue;
+            }
             return Ok(content);
         }
 
@@ -780,5 +841,37 @@ mod tests {
         assert!(!first.contains("Duplicate tool call"));
         let second = guard.execute(dir.path(), &call, false, &mut |_, _, _| {});
         assert!(second.contains("Duplicate tool call"));
+    }
+
+    #[test]
+    fn asks_for_verification_once_after_a_write() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname = \"t\"\n").unwrap();
+        let mut guard = ToolLoopGuard::new(dir.path());
+        assert!(guard.verify_nudge(dir.path()).is_none());
+        let call = ToolCall {
+            name: "write_file".into(),
+            arguments: json!({ "path": "src/lib.rs", "content": "pub fn a() {}\n" }),
+        };
+        let _ = guard.execute(dir.path(), &call, true, &mut |_, _, _| {});
+        let nudge = guard.verify_nudge(dir.path()).unwrap();
+        assert!(nudge.contains("verify_workspace"));
+        assert!(guard.verify_nudge(dir.path()).is_none());
+        let verify = ToolCall {
+            name: "verify_workspace".into(),
+            arguments: json!({}),
+        };
+        let _ = guard.execute(dir.path(), &verify, true, &mut |_, _, _| {});
+        assert!(guard.verify_nudge(dir.path()).is_none());
+        let _ = guard.execute(dir.path(), &call, true, &mut |_, _, _| {});
+        assert!(guard
+            .verify_nudge(dir.path())
+            .unwrap()
+            .contains("verify_workspace"));
+
+        let bare = tempfile::tempdir().unwrap();
+        let mut quiet = ToolLoopGuard::new(bare.path());
+        let _ = quiet.execute(bare.path(), &call, true, &mut |_, _, _| {});
+        assert!(quiet.verify_nudge(bare.path()).is_none());
     }
 }

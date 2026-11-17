@@ -13,17 +13,20 @@ go with it.
 
 import unittest
 
-from aria_code.tools.logistics_tools import tool_analyze_logistics_data
+import pytest
+
+pytest.importorskip("erp_service")
+from aria_bots.erp_logistics import tool_analyze_logistics_data  # noqa: E402
 
 
 class NoDataMeansNoAnswerTests(unittest.TestCase):
     def test_no_module_still_carries_the_sample_numbers(self):
         import inspect
 
-        from aria_code.tools import logistics_tools
+        from erp_service import freight
 
         code = "\n".join(
-            line for line in inspect.getsource(logistics_tools).splitlines()
+            line for line in inspect.getsource(freight).splitlines()
             if not line.lstrip().startswith("#")
         )
         self.assertNotIn("12000000.0", code)

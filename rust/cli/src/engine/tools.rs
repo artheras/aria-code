@@ -3,6 +3,7 @@
 use serde_json::{json, Value};
 use std::{
     fs,
+    io::Read,
     path::{Component, Path, PathBuf},
     process::Command,
 };
@@ -77,6 +78,12 @@ pub fn resolve_workspace_path(workspace: &Path, raw: &str) -> Result<PathBuf, St
 }
 
 pub fn list_files(workspace: &Path, rel: &str, max_entries: usize) -> Result<Vec<String>, String> {
+    walk_files(workspace, rel, max_entries.clamp(1, 500))
+}
+
+/// Walk workspace files for search and glob. The listing tool stays capped at 500
+/// so a model turn is not flooded; search must see past that cap.
+fn walk_files(workspace: &Path, rel: &str, max_entries: usize) -> Result<Vec<String>, String> {
     let normalized = match rel.trim() {
         "" | "/" | "~" | "./" => ".",
         "current" if !workspace.join("current").exists() => ".",
@@ -96,7 +103,7 @@ pub fn list_files(workspace: &Path, rel: &str, max_entries: usize) -> Result<Vec
         return Err("Target path does not exist".into());
     }
     let mut out = Vec::new();
-    collect_files(&base, &target, max_entries.clamp(1, 500), &mut out);
+    collect_files(&base, &target, max_entries.clamp(1, 8_000), &mut out);
     Ok(out)
 }
 
@@ -132,47 +139,107 @@ fn collect_files(base: &Path, dir: &Path, limit: usize, out: &mut Vec<String>) {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileSlice {
+    pub content: String,
+    pub total_lines: usize,
+    pub truncated: bool,
+}
+
+#[cfg(test)]
 pub fn read_file(
     workspace: &Path,
     rel: &str,
     start_line: usize,
     end_line: usize,
 ) -> Result<String, String> {
+    read_file_slice(workspace, rel, start_line, end_line).map(|slice| slice.content)
+}
+
+pub fn read_file_slice(
+    workspace: &Path,
+    rel: &str,
+    start_line: usize,
+    end_line: usize,
+) -> Result<FileSlice, String> {
     let path = resolve_workspace_path(workspace, rel)?;
     let content = fs::read_to_string(&path).map_err(|e| format!("Read failed: {e}"))?;
     let lines: Vec<&str> = content.lines().collect();
-    let start = start_line.saturating_sub(1).min(lines.len());
+    let total_lines = lines.len();
+    let start = start_line.saturating_sub(1).min(total_lines);
     let end = if end_line == 0 {
-        (start + 200).min(lines.len())
+        (start + 200).min(total_lines)
     } else {
-        end_line.min(lines.len())
+        end_line.max(start).min(total_lines)
     };
     let numbered: Vec<String> = lines[start..end]
         .iter()
         .enumerate()
         .map(|(idx, line)| format!("{}: {}", start + idx + 1, line))
         .collect();
-    Ok(numbered.join("\n"))
+    Ok(FileSlice {
+        content: numbered.join("\n"),
+        total_lines,
+        truncated: end < total_lines,
+    })
 }
 
-pub fn search_code(workspace: &Path, query: &str, max_hits: usize) -> Result<Vec<String>, String> {
+fn is_probably_text(path: &Path) -> bool {
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+    let mut buf = [0u8; 512];
+    let n = file.read(&mut buf).unwrap_or(0);
+    !buf[..n].contains(&0)
+}
+
+pub fn search_code(
+    workspace: &Path,
+    query: &str,
+    max_hits: usize,
+    scope: Option<&str>,
+    file_glob: Option<&str>,
+) -> Result<Vec<String>, String> {
     if query.trim().is_empty() {
         return Err("Search query cannot be empty".into());
     }
-    let files = list_files(workspace, ".", 500)?;
+    let root = scope
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(".");
+    let files = walk_files(workspace, root, 8_000)?;
     let base = workspace.canonicalize().map_err(|e| e.to_string())?;
     let limit = max_hits.clamp(1, 100);
+    let glob = file_glob.map(str::trim).filter(|s| !s.is_empty());
     let mut hits = Vec::new();
     for rel in files {
         if hits.len() >= limit {
             break;
         }
-        let Ok(content) = fs::read_to_string(base.join(&rel)) else {
+        let norm = rel.replace('\\', "/");
+        if let Some(pat) = glob {
+            let base_name = Path::new(&norm)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            let matched =
+                glob_match(pat, &norm) || (!pat.contains('/') && glob_match(pat, base_name));
+            if !matched {
+                continue;
+            }
+        }
+        let path = base.join(&rel);
+        if path.metadata().map(|m| m.len() > 1_000_000).unwrap_or(true) || !is_probably_text(&path)
+        {
+            continue;
+        }
+        let Ok(content) = fs::read_to_string(&path) else {
             continue;
         };
         for (idx, line) in content.lines().enumerate() {
             if line.contains(query) {
-                hits.push(format!("{}:{}: {}", rel, idx + 1, line.trim()));
+                hits.push(format!("{norm}:{}: {}", idx + 1, line.trim()));
                 if hits.len() >= limit {
                     break;
                 }
@@ -250,12 +317,70 @@ pub fn restore_checkpoint(workspace: &Path) -> Result<Value, String> {
     Ok(json!({ "restored": rel, "existed": existed, "remaining": stack.len() }))
 }
 
+fn match_count(haystack: &str, needle: &str) -> usize {
+    if needle.is_empty() {
+        return 0;
+    }
+    let mut count = 0;
+    let mut start = 0;
+    while let Some(pos) = haystack[start..].find(needle) {
+        count += 1;
+        start += pos + needle.len();
+    }
+    count
+}
+
+fn change_preview(before: &str, after: &str) -> String {
+    let before_lines: Vec<&str> = before.lines().collect();
+    let after_lines: Vec<&str> = after.lines().collect();
+    let mut start = 0;
+    while start < before_lines.len()
+        && start < after_lines.len()
+        && before_lines[start] == after_lines[start]
+    {
+        start += 1;
+    }
+    let mut before_end = before_lines.len();
+    let mut after_end = after_lines.len();
+    while before_end > start
+        && after_end > start
+        && before_lines[before_end - 1] == after_lines[after_end - 1]
+    {
+        before_end -= 1;
+        after_end -= 1;
+    }
+    let mut out = String::new();
+    const CAP: usize = 12;
+    for (idx, line) in before_lines[start..before_end].iter().take(CAP).enumerate() {
+        out.push_str(&format!("-{}: {line}\n", start + idx + 1));
+    }
+    if before_end.saturating_sub(start) > CAP {
+        out.push_str(&format!(
+            "... {} more removed lines\n",
+            before_end - start - CAP
+        ));
+    }
+    for (idx, line) in after_lines[start..after_end].iter().take(CAP).enumerate() {
+        out.push_str(&format!("+{}: {line}\n", start + idx + 1));
+    }
+    if after_end.saturating_sub(start) > CAP {
+        out.push_str(&format!(
+            "... {} more added lines\n",
+            after_end - start - CAP
+        ));
+    }
+    if out.is_empty() {
+        out.push_str("(no line changes)\n");
+    }
+    out
+}
+
 pub fn write_file(
     workspace: &Path,
     rel: &str,
     content: &str,
     allow_write: bool,
-) -> Result<String, String> {
+) -> Result<Value, String> {
     if !allow_write {
         return Err("Write denied: --allow-write is required for file modifications".into());
     }
@@ -263,9 +388,17 @@ pub fn write_file(
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("Create parent dir failed: {e}"))?;
     }
+    let before = if path.exists() {
+        fs::read_to_string(&path).unwrap_or_default()
+    } else {
+        String::new()
+    };
     save_checkpoint(workspace, &path, rel);
     fs::write(&path, content).map_err(|e| format!("Write failed: {e}"))?;
-    Ok(format!("Wrote {} bytes to {}", content.len(), rel))
+    Ok(json!({
+        "message": format!("Wrote {} bytes to {}", content.len(), rel),
+        "diff": change_preview(&before, content),
+    }))
 }
 
 pub fn edit_file(
@@ -274,19 +407,93 @@ pub fn edit_file(
     old_text: &str,
     new_text: &str,
     allow_write: bool,
-) -> Result<String, String> {
+    replace_all: bool,
+) -> Result<Value, String> {
     if !allow_write {
         return Err("Edit denied: --allow-write is required for file modifications".into());
     }
+    if old_text.is_empty() {
+        return Err("old_string cannot be empty".into());
+    }
     let path = resolve_workspace_path(workspace, rel)?;
     let content = fs::read_to_string(&path).map_err(|e| format!("Read failed: {e}"))?;
-    if !content.contains(old_text) {
+    let matches = match_count(&content, old_text);
+    if matches == 0 {
         return Err("Target text not found in file".into());
     }
+    if matches > 1 && !replace_all {
+        return Err(format!(
+            "old_string matched {matches} times in {rel}; include more surrounding context, or set replace_all"
+        ));
+    }
+    let updated = if replace_all {
+        content.replace(old_text, new_text)
+    } else {
+        content.replacen(old_text, new_text, 1)
+    };
     save_checkpoint(workspace, &path, rel);
-    let updated = content.replacen(old_text, new_text, 1);
     fs::write(&path, &updated).map_err(|e| format!("Write failed: {e}"))?;
-    Ok(format!("Updated {}", rel))
+    Ok(json!({
+        "message": format!("Updated {rel}"),
+        "replacements": if replace_all { matches } else { 1 },
+        "diff": change_preview(&content, &updated),
+    }))
+}
+
+/// Apply several unique replacements to one file, or leave the file unchanged.
+pub fn multi_edit(
+    workspace: &Path,
+    rel: &str,
+    edits: &[(String, String)],
+    allow_write: bool,
+) -> Result<Value, String> {
+    if !allow_write {
+        return Err("Edit denied: --allow-write is required for file modifications".into());
+    }
+    if edits.is_empty() {
+        return Err("multi_edit requires at least one edit".into());
+    }
+    let path = resolve_workspace_path(workspace, rel)?;
+    let original = fs::read_to_string(&path).map_err(|e| format!("Read failed: {e}"))?;
+    let mut updated = original.clone();
+    for (idx, (old_text, new_text)) in edits.iter().enumerate() {
+        if old_text.is_empty() {
+            return Err(format!("edit {idx} old_string cannot be empty"));
+        }
+        let matches = match_count(&updated, old_text);
+        if matches == 0 {
+            return Err(format!(
+                "edit {idx} target text not found in {rel}; no changes written"
+            ));
+        }
+        if matches > 1 {
+            return Err(format!(
+                "edit {idx} old_string matched {matches} times in {rel}; include more surrounding context. No changes written"
+            ));
+        }
+        updated = updated.replacen(old_text, new_text, 1);
+    }
+    save_checkpoint(workspace, &path, rel);
+    fs::write(&path, &updated).map_err(|e| format!("Write failed: {e}"))?;
+    Ok(json!({
+        "message": format!("Applied {} edits to {rel}", edits.len()),
+        "replacements": edits.len(),
+        "diff": change_preview(&original, &updated),
+    }))
+}
+
+/// True when the workspace has a runner `verify_workspace` knows how to start.
+pub fn has_verifier(workspace: &Path) -> bool {
+    let Ok(base) = workspace.canonicalize() else {
+        return false;
+    };
+    base.join("Cargo.toml").is_file()
+        || base.join("rust/Cargo.toml").is_file()
+        || base.join("pyproject.toml").is_file()
+        || base.join("pytest.ini").is_file()
+        || base.join("tests").is_dir()
+        || base.join("package.json").is_file()
+        || base.join("go.mod").is_file()
 }
 
 /// Reject slash commands and high-risk destructive shell patterns before execution.
@@ -777,7 +984,7 @@ pub fn glob_files(workspace: &Path, pattern: &str, limit: usize) -> Result<Vec<S
     if pat.is_empty() {
         return Err("Empty glob pattern".into());
     }
-    let all = list_files(workspace, ".", limit.saturating_mul(10).max(500))?;
+    let all = walk_files(workspace, ".", limit.saturating_mul(20).clamp(500, 8_000))?;
     let mut matches: Vec<String> = all
         .into_iter()
         .filter_map(|rel| {
@@ -867,11 +1074,13 @@ pub fn tool_schemas() -> Value {
             "type": "function",
             "function": {
                 "name": "search_code",
-                "description": "Search for literal text across workspace files.",
+                "description": "Search for literal text across workspace files. Optionally restrict to a directory and a glob.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "query": { "type": "string" }
+                        "query": { "type": "string" },
+                        "path": { "type": "string", "description": "Directory or file to search (default workspace root)" },
+                        "glob": { "type": "string", "description": "Optional glob such as '*.rs' or 'src/**/*.py'" }
                     },
                     "required": ["query"]
                 }
@@ -896,15 +1105,41 @@ pub fn tool_schemas() -> Value {
             "type": "function",
             "function": {
                 "name": "edit_file",
-                "description": "Replace an exact string in a workspace file.",
+                "description": "Replace an exact string in a workspace file. Fails when old_string matches more than once unless replace_all is true.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "path": { "type": "string" },
                         "old_string": { "type": "string" },
-                        "new_string": { "type": "string" }
+                        "new_string": { "type": "string" },
+                        "replace_all": { "type": "boolean" }
                     },
                     "required": ["path", "old_string", "new_string"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "multi_edit",
+                "description": "Apply several exact replacements to one file. Every old_string must match once in sequence; if any edit fails, the file is left unchanged.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" },
+                        "edits": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "old_string": { "type": "string" },
+                                    "new_string": { "type": "string" }
+                                },
+                                "required": ["old_string", "new_string"]
+                            }
+                        }
+                    },
+                    "required": ["path", "edits"]
                 }
             }
         },
@@ -1065,23 +1300,59 @@ pub fn execute_tool(workspace: &Path, name: &str, args: &Value, allow_write: boo
             let rel = args.get("path").and_then(Value::as_str).unwrap_or("");
             let start = args.get("start_line").and_then(Value::as_u64).unwrap_or(1) as usize;
             let end = args.get("end_line").and_then(Value::as_u64).unwrap_or(0) as usize;
-            read_file(workspace, rel, start, end).map(|content| json!({ "content": content }))
+            read_file_slice(workspace, rel, start, end).map(|slice| {
+                json!({
+                    "content": slice.content,
+                    "total_lines": slice.total_lines,
+                    "truncated": slice.truncated,
+                })
+            })
         }
         "search_code" => {
             let query = args.get("query").and_then(Value::as_str).unwrap_or("");
-            search_code(workspace, query, 50).map(|hits| json!({ "hits": hits }))
+            let scope = args.get("path").and_then(Value::as_str);
+            let glob = args.get("glob").and_then(Value::as_str);
+            search_code(workspace, query, 50, scope, glob).map(|hits| json!({ "hits": hits }))
         }
         "write_file" => {
             let rel = args.get("path").and_then(Value::as_str).unwrap_or("");
             let content = args.get("content").and_then(Value::as_str).unwrap_or("");
-            write_file(workspace, rel, content, allow_write).map(|msg| json!({ "message": msg }))
+            write_file(workspace, rel, content, allow_write)
         }
         "edit_file" => {
             let rel = args.get("path").and_then(Value::as_str).unwrap_or("");
             let old_s = args.get("old_string").and_then(Value::as_str).unwrap_or("");
             let new_s = args.get("new_string").and_then(Value::as_str).unwrap_or("");
-            edit_file(workspace, rel, old_s, new_s, allow_write)
-                .map(|msg| json!({ "message": msg }))
+            let replace_all = args
+                .get("replace_all")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            edit_file(workspace, rel, old_s, new_s, allow_write, replace_all)
+        }
+        "multi_edit" => {
+            let rel = args.get("path").and_then(Value::as_str).unwrap_or("");
+            let edits = args
+                .get("edits")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .map(|item| {
+                            (
+                                item.get("old_string")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .to_owned(),
+                                item.get("new_string")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .to_owned(),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            multi_edit(workspace, rel, &edits, allow_write)
         }
         "run_command" => {
             let cmd = args.get("command").and_then(Value::as_str).unwrap_or("");
@@ -1149,12 +1420,91 @@ mod tests {
         assert!(denied.is_err());
 
         assert!(write_file(dir.path(), "note.txt", "hello world", true).is_ok());
-        assert!(edit_file(dir.path(), "note.txt", "world", "Aria", true).is_ok());
+        assert!(edit_file(dir.path(), "note.txt", "world", "Aria", true, false).is_ok());
         let text = read_file(dir.path(), "note.txt", 1, 10).unwrap();
         assert!(text.contains("1: hello Aria"));
 
-        let hits = search_code(dir.path(), "Aria", 10).unwrap();
+        let hits = search_code(dir.path(), "Aria", 10, None, None).unwrap();
         assert_eq!(hits, vec!["note.txt:1: hello Aria"]);
+    }
+
+    #[test]
+    fn edit_requires_a_unique_match_and_multi_edit_is_atomic() {
+        let dir = tempdir().unwrap();
+        write_file(dir.path(), "note.txt", "alpha alpha\nbeta\n", true).unwrap();
+        let ambiguous = edit_file(dir.path(), "note.txt", "alpha", "ALPHA", true, false);
+        assert!(ambiguous.unwrap_err().contains("matched 2 times"));
+        assert!(read_file(dir.path(), "note.txt", 1, 5)
+            .unwrap()
+            .contains("alpha alpha"));
+
+        let replaced = edit_file(dir.path(), "note.txt", "alpha", "ALPHA", true, true).unwrap();
+        assert_eq!(replaced["replacements"], 2);
+        assert!(read_file(dir.path(), "note.txt", 1, 5)
+            .unwrap()
+            .contains("ALPHA ALPHA"));
+
+        write_file(dir.path(), "note.txt", "alpha\nbeta\n", true).unwrap();
+        let failed = multi_edit(
+            dir.path(),
+            "note.txt",
+            &[
+                ("alpha".into(), "ALPHA".into()),
+                ("missing".into(), "x".into()),
+            ],
+            true,
+        );
+        assert!(failed.unwrap_err().contains("no changes written"));
+        assert!(read_file(dir.path(), "note.txt", 1, 5)
+            .unwrap()
+            .contains("alpha"));
+
+        let applied = multi_edit(
+            dir.path(),
+            "note.txt",
+            &[
+                ("alpha".into(), "ALPHA".into()),
+                ("beta".into(), "BETA".into()),
+            ],
+            true,
+        )
+        .unwrap();
+        assert_eq!(applied["replacements"], 2);
+        let text = read_file(dir.path(), "note.txt", 1, 5).unwrap();
+        assert!(text.contains("ALPHA"));
+        assert!(text.contains("BETA"));
+    }
+
+    #[test]
+    fn read_reports_truncation_and_search_is_scoped() {
+        let dir = tempdir().unwrap();
+        let body = (1..=250)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        write_file(dir.path(), "long.txt", &body, true).unwrap();
+        let slice = read_file_slice(dir.path(), "long.txt", 1, 0).unwrap();
+        assert!(slice.truncated);
+        assert_eq!(slice.total_lines, 250);
+        assert!(slice.content.contains("1: line 1"));
+        assert!(!slice.content.contains("250: line 250"));
+
+        for i in 0..520 {
+            write_file(dir.path(), &format!("bulk/f{i:04}.txt"), "plain\n", true).unwrap();
+        }
+        write_file(
+            dir.path(),
+            "nested/hidden.rs",
+            "fn unique_marker() {}\n",
+            true,
+        )
+        .unwrap();
+        let hits = search_code(dir.path(), "unique_marker", 10, None, None).unwrap();
+        assert_eq!(hits.len(), 1);
+        let missed = search_code(dir.path(), "unique_marker", 10, Some("bulk"), None).unwrap();
+        assert!(missed.is_empty());
+        let rust_only = search_code(dir.path(), "plain", 5, None, Some("*.rs")).unwrap();
+        assert!(rust_only.is_empty());
     }
 
     #[test]
@@ -1253,7 +1603,7 @@ mod tests {
     fn checkpoint_and_repo_map_work_together() {
         let dir = tempdir().unwrap();
         write_file(dir.path(), "src/app.rs", "pub fn alpha() {}\n", true).unwrap();
-        edit_file(dir.path(), "src/app.rs", "alpha", "beta", true).unwrap();
+        edit_file(dir.path(), "src/app.rs", "alpha", "beta", true, false).unwrap();
         assert!(read_file(dir.path(), "src/app.rs", 1, 5)
             .unwrap()
             .contains("beta"));

@@ -21,7 +21,7 @@ The guarantees, each tested in tests/test_conversation_core.py:
   - In a group the bot answers only when addressed; in a direct chat, always.
   - A conversation bound to a shipper (货主) runs every turn with
     ARIA_OWNER_SCOPE set, which the logistics tools enforce themselves
-    (tools/logistics_tenancy.py) — the binding does not rely on the prompt.
+    (erp-service tenancy, via ARIA_OWNER_SCOPE) — the binding does not rely on the prompt.
   - Only channel admins (ARIA_CHANNEL_ADMINS) can bind or unbind.
   - History is per conversation and never crosses: the context for a turn is
     built from that conversation's own messages and nothing else.
@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 from aria_bots.channels.registry import CHANNEL_TASK_SCHEMA
-from aria_bots.logistics.tenancy import OWNER_SCOPE_ENV
+from aria_bots.erp_logistics import OWNER_SCOPE_ENV
 
 ADMINS_ENV = "ARIA_CHANNEL_ADMINS"
 DB_ENV = "ARIA_CONVERSATIONS_DB"
