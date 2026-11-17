@@ -210,7 +210,6 @@ def test_cli_catalog_exposes_watchable_direct_commands_and_visible_help():
     assert "/positions" in VISIBLE_SLASH_COMMANDS
     assert "/upload-image" in VISIBLE_SLASH_COMMANDS
     assert "/tv" in VISIBLE_SLASH_COMMANDS
-    assert "/ashare" in VISIBLE_SLASH_COMMANDS
 
 
 def test_console_script_points_to_apps_cli_entrypoint():

@@ -319,7 +319,6 @@ from aria_code.apps.cli.commands.auth_cmds import AuthCommandsMixin
 from aria_code.apps.cli.commands.file_cmds import FileCommandsMixin
 from aria_code.apps.cli.commands.orchestrator_cmds import OrchestratorCommandsMixin
 from aria_code.apps.cli.commands.workflow_cmds import WorkflowCommandsMixin
-from aria_code.apps.cli.commands.business_workflow_cmds import BusinessWorkflowCommandsMixin
 from aria_code.apps.cli.commands.warehouse_cmds import LogisticsCommandsMixin, WarehouseCommandsMixin
 from aria_code.apps.cli.commands.session_cmds import SessionCommandsMixin
 from aria_code.apps.cli.session_export import build_session_export_payload  # 同上
@@ -3453,7 +3452,7 @@ import apps.cli.broker_render as _broker_render_module
 _rebind_module_function_globals(_broker_render_module, _broker_render_module.__all__)
 
 class SlashCommands(
-    CoreCommandsMixin,EngineeringCommandsMixin,BrokerCommandsMixin, CanvasCommandsMixin, AnalysisCommandsMixin, DataCommandsMixin, OpsCommandsMixin, DiagnosticCommandsMixin, DiagnosticOpsCommandsMixin, UiCommandsMixin, SessionUxCommandsMixin, AuthCommandsMixin, FileCommandsMixin, OrchestratorCommandsMixin, WorkflowCommandsMixin, BusinessWorkflowCommandsMixin, WarehouseCommandsMixin, LogisticsCommandsMixin, SessionCommandsMixin, WorkspaceCommandsMixin, ModelCommandsMixin, MarketCommandsMixin, PortfolioCommandsMixin, PdfExportCommandsMixin):
+    CoreCommandsMixin,EngineeringCommandsMixin,BrokerCommandsMixin, CanvasCommandsMixin, AnalysisCommandsMixin, DataCommandsMixin, OpsCommandsMixin, DiagnosticCommandsMixin, DiagnosticOpsCommandsMixin, UiCommandsMixin, SessionUxCommandsMixin, AuthCommandsMixin, FileCommandsMixin, OrchestratorCommandsMixin, WorkflowCommandsMixin, WarehouseCommandsMixin, LogisticsCommandsMixin, SessionCommandsMixin, WorkspaceCommandsMixin, ModelCommandsMixin, MarketCommandsMixin, PortfolioCommandsMixin, PdfExportCommandsMixin):
     """Claude Code-style slash command system."""
 
 
@@ -3556,14 +3555,6 @@ class SlashCommands(
             "/apply":     (self.cmd_apply,    "Extract & save code from last response"),
             # ── Quantitative (multi-step, structured output) ──────────────────
             "/compare":   (self.cmd_compare,  "Compare strategies: /compare SPY [start] [end]"),
-            "/research":  (self.cmd_research, "Market research workflow: /research AAPL"),
-            "/earnings":  (self.cmd_earnings_workflow, "Earnings review workflow: /earnings AAPL"),
-            "/asset-diag": (self.cmd_asset_diag, "Asset diagnosis workflow: /asset-diag asset_000001"),
-            "/contract-draft": (self.cmd_contract_draft, "Contract draft workflow: /contract-draft proj_001"),
-            "/revenue-calc": (self.cmd_revenue_calc, "Revenue split workflow: /revenue-calc proj_001 200000"),
-            "/risk-scan": (self.cmd_realty_risk_scan, "Realty risk scan workflow: /risk-scan proj_001"),
-            "/ops-report": (self.cmd_ops_report, "Ops report workflow: /ops-report proj_001"),
-            "/exit-calc": (self.cmd_exit_calc, "Exit settlement workflow: /exit-calc proj_001"),
             "/execution": (self.cmd_execution,"Algo execution compare: /execution AAPL buy 100000"),
             "/chart":     (self.cmd_chart,    "Chart artifact: /chart AAPL [period]"),
             "/tv":        (self.cmd_tv,       "TradingView chart/Pine: /tv AAPL [--open] [--analyze|--bullish|--bearish] [--pine]"),
