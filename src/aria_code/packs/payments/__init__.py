@@ -21,9 +21,7 @@ from aria_code.packs.base import BaseDomainPack, EntityMatch, PackActivation
 
 PACK_NAME = "payments"
 
-PAYMENT_TOOLS = (
-    "analyze_stripe_data",
-)
+PAYMENT_TOOLS: tuple[str, ...] = ()
 
 _RESOLVED = 0.95
 

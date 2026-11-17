@@ -429,8 +429,7 @@ class DeclaredToolsExistTests(unittest.TestCase):
             (s.get("function") or s).get("name")
             for s in cli.LOCAL_TOOL_SCHEMAS
         }
-        for name in ("analyze_logistics_data", "analyze_stripe_data",
-                     "analyze_financial_statements"):
+        for name in ("analyze_logistics_data",):
             with self.subTest(tool=name):
                 self.assertIn(name, cli.LOCAL_TOOLS)
                 self.assertIn(name, described)

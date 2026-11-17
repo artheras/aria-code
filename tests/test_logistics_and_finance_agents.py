@@ -7,7 +7,6 @@ from aria_code.agents.registry import get_registry
 from aria_code.agents.warehouse.logistics_cost import LogisticsCostOptimizerAgent
 from aria_code.agents.warehouse.fulfillment_leadtime import FulfillmentLeadTimeAgent
 from aria_code.tools.logistics_tools import tool_analyze_logistics_data
-from aria_code.tools.enterprise_finance_tools import tool_analyze_financial_statements
 
 
 def test_enterprise_agents_registry_discovery():
@@ -88,38 +87,3 @@ def test_logistics_csv_import(tmp_path):
     assert res["success"] is True
     assert res["source"] == str(path)
     assert res["data"]["overall_on_time_rate"] == 0
-
-
-def test_enterprise_finance_tool_refuses_a_name_without_statements():
-    """A company name is not financial data.
-
-    This test used to assert the opposite — that passing only company_name
-    returned a successful DuPont and working-capital analysis. It did, by
-    inventing the statements. Refusing is the same correction this file already
-    makes for the logistics tool one test above: a tool that cannot know
-    something must say so rather than produce a confident number.
-    """
-    tool_res = tool_analyze_financial_statements({"company_name": "Enterprise Test"})
-    assert tool_res["success"] is False
-    assert "does not estimate" in tool_res["error"]
-
-
-def test_enterprise_finance_tool_computes_from_supplied_statements():
-    """With real statements it still does the arithmetic it always did."""
-    tool_res = tool_analyze_financial_statements({
-        "company_name": "Enterprise Test",
-        "financials": {
-            "income_statement": {"revenue": 1000.0, "net_income": 100.0},
-            "balance_sheet": {
-                "total_assets": 2000.0, "total_equity": 800.0,
-                "current_assets": 600.0, "current_liabilities": 300.0,
-            },
-            "cashflow": {},
-        },
-    })
-    assert tool_res["success"] is True, tool_res.get("error")
-    assert "dupont" in tool_res["data"]
-    assert "working_capital" in tool_res["data"]
-    # Provenance travels with the numbers: a caller cannot judge the analysis
-    # without knowing whether the statements were theirs or fetched.
-    assert tool_res["data"]["data_source"] == "caller-supplied statements"

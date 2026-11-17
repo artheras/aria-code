@@ -16,7 +16,6 @@ import unittest
 
 MODULES = (
     "aria_code.tools.local_finance_tools",
-    "aria_code.tools.macro_tools",
 )
 
 
