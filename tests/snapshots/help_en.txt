@@ -14,10 +14,10 @@ Commands
   /clear        Clear conversation
 
 Start a task  code · financial analysis · logistics
-  /code         Generate & run code                 /report       Research report artifact
-  /ta           Technical indicators                /portfolio    Portfolio
-  /backtest     Backtest + HTML report              /inventory    3PL inventory policy: reorder po…
+  /code         Generate & run code                 /portfolio    Portfolio
+  /ta           Technical indicators                /inventory    3PL inventory policy: reorder po…
   /team         Multi-agent research team           /carriers     3PL carrier scorecard by lane, c…
+  /report       Research report artifact
 
 More: /help code · market · quant · logistics · data · broker · session · config · all · <command>
 @ attaches context · ! runs a shell command · Esc interrupts

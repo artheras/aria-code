@@ -38,10 +38,9 @@ def test_agent_manifests_are_generated_from_existing_registry():
     manifests = list_agent_manifests()
     names = {item.name for item in manifests}
 
-    assert "technical" in names
-    technical = next(item for item in manifests if item.name == "technical")
-    assert "market.technical" in technical.capabilities
-    assert technical.manifest().to_dict()["kind"] == "agent"
+    assert "coder" in names
+    coder = next(item for item in manifests if item.name == "coder")
+    assert coder.manifest().to_dict()["kind"] == "agent"
 
 
 def test_builtin_skills_connect_tools_and_agents():
@@ -275,7 +274,7 @@ def test_package_manifest_export_shape(tmp_path):
     assert manifest["product"]["product"] == "Aria Code"
     assert any(service["name"] == "gateway" for service in manifest["capabilities"]["services"])
     assert manifest["capabilities"]["tools"][0]["name"] == "read_file"
-    assert any(agent["name"] == "technical" for agent in manifest["capabilities"]["agents"])
+    assert any(agent["name"] == "coder" for agent in manifest["capabilities"]["agents"])
     assert manifest["capabilities"]["arthera_mcp_tools"][0]["name"] == "arthera_quant_engine/run_backtest"
 
     out = tmp_path / "manifest.json"

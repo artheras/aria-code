@@ -67,7 +67,7 @@ VISIBLE_SLASH_COMMANDS: FrozenSet[str] = frozenset({
     # Config
     "/model", "/thinking", "/config", "/permissions", "/privacy",
     # Setup & discovery
-    "/setup", "/apikey", "/doctor", "/architecture", "/mcp", "/skills", "/tools", "/packages", "/markets",
+    "/setup", "/apikey", "/doctor", "/architecture", "/mcp", "/skills", "/tools", "/packages",
     # Auth
     "/login", "/logout", "/whoami",
     # Persistent data (direct writes)
@@ -80,11 +80,11 @@ VISIBLE_SLASH_COMMANDS: FrozenSet[str] = frozenset({
     # Research
     "/team", "/warehouse", "/deep",
     # Quant
-    "/backtest", "/wf", "/tv", "/ashare",
+    "/tv",
     # UI generation
     "/ui",
     # Other
-    "/artifacts", "/vision", "/upload-image", "/file", "/strategy", "/accuracy",
+    "/artifacts", "/vision", "/upload-image", "/file", "/accuracy",
 })
 
 
@@ -103,7 +103,7 @@ CORE_SLASH_COMMANDS: Tuple[str, ...] = (
 
 # One way into each capability: building code, financial analysis, logistics.
 ENTRY_SLASH_COMMANDS: Tuple[str, ...] = (
-    "/code", "/ta", "/backtest", "/team", "/report", "/portfolio", "/inventory", "/carriers",
+    "/code", "/ta", "/team", "/report", "/portfolio", "/inventory", "/carriers",
 )
 
 # Second names for a command; the popup lists the command once.
@@ -121,17 +121,17 @@ class HelpTopic:
 HELP_TOPICS: Tuple[HelpTopic, ...] = (
     HelpTopic("code", "Code and projects", "代码与项目", (
         "/code", "/project", "/init", "/review", "/plan", "/run", "/read", "/write", "/edit", "/ls",
-        "/search", "/verify", "/scaffold", "/apply", "/changes", "/git",
+        "/search", "/verify", "/apply", "/changes", "/git",
         "/diff", "/commit", "/pr", "/test", "/build", "/sim", "/consult", "/fix", "/graph", "/impact", "/agents", "/task", "/worktree", "/checkpoint")),
     HelpTopic("market", "Market research", "市场研究", (
-        "/quote", "/analyze", "/ta", "/chart", "/tv", "/deep", "/team", "/report", "/news", "/markets",
+        "/quote", "/analyze", "/ta", "/chart", "/tv", "/deep", "/team", "/report", "/news",
         "/watch", "/alert")),
     HelpTopic("quant", "Quant and portfolios", "量化与组合", (
-        "/backtest", "/wf", "/compare", "/auto-strategy", "/execution", "/portfolio", "/risk",
+        "/compare", "/execution", "/portfolio", "/risk",
         "/optimize", "/stress", "/factors")),
     HelpTopic("logistics", "Logistics", "物流", ("/inventory", "/carriers", "/warehouse")),
     HelpTopic("data", "Notes, files and artifacts", "笔记、文件与产物", (
-        "/journal", "/note", "/todo", "/memory", "/artifacts", "/strategy", "/accuracy", "/file",
+        "/journal", "/note", "/todo", "/memory", "/artifacts", "/accuracy", "/file",
         "/vision", "/ui")),
     HelpTopic("broker", "Broker and trading", "券商与交易", (
         "/broker", "/paper", "/trade", "/account", "/positions", "/orders")),

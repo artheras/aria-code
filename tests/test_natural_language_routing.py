@@ -49,7 +49,6 @@ def test_ordinary_messages_run_nothing(message, commands):
     ("今天有什么财经新闻", "/news 今天有什么财经新闻"),
     ("draw NVDA chart for 6 months", "/chart NVDA 6m"),
     ("画一下茅台的K线图", "/chart 600519 1y"),
-    ("backtest momentum on SPY", "/backtest momentum on SPY"),
     ("report on NVDA", "/report NVDA --type standard --format html"),
     ("risk TSLA", "/risk TSLA"),
 ])

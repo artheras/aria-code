@@ -14,10 +14,10 @@
   /clear        清空对话
 
 开始一项任务  代码 · 金融分析 · 物流
-  /code         生成并运行代码                      /report       研究报告
-  /ta           技术指标                            /portfolio    投资组合
-  /backtest     回测并生成 HTML 报告                /inventory    3PL 库存策略：补货点、安全库存、…
+  /code         生成并运行代码                      /portfolio    投资组合
+  /ta           技术指标                            /inventory    3PL 库存策略：补货点、安全库存、…
   /team         多智能体研究团队                    /carriers     3PL 承运商评分：按线路排名、成本…
+  /report       研究报告
 
 更多: /help code · market · quant · logistics · data · broker · session · config · all · <命令>
 @ 附加上下文 · ! 运行 shell 命令 · Esc 中断

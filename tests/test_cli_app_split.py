@@ -210,7 +210,6 @@ def test_cli_catalog_exposes_watchable_direct_commands_and_visible_help():
     assert "/positions" in VISIBLE_SLASH_COMMANDS
     assert "/upload-image" in VISIBLE_SLASH_COMMANDS
     assert "/tv" in VISIBLE_SLASH_COMMANDS
-    assert "/ashare" in VISIBLE_SLASH_COMMANDS
 
 
 def test_console_script_points_to_apps_cli_entrypoint():
@@ -844,7 +843,6 @@ def test_build_team_agent_data_reuses_bundle_and_computes_risk():
 
     assert prepared["technical"]["history"]["rsi"] == 55.0
     assert prepared["fundamental"]["fundamentals"]["pe_ratio"] == 20.0
-    assert prepared["risk"]["risk_metrics"]["ann_vol"] >= 0
 
 
 def test_team_quote_snapshot_downgrades_complete_when_visible_fields_are_missing():

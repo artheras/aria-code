@@ -68,7 +68,7 @@ class EveryRuntimeImportIsListed(unittest.TestCase):
         targets = _runtime_targets()
         self.assertGreaterEqual(len(targets["shim"]), 6)
         self.assertGreaterEqual(len(targets["broker"]), 5)
-        self.assertGreaterEqual(len(targets["agent"]), 20)
+        self.assertGreaterEqual(len(targets["agent"]), 8)
 
     def test_each_target_is_listed_under_its_exact_name(self) -> None:
         for kind, modules in _runtime_targets().items():
