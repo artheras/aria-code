@@ -726,17 +726,10 @@ class WorkspaceCommandsMixin:
         # 本方法体内三处用到 _T / _box，但导入只写在别的方法里。普通方法的
         # __globals__ 被 _rebind_mixin_globals 换成了 aria_cli 的，本文件模块级
         # 的名字一律看不见——所以必须在方法内自己导入，跟本文件其它方法一致。
-        from rich.table import Table as _T
-        from rich import box as _box
-        try:
-            from aria_code.tools.project_tools import ProjectSession, scan_project, format_grep_results
-            _HAS_PT = True
-        except ImportError:
-            _HAS_PT = False
-
-        if not _HAS_PT:
-            self.context.console.print("[red]❌ project_tools.py 未找到，请确保文件存在。[/red]")
-            return
+        self.context.console.print(
+            "[yellow]Project scan has moved to native Rust: run `aria-native scan` or use native chat tools.[/yellow]"
+        )
+        return
 
         parts  = args.strip().split(maxsplit=1)
         sub    = parts[0].lower() if parts else "info"
