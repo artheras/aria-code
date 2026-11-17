@@ -2391,93 +2391,14 @@ class CoreCommandsMixin:
         if self.context.has_rich:
             self.context.console.print("[dim]/longterm 已迁移至 Arthera 后端服务。[/dim]")
     async def cmd_indices(self, args: str):
-        """全球主要指数实时行情."""
-        from aria_code.apps.cli._optional import HAS_MDC as _HAS_MDC, get_mdc as _get_mdc
-        from aria_code.apps.cli.helpers import _clean_tool_error_message
-        if not _HAS_MDC:
-            self.context.console.print("  [dim]market_data_client 未加载[/dim]" if self.context.has_rich else "market_data_client not loaded")
-            return
-        mdc = _get_mdc()
+        """全球主要指数实时行情（已迁移至 Arthera 后端 /market）."""
         if self.context.has_rich:
-            with self.context.console.status(f"[dim]{ui_text(self, '获取全球指数', 'Fetching global indices')}...[/dim]", spinner="dots"):
-                r = mdc.indices()
-        else:
-            print("  获取全球指数...")
-            r = mdc.indices()
+            self.context.console.print("[dim]/indices 已迁移至 Arthera 后端，请使用 /market。[/dim]")
 
-        if not r.get("success"):
-            err = _clean_tool_error_message(r.get("error", "failed"))
-            self.context.console.print(f"  [red]{err}[/red]" if self.context.has_rich else err)
-            return
-
-        if self.context.has_rich:
-            self.context.console.print()
-            self.context.console.print("  [bold]全球指数行情[/bold]  "
-                          f"[dim]{datetime.now().strftime('%H:%M:%S')}[/dim]")
-            self.context.console.print()
-            for name, d in r["indices"].items():
-                chg = d.get("change_pct", 0)
-                color = "green" if chg >= 0 else "red"
-                sign  = "+" if chg >= 0 else ""
-                self.context.console.print(
-                    f"  [bold]{name:<14s}[/bold]"
-                    f"  {str(d.get('price','')):<12}"
-                    f"  [{color}]{sign}{chg:.2f}%[/{color}]"
-                )
-            self.context.console.print()
-        else:
-            for name, d in r["indices"].items():
-                chg = d.get("change_pct", 0)
-                sign = "+" if chg >= 0 else ""
-                print(f"  {name:<16} {str(d.get('price','')):<12} {sign}{chg:.2f}%")
     async def cmd_hot(self, args: str):
-        """热门/活跃股票榜单.  Usage: /hot [cn|us] [top=20]"""
-        from aria_code.apps.cli._optional import HAS_MDC as _HAS_MDC, get_mdc as _get_mdc
-        if not _HAS_MDC:
-            self.context.console.print("  [dim]market_data_client 未加载[/dim]" if self.context.has_rich else "market_data_client not loaded")
-            return
-        parts  = args.strip().lower().split()
-        market = "us" if "us" in parts else "cn"
-        top_n  = 20
-        for p in parts:
-            if p.startswith("top="):
-                try: top_n = int(p.split("=")[1])
-                except ValueError: pass
-
-        mdc = _get_mdc()
+        """热门/活跃股票榜单（已迁移至 Arthera 后端 /market）."""
         if self.context.has_rich:
-            with self.context.console.status(f"[dim]{ui_text(self, f'获取{market.upper()}热门股', f'Fetching top {market.upper()} movers')}...[/dim]", spinner="dots"):
-                r = mdc.hot_stocks(market=market, top_n=top_n)
-        else:
-            r = mdc.hot_stocks(market=market, top_n=top_n)
-
-        if not r.get("success"):
-            self.context.console.print(f"  [red]{r.get('error','failed')}[/red]" if self.context.has_rich else r.get('error'))
-            return
-
-        stocks = r.get("stocks", [])
-        if self.context.has_rich:
-            self.context.console.print()
-            self.context.console.print(f"  [bold]{market.upper()} 热门股 Top {len(stocks)}[/bold]  "
-                          f"[dim]provider: {r.get('provider','')}[/dim]")
-            self.context.console.print()
-            for i, s in enumerate(stocks, 1):
-                sym  = s.get("code") or s.get("symbol","")
-                name = s.get("name", sym)
-                p    = s.get("price", "-")
-                chg  = s.get("change_pct", 0)
-                color = "green" if chg >= 0 else "red"
-                sign  = "+" if chg >= 0 else ""
-                self.context.console.print(
-                    f"  [dim]{i:2d}.[/dim] [bold]{name:<8s}[/bold] "
-                    f"[dim]{sym:<8s}[/dim] {str(p):<8} "
-                    f"[{color}]{sign}{chg:.2f}%[/{color}]"
-                )
-            self.context.console.print()
-        else:
-            for s in stocks:
-                sym = s.get("code") or s.get("symbol","")
-                print(f"  {s.get('name',sym):<10} {sym:<8} {s.get('price','-'):<8} {s.get('change_pct',0):+.2f}%")
+            self.context.console.print("[dim]/hot 已迁移至 Arthera 后端，请使用 /market。[/dim]")
     async def cmd_ta(self, args: str):
         """技术指标分析.  Usage: /ta NVDA [days=120]"""
         from aria_cli import _generate_chart_sync, parse_technical_args, print_ta_result

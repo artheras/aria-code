@@ -669,6 +669,91 @@ pub fn repo_map(workspace: &Path, max_files: usize) -> Result<Value, String> {
     Ok(json!({ "files": mapped }))
 }
 
+fn sanitize_worktree_name(raw: &str) -> Result<String, String> {
+    let cleaned: String = raw
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    if cleaned.is_empty() {
+        return Err("Worktree name must contain alphanumeric, '-' or '_' characters".into());
+    }
+    Ok(cleaned)
+}
+
+/// Manage isolated git worktrees under `.aria/worktrees/<name>` (`list`, `create`, `remove`).
+pub fn git_worktree(
+    workspace: &Path,
+    action: &str,
+    name: Option<&str>,
+    allow_write: bool,
+) -> Result<Value, String> {
+    let base = workspace
+        .canonicalize()
+        .map_err(|e| format!("Invalid workspace: {e}"))?;
+    match action.trim().to_ascii_lowercase().as_str() {
+        "" | "list" => {
+            let output = Command::new("git")
+                .args(["worktree", "list", "--porcelain"])
+                .current_dir(&base)
+                .output()
+                .map_err(|e| format!("Failed to list git worktrees: {e}"))?;
+            if !output.status.success() {
+                return Err(truncate_utf8(&output.stderr, 4096));
+            }
+            Ok(json!({ "worktrees": truncate_utf8(&output.stdout, 16_384) }))
+        }
+        "create" => {
+            if !allow_write {
+                return Err(
+                    "Worktree create denied: --allow-write or /write-mode on required".into(),
+                );
+            }
+            let wt_name = sanitize_worktree_name(name.unwrap_or(""))?;
+            let wt_dir = base.join(".aria").join("worktrees").join(&wt_name);
+            if let Some(parent) = wt_dir.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let branch = format!("aria-wt/{wt_name}");
+            let output = Command::new("git")
+                .args(["worktree", "add", "-b", &branch])
+                .arg(&wt_dir)
+                .current_dir(&base)
+                .output()
+                .map_err(|e| format!("Failed to create git worktree: {e}"))?;
+            if !output.status.success() {
+                return Err(truncate_utf8(&output.stderr, 4096));
+            }
+            Ok(json!({
+                "created": wt_dir.to_string_lossy(),
+                "branch": branch,
+            }))
+        }
+        "remove" => {
+            if !allow_write {
+                return Err(
+                    "Worktree remove denied: --allow-write or /write-mode on required".into(),
+                );
+            }
+            let wt_name = sanitize_worktree_name(name.unwrap_or(""))?;
+            let wt_dir = base.join(".aria").join("worktrees").join(&wt_name);
+            let output = Command::new("git")
+                .args(["worktree", "remove", "--force"])
+                .arg(&wt_dir)
+                .current_dir(&base)
+                .output()
+                .map_err(|e| format!("Failed to remove git worktree: {e}"))?;
+            if !output.status.success() {
+                return Err(truncate_utf8(&output.stderr, 4096));
+            }
+            Ok(json!({ "removed": wt_dir.to_string_lossy() }))
+        }
+        other => Err(format!(
+            "Unknown worktree action `{other}` (expected list, create, remove)"
+        )),
+    }
+}
+
 fn glob_match(pattern: &str, text: &str) -> bool {
     let p: Vec<char> = pattern.chars().collect();
     let t: Vec<char> = text.chars().collect();
@@ -949,6 +1034,21 @@ pub fn tool_schemas() -> Value {
                     "properties": {}
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "git_worktree",
+                "description": "List, create, or remove isolated git worktrees under `.aria/worktrees/`.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "enum": ["list", "create", "remove"] },
+                        "name": { "type": "string" }
+                    },
+                    "required": ["action"]
+                }
+            }
         }
     ])
 }
@@ -1014,6 +1114,11 @@ pub fn execute_tool(workspace: &Path, name: &str, args: &Value, allow_write: boo
             repo_map(workspace, max_files)
         }
         "restore_checkpoint" => restore_checkpoint(workspace),
+        "git_worktree" => {
+            let action = args.get("action").and_then(Value::as_str).unwrap_or("list");
+            let name = args.get("name").and_then(Value::as_str);
+            git_worktree(workspace, action, name, allow_write)
+        }
         other => Err(format!("Unknown native tool: {other}")),
     };
     match result {
@@ -1161,5 +1266,54 @@ mod tests {
         assert!(read_file(dir.path(), "src/app.rs", 1, 5)
             .unwrap()
             .contains("alpha"));
+    }
+
+    #[test]
+    fn git_worktree_lists_creates_and_removes() {
+        let dir = tempdir().unwrap();
+        assert!(Command::new("git")
+            .args(["init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap()
+            .status
+            .success());
+        assert!(Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap()
+            .status
+            .success());
+        assert!(Command::new("git")
+            .args(["config", "user.name", "Tester"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap()
+            .status
+            .success());
+        write_file(dir.path(), "README.md", "# demo\n", true).unwrap();
+        assert!(Command::new("git")
+            .args(["add", "."])
+            .current_dir(dir.path())
+            .output()
+            .unwrap()
+            .status
+            .success());
+        assert!(Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap()
+            .status
+            .success());
+
+        assert!(git_worktree(dir.path(), "create", Some("feat1"), false).is_err());
+        let created = git_worktree(dir.path(), "create", Some("feat1"), true).unwrap();
+        assert_eq!(created["branch"], "aria-wt/feat1");
+        let listed = git_worktree(dir.path(), "list", None, false).unwrap();
+        assert!(listed["worktrees"].as_str().unwrap().contains("feat1"));
+        let removed = git_worktree(dir.path(), "remove", Some("feat1"), true).unwrap();
+        assert!(removed["removed"].as_str().unwrap().contains("feat1"));
     }
 }
