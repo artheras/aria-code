@@ -1,6 +1,6 @@
 //! Native Rust multi-round tool-calling agent loop over Ollama `/api/chat`.
 
-use super::{cloud::CloudProvider, policy, tools};
+use super::{cloud::CloudProvider, mcp, policy, tools};
 use serde_json::{json, Value};
 use std::{path::Path, time::Duration};
 
@@ -54,8 +54,8 @@ fn build_agent_messages(
 
 fn build_coding_system_prompt(workspace: &Path) -> String {
     let mut prompt = format!(
-        "{}\n\nYou are Aria Code's native coding agent. You have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `write_file`, `edit_file`, `run_command`, `git_status`, `git_diff`, `git_log`, `glob`, `project_scan`). \
-         Inspect relevant files before answering or editing. Prefer targeted reads and minimal, verified edits.",
+        "{}\n\nYou are Aria Code's native coding agent. You have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `write_file`, `edit_file`, `run_command`, `git_status`, `git_diff`, `git_log`, `glob`, `project_scan`, `verify_workspace`) plus any configured MCP tools. \
+         Inspect relevant files before answering or editing. Prefer targeted reads, minimal verified edits, and run `verify_workspace` after code changes.",
         policy::general_system_prompt("today")
     );
     if let Ok(scan) = tools::project_scan(workspace) {
@@ -112,13 +112,30 @@ fn clip_tool_output(output: &Value, max_chars: usize) -> String {
     )
 }
 
-#[derive(Default)]
 struct ToolLoopGuard {
     last_sig: Option<String>,
     repeat_count: usize,
+    mcp: mcp::McpRegistry,
 }
 
 impl ToolLoopGuard {
+    fn new(workspace: &Path) -> Self {
+        Self {
+            last_sig: None,
+            repeat_count: 0,
+            mcp: mcp::McpRegistry::load_from_workspace(workspace),
+        }
+    }
+
+    fn all_tool_schemas(&self) -> Value {
+        let mut arr = tools::tool_schemas()
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        arr.extend(self.mcp.tool_schemas().iter().cloned());
+        Value::Array(arr)
+    }
+
     fn execute(
         &mut self,
         workspace: &Path,
@@ -126,7 +143,12 @@ impl ToolLoopGuard {
         allow_write: bool,
         on_tool: &mut impl FnMut(&str, &Value, &Value),
     ) -> String {
-        let mut output = tools::execute_tool(workspace, &call.name, &call.arguments, allow_write);
+        let mut output = self
+            .mcp
+            .call_tool(&call.name, call.arguments.clone())
+            .unwrap_or_else(|| {
+                tools::execute_tool(workspace, &call.name, &call.arguments, allow_write)
+            });
         on_tool(&call.name, &call.arguments, &output);
         let sig = format!("{}:{}", call.name, call.arguments);
         if self.last_sig.as_deref() == Some(sig.as_str()) {
@@ -186,10 +208,10 @@ pub fn run_native_agent_with_history(
     mut on_tool: impl FnMut(&str, &Value, &Value),
 ) -> Result<String, String> {
     let url = format!("{}/api/chat", base_url.trim_end_matches('/'));
-    let schemas = tools::tool_schemas();
+    let mut guard = ToolLoopGuard::new(workspace);
+    let schemas = guard.all_tool_schemas();
     let system_prompt = build_coding_system_prompt(workspace);
     let mut messages = build_agent_messages(system_prompt, history, prompt);
-    let mut guard = ToolLoopGuard::default();
     let agent = ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .build()
@@ -277,8 +299,8 @@ pub fn parse_openai_turn(body: &str) -> Result<(String, Vec<(String, ToolCall)>)
     Ok((content, calls))
 }
 
-fn messages_tool_schemas() -> Vec<Value> {
-    tools::tool_schemas()
+fn messages_tool_schemas(all_schemas: &Value) -> Vec<Value> {
+    all_schemas
         .as_array()
         .into_iter()
         .flatten()
@@ -340,7 +362,8 @@ fn run_messages_agent_with_history(
     mut on_tool: impl FnMut(&str, &Value, &Value),
 ) -> Result<String, String> {
     let model_id = model.split('/').next_back().unwrap_or(model);
-    let schemas = messages_tool_schemas();
+    let mut guard = ToolLoopGuard::new(workspace);
+    let schemas = messages_tool_schemas(&guard.all_tool_schemas());
     let system_prompt = build_coding_system_prompt(workspace);
     let mut messages: Vec<Value> = history
         .iter()
@@ -352,7 +375,6 @@ fn run_messages_agent_with_history(
         .timeout_global(Some(timeout))
         .build()
         .new_agent();
-    let mut guard = ToolLoopGuard::default();
 
     for _ in 0..max_rounds.clamp(1, 16) {
         let payload = json!({
@@ -406,8 +428,8 @@ fn run_messages_agent_with_history(
     Err("Native cloud agent exceeded max_rounds without final answer".into())
 }
 
-fn gemini_tool_schemas() -> Vec<Value> {
-    let decls: Vec<Value> = tools::tool_schemas()
+fn gemini_tool_schemas(all_schemas: &Value) -> Vec<Value> {
+    let decls: Vec<Value> = all_schemas
         .as_array()
         .into_iter()
         .flatten()
@@ -465,7 +487,8 @@ fn run_gemini_agent_with_history(
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent?key={api_key}"
     );
-    let tools_decl = gemini_tool_schemas();
+    let mut guard = ToolLoopGuard::new(workspace);
+    let tools_decl = gemini_tool_schemas(&guard.all_tool_schemas());
     let system_prompt = build_coding_system_prompt(workspace);
     let mut contents: Vec<Value> = history
         .iter()
@@ -480,7 +503,6 @@ fn run_gemini_agent_with_history(
         .timeout_global(Some(timeout))
         .build()
         .new_agent();
-    let mut guard = ToolLoopGuard::default();
 
     for _ in 0..max_rounds.clamp(1, 16) {
         let payload = json!({
@@ -599,10 +621,10 @@ pub fn run_cloud_agent_with_history(
     }
     let url = provider.endpoint(model, api_key);
     let model_id = model.split('/').next_back().unwrap_or(model);
-    let schemas = tools::tool_schemas();
+    let mut guard = ToolLoopGuard::new(workspace);
+    let schemas = guard.all_tool_schemas();
     let system_prompt = build_coding_system_prompt(workspace);
     let mut messages = build_agent_messages(system_prompt, history, prompt);
-    let mut guard = ToolLoopGuard::default();
     let agent = ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .build()
@@ -727,7 +749,7 @@ mod tests {
         assert_eq!(calls[0].0, "toolu_1");
         assert_eq!(calls[0].1.name, "find_symbol");
         assert_eq!(calls[0].1.arguments["symbol"], "run_agent");
-        assert!(!messages_tool_schemas().is_empty());
+        assert!(!messages_tool_schemas(&tools::tool_schemas()).is_empty());
     }
 
     #[test]
@@ -746,10 +768,10 @@ mod tests {
         assert_eq!(content, "Inspecting.");
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].name, "git_status");
-        assert!(!gemini_tool_schemas().is_empty());
+        assert!(!gemini_tool_schemas(&tools::tool_schemas()).is_empty());
 
         let dir = tempfile::tempdir().unwrap();
-        let mut guard = ToolLoopGuard::default();
+        let mut guard = ToolLoopGuard::new(dir.path());
         let call = ToolCall {
             name: "list_files".into(),
             arguments: json!({"path": "."}),

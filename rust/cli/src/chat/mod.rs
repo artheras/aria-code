@@ -116,20 +116,13 @@ pub fn run(
             "model": default_model,
             "provider": "ollama",
             "workspace": ws,
-            "commands": [
-                {"name": "/help", "description": "Show help"},
-                {"name": "/model", "description": "Choose or list models"},
-                {"name": "/health", "description": "Check configured services"},
-                {"name": "/sessions", "description": "List saved sessions"},
-                {"name": "/review", "description": "Review uncommitted git changes"},
-                {"name": "/scan", "description": "Scan workspace structure and languages"},
-                {"name": "/diff", "description": "Show uncommitted git diff"},
-                {"name": "/log", "description": "Show recent git commit log"},
-                {"name": "/new", "description": "Start a new session"}
-            ]
+            "commands": native_commands_json()
         }))?;
         app.status = "Native ready".into();
     }
+    let mut native_allow_write = std::env::var("ARIA_ALLOW_WRITE")
+        .ok()
+        .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
     let mut deadline = if native_only {
         None
     } else {
@@ -206,6 +199,7 @@ pub fn run(
                     &native_tx,
                     &native_cancel,
                     &mut native_picker_models,
+                    &mut native_allow_write,
                     timeout,
                 ) {
                     native_active = true;
@@ -359,12 +353,7 @@ pub fn run(
                             "model": app.model,
                             "provider": app.provider,
                             "workspace": app.workspace,
-                            "commands": [
-                                {"name": "/help", "description": "Show help"},
-                                {"name": "/model", "description": "Choose or list models"},
-                                {"name": "/health", "description": "Check configured services"},
-                                {"name": "/new", "description": "Start a new session"}
-                            ]
+                            "commands": native_commands_json()
                         }));
                         deadline = None;
                     } else if kind == "turn.submit"
@@ -381,6 +370,7 @@ pub fn run(
                         &native_tx,
                         &native_cancel,
                         &mut native_picker_models,
+                        &mut native_allow_write,
                         timeout,
                     ) {
                         native_active = true;
@@ -419,6 +409,22 @@ pub fn run(
     }
 }
 
+fn native_commands_json() -> Value {
+    json!([
+        {"name": "/help", "description": "Show help"},
+        {"name": "/model", "description": "Choose or list models"},
+        {"name": "/health", "description": "Check configured services"},
+        {"name": "/sessions", "description": "List saved sessions"},
+        {"name": "/review", "description": "Review uncommitted git changes"},
+        {"name": "/scan", "description": "Scan workspace structure and languages"},
+        {"name": "/diff", "description": "Show uncommitted git diff"},
+        {"name": "/log", "description": "Show recent git commit log"},
+        {"name": "/verify", "description": "Run workspace test/verification suite"},
+        {"name": "/write-mode", "description": "Toggle workspace write permission (on|off)"},
+        {"name": "/new", "description": "Start a new session"}
+    ])
+}
+
 fn ollama_base_url() -> String {
     std::env::var("OLLAMA_HOST")
         .ok()
@@ -435,6 +441,8 @@ enum NativeRoute {
     Diff(Option<String>),
     Log(usize),
     Scan,
+    Verify(Option<String>),
+    WriteMode(Option<bool>),
     OllamaChat,
     OllamaAgent,
     CloudChat(crate::engine::cloud::CloudProvider),
@@ -465,6 +473,25 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
         let arg = text.strip_prefix("/log").unwrap_or("").trim();
         let limit = arg.parse::<usize>().unwrap_or(15).clamp(1, 50);
         return Some(NativeRoute::Log(limit));
+    }
+    if text == "/verify" || text.starts_with("/verify ") {
+        let target = text.strip_prefix("/verify").unwrap_or("").trim();
+        return Some(NativeRoute::Verify(
+            (!target.is_empty()).then(|| target.to_owned()),
+        ));
+    }
+    if text == "/write-mode" || text.starts_with("/write-mode ") {
+        let arg = text
+            .strip_prefix("/write-mode")
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        let mode = match arg.as_str() {
+            "on" | "1" | "true" | "enable" => Some(true),
+            "off" | "0" | "false" | "disable" => Some(false),
+            _ => None,
+        };
+        return Some(NativeRoute::WriteMode(mode));
     }
     if text == "/sessions" || text.starts_with("/sessions ") {
         let query = text.strip_prefix("/sessions").unwrap_or("").trim();
@@ -560,11 +587,31 @@ fn try_dispatch_native_turn(
     tx: &mpsc::Sender<Value>,
     cancel: &Arc<AtomicBool>,
     picker_models: &mut Vec<(String, String)>,
+    allow_write_state: &mut bool,
     timeout: Duration,
 ) -> bool {
     let Some(route) = classify_native_route(app, request) else {
         return false;
     };
+    if let NativeRoute::WriteMode(requested) = route {
+        let next = requested.unwrap_or(!*allow_write_state);
+        *allow_write_state = next;
+        let msg = if app.zh() {
+            if next {
+                "已开启写入模式（Write Mode ON）：原生 coding agent 现在可以修改文件并执行工作区命令。"
+            } else {
+                "已关闭写入模式（Write Mode OFF）：原生 coding agent 处于只读保护状态。"
+            }
+        } else if next {
+            "Write mode ON: native coding agent can now edit files and run workspace commands."
+        } else {
+            "Write mode OFF: native coding agent is in read-only safe mode."
+        };
+        let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": msg}));
+        let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+        return true;
+    }
+    let allow_write = *allow_write_state;
     cancel.store(false, Ordering::Relaxed);
     let tx = tx.clone();
     let cancel = Arc::clone(cancel);
@@ -864,6 +911,33 @@ fn try_dispatch_native_turn(
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
             }
+            NativeRoute::WriteMode(_) => {}
+            NativeRoute::Verify(target) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) =
+                    match crate::engine::tools::verify_workspace(&ws_path, target.as_deref()) {
+                        Ok(v) => {
+                            let passed = v["passed"].as_bool().unwrap_or(false);
+                            let cmd = v["command"].as_str().unwrap_or("");
+                            let stdout = v["stdout"].as_str().unwrap_or("").trim();
+                            let stderr = v["stderr"].as_str().unwrap_or("").trim();
+                            let mut body = format!(
+                                "Verification `{cmd}`: **{}**",
+                                if passed { "PASSED" } else { "FAILED" }
+                            );
+                            if !stdout.is_empty() {
+                                body.push_str(&format!("\n```\n{stdout}\n```"));
+                            }
+                            if !stderr.is_empty() {
+                                body.push_str(&format!("\n```\n{stderr}\n```"));
+                            }
+                            (body, if passed { "ok" } else { "failed" })
+                        }
+                        Err(e) => (format!("[verify error: {e}]"), "failed"),
+                    };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
             NativeRoute::Review(target) => {
                 let ws_path = std::path::PathBuf::from(&workspace);
                 let status_out = crate::engine::tools::git_status(&ws_path)
@@ -980,7 +1054,7 @@ fn try_dispatch_native_turn(
                     &ws_path,
                     &history,
                     &prompt,
-                    false,
+                    allow_write,
                     6,
                     timeout,
                     |tool, args, result| {
@@ -1068,7 +1142,7 @@ fn try_dispatch_native_turn(
                             &ws_path,
                             &history,
                             &prompt,
-                            false,
+                            allow_write,
                             6,
                             timeout,
                             |tool, args, result| {
@@ -1964,6 +2038,17 @@ mod tests {
         assert_eq!(
             classify_native_route(&app, &json!({"type": "turn.submit", "text": "/log 5"})),
             Some(NativeRoute::Log(5))
+        );
+        assert_eq!(
+            classify_native_route(&app, &json!({"type": "turn.submit", "text": "/verify"})),
+            Some(NativeRoute::Verify(None))
+        );
+        assert_eq!(
+            classify_native_route(
+                &app,
+                &json!({"type": "turn.submit", "text": "/write-mode on"})
+            ),
+            Some(NativeRoute::WriteMode(Some(true)))
         );
         assert_eq!(
             classify_native_route(
