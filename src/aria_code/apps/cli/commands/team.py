@@ -271,18 +271,6 @@ def build_team_agent_data(data_bundle: Any) -> dict[str, dict[str, Any]]:
         prepared["technical"] = {"quote": quote, "history": technical}
     if quote and fundamentals:
         prepared["fundamental"] = {"quote": quote, "fundamentals": fundamentals}
-
-    rows = history.get("data")
-    if quote and isinstance(rows, list) and rows:
-        try:
-            import pandas as pd
-            from agents.financial.risk import _compute_risk
-
-            metrics = _compute_risk(pd.DataFrame(rows))
-            if metrics:
-                prepared["risk"] = {"quote": quote, "risk_metrics": metrics}
-        except Exception as exc:
-            logger.debug("team prefetched risk calculation failed: %s", exc)
     return prepared
 
 

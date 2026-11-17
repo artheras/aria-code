@@ -11,7 +11,6 @@ import pytest
 
 from aria_code.agents.engineering.coder import CoderAgent
 from aria_code.agents.engineering.tester import TesterAgent, TesterSelfHealingAgent
-from aria_code.agents.financial.strategist import StrategistAgent
 from aria_code.agents.registry import get_registry
 from aria_code.runtime.self_healing import SelfHealingEngine, TracebackInfo
 
@@ -21,12 +20,10 @@ def test_agent_registry_discovery():
     coder_cls = registry.get("coder")
     tester_cls = registry.get("tester")
     debugger_cls = registry.get("debugger")
-    strategist_cls = registry.get("strategist")
 
     assert coder_cls is not None
     assert tester_cls is not None
     assert debugger_cls is not None
-    assert strategist_cls is not None
 
 
 # 85b4d36 ("feat(coder): empower coder agent to dynamically write code using LLM
@@ -143,34 +140,4 @@ if __name__ == "__main__":
         asyncio.run(_run())
 
 
-@_CODER_TEMPLATE_REMOVED
-def test_full_pipeline_strategist_coder_tester():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        out_dir = pathlib.Path(tmpdir)
 
-        async def _run():
-            # 1. Strategist designs rule tree
-            strategist = StrategistAgent()
-            strat_res = await strategist.analyze("NVDA", {"goal": "Double MA Trend Following", "style": "dual_ma"})
-            assert strat_res.success is True
-            rule_tree = strat_res.data_used.get("rule_tree")
-            assert rule_tree is not None
-
-            # 2. Coder writes self-contained script
-            coder = CoderAgent(output_dir=out_dir)
-            code_res = await coder.analyze("NVDA", {"rule_tree": rule_tree})
-            assert code_res.success is True
-            script_path = code_res.data_used.get("script_path")
-            assert script_path is not None
-            assert pathlib.Path(script_path).exists()
-
-            # 3. Tester runs pre-flight, dry-run, and self-healing
-            tester = TesterAgent()
-            test_res = await tester.analyze("NVDA", {"script_path": script_path})
-            assert test_res.success is True
-            assert "年化收益率" in test_res.analysis
-            assert "夏普比率" in test_res.analysis
-            assert "最大回撤" in test_res.analysis
-            assert test_res.data_used["metrics"]["symbol"] == "NVDA"
-
-        asyncio.run(_run())

@@ -844,7 +844,6 @@ def test_build_team_agent_data_reuses_bundle_and_computes_risk():
 
     assert prepared["technical"]["history"]["rsi"] == 55.0
     assert prepared["fundamental"]["fundamentals"]["pe_ratio"] == 20.0
-    assert prepared["risk"]["risk_metrics"]["ann_vol"] >= 0
 
 
 def test_team_quote_snapshot_downgrades_complete_when_visible_fields_are_missing():

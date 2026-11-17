@@ -93,8 +93,6 @@ class ModulesThatUseTheEngineStillImport(unittest.TestCase):
     MODULES = (
         "apps.cli.commands.ashare_prediction_cmds",
         "apps.cli.commands.backtest_cmds",
-        "agents.financial.strategist",
-        "agents.financial.corporate_finance",
     )
 
     def test_each_module_imports_without_the_engine(self) -> None:

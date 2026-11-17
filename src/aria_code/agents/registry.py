@@ -20,14 +20,11 @@ from pathlib import Path
 from typing import Dict, List, Optional, Type
 
 from .base import BaseAgent
-from .financial.technical import TechnicalAgent
 
 logger = logging.getLogger(__name__)
 
 # ── 内置 agent 预注册 ─────────────────────────────────────────────────────────
-_BUILTIN: Dict[str, Type[BaseAgent]] = {
-    "technical": TechnicalAgent,
-}
+_BUILTIN: Dict[str, Type[BaseAgent]] = {}
 
 # 尝试加载其他内置 agent（文件存在则注册）
 # The package this module was loaded as: "aria_code.agents", or "agents" when the
@@ -51,21 +48,8 @@ def _try_import_builtin(module_path: str, name: str) -> None:
         pass
 
 
-_try_import_builtin("aria_code.agents.financial.macro",       "macro")
-_try_import_builtin("aria_code.agents.financial.fundamental",  "fundamental")
-_try_import_builtin("aria_code.agents.financial.risk",         "risk")
-_try_import_builtin("aria_code.agents.financial.synthesis",    "synthesis")
-_try_import_builtin("aria_code.agents.financial.news",         "news")
-_try_import_builtin("aria_code.agents.financial.catalyst",     "catalyst")
-_try_import_builtin("aria_code.agents.financial.debate",       "debate")
-_try_import_builtin("aria_code.agents.financial.earnings",     "earnings")
-_try_import_builtin("aria_code.agents.financial.sector",       "sector")
-_try_import_builtin("aria_code.agents.financial.strategist",   "strategist")
 _try_import_builtin("aria_code.agents.engineering.coder",      "coder")
 _try_import_builtin("aria_code.agents.engineering.tester",     "tester")
-_try_import_builtin("aria_code.agents.financial.corporate_finance", "corporate_finance")
-_try_import_builtin("aria_code.agents.financial.cashflow_burn",     "cashflow_burn")
-_try_import_builtin("aria_code.agents.financial.stripe_revenue",    "stripe_revenue")
 _try_import_builtin("aria_code.agents.portfolio_agent",        "portfolio")
 _try_import_builtin("aria_code.agents.supervisor",             "supervisor")
 
