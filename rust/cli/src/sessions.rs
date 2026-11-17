@@ -218,6 +218,53 @@ pub fn list(root: &Path, limit: usize, query: Option<&str>) -> Result<Value, Str
     )
 }
 
+/// Append a user + assistant turn to a native JSON session snapshot (`<root>/<id>.json`).
+pub fn save_native_turn(
+    root: &Path,
+    id: &str,
+    workspace: &str,
+    model: &str,
+    user_msg: &str,
+    assistant_msg: &str,
+) -> Result<(), String> {
+    validate_id(id)?;
+    fs::create_dir_all(root).map_err(|e| format!("Failed to create sessions dir: {e}"))?;
+    let path = root.join(format!("{id}.json"));
+    let mut data: Value = if path.exists() {
+        load(&path, id).unwrap_or_else(|_| json!({"id": id, "messages": [], "metadata": {}}))
+    } else {
+        json!({
+            "id": id,
+            "messages": [],
+            "metadata": {
+                "title": user_msg.chars().take(60).collect::<String>(),
+                "workspace": workspace,
+                "model": model,
+            }
+        })
+    };
+    let obj = data
+        .as_object_mut()
+        .ok_or("Session snapshot must be an object")?;
+    let messages = obj
+        .entry("messages")
+        .or_insert_with(|| json!([]))
+        .as_array_mut()
+        .ok_or("Session messages must be an array")?;
+    messages.push(json!({"role": "user", "content": user_msg}));
+    messages.push(json!({"role": "assistant", "content": assistant_msg}));
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_default();
+    obj.insert("updated_at".into(), json!(now));
+    fs::write(
+        &path,
+        serde_json::to_string_pretty(&data).unwrap_or_else(|_| "{}".into()),
+    )
+    .map_err(|e| format!("Failed to write session snapshot: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,5 +279,31 @@ mod tests {
         assert_eq!(data["metadata"]["title"], "你好");
         assert_eq!(data["messages"][0]["content"], "世界");
         assert!(show(dir.path(), "abc", true).is_err());
+    }
+
+    #[test]
+    fn save_native_turn_creates_and_appends_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        save_native_turn(
+            dir.path(),
+            "native_1",
+            "/tmp/ws",
+            "qwen2.5:7b",
+            "hi",
+            "hello",
+        )
+        .unwrap();
+        save_native_turn(
+            dir.path(),
+            "native_1",
+            "/tmp/ws",
+            "qwen2.5:7b",
+            "next",
+            "reply",
+        )
+        .unwrap();
+        let data = show(dir.path(), "native_1", true).unwrap();
+        assert_eq!(data["messages"].as_array().unwrap().len(), 4);
+        assert_eq!(data["metadata"]["workspace"], "/tmp/ws");
     }
 }

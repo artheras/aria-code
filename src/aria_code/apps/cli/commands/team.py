@@ -508,9 +508,8 @@ async def run_deep_cli(
     lang: str = "zh",
     on_agent_done: Callable[[str, Any], None] | None = None,
 ):
-    """Run the deep analysis pipeline (P0–P3) reusing the team provider plumbing."""
-    from agents.deep.pipeline import DeepAnalysisPipeline
-    from datasources.router import get_router
+    """Run the deep analysis pipeline (removed from core build)."""
+    raise RuntimeError("Deep analysis vertical has been removed from the core build.")
 
     llm_provider = build_team_llm_provider(config)
     noisy = ["agents.base", "agents.team", "agents.deep", "datasources.router", "data_cleaner"]
