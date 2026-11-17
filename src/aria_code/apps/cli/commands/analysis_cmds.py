@@ -151,54 +151,10 @@ class AnalysisCommandsMixin:
         )
 
     async def cmd_macro(self, args: str):
-        """/macro [us|cn|rates|calendar] [indicator]  — 宏观经济数据仪表板"""
-        import asyncio as _asyncio
-        parts = args.strip().lower().split() if args.strip() else []
-        region = parts[0] if parts else "all"
-        indicator = parts[1] if len(parts) > 1 else "all"
-
-        try:
-            from aria_code.tools.macro_tools import get_us_macro, get_cn_macro, get_central_bank_rates, get_economic_calendar
-        except ImportError:
-            if self.context.has_rich:
-                self.context.console.print("[red]macro_tools 模块未找到[/red]")
-            return
-
-        loop = _asyncio.get_event_loop()
-        _lang = "zh" if str(self.terminal.config.get("ui_lang", "en")).lower().startswith("zh") else "en"
-
-        if region in ("us", "all"):
-            if self.context.has_rich:
-                with self.context.console.status(f"[dim]{ui_text(self, '获取美国宏观数据 (FRED)', 'Fetching US macro data (FRED)')}...[/dim]", spinner="dots"):
-                    r = await loop.run_in_executor(None, lambda: get_us_macro(indicator if region == "us" else "all"))
-            else:
-                r = get_us_macro(indicator if region == "us" else "all")
-            # No flag emoji: they measure one cell short and broke the rule line.
-            _render_macro_result(r, ui_text(self, "美国宏观", "US macro"), lang=_lang)
-
-        if region in ("cn", "all"):
-            if self.context.has_rich:
-                with self.context.console.status(f"[dim]{ui_text(self, '获取中国宏观数据 (akshare)', 'Fetching China macro data (akshare)')}...[/dim]", spinner="dots"):
-                    r_cn = await loop.run_in_executor(None, lambda: get_cn_macro(indicator if region == "cn" else "all"))
-            else:
-                r_cn = get_cn_macro(indicator if region == "cn" else "all")
-            _render_macro_result(r_cn, ui_text(self, "中国宏观", "China macro"), lang=_lang)
-
-        if region in ("rates", "all"):
-            if self.context.has_rich:
-                with self.context.console.status(f"[dim]{ui_text(self, '获取央行利率', 'Fetching central bank rates')}...[/dim]", spinner="dots"):
-                    r_rates = await loop.run_in_executor(None, get_central_bank_rates)
-            else:
-                r_rates = get_central_bank_rates()
-            _render_cb_rates(r_rates, lang=_lang)
-
-        if region == "calendar":
-            if self.context.has_rich:
-                with self.context.console.status(f"[dim]{ui_text(self, '获取经济日历', 'Fetching the economic calendar')}...[/dim]", spinner="dots"):
-                    r_cal = await loop.run_in_executor(None, lambda: get_economic_calendar(7))
-            else:
-                r_cal = get_economic_calendar(7)
-            _render_econ_calendar(r_cal)
+        """/macro [us|cn|rates|calendar] [indicator]  — 宏观经济数据（已迁移至 Arthera 后端服务）"""
+        if self.context.has_rich:
+            self.context.console.print("[dim]/macro 已迁移至 Arthera 后端服务，请通过后端 API 访问。[/dim]")
+        return
 
     async def cmd_options(self, args: str):
         """/options <symbol> [calls|puts] [expiry]  — 期权链查询"""

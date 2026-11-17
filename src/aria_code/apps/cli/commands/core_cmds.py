@@ -2382,59 +2382,14 @@ class CoreCommandsMixin:
                 "children": child_artifacts,
             }
     async def cmd_shortterm(self, args: str):
-        """
-        运行 A股短线分析（日线级别，3-15交易日）并输出报告。
-        Usage: /shortterm
-               /shortterm 000333 601138 300750
-        """
-
-        import subprocess
-        import sys as _sys
-        _base = pathlib.Path(__file__).parent.parent.parent / "research" / "shortterm"
-        script = _base / "run_shortterm.py"
-        if not script.exists():
-            print_error(self.context, f"短线分析脚本未找到: {script}")
-            return
-        codes = args.strip().split()
-        cmd   = [_sys.executable, str(script)]
-        if codes:
-            cmd += ["--code"] + codes
+        """A股短线分析（已迁移至 Arthera 后端服务）."""
         if self.context.has_rich:
-            self.context.console.print("\n  📊 运行短线分析...\n")
-        else:
-            print("\n  📊 运行短线分析...\n")
-        result = subprocess.run(cmd, text=True, capture_output=False)
-        if result.returncode != 0:
-            print_error(self.context, "短线分析执行失败，请检查 research/shortterm/")
+            self.context.console.print("[dim]/shortterm 已迁移至 Arthera 后端服务。[/dim]")
+
     async def cmd_longterm(self, args: str):
-        """
-        运行 A股长线分析（月线级别，3-18个月目标）并输出报告。
-        Usage: /longterm
-               /longterm --quick   (只分析 core 级标的)
-               /longterm 600519 000858
-        """
-
-        import subprocess
-        import sys as _sys
-        _base = pathlib.Path(__file__).parent.parent.parent / "research" / "longterm"
-        script = _base / "run_longterm.py"
-        if not script.exists():
-            print_error(self.context, f"长线分析脚本未找到: {script}")
-            return
-        parts = args.strip().split()
-        cmd   = [_sys.executable, str(script)]
-        if "--quick" in parts:
-            cmd.append("--quick")
-            parts.remove("--quick")
-        if parts:
-            cmd += ["--code"] + parts
+        """A股长线分析（已迁移至 Arthera 后端服务）."""
         if self.context.has_rich:
-            self.context.console.print("\n  📈 运行长线分析...\n")
-        else:
-            print("\n  📈 运行长线分析...\n")
-        result = subprocess.run(cmd, text=True, capture_output=False)
-        if result.returncode != 0:
-            print_error(self.context, "长线分析执行失败，请检查 research/longterm/")
+            self.context.console.print("[dim]/longterm 已迁移至 Arthera 后端服务。[/dim]")
     async def cmd_indices(self, args: str):
         """全球主要指数实时行情."""
         from aria_code.apps.cli._optional import HAS_MDC as _HAS_MDC, get_mdc as _get_mdc

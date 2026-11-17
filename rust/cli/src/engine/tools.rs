@@ -455,6 +455,75 @@ pub fn find_symbol(workspace: &Path, symbol: &str, max_hits: usize) -> Result<Ve
     Ok(hits)
 }
 
+/// Run the workspace's detected test/verification command (Cargo, pytest, npm, or Go).
+pub fn verify_workspace(workspace: &Path, target: Option<&str>) -> Result<Value, String> {
+    let base = workspace
+        .canonicalize()
+        .map_err(|e| format!("Invalid workspace: {e}"))?;
+    let rel = target.map(str::trim).filter(|s| !s.is_empty());
+    let (runner, program, args): (&str, &str, Vec<String>) = if base.join("Cargo.toml").is_file() {
+        let mut a = vec!["test".into(), "--quiet".into()];
+        if let Some(t) = rel {
+            a.push(t.to_owned());
+        }
+        ("cargo", "cargo", a)
+    } else if base.join("rust/Cargo.toml").is_file() {
+        let mut a = vec![
+            "test".into(),
+            "--manifest-path".into(),
+            "rust/Cargo.toml".into(),
+            "--quiet".into(),
+        ];
+        if let Some(t) = rel {
+            a.push(t.to_owned());
+        }
+        ("cargo", "cargo", a)
+    } else if base.join("pyproject.toml").is_file()
+        || base.join("pytest.ini").is_file()
+        || base.join("tests").is_dir()
+    {
+        let mut a = vec!["-m".into(), "pytest".into(), "-q".into()];
+        if let Some(t) = rel {
+            let confined = resolve_workspace_path(&base, t)?;
+            a.push(
+                confined
+                    .strip_prefix(&base)
+                    .unwrap_or(&confined)
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+        }
+        let py = if base.join(".venv/bin/python").is_file() {
+            ".venv/bin/python"
+        } else {
+            "python3"
+        };
+        ("pytest", py, a)
+    } else if base.join("package.json").is_file() {
+        ("npm", "npm", vec!["test".into(), "--silent".into()])
+    } else if base.join("go.mod").is_file() {
+        ("go", "go", vec!["test".into(), "./...".into()])
+    } else {
+        return Err(
+            "No supported verification runner detected (Cargo.toml, pyproject.toml/tests, package.json, go.mod)".into(),
+        );
+    };
+
+    let output = Command::new(program)
+        .args(&args)
+        .current_dir(&base)
+        .output()
+        .map_err(|e| format!("Failed to run `{program}`: {e}"))?;
+    Ok(json!({
+        "runner": runner,
+        "command": format!("{program} {}", args.join(" ")),
+        "exit_code": output.status.code().unwrap_or(-1),
+        "passed": output.status.success(),
+        "stdout": truncate_utf8(&output.stdout, 8192),
+        "stderr": truncate_utf8(&output.stderr, 8192),
+    }))
+}
+
 fn glob_match(pattern: &str, text: &str) -> bool {
     let p: Vec<char> = pattern.chars().collect();
     let t: Vec<char> = text.chars().collect();
@@ -698,6 +767,19 @@ pub fn tool_schemas() -> Value {
                     "required": ["symbol"]
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "verify_workspace",
+                "description": "Run the project's test/verification suite (cargo test, pytest, npm test, or go test) after making edits.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "target": { "type": "string", "description": "Optional test file or filter." }
+                    }
+                }
+            }
         }
     ])
 }
@@ -753,6 +835,10 @@ pub fn execute_tool(workspace: &Path, name: &str, args: &Value, allow_write: boo
         "find_symbol" => {
             let sym = args.get("symbol").and_then(Value::as_str).unwrap_or("");
             find_symbol(workspace, sym, 50).map(|hits| json!({ "hits": hits }))
+        }
+        "verify_workspace" => {
+            let target = args.get("target").and_then(Value::as_str);
+            verify_workspace(workspace, target)
         }
         other => Err(format!("Unknown native tool: {other}")),
     };
@@ -873,5 +959,12 @@ mod tests {
             funcs[0].replace('\\', "/"),
             "src/lib.rs:2: pub fn run_agent() {}"
         );
+    }
+
+    #[test]
+    fn verify_workspace_reports_when_no_runner_exists() {
+        let dir = tempdir().unwrap();
+        let err = verify_workspace(dir.path(), None).unwrap_err();
+        assert!(err.contains("No supported verification runner"));
     }
 }
