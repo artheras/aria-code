@@ -36,12 +36,54 @@ pub fn parse_ollama_turn(body: &str) -> Result<(String, Vec<ToolCall>), String> 
     Ok((content, calls))
 }
 
+/// Build the initial OpenAI/Ollama message list with optional prior `(role, content)` turns.
+fn build_agent_messages(
+    system_prompt: String,
+    history: &[(String, String)],
+    prompt: &str,
+) -> Vec<Value> {
+    let mut messages = vec![json!({ "role": "system", "content": system_prompt })];
+    for (role, content) in history {
+        if (role == "user" || role == "assistant") && !content.trim().is_empty() {
+            messages.push(json!({ "role": role, "content": content }));
+        }
+    }
+    messages.push(json!({ "role": "user", "content": prompt }));
+    messages
+}
+
 /// Run a bounded multi-round coding/inspection loop natively in Rust.
 #[allow(clippy::too_many_arguments)]
 pub fn run_native_agent(
     base_url: &str,
     model: &str,
     workspace: &Path,
+    prompt: &str,
+    allow_write: bool,
+    max_rounds: usize,
+    timeout: Duration,
+    on_tool: impl FnMut(&str, &Value, &Value),
+) -> Result<String, String> {
+    run_native_agent_with_history(
+        base_url,
+        model,
+        workspace,
+        &[],
+        prompt,
+        allow_write,
+        max_rounds,
+        timeout,
+        on_tool,
+    )
+}
+
+/// Run a bounded multi-round coding/inspection loop natively in Rust with prior turn history.
+#[allow(clippy::too_many_arguments)]
+pub fn run_native_agent_with_history(
+    base_url: &str,
+    model: &str,
+    workspace: &Path,
+    history: &[(String, String)],
     prompt: &str,
     allow_write: bool,
     max_rounds: usize,
@@ -55,10 +97,7 @@ pub fn run_native_agent(
          Inspect relevant files before answering or editing.",
         policy::general_system_prompt("today")
     );
-    let mut messages = vec![
-        json!({ "role": "system", "content": system_prompt }),
-        json!({ "role": "user", "content": prompt }),
-    ];
+    let mut messages = build_agent_messages(system_prompt, history, prompt);
     let agent = ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .build()
@@ -158,6 +197,34 @@ pub fn run_cloud_agent(
     allow_write: bool,
     max_rounds: usize,
     timeout: Duration,
+    on_tool: impl FnMut(&str, &Value, &Value),
+) -> Result<String, String> {
+    run_cloud_agent_with_history(
+        provider,
+        api_key,
+        model,
+        workspace,
+        &[],
+        prompt,
+        allow_write,
+        max_rounds,
+        timeout,
+        on_tool,
+    )
+}
+
+/// Run a bounded multi-round coding/inspection loop against an OpenAI-compatible cloud endpoint with prior turn history.
+#[allow(clippy::too_many_arguments)]
+pub fn run_cloud_agent_with_history(
+    provider: CloudProvider,
+    api_key: &str,
+    model: &str,
+    workspace: &Path,
+    history: &[(String, String)],
+    prompt: &str,
+    allow_write: bool,
+    max_rounds: usize,
+    timeout: Duration,
     mut on_tool: impl FnMut(&str, &Value, &Value),
 ) -> Result<String, String> {
     if matches!(provider, CloudProvider::Anthropic | CloudProvider::Gemini) {
@@ -174,10 +241,7 @@ pub fn run_cloud_agent(
          Inspect relevant files before answering or editing.",
         policy::general_system_prompt("today")
     );
-    let mut messages = vec![
-        json!({ "role": "system", "content": system_prompt }),
-        json!({ "role": "user", "content": prompt }),
-    ];
+    let mut messages = build_agent_messages(system_prompt, history, prompt);
     let agent = ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .build()
@@ -268,5 +332,24 @@ mod tests {
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].0, "call_1");
         assert_eq!(calls[0].1.name, "git_status");
+    }
+
+    #[test]
+    fn build_agent_messages_inserts_valid_history_turns() {
+        let history = vec![
+            ("user".to_string(), "hi".to_string()),
+            ("tool".to_string(), "ignored".to_string()),
+            ("assistant".to_string(), "hello!".to_string()),
+            ("user".to_string(), "   ".to_string()),
+        ];
+        let msgs = build_agent_messages("sys".to_string(), &history, "fix bug");
+        assert_eq!(msgs.len(), 4);
+        assert_eq!(msgs[0]["role"], "system");
+        assert_eq!(msgs[1]["role"], "user");
+        assert_eq!(msgs[1]["content"], "hi");
+        assert_eq!(msgs[2]["role"], "assistant");
+        assert_eq!(msgs[2]["content"], "hello!");
+        assert_eq!(msgs[3]["role"], "user");
+        assert_eq!(msgs[3]["content"], "fix bug");
     }
 }
