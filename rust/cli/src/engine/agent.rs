@@ -54,7 +54,7 @@ fn build_agent_messages(
 
 fn build_coding_system_prompt(workspace: &Path) -> String {
     let mut prompt = format!(
-        "{}\n\nYou are Aria Code's native coding agent. You have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `write_file`, `edit_file`, `run_command`, `git_status`, `git_diff`, `git_log`, `glob`, `project_scan`, `verify_workspace`) plus any configured MCP tools. \
+        "{}\n\nYou are Aria Code's native coding agent. You have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `repo_map`, `write_file`, `edit_file`, `restore_checkpoint`, `run_command`, `git_status`, `git_diff`, `git_log`, `glob`, `project_scan`, `verify_workspace`) plus any configured MCP tools. \
          Inspect relevant files before answering or editing. Prefer targeted reads, minimal verified edits, and run `verify_workspace` after code changes.",
         policy::general_system_prompt("today")
     );

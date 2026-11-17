@@ -9,6 +9,7 @@ use std::{
 
 const SKIP_DIRS: &[&str] = &[
     ".git",
+    ".aria",
     ".claude",
     ".worktrees",
     "node_modules",
@@ -181,6 +182,74 @@ pub fn search_code(workspace: &Path, query: &str, max_hits: usize) -> Result<Vec
     Ok(hits)
 }
 
+fn save_checkpoint(workspace: &Path, target: &Path, rel: &str) {
+    let Ok(base) = workspace.canonicalize() else {
+        return;
+    };
+    let ckpt_dir = base.join(".aria").join("checkpoints");
+    if fs::create_dir_all(&ckpt_dir).is_err() {
+        return;
+    }
+    let history_path = ckpt_dir.join("history.json");
+    let mut stack: Vec<Value> = fs::read_to_string(&history_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    let existed = target.exists();
+    let prev = if existed {
+        fs::read_to_string(target).ok()
+    } else {
+        None
+    };
+    stack.push(json!({
+        "path": rel,
+        "existed": existed,
+        "content": prev,
+    }));
+    if stack.len() > 32 {
+        stack.drain(..stack.len() - 32);
+    }
+    let _ = fs::write(
+        &history_path,
+        serde_json::to_string(&stack).unwrap_or_else(|_| "[]".into()),
+    );
+}
+
+/// Restore the most recent file edit/write saved in `.aria/checkpoints/history.json`.
+pub fn restore_checkpoint(workspace: &Path) -> Result<Value, String> {
+    let base = workspace
+        .canonicalize()
+        .map_err(|e| format!("Invalid workspace: {e}"))?;
+    let history_path = base.join(".aria").join("checkpoints").join("history.json");
+    let raw = fs::read_to_string(&history_path)
+        .map_err(|_| "No checkpoints available to rewind.".to_owned())?;
+    let mut stack: Vec<Value> = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let entry = stack
+        .pop()
+        .ok_or_else(|| "No checkpoints available to rewind.".to_owned())?;
+    let rel = entry["path"]
+        .as_str()
+        .ok_or("Corrupt checkpoint entry: missing path")?;
+    let target = resolve_workspace_path(&base, rel)?;
+    let existed = entry["existed"].as_bool().unwrap_or(false);
+    if existed {
+        let content = entry["content"]
+            .as_str()
+            .ok_or("Corrupt checkpoint entry: missing content")?;
+        if let Some(parent) = target.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        fs::write(&target, content).map_err(|e| format!("Restore failed: {e}"))?;
+    } else if target.exists() {
+        fs::remove_file(&target).map_err(|e| format!("Remove failed: {e}"))?;
+    }
+    let _ = fs::write(
+        &history_path,
+        serde_json::to_string(&stack).unwrap_or_else(|_| "[]".into()),
+    );
+    Ok(json!({ "restored": rel, "existed": existed, "remaining": stack.len() }))
+}
+
 pub fn write_file(
     workspace: &Path,
     rel: &str,
@@ -194,6 +263,7 @@ pub fn write_file(
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("Create parent dir failed: {e}"))?;
     }
+    save_checkpoint(workspace, &path, rel);
     fs::write(&path, content).map_err(|e| format!("Write failed: {e}"))?;
     Ok(format!("Wrote {} bytes to {}", content.len(), rel))
 }
@@ -213,6 +283,7 @@ pub fn edit_file(
     if !content.contains(old_text) {
         return Err("Target text not found in file".into());
     }
+    save_checkpoint(workspace, &path, rel);
     let updated = content.replacen(old_text, new_text, 1);
     fs::write(&path, &updated).map_err(|e| format!("Write failed: {e}"))?;
     Ok(format!("Updated {}", rel))
@@ -524,6 +595,80 @@ pub fn verify_workspace(workspace: &Path, target: Option<&str>) -> Result<Value,
     }))
 }
 
+fn extract_top_symbols(content: &str) -> Vec<String> {
+    const PREFIXES: &[&str] = &[
+        "pub fn ",
+        "pub async fn ",
+        "fn ",
+        "async fn ",
+        "pub struct ",
+        "struct ",
+        "pub enum ",
+        "enum ",
+        "pub trait ",
+        "trait ",
+        "def ",
+        "async def ",
+        "class ",
+        "export function ",
+        "function ",
+        "export interface ",
+        "interface ",
+        "func ",
+    ];
+    let mut syms = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.len() != line.len() && !trimmed.starts_with("def ") {
+            continue;
+        }
+        if PREFIXES.iter().any(|p| trimmed.starts_with(p)) {
+            let sig = trimmed
+                .split(['{', ':'])
+                .next()
+                .unwrap_or(trimmed)
+                .trim()
+                .to_owned();
+            if !sig.is_empty() {
+                syms.push(sig);
+                if syms.len() >= 25 {
+                    break;
+                }
+            }
+        }
+    }
+    syms
+}
+
+/// Build a compact symbol map across workspace source files (`.rs`, `.py`, `.ts`, `.tsx`, `.js`, `.go`).
+pub fn repo_map(workspace: &Path, max_files: usize) -> Result<Value, String> {
+    let base = workspace
+        .canonicalize()
+        .map_err(|e| format!("Invalid workspace: {e}"))?;
+    let files = list_files(&base, ".", 500)?;
+    let limit = max_files.clamp(1, 200);
+    let mut mapped = Vec::new();
+    for rel in files {
+        if mapped.len() >= limit {
+            break;
+        }
+        let is_source = [".rs", ".py", ".ts", ".tsx", ".js", ".go"]
+            .iter()
+            .any(|ext| rel.ends_with(ext));
+        if !is_source {
+            continue;
+        }
+        let Ok(content) = fs::read_to_string(base.join(&rel)) else {
+            continue;
+        };
+        let symbols = extract_top_symbols(&content);
+        if !symbols.is_empty() {
+            mapped.push(json!({ "path": rel, "symbols": symbols }));
+        }
+    }
+    Ok(json!({ "files": mapped }))
+}
+
 fn glob_match(pattern: &str, text: &str) -> bool {
     let p: Vec<char> = pattern.chars().collect();
     let t: Vec<char> = text.chars().collect();
@@ -780,6 +925,30 @@ pub fn tool_schemas() -> Value {
                     }
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "repo_map",
+                "description": "Build a compact symbol outline (functions, structs, classes, interfaces) across workspace source files.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "max_files": { "type": "integer" }
+                    }
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "restore_checkpoint",
+                "description": "Rewind the most recent file edit or write made in this workspace.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
         }
     ])
 }
@@ -840,6 +1009,11 @@ pub fn execute_tool(workspace: &Path, name: &str, args: &Value, allow_write: boo
             let target = args.get("target").and_then(Value::as_str);
             verify_workspace(workspace, target)
         }
+        "repo_map" => {
+            let max_files = args.get("max_files").and_then(Value::as_u64).unwrap_or(60) as usize;
+            repo_map(workspace, max_files)
+        }
+        "restore_checkpoint" => restore_checkpoint(workspace),
         other => Err(format!("Unknown native tool: {other}")),
     };
     match result {
@@ -966,5 +1140,26 @@ mod tests {
         let dir = tempdir().unwrap();
         let err = verify_workspace(dir.path(), None).unwrap_err();
         assert!(err.contains("No supported verification runner"));
+    }
+
+    #[test]
+    fn checkpoint_and_repo_map_work_together() {
+        let dir = tempdir().unwrap();
+        write_file(dir.path(), "src/app.rs", "pub fn alpha() {}\n", true).unwrap();
+        edit_file(dir.path(), "src/app.rs", "alpha", "beta", true).unwrap();
+        assert!(read_file(dir.path(), "src/app.rs", 1, 5)
+            .unwrap()
+            .contains("beta"));
+
+        let map = repo_map(dir.path(), 10).unwrap();
+        let files = map["files"].as_array().unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0]["symbols"][0], "pub fn beta()");
+
+        let restored = restore_checkpoint(dir.path()).unwrap();
+        assert_eq!(restored["restored"], "src/app.rs");
+        assert!(read_file(dir.path(), "src/app.rs", 1, 5)
+            .unwrap()
+            .contains("alpha"));
     }
 }
