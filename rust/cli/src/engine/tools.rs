@@ -868,6 +868,10 @@ mod tests {
         let structs = find_symbol(dir.path(), "AgentLoop", 10).unwrap();
         assert_eq!(structs.len(), 2);
         let funcs = find_symbol(dir.path(), "run_agent", 10).unwrap();
-        assert_eq!(funcs, vec!["src/lib.rs:2: pub fn run_agent() {}"]);
+        assert_eq!(funcs.len(), 1);
+        assert_eq!(
+            funcs[0].replace('\\', "/"),
+            "src/lib.rs:2: pub fn run_agent() {}"
+        );
     }
 }
