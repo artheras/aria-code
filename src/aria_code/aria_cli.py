@@ -310,14 +310,6 @@ from aria_code.apps.cli.commands.backtest_cmds import (
     _print_sparkline,
 )
 from aria_code.apps.cli.commands.analysis_cmds import AnalysisCommandsMixin
-from aria_code.apps.cli.commands.ashare_prediction_cmds import (
-    ASharePredictionCommandsMixin,
-    build_prediction_service,
-    fetch_live_ashare_universe,
-    load_universe_file,
-    parse_ashare_predict_args,
-    prediction_freshness,
-)
 from aria_code.apps.cli.commands.data_cmds import DataCommandsMixin
 from aria_code.apps.cli.commands.ops_cmds import OpsCommandsMixin
 from aria_code.apps.cli.commands.engineering_cmds import EngineeringCommandsMixin
@@ -330,8 +322,6 @@ from aria_code.apps.cli.commands.ui_cmds import UiCommandsMixin
 from aria_code.apps.cli.commands.session_ux_cmds import SessionUxCommandsMixin
 from aria_code.apps.cli.commands.auth_cmds import AuthCommandsMixin
 from aria_code.apps.cli.commands.file_cmds import FileCommandsMixin
-from aria_code.apps.cli.commands.fx_commodity_cmds import FxCommodityCommandsMixin
-from aria_code.apps.cli.commands.finance_service_cmds import FinanceServiceCommandsMixin
 from aria_code.apps.cli.commands.orchestrator_cmds import OrchestratorCommandsMixin
 from aria_code.apps.cli.commands.workflow_cmds import WorkflowCommandsMixin
 from aria_code.apps.cli.commands.business_workflow_cmds import BusinessWorkflowCommandsMixin
@@ -3468,7 +3458,7 @@ import apps.cli.broker_render as _broker_render_module
 _rebind_module_function_globals(_broker_render_module, _broker_render_module.__all__)
 
 class SlashCommands(
-    CoreCommandsMixin,EngineeringCommandsMixin,BrokerCommandsMixin, CanvasCommandsMixin, BacktestCommandsMixin, AnalysisCommandsMixin, ASharePredictionCommandsMixin, DataCommandsMixin, OpsCommandsMixin, DiagnosticCommandsMixin, DiagnosticOpsCommandsMixin, UiCommandsMixin, SessionUxCommandsMixin, AuthCommandsMixin, FileCommandsMixin, FxCommodityCommandsMixin, FinanceServiceCommandsMixin, OrchestratorCommandsMixin, WorkflowCommandsMixin, BusinessWorkflowCommandsMixin, WarehouseCommandsMixin, LogisticsCommandsMixin, SessionCommandsMixin, WorkspaceCommandsMixin, ModelCommandsMixin, MarketCommandsMixin, PortfolioCommandsMixin, PdfExportCommandsMixin):
+    CoreCommandsMixin,EngineeringCommandsMixin,BrokerCommandsMixin, CanvasCommandsMixin, BacktestCommandsMixin, AnalysisCommandsMixin, DataCommandsMixin, OpsCommandsMixin, DiagnosticCommandsMixin, DiagnosticOpsCommandsMixin, UiCommandsMixin, SessionUxCommandsMixin, AuthCommandsMixin, FileCommandsMixin, OrchestratorCommandsMixin, WorkflowCommandsMixin, BusinessWorkflowCommandsMixin, WarehouseCommandsMixin, LogisticsCommandsMixin, SessionCommandsMixin, WorkspaceCommandsMixin, ModelCommandsMixin, MarketCommandsMixin, PortfolioCommandsMixin, PdfExportCommandsMixin):
     """Claude Code-style slash command system."""
 
 
@@ -3520,8 +3510,6 @@ class SlashCommands(
             "/mcp":       (self.cmd_mcp,      "MCP servers: /mcp status|tools|reload [server]"),
             "/providers": (self.cmd_providers,"List local LLM backends and status"),
             "/collab":   (self.cmd_collab,   "Multi-model API collaboration: /collab status|use|ask"),
-            "/ashare":   (self.cmd_ashare,   "A-share prediction engine: /ashare status|latest|predict|evaluate"),
-            "/markets":  (self.cmd_markets,  "Financial market services: /markets [A股|港股|美股|crypto|forex|commodity]"),
             "/orchestrate": (self.cmd_orchestrate, "Task graph preview: /orchestrate <request>"),
             "/ariarc":    (self.cmd_ariarc,   "Show .ariarc project config: /ariarc [reload]"),
             "/skills":    (self.cmd_skills,   "List all available skills"),
@@ -3653,7 +3641,6 @@ class SlashCommands(
             # through to the LLM (which hallucinated, e.g. /team → fake roster).
             "/portfolio": (self.cmd_portfolio,"Portfolio: /portfolio [analyze|rebalance] [SYMBOL...] | holdings (按策略分组持仓看板)"),
             "/realty":    (self.cmd_realty,   "Real-estate data: /realty market|reit|valuation|compare"),
-            "/crypto":    (self.cmd_crypto,   "Crypto data: /crypto BTC ETH | /crypto account"),
             "/risk":      (self.cmd_risk,     "Risk metrics: /risk AAPL | /risk portfolio"),
             "/corr":      (self.cmd_corr,     "Correlation matrix: /corr AAPL MSFT TSLA [1y]"),
             "/factors":   (self.cmd_factors,  "Factor analysis: /factors AAPL"),
@@ -3661,8 +3648,6 @@ class SlashCommands(
             "/optimize":  (self.cmd_optimize, "Portfolio optimization: /optimize [symbols...]"),
             "/signal":    (self.cmd_signal,   "ML signal: /signal <symbol>"),
             "/predict":   (self.cmd_predict,  "ML return predictions: /predict <symbols...>"),
-            "/forex":     (self.cmd_forex,    "Forex rates: /forex EUR/USD USD/CNY"),
-            "/commodity": (self.cmd_commodity,"Commodities: /commodity gold oil silver"),
             "/funding":   (self.cmd_funding,  "Perp funding rates: /funding [compare] [BTC ETH]"),
             "/indices":   (self.cmd_indices,  "Global indices real-time: /indices"),
             "/hot":       (self.cmd_hot,      "Hot/active stocks: /hot [cn|us] [top=20]"),

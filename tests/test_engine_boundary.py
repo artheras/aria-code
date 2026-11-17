@@ -153,7 +153,7 @@ class ImportsOfPrivateCodeAreGuarded(unittest.TestCase):
     # build_prediction_service() imports services/ unguarded. It survives because
     # all three of its callers wrap the call in `except Exception`; see
     # tests/test_degrades_without_quant_engine.py, which asserts that.
-    KNOWN_UNGUARDED = {("apps/cli/commands/ashare_prediction_cmds.py", "services")}
+    KNOWN_UNGUARDED: set[tuple[str, str]] = set()
 
     def test_private_imports_do_not_escape_their_guard(self) -> None:
         offenders = [

@@ -91,7 +91,6 @@ class ModulesThatUseTheEngineStillImport(unittest.TestCase):
     # is the bar here: these hold slash commands and agents, so failing to
     # import takes unrelated commands down with them.
     MODULES = (
-        "apps.cli.commands.ashare_prediction_cmds",
         "apps.cli.commands.backtest_cmds",
     )
 
@@ -108,29 +107,6 @@ class ModulesThatUseTheEngineStillImport(unittest.TestCase):
                     f"{name} cannot be imported without the quant engine:\n"
                     f"{proc.stderr[-1500:]}",
                 )
-
-
-class TheUnguardedSitesRaiseSomethingCallersCatch(unittest.TestCase):
-    """The two unguarded imports are safe only because callers catch broadly.
-
-    Asserted rather than assumed: the failure has to be an ordinary exception
-    that an `except Exception` handler catches. A SystemExit or a segfault in a
-    compiled engine's place would slip straight past those handlers.
-    """
-
-    def test_build_prediction_service_raises_a_catchable_error(self) -> None:
-        proc = _run_without_the_engine("""
-            from apps.cli.commands.ashare_prediction_cmds import build_prediction_service
-            try:
-                build_prediction_service({})
-            except Exception as exc:
-                print("caught:", type(exc).__name__)
-            else:
-                print("NO ERROR -- the engine was reachable after all")
-        """)
-        self.assertEqual(proc.returncode, 0, proc.stderr[-1500:])
-        self.assertIn("caught:", proc.stdout)
-        self.assertIn("Error", proc.stdout)  # ImportError / ModuleNotFoundError
 
 
 if __name__ == "__main__":
