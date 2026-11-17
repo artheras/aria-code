@@ -78,7 +78,7 @@ VISIBLE_SLASH_COMMANDS: FrozenSet[str] = frozenset({
     "/project", "/init", "/review", "/code", "/plan", "/orchestrate", "/run", "/task", "/tasks", "/impact", "/workflow", "/delegate",
     "/diff", "/commit", "/pr", "/checkpoint", "/worktree", "/graph", "/agents", "/test", "/build", "/sim", "/consult", "/fix", "/canva", "/completions", "/lsp",
     # Research
-    "/team", "/warehouse", "/deep",
+    "/team", "/deep",
     # Quant
     "/tv",
     # UI generation
@@ -129,7 +129,7 @@ HELP_TOPICS: Tuple[HelpTopic, ...] = (
     HelpTopic("quant", "Quant and portfolios", "量化与组合", (
         "/compare", "/execution", "/portfolio", "/risk",
         "/optimize", "/stress", "/factors")),
-    HelpTopic("logistics", "Logistics", "物流", ("/inventory", "/carriers", "/warehouse")),
+    HelpTopic("logistics", "Logistics", "物流", ("/inventory", "/carriers")),
     HelpTopic("data", "Notes, files and artifacts", "笔记、文件与产物", (
         "/journal", "/note", "/todo", "/memory", "/artifacts", "/accuracy", "/file",
         "/vision", "/ui")),

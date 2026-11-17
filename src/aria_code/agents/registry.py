@@ -53,13 +53,6 @@ _try_import_builtin("aria_code.agents.engineering.tester",     "tester")
 _try_import_builtin("aria_code.agents.portfolio_agent",        "portfolio")
 _try_import_builtin("aria_code.agents.supervisor",             "supervisor")
 
-# ── 海外仓与物流供应链 Agent 包 ──────────────────────────────────────────────────
-_try_import_builtin("aria_code.agents.warehouse.logistics_sync", "warehouse_logistics_sync")
-_try_import_builtin("aria_code.agents.warehouse.inbound_exceptions", "warehouse_inbound_exceptions")
-_try_import_builtin("aria_code.agents.warehouse.inventory_health", "warehouse_inventory_health")
-_try_import_builtin("aria_code.agents.warehouse.logistics_cost", "warehouse_logistics_cost")
-_try_import_builtin("aria_code.agents.warehouse.fulfillment_leadtime", "warehouse_fulfillment_leadtime")
-
 
 class AgentRegistry:
     """

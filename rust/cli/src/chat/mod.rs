@@ -122,6 +122,7 @@ pub fn run(
                 {"name": "/health", "description": "Check configured services"},
                 {"name": "/sessions", "description": "List saved sessions"},
                 {"name": "/review", "description": "Review uncommitted git changes"},
+                {"name": "/scan", "description": "Scan workspace structure and languages"},
                 {"name": "/new", "description": "Start a new session"}
             ]
         }))?;
@@ -429,6 +430,7 @@ enum NativeRoute {
     ModelList(Option<String>),
     Sessions(Option<String>),
     Review(Option<String>),
+    Scan,
     OllamaChat,
     OllamaAgent,
     CloudChat(crate::engine::cloud::CloudProvider),
@@ -445,6 +447,9 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     let is_ollama = app.provider.eq_ignore_ascii_case("ollama");
     if text == "/health" && (is_ollama || app.provider.is_empty()) {
         return Some(NativeRoute::Health);
+    }
+    if text == "/scan" {
+        return Some(NativeRoute::Scan);
     }
     if text == "/sessions" || text.starts_with("/sessions ") {
         let query = text.strip_prefix("/sessions").unwrap_or("").trim();
@@ -761,6 +766,46 @@ fn try_dispatch_native_turn(
                 }
                 let _ = tx
                     .send(json!({"protocol": 1, "type": "answer.delta", "text": lines.join("\n")}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+            }
+            NativeRoute::Scan => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let text = match crate::engine::tools::project_scan(&ws_path) {
+                    Ok(scan) => {
+                        let types = scan["project_types"]
+                            .as_array()
+                            .map(|a| {
+                                a.iter()
+                                    .filter_map(Value::as_str)
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            })
+                            .unwrap_or_default();
+                        let keys = scan["key_files"]
+                            .as_array()
+                            .map(|a| {
+                                a.iter()
+                                    .filter_map(Value::as_str)
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            })
+                            .unwrap_or_default();
+                        let sampled = scan["sampled_files"].as_u64().unwrap_or(0);
+                        let git = scan["git_status"].as_str().unwrap_or("").trim();
+                        format!(
+                            "Workspace: `{workspace}`\nLanguages/Stacks: {}\nKey Manifests: {}\nSampled Files: {sampled}{}",
+                            if types.is_empty() { "unknown" } else { &types },
+                            if keys.is_empty() { "none" } else { &keys },
+                            if git.is_empty() {
+                                String::new()
+                            } else {
+                                format!("\n\nGit Status:\n```\n{git}\n```")
+                            }
+                        )
+                    }
+                    Err(e) => format!("[scan error: {e}]"),
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
             }
             NativeRoute::Review(target) => {
@@ -1853,6 +1898,10 @@ mod tests {
         assert_eq!(
             classify_native_route(&app, &json!({"type": "turn.submit", "text": "/sessions"})),
             Some(NativeRoute::Sessions(None))
+        );
+        assert_eq!(
+            classify_native_route(&app, &json!({"type": "turn.submit", "text": "/scan"})),
+            Some(NativeRoute::Scan)
         );
         assert_eq!(
             classify_native_route(
