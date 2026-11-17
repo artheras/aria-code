@@ -422,6 +422,7 @@ fn native_commands_json() -> Value {
         {"name": "/verify", "description": "Run workspace test/verification suite"},
         {"name": "/map", "description": "Show workspace symbol map"},
         {"name": "/rewind", "description": "Rewind the last file edit"},
+        {"name": "/worktree", "description": "Manage isolated git worktrees (list|create|remove)"},
         {"name": "/write-mode", "description": "Toggle workspace write permission (on|off)"},
         {"name": "/new", "description": "Start a new session"}
     ])
@@ -445,6 +446,7 @@ enum NativeRoute {
     Scan,
     Map,
     Rewind,
+    Worktree(String, Option<String>),
     Verify(Option<String>),
     WriteMode(Option<bool>),
     OllamaChat,
@@ -472,6 +474,13 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     }
     if text == "/rewind" {
         return Some(NativeRoute::Rewind);
+    }
+    if text == "/worktree" || text.starts_with("/worktree ") {
+        let rest = text.strip_prefix("/worktree").unwrap_or("").trim();
+        let mut parts = rest.split_whitespace();
+        let action = parts.next().unwrap_or("list").to_owned();
+        let name = parts.next().map(str::to_owned);
+        return Some(NativeRoute::Worktree(action, name));
     }
     if text == "/diff" || text.starts_with("/diff ") {
         let target = text.strip_prefix("/diff").unwrap_or("").trim();
@@ -966,6 +975,23 @@ fn try_dispatch_native_turn(
                         "ok",
                     ),
                     Err(e) => (format!("[rewind: {e}]"), "failed"),
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Worktree(action, name) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) = match crate::engine::tools::git_worktree(
+                    &ws_path,
+                    &action,
+                    name.as_deref(),
+                    allow_write,
+                ) {
+                    Ok(v) => (
+                        serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string()),
+                        "ok",
+                    ),
+                    Err(e) => (format!("[worktree: {e}]"), "failed"),
                 };
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
@@ -2093,6 +2119,13 @@ mod tests {
         assert_eq!(
             classify_native_route(&app, &json!({"type": "turn.submit", "text": "/rewind"})),
             Some(NativeRoute::Rewind)
+        );
+        assert_eq!(
+            classify_native_route(
+                &app,
+                &json!({"type": "turn.submit", "text": "/worktree create wt1"})
+            ),
+            Some(NativeRoute::Worktree("create".into(), Some("wt1".into())))
         );
         assert_eq!(
             classify_native_route(
