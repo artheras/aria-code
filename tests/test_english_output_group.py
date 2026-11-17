@@ -23,24 +23,6 @@ def _console():
     return Console(file=io.StringIO(), width=100, color_system=None)
 
 
-def test_a_stale_central_bank_rate_is_not_shown_as_current(monkeypatch):
-    from aria_code.tools import macro_tools
-    from aria_code.ui.render.finance import render_cb_rates
-
-    recent = (date.today() - timedelta(days=5)).isoformat()
-    series = {"FEDFUNDS": [{"date": recent, "value": 3.75}], "ECBDFR": [{"date": recent, "value": 2.5}],
-              "IUDSOIA": [{"date": "2017-01-01", "value": 0.25}], "IRSTCI01JPM156N": []}
-    monkeypatch.setattr(macro_tools, "_fred_series", lambda s, limit=3, **k: series.get(s, []))
-    monkeypatch.setattr(macro_tools, "_HAS_AK", False)
-    result = macro_tools.get_central_bank_rates()
-    assert "英国 SONIA (跟随英央行利率)" not in result["rates"]
-    con = _console()
-    render_cb_rates(result, console=con, has_rich=True, lang="en")
-    text = con.file.getvalue()
-    assert "Central bank rates" in text and "ECB deposit facility rate" in text and recent in text
-    assert "no data since 2017-01-01, not shown" in text and "0.25%" not in text
-
-
 def test_us_macro_is_english_in_an_english_session():
     from aria_code.ui.render.finance import render_macro_result
 

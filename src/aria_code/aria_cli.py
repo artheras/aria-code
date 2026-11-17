@@ -1184,7 +1184,7 @@ try:
 except Exception as _exc:
     logger.debug("Image tool registration error: %s", _exc)
     
-# ── Register enterprise logistics & corporate finance analysis tools ────────
+# ── Register enterprise logistics tools ─────────────────────────────────────
 try:
     from tools.logistics_tools import register_logistics_tools as _reg_logistics
     _n_logistics = _reg_logistics(LOCAL_TOOLS, LOCAL_TOOL_SCHEMAS)
@@ -1192,22 +1192,6 @@ try:
         logger.info("Registered %d logistics tools", _n_logistics)
 except Exception as _exc:
     logger.debug("Logistics tools init error: %s", _exc)
-
-try:
-    from tools.enterprise_finance_tools import register_enterprise_finance_tools as _reg_corp_fin
-    _n_corp_fin = _reg_corp_fin(LOCAL_TOOLS, LOCAL_TOOL_SCHEMAS)
-    if _n_corp_fin:
-        logger.info("Registered %d enterprise finance tools", _n_corp_fin)
-except Exception as _exc:
-    logger.debug("Enterprise finance tools init error: %s", _exc)
-
-try:
-    from tools.stripe_tools import register_stripe_tools as _reg_stripe
-    _n_stripe = _reg_stripe(LOCAL_TOOLS, LOCAL_TOOL_SCHEMAS)
-    if _n_stripe:
-        logger.info("Registered %d stripe tools", _n_stripe)
-except Exception as _exc:
-    logger.debug("Stripe tools init error: %s", _exc)
 
 try:
     from tools.broker_tools import register_broker_tools as _reg_broker
