@@ -96,6 +96,7 @@ enum Mode {
     },
     Render(bool),
     Config(bool),
+    Scan,
     Setup {
         provider: Option<String>,
         model: Option<String>,
@@ -280,6 +281,12 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                     return Err("Unexpected config argument".into());
                 }
                 break Mode::Config(paths);
+            }
+            Some("scan") => {
+                if args.next().is_some() {
+                    return Err("Usage: scan".into());
+                }
+                break Mode::Scan;
             }
             Some("setup") => {
                 let mut provider = None;
@@ -709,6 +716,14 @@ fn run(options: Options) -> Result<i32, String> {
                 } else {
                     state::config()?
                 }
+            );
+            Ok(0)
+        }
+        Mode::Scan => {
+            let report = engine::tools::project_scan(&options.workspace)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&report).unwrap_or_default()
             );
             Ok(0)
         }

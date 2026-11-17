@@ -400,6 +400,42 @@ pub fn glob_files(workspace: &Path, pattern: &str, limit: usize) -> Result<Vec<S
     Ok(matches)
 }
 
+/// Detect project languages/manifests and summarize workspace structure natively in Rust.
+pub fn project_scan(workspace: &Path) -> Result<Value, String> {
+    let base = workspace
+        .canonicalize()
+        .map_err(|e| format!("Invalid workspace: {e}"))?;
+    let files = list_files(&base, ".", 500)?;
+    let manifests: &[(&str, &str)] = &[
+        ("Cargo.toml", "Rust"),
+        ("pyproject.toml", "Python"),
+        ("setup.py", "Python"),
+        ("package.json", "Node.js"),
+        ("go.mod", "Go"),
+        ("pom.xml", "Java"),
+        ("build.gradle", "Java"),
+    ];
+    let mut detected_types: Vec<&str> = Vec::new();
+    let mut key_files: Vec<String> = Vec::new();
+    for (file, lang) in manifests {
+        if base.join(file).is_file() {
+            if !detected_types.contains(lang) {
+                detected_types.push(lang);
+            }
+            key_files.push((*file).to_owned());
+        }
+    }
+    let git = git_status(&base).ok();
+    Ok(json!({
+        "workspace": base.to_string_lossy(),
+        "project_types": detected_types,
+        "key_files": key_files,
+        "sampled_files": files.len(),
+        "top_files": files.into_iter().take(25).collect::<Vec<_>>(),
+        "git_status": git.and_then(|v| v.get("status").cloned()),
+    }))
+}
+
 pub fn tool_schemas() -> Value {
     json!([
         {
@@ -528,6 +564,17 @@ pub fn tool_schemas() -> Value {
                     "required": ["pattern"]
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "project_scan",
+                "description": "Scan the workspace to detect project languages, manifests, key files, and git status.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
         }
     ])
 }
@@ -574,6 +621,7 @@ pub fn execute_tool(workspace: &Path, name: &str, args: &Value, allow_write: boo
             let pat = args.get("pattern").and_then(Value::as_str).unwrap_or("");
             glob_files(workspace, pat, 200).map(|files| json!({ "files": files }))
         }
+        "project_scan" => project_scan(workspace),
         other => Err(format!("Unknown native tool: {other}")),
     };
     match result {
@@ -649,5 +697,22 @@ mod tests {
         assert_eq!(rs, vec!["src/lib.rs"]);
         let nested = glob_files(dir.path(), "src/*.rs", 20).unwrap();
         assert_eq!(nested, vec!["src/lib.rs"]);
+    }
+
+    #[test]
+    fn project_scan_detects_manifests_and_counts_files() {
+        let dir = tempdir().unwrap();
+        write_file(
+            dir.path(),
+            "Cargo.toml",
+            "[package]\nname = \"demo\"\n",
+            true,
+        )
+        .unwrap();
+        write_file(dir.path(), "src/main.rs", "fn main() {}\n", true).unwrap();
+        let scan = project_scan(dir.path()).unwrap();
+        assert_eq!(scan["project_types"], json!(["Rust"]));
+        assert_eq!(scan["key_files"], json!(["Cargo.toml"]));
+        assert_eq!(scan["sampled_files"], 2);
     }
 }
