@@ -127,6 +127,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Checkout pinned erp-service
+        uses: actions/checkout@v4
+        with:
+          repository: artheras/erp-service
+          ref: 67762d4e9c05aa76719a442761ff246d6e8ec2fb
+          path: vendor/erp-service
+
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -139,6 +146,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[cn,dev]"
+          pip install --no-deps -e vendor/erp-service
 
       - name: Test
         env:

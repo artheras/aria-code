@@ -159,6 +159,13 @@ def confine(arguments: Dict[str, Any], data_dir: Optional[Path]) -> Dict[str, An
 
 
 def call_tool(name: str, arguments: Any, data_dir: Optional[Path]) -> Dict[str, Any]:
+    if not isinstance(arguments, dict):
+        arguments = {}
+    try:
+        arguments = confine(arguments, data_dir)
+    except ValueError as exc:
+        result = {"success": False, "error": str(exc)}
+        return {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}], "isError": True}
     try:
         tools = _implementations()
     except ImportError:
@@ -166,10 +173,8 @@ def call_tool(name: str, arguments: Any, data_dir: Optional[Path]) -> Dict[str, 
     entry = tools.get(name)
     if entry is None:
         return {"content": [{"type": "text", "text": f"Unknown tool: {name}"}], "isError": True}
-    if not isinstance(arguments, dict):
-        arguments = {}
     try:
-        result = entry[0](confine(arguments, data_dir))
+        result = entry[0](arguments)
     except ValueError as exc:
         result = {"success": False, "error": str(exc)}
     except Exception as exc:  # a tool bug must not take the server down
