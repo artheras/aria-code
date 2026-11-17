@@ -476,6 +476,19 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     None
 }
 
+fn persist_native_turn(workspace: &str, model: &str, prompt: &str, answer: &str) {
+    if prompt.trim().is_empty() || answer.trim().is_empty() {
+        return;
+    }
+    let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) else {
+        return;
+    };
+    let root = std::path::PathBuf::from(home)
+        .join(".aria")
+        .join("sessions");
+    let _ = crate::sessions::save_native_turn(&root, "native", workspace, model, prompt, answer);
+}
+
 fn try_dispatch_native_turn(
     app: &App,
     request: &Value,
@@ -703,6 +716,7 @@ fn try_dispatch_native_turn(
                             "type": "answer.delta",
                             "text": answer
                         }));
+                        persist_native_turn(&workspace, &model, &prompt, &answer);
                         "ok"
                     }
                     Err(e) => {
@@ -718,6 +732,7 @@ fn try_dispatch_native_turn(
             }
             NativeRoute::OllamaChat => {
                 let sys = crate::engine::policy::general_system_prompt("today");
+                let mut reply = String::new();
                 let res = crate::engine::ollama::stream_chat_cancelable(
                     &url,
                     &model,
@@ -726,6 +741,7 @@ fn try_dispatch_native_turn(
                     timeout,
                     || cancel.load(Ordering::Relaxed),
                     |delta| {
+                        reply.push_str(delta);
                         let _ = tx.send(json!({
                             "protocol": 1,
                             "type": "answer.delta",
@@ -734,7 +750,10 @@ fn try_dispatch_native_turn(
                     },
                 );
                 let status = match res {
-                    Ok(_) => "ok",
+                    Ok(_) => {
+                        persist_native_turn(&workspace, &model, &prompt, &reply);
+                        "ok"
+                    }
                     Err(e) if e == "cancelled" => "cancelled",
                     Err(e) => {
                         let _ = tx.send(json!({
