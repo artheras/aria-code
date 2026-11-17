@@ -120,6 +120,8 @@ pub fn run(
                 {"name": "/help", "description": "Show help"},
                 {"name": "/model", "description": "Choose or list models"},
                 {"name": "/health", "description": "Check configured services"},
+                {"name": "/sessions", "description": "List saved sessions"},
+                {"name": "/review", "description": "Review uncommitted git changes"},
                 {"name": "/new", "description": "Start a new session"}
             ]
         }))?;
@@ -425,6 +427,8 @@ fn ollama_base_url() -> String {
 enum NativeRoute {
     Health,
     ModelList(Option<String>),
+    Sessions(Option<String>),
+    Review(Option<String>),
     OllamaChat,
     OllamaAgent,
     CloudChat(crate::engine::cloud::CloudProvider),
@@ -441,6 +445,18 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     let is_ollama = app.provider.eq_ignore_ascii_case("ollama");
     if text == "/health" && (is_ollama || app.provider.is_empty()) {
         return Some(NativeRoute::Health);
+    }
+    if text == "/sessions" || text.starts_with("/sessions ") {
+        let query = text.strip_prefix("/sessions").unwrap_or("").trim();
+        return Some(NativeRoute::Sessions(
+            (!query.is_empty()).then(|| query.to_owned()),
+        ));
+    }
+    if text == "/review" || text.starts_with("/review ") {
+        let target = text.strip_prefix("/review").unwrap_or("").trim();
+        return Some(NativeRoute::Review(
+            (!target.is_empty()).then(|| target.to_owned()),
+        ));
     }
     if text == "/model" || text.starts_with("/model ") {
         let arg = text.strip_prefix("/model").unwrap_or("").trim();
@@ -465,28 +481,57 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
                     return Some(NativeRoute::CloudChat(cloud));
                 }
             }
-        } else if is_ollama && !text.starts_with('/') && app.provider == "ollama" {
-            // In native-only / pure-Ollama turns without Python context, allow native agent
-            if app.status == "Native ready" || app.status == "已完成" || app.status == "Completed"
-            {
+        } else if !text.starts_with('/')
+            && (app.status == "Native ready" || app.status == "已完成" || app.status == "Completed")
+        {
+            if is_ollama && app.provider == "ollama" {
                 return Some(NativeRoute::OllamaAgent);
+            }
+            if let Some(cloud) = crate::engine::cloud::CloudProvider::from_id(&app.provider) {
+                if cloud.resolve_api_key().is_some() {
+                    return Some(NativeRoute::CloudChat(cloud));
+                }
             }
         }
     }
     None
 }
 
+fn sessions_root() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    Some(
+        std::path::PathBuf::from(home)
+            .join(".aria")
+            .join("sessions"),
+    )
+}
+
 fn persist_native_turn(workspace: &str, model: &str, prompt: &str, answer: &str) {
     if prompt.trim().is_empty() || answer.trim().is_empty() {
         return;
     }
-    let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) else {
+    let Some(root) = sessions_root() else {
         return;
     };
-    let root = std::path::PathBuf::from(home)
-        .join(".aria")
-        .join("sessions");
     let _ = crate::sessions::save_native_turn(&root, "native", workspace, model, prompt, answer);
+}
+
+fn collect_agent_history(app: &App, current_prompt: &str) -> Vec<(String, String)> {
+    let mut history: Vec<(String, String)> = app
+        .entries
+        .iter()
+        .filter(|e| (e.role == "user" || e.role == "assistant") && !e.text.trim().is_empty())
+        .map(|e| (e.role.clone(), e.text.clone()))
+        .collect();
+    if let Some((role, text)) = history.last() {
+        if role == "user" && text.trim() == current_prompt.trim() {
+            history.pop();
+        }
+    }
+    if history.len() > 10 {
+        history.drain(..history.len() - 10);
+    }
+    history
 }
 
 fn try_dispatch_native_turn(
@@ -508,6 +553,8 @@ fn try_dispatch_native_turn(
     let workspace = app.workspace.clone();
     let zh = app.zh();
     let prompt = request["text"].as_str().unwrap_or("").trim().to_owned();
+    let history = collect_agent_history(app, &prompt);
+    let provider = app.provider.clone();
 
     if matches!(route, NativeRoute::ModelList(None)) {
         let probe = crate::engine::ollama::probe_ollama(&url, Duration::from_secs(2));
@@ -683,12 +730,154 @@ fn try_dispatch_native_turn(
                         tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
                 }
             }
+            NativeRoute::Sessions(query) => {
+                let mut lines: Vec<String> = Vec::new();
+                match sessions_root().map(|r| crate::sessions::list(&r, 12, query.as_deref())) {
+                    Some(Ok(data)) => {
+                        let rows = data["sessions"].as_array().cloned().unwrap_or_default();
+                        if rows.is_empty() {
+                            lines.push(if zh {
+                                "未找到匹配的历史会话。".to_owned()
+                            } else {
+                                "No saved sessions found.".to_owned()
+                            });
+                        } else {
+                            lines.push(if zh {
+                                "最近会话（`aria sessions show <id>` 查看详情）：".to_owned()
+                            } else {
+                                "Recent sessions (`aria sessions show <id>` to inspect):".to_owned()
+                            });
+                            for r in rows {
+                                let id = r["id"].as_str().unwrap_or("?");
+                                let msgs = r["messages"].as_u64().unwrap_or(0);
+                                let updated = r["updated"].as_str().unwrap_or("");
+                                let title = r["title"].as_str().unwrap_or("Untitled");
+                                lines.push(format!("- `{id}` · {msgs} msgs · {updated} · {title}"));
+                            }
+                        }
+                    }
+                    Some(Err(e)) => lines.push(format!("[sessions error: {e}]")),
+                    None => lines.push("Sessions directory unavailable.".to_owned()),
+                }
+                let _ = tx
+                    .send(json!({"protocol": 1, "type": "answer.delta", "text": lines.join("\n")}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+            }
+            NativeRoute::Review(target) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let status_out = crate::engine::tools::git_status(&ws_path)
+                    .ok()
+                    .and_then(|v| v["status"].as_str().map(str::to_owned))
+                    .unwrap_or_default();
+                let mut diff_out =
+                    crate::engine::tools::git_diff(&ws_path, target.as_deref(), false)
+                        .ok()
+                        .and_then(|v| v["diff"].as_str().map(str::to_owned))
+                        .unwrap_or_default();
+                if diff_out.trim().is_empty() {
+                    diff_out = crate::engine::tools::git_diff(&ws_path, target.as_deref(), true)
+                        .ok()
+                        .and_then(|v| v["diff"].as_str().map(str::to_owned))
+                        .unwrap_or_default();
+                }
+                if status_out.trim().is_empty() && diff_out.trim().is_empty() {
+                    let msg = if zh {
+                        "工作区干净，暂无未提交改动需要审查。"
+                    } else {
+                        "Working tree is clean — nothing to review."
+                    };
+                    let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": msg}));
+                    let _ =
+                        tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+                    return;
+                }
+                let clipped_diff: String = diff_out.chars().take(12000).collect();
+                let review_prompt = format!(
+                    "Review these uncommitted workspace changes for bugs, security issues, edge cases, and code quality. Be concise and actionable.\n\n## git status\n```\n{}\n```\n\n## git diff\n```diff\n{}\n```",
+                    status_out.trim(),
+                    clipped_diff.trim()
+                );
+                let mut status = "ok";
+                if !model.is_empty() && provider.eq_ignore_ascii_case("ollama") {
+                    let sys = crate::engine::policy::general_system_prompt("today");
+                    match crate::engine::ollama::stream_chat_cancelable(
+                        &url,
+                        &model,
+                        &sys,
+                        &review_prompt,
+                        timeout,
+                        || cancel.load(Ordering::Relaxed),
+                        |delta| {
+                            let _ = tx.send(json!({
+                                "protocol": 1,
+                                "type": "answer.delta",
+                                "text": delta
+                            }));
+                        },
+                    ) {
+                        Ok(_) => {}
+                        Err(e) if e == "cancelled" => status = "cancelled",
+                        Err(e) => {
+                            let _ = tx.send(json!({
+                                "protocol": 1,
+                                "type": "answer.delta",
+                                "text": format!("\n[{e}]")
+                            }));
+                            status = "failed";
+                        }
+                    }
+                } else if !model.is_empty() {
+                    if let Some(cloud) = crate::engine::cloud::CloudProvider::from_id(&provider) {
+                        if cloud.resolve_api_key().is_some() {
+                            let sys = crate::engine::policy::general_system_prompt("today");
+                            match crate::engine::cloud::stream_cloud_chat_cancelable(
+                                cloud,
+                                &model,
+                                &sys,
+                                &review_prompt,
+                                timeout,
+                                || cancel.load(Ordering::Relaxed),
+                                |delta| {
+                                    let _ = tx.send(json!({
+                                        "protocol": 1,
+                                        "type": "answer.delta",
+                                        "text": delta
+                                    }));
+                                },
+                            ) {
+                                Ok(_) => {}
+                                Err(e) if e == "cancelled" => status = "cancelled",
+                                Err(e) => {
+                                    let _ = tx.send(json!({
+                                        "protocol": 1,
+                                        "type": "answer.delta",
+                                        "text": format!("\n[{e}]")
+                                    }));
+                                    status = "failed";
+                                }
+                            }
+                        } else {
+                            let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": review_prompt}));
+                        }
+                    } else {
+                        let _ = tx.send(
+                            json!({"protocol": 1, "type": "answer.delta", "text": review_prompt}),
+                        );
+                    }
+                } else {
+                    let _ = tx.send(
+                        json!({"protocol": 1, "type": "answer.delta", "text": review_prompt}),
+                    );
+                }
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
             NativeRoute::OllamaAgent => {
                 let ws_path = std::path::PathBuf::from(&workspace);
-                let res = crate::engine::agent::run_native_agent(
+                let res = crate::engine::agent::run_native_agent_with_history(
                     &url,
                     &model,
                     &ws_path,
+                    &history,
                     &prompt,
                     false,
                     6,
@@ -776,11 +965,12 @@ fn try_dispatch_native_turn(
                 if use_agent {
                     if let Some(api_key) = cloud.resolve_api_key() {
                         let ws_path = Path::new(&workspace).to_path_buf();
-                        let res = crate::engine::agent::run_cloud_agent(
+                        let res = crate::engine::agent::run_cloud_agent_with_history(
                             cloud,
                             &api_key,
                             &model,
                             &ws_path,
+                            &history,
                             &prompt,
                             false,
                             6,
@@ -808,6 +998,7 @@ fn try_dispatch_native_turn(
                                     "type": "answer.delta",
                                     "text": answer
                                 }));
+                                persist_native_turn(&workspace, &model, &prompt, &answer);
                                 "ok"
                             }
                             Err(e) => {
@@ -1649,5 +1840,52 @@ mod tests {
 
         app.provider = "google".into();
         assert_eq!(classify_native_route(&app, &cap), None);
+    }
+
+    #[test]
+    fn native_route_supports_sessions_review_and_cloud_coding() {
+        let mut app = App {
+            provider: "openai".into(),
+            model: "gpt-4o".into(),
+            status: "Native ready".into(),
+            ..App::default()
+        };
+        assert_eq!(
+            classify_native_route(&app, &json!({"type": "turn.submit", "text": "/sessions"})),
+            Some(NativeRoute::Sessions(None))
+        );
+        assert_eq!(
+            classify_native_route(
+                &app,
+                &json!({"type": "turn.submit", "text": "/sessions auth"})
+            ),
+            Some(NativeRoute::Sessions(Some("auth".into())))
+        );
+        assert_eq!(
+            classify_native_route(
+                &app,
+                &json!({"type": "turn.submit", "text": "/review src/main.rs"})
+            ),
+            Some(NativeRoute::Review(Some("src/main.rs".into())))
+        );
+
+        unsafe { std::env::set_var("OPENAI_API_KEY", "test-key") };
+        assert_eq!(
+            classify_native_route(
+                &app,
+                &json!({"type": "turn.submit", "text": "fix src/main.rs"})
+            ),
+            Some(NativeRoute::CloudChat(
+                crate::engine::cloud::CloudProvider::OpenAI
+            ))
+        );
+        app.provider = "ollama".into();
+        assert_eq!(
+            classify_native_route(
+                &app,
+                &json!({"type": "turn.submit", "text": "fix src/main.rs"})
+            ),
+            Some(NativeRoute::OllamaAgent)
+        );
     }
 }
