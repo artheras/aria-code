@@ -304,11 +304,6 @@ from aria_code.apps.cli.utils.market_detect import (  # noqa: F401 — re-export
 
 from aria_code.apps.cli.commands.broker_cmds import BrokerCommandsMixin
 from aria_code.apps.cli.commands.canvas_cmds import CanvasCommandsMixin
-from aria_code.apps.cli.commands.backtest_cmds import (
-    BacktestCommandsMixin,
-    format_backtest_data_error,  # mixin 方法裸名调用，见下方 _rebind_mixin_globals
-    _print_sparkline,
-)
 from aria_code.apps.cli.commands.analysis_cmds import AnalysisCommandsMixin
 from aria_code.apps.cli.commands.data_cmds import DataCommandsMixin
 from aria_code.apps.cli.commands.ops_cmds import OpsCommandsMixin
@@ -3458,7 +3453,7 @@ import apps.cli.broker_render as _broker_render_module
 _rebind_module_function_globals(_broker_render_module, _broker_render_module.__all__)
 
 class SlashCommands(
-    CoreCommandsMixin,EngineeringCommandsMixin,BrokerCommandsMixin, CanvasCommandsMixin, BacktestCommandsMixin, AnalysisCommandsMixin, DataCommandsMixin, OpsCommandsMixin, DiagnosticCommandsMixin, DiagnosticOpsCommandsMixin, UiCommandsMixin, SessionUxCommandsMixin, AuthCommandsMixin, FileCommandsMixin, OrchestratorCommandsMixin, WorkflowCommandsMixin, BusinessWorkflowCommandsMixin, WarehouseCommandsMixin, LogisticsCommandsMixin, SessionCommandsMixin, WorkspaceCommandsMixin, ModelCommandsMixin, MarketCommandsMixin, PortfolioCommandsMixin, PdfExportCommandsMixin):
+    CoreCommandsMixin,EngineeringCommandsMixin,BrokerCommandsMixin, CanvasCommandsMixin, AnalysisCommandsMixin, DataCommandsMixin, OpsCommandsMixin, DiagnosticCommandsMixin, DiagnosticOpsCommandsMixin, UiCommandsMixin, SessionUxCommandsMixin, AuthCommandsMixin, FileCommandsMixin, OrchestratorCommandsMixin, WorkflowCommandsMixin, BusinessWorkflowCommandsMixin, WarehouseCommandsMixin, LogisticsCommandsMixin, SessionCommandsMixin, WorkspaceCommandsMixin, ModelCommandsMixin, MarketCommandsMixin, PortfolioCommandsMixin, PdfExportCommandsMixin):
     """Claude Code-style slash command system."""
 
 
@@ -3536,8 +3531,6 @@ class SlashCommands(
             "/orders":    (self.cmd_orders,   "Order history: /orders [open|filled|all]"),
             "/paper":     (self.cmd_paper,    "Paper trading: /paper start|account|positions|orders|reset"),
             "/trade":     (self.cmd_trade,    "Trade preview/confirm: /trade preview ... | confirm <id>"),
-            "/strategy":  (self.cmd_strategy, "Strategy vault: /strategy show [name] (overview/workspace)|save|list|diff|load|review"),
-            "/deploy":    (self.cmd_deploy,  "Deploy strategy to live ledger: /deploy <name> AAPL:10 | $100000 AAPL:30% | rebalance AAPL:30% | close"),
             "/accuracy":  (self.cmd_accuracy, "Prediction track record vs live prices"),
             "/artifacts": (self.cmd_artifacts,"Manage generated files: /artifacts [limit|open|reveal|path|copy-path|stats|prune]"),
             "/canvas":    (self.cmd_canvas,   "Live preview server: /canvas [stop] — reports/charts update in a browser tab in real time"),
@@ -3547,7 +3540,6 @@ class SlashCommands(
             "/init":      (self.cmd_init,     "Generate ARIA.md for current project: /init [--force]"),
             "/review":    (self.cmd_review,   "AI code review: /review [file] | /review --staged"),
             "/code":      (self.cmd_code,     "Generate & run code: /code <description> [--save f.py]"),
-            "/scaffold":  (self.cmd_scaffold, "Scaffold: /scaffold <name> [--template strategy]"),
             "/plan":      (self.cmd_plan,     "Draft plan: /plan step1 ; step2"),
             "/run":       (self.cmd_run,      "Run shell command: /run <command>"),
             "/completions":(self.cmd_completions, "Shell completions: /completions [bash|zsh|install]"),
@@ -3563,8 +3555,6 @@ class SlashCommands(
             "/reject-change":(self.cmd_reject_change, "Reject staged change: /reject-change <id>"),
             "/apply":     (self.cmd_apply,    "Extract & save code from last response"),
             # ── Quantitative (multi-step, structured output) ──────────────────
-            "/backtest":  (self.cmd_backtest, "Backtest + HTML report: /backtest momentum SPY --period 1y"),
-            "/wf":        (self.cmd_walk_forward, "Walk-forward test: /wf SPY [momentum] [rolling]"),
             "/compare":   (self.cmd_compare,  "Compare strategies: /compare SPY [start] [end]"),
             "/research":  (self.cmd_research, "Market research workflow: /research AAPL"),
             "/earnings":  (self.cmd_earnings_workflow, "Earnings review workflow: /earnings AAPL"),
@@ -3574,7 +3564,6 @@ class SlashCommands(
             "/risk-scan": (self.cmd_realty_risk_scan, "Realty risk scan workflow: /risk-scan proj_001"),
             "/ops-report": (self.cmd_ops_report, "Ops report workflow: /ops-report proj_001"),
             "/exit-calc": (self.cmd_exit_calc, "Exit settlement workflow: /exit-calc proj_001"),
-            "/auto-strategy":(self.cmd_auto_strategy,"Auto-optimize strategy: /auto-strategy momentum SPY"),
             "/execution": (self.cmd_execution,"Algo execution compare: /execution AAPL buy 100000"),
             "/chart":     (self.cmd_chart,    "Chart artifact: /chart AAPL [period]"),
             "/tv":        (self.cmd_tv,       "TradingView chart/Pine: /tv AAPL [--open] [--analyze|--bullish|--bearish] [--pine]"),

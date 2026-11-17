@@ -90,9 +90,7 @@ class ModulesThatUseTheEngineStillImport(unittest.TestCase):
     # The modules that reach the engine, as found by the import audit. Import
     # is the bar here: these hold slash commands and agents, so failing to
     # import takes unrelated commands down with them.
-    MODULES = (
-        "apps.cli.commands.backtest_cmds",
-    )
+    MODULES = ()
 
     def test_each_module_imports_without_the_engine(self) -> None:
         for name in self.MODULES:

@@ -8,7 +8,6 @@ from importlib import import_module
 
 __all__ = [
     "BrokerCommandsMixin",
-    "BacktestCommandsMixin",
     "WorkspaceCommandsMixin",
     "ModelCommandsMixin",
     "MarketCommandsMixin",
@@ -17,7 +16,6 @@ __all__ = [
 
 _MIXIN_MODULES = {
     "BrokerCommandsMixin": "broker_cmds",
-    "BacktestCommandsMixin": "backtest_cmds",
     "WorkspaceCommandsMixin": "workspace_cmds",
     "ModelCommandsMixin": "model_cmds",
     "MarketCommandsMixin": "market_cmds",
