@@ -22,7 +22,7 @@ from aria_code.apps.channels.conversation import (
     prepare_turn,
     should_respond,
 )
-from aria_code.tools.logistics_tenancy import OWNER_SCOPE_ENV, TenancyError, scope_records
+from aria_bots.erp_logistics import OWNER_SCOPE_ENV
 
 
 def _msg(text="hello", *, kind="group", sender="ou_ops", channel="feishu", chat="oc_acme", mentioned=True):
@@ -152,28 +152,41 @@ class TestScopeIsEnforcedByTheTools:
     RECORDS = [{"owner_id": "ACME", "sku": "A1"}, {"owner_id": "BETA", "sku": "B1"}]
 
     def test_defaults_to_the_bound_shipper(self, monkeypatch):
+        pytest.importorskip("erp_service")
+        from erp_service.logistics.tenancy import scope_records
+
         monkeypatch.setenv(OWNER_SCOPE_ENV, "ACME")
         records, scope = scope_records(self.RECORDS)
         assert [r["sku"] for r in records] == ["A1"]
         assert scope["conversation_scoped"] is True
 
     def test_another_shipper_is_refused(self, monkeypatch):
+        pytest.importorskip("erp_service")
+        from erp_service.logistics.tenancy import TenancyError, scope_records
+
         monkeypatch.setenv(OWNER_SCOPE_ENV, "ACME")
         with pytest.raises(TenancyError):
             scope_records(self.RECORDS, "BETA")
 
     def test_the_cross_shipper_view_is_refused(self, monkeypatch):
+        pytest.importorskip("erp_service")
+        from erp_service.logistics.tenancy import TenancyError, scope_records
+
         monkeypatch.setenv(OWNER_SCOPE_ENV, "ACME")
         with pytest.raises(TenancyError):
             scope_records(self.RECORDS, all_owners=True)
 
     def test_unlabelled_records_are_refused(self, monkeypatch):
+        pytest.importorskip("erp_service")
+        from erp_service.logistics.tenancy import TenancyError, scope_records
+
         monkeypatch.setenv(OWNER_SCOPE_ENV, "ACME")
         with pytest.raises(TenancyError):
             scope_records([{"sku": "X"}])
 
     def test_a_real_tool_honours_it(self, monkeypatch):
-        from aria_code.tools.logistics_inventory import tool_plan_inventory_policy
+        pytest.importorskip("erp_service")
+        from erp_service.logistics.inventory import tool_plan_inventory_policy
         skus = [{"owner_id": o, "sku": s, "on_hand": 10, "lead_time_days": 5,
                  "daily_demand": [3] * 20} for o, s in (("ACME", "A1"), ("BETA", "B1"))]
         monkeypatch.setenv(OWNER_SCOPE_ENV, "ACME")

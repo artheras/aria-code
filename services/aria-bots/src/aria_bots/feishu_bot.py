@@ -65,7 +65,7 @@ from aria_bots.channels.conversation import (
     prepare_turn,
     should_respond,
 )
-from aria_bots.logistics.tenancy import OWNER_SCOPE_ENV
+from aria_bots.erp_logistics import OWNER_SCOPE_ENV
 from aria_bots import engine as _engine
 from aria_bots import market as _market
 

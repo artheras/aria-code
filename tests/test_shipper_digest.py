@@ -19,7 +19,7 @@ import pytest
 
 from aria_code.apps.channels.conversation import ConversationStore
 from aria_code.apps.channels.digest import build_digest, load_feeds, run_digests
-from aria_code.tools.logistics_tenancy import OWNER_SCOPE_ENV
+from aria_bots.erp_logistics import OWNER_SCOPE_ENV
 
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = ROOT / "evals" / "fixtures" / "inventory_reorder" / "skus.csv"     # all ACME

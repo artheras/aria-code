@@ -187,7 +187,7 @@ class LogisticsCommandsMixin:
         if params is None:
             _emit(self, text["inventory_usage"], "yellow")
             return
-        from aria_code.tools.logistics_inventory import tool_plan_inventory_policy
+        from aria_bots.erp_logistics import tool_plan_inventory_policy
 
         as_json = params.pop("_json")
         result = tool_plan_inventory_policy(params)
@@ -219,7 +219,7 @@ class LogisticsCommandsMixin:
         if params is None:
             _emit(self, text["carriers_usage"], "yellow")
             return
-        from aria_code.tools.logistics_carriers import tool_score_carriers
+        from aria_bots.erp_logistics import tool_score_carriers
 
         as_json = params.pop("_json")
         result = tool_score_carriers(params)

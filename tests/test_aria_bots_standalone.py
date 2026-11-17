@@ -13,9 +13,7 @@ MODULES = [
     "aria_bots.feishu_bot", "aria_bots.telegram_bot", "aria_bots.relay_client",
     "aria_bots.channels.conversation", "aria_bots.channels.approvals",
     "aria_bots.channels.digest", "aria_bots.channels.registry",
-    "aria_bots.logistics.tenancy", "aria_bots.logistics.records",
-    "aria_bots.logistics.inventory", "aria_bots.logistics.carriers",
-    "aria_bots.logistics.freight", "aria_bots.logistics.mcp_server", "aria_bots.engine",
+    "aria_bots.erp_logistics", "aria_bots.engine",
 ]
 
 
@@ -45,8 +43,6 @@ def test_old_names_are_the_moved_modules():
         "aria_code.clients.aria_relay_client": "aria_bots.relay_client",
         "aria_code.apps.channels.conversation": "aria_bots.channels.conversation",
         "apps.channels.approvals": "aria_bots.channels.approvals",
-        "aria_code.tools.logistics_tenancy": "aria_bots.logistics.tenancy",
-        "tools.logistics_tools": "aria_bots.logistics.freight",
     }
     for old, new in pairs.items():
         assert importlib.import_module(old) is importlib.import_module(new), old

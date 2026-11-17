@@ -43,7 +43,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 from aria_bots.channels.conversation import ADMINS_ENV, default_db_path
-from aria_bots.logistics.tenancy import OWNER_SCOPE_ENV
+from aria_bots.erp_logistics import OWNER_SCOPE_ENV
 
 APPROVERS_ENV = "ARIA_CHANNEL_APPROVERS"
 OUTBOX_ENV = "ARIA_APPROVAL_OUTBOX"
@@ -129,7 +129,7 @@ EXECUTORS: Dict[str, Callable[[Approval], str]] = {
 
 def propose_reorder(owner_id: str, inventory_path: str) -> Optional[Tuple[str, Dict[str, Any]]]:
     """A purchase-order draft from the shipper's reorder list, or None if nothing to order."""
-    from aria_bots.logistics.inventory import tool_plan_inventory_policy
+    from aria_bots.erp_logistics import tool_plan_inventory_policy
 
     with _confined_to(owner_id):
         result = tool_plan_inventory_policy({"file_path": inventory_path})

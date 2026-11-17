@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aria-bots"
 version = "0.1.0"
-description = "Aria's Feishu and Telegram bots, the relay client, and the logistics tools they use"
+description = "Aria's Feishu and Telegram bots and the relay client. Logistics calculations come from erp-service."
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 dependencies = [
@@ -22,7 +22,7 @@ voice = ["faster-whisper>=1.0"]
 
 [project.scripts]
 aria-relay-client = "aria_bots.relay_client:main"
-aria-logistics-mcp = "aria_bots.logistics.mcp_server:main"
+aria-logistics-mcp = "aria_bots.erp_logistics:main"
 aria-telegram-bot = "aria_bots.telegram_bot:main"
 
 [tool.setuptools.packages.find]

@@ -1186,7 +1186,7 @@ except Exception as _exc:
     
 # ── Register enterprise logistics tools ─────────────────────────────────────
 try:
-    from tools.logistics_tools import register_logistics_tools as _reg_logistics
+    from aria_bots.erp_logistics import register_logistics_tools as _reg_logistics
     _n_logistics = _reg_logistics(LOCAL_TOOLS, LOCAL_TOOL_SCHEMAS)
     if _n_logistics:
         logger.info("Registered %d logistics tools", _n_logistics)

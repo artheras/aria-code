@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Awaitable, Callable, Dict, Iterator, List, Optional
 
 from aria_bots.channels.conversation import ConversationStore
-from aria_bots.logistics.tenancy import OWNER_SCOPE_ENV
+from aria_bots.erp_logistics import OWNER_SCOPE_ENV
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +98,7 @@ def _section(title: str, lines: List[str]) -> str:
 
 
 def build_digest(owner_id: str, feeds: Dict[str, Dict[str, str]]) -> Digest:
-    from aria_bots.logistics.carriers import tool_score_carriers
-    from aria_bots.logistics.inventory import tool_plan_inventory_policy
+    from aria_bots.erp_logistics import tool_plan_inventory_policy, tool_score_carriers
 
     digest = Digest(owner_id=owner_id, title=f"📦 {owner_id} 今日库存与运费提醒")
     sources = feeds_for(owner_id, feeds)

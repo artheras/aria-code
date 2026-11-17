@@ -68,7 +68,9 @@ class InventoryReorder(_Task):
         (self.dir / "reorder.json").write_text(json.dumps(answer))
 
     def _policy(self, path: Path):
-        from aria_code.tools.logistics_inventory import tool_plan_inventory_policy
+        import pytest
+        pytest.importorskip("erp_service")
+        from erp_service.logistics.inventory import tool_plan_inventory_policy
         result = tool_plan_inventory_policy({"file_path": str(path), "service_level": 0.95,
                                              "review_period_days": 7})
         self.assertTrue(result["success"], result)
@@ -135,7 +137,9 @@ class FreightAudit(_Task):
         (self.dir / "audit.json").write_text(json.dumps({"flagged": flagged, "switches": switches}))
 
     def test_arias_carrier_tool_passes(self) -> None:
-        from aria_code.tools.logistics_carriers import tool_score_carriers
+        import pytest
+        pytest.importorskip("erp_service")
+        from erp_service.logistics.carriers import tool_score_carriers
         data = tool_score_carriers({"file_path": str(self.dir / "waybills.csv")})["data"]
         self._write([a["waybill_no"] for a in data["anomalies"]],
                     [{"lane": s["lane"], "from": s["from_carrier"], "to": s["to_carrier"]}

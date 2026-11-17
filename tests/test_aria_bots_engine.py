@@ -11,7 +11,7 @@ from unittest import mock
 import pytest
 
 from aria_bots import engine
-from aria_bots.logistics import mcp_server
+from aria_bots import erp_logistics as mcp_server
 
 WAYBILLS = [
     {"owner_id": "ACME", "carrier": "SF", "total_cost": 120, "origin": "SH", "destination": "BJ",
@@ -43,6 +43,7 @@ class TestLogisticsMCPServer:
         assert rpc({"jsonrpc": "2.0", "id": 3, "method": "resources/list"})["error"]["code"] == -32601
 
     def test_the_scope_comes_from_the_environment_not_the_model(self, monkeypatch):
+        pytest.importorskip("erp_service")
         monkeypatch.delenv("ARIA_OWNER_SCOPE", raising=False)
         failed, body = call("score_carriers", {"waybills": WAYBILLS, "min_shipments": 1})
         assert failed and "shippers" in body["error"]
@@ -62,6 +63,7 @@ class TestLogisticsMCPServer:
         (tmp_path / "secret.json").write_text(json.dumps(WAYBILLS[:1]))
         failed, body = call("score_carriers", {"file_path": str(data / "w.json")})
         assert failed and "not available" in body["error"], "no data folder: no files at all"
+        pytest.importorskip("erp_service")
         failed, body = call("score_carriers", {"file_path": "w.json", "min_shipments": 1}, data)
         assert not failed, body
         for outside in (str(tmp_path / "secret.json"), "../secret.json"):
@@ -84,9 +86,9 @@ def test_the_server_speaks_utf8_whatever_the_console_encoding():
 
     lines = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
              {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}]
-    src = Path(mcp_server.__file__).resolve().parents[2]
+    src = Path(mcp_server.__file__).resolve().parents[1]
     env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONPATH": str(src)}
-    out = subprocess.run([sys.executable, "-m", "aria_bots.logistics.mcp_server"], env=env, timeout=60,
+    out = subprocess.run([sys.executable, "-m", "aria_bots.erp_logistics"], env=env, timeout=60,
                          input="".join(json.dumps(m) + "\n" for m in lines).encode(), capture_output=True)
     assert out.returncode == 0, out.stderr.decode(errors="replace")[-800:]
     replies = [json.loads(line) for line in out.stdout.decode("utf-8").split("\n") if line]
@@ -122,7 +124,7 @@ class TestEngine:
         assert engine.environment("ACME")["ARIA_OWNER_SCOPE"] == "ACME"
         config = json.loads(Path(env["ARIA_MCP_EXTRA_CONFIG"]).read_text())
         (server,) = config["servers"]
-        assert server["name"] == "aria-logistics" and server["args"] == ["-m", "aria_bots.logistics.mcp_server"]
+        assert server["name"] == "aria-logistics" and server["args"] == ["-m", "aria_bots.erp_logistics"]
         prompt = engine.with_history("now?", [{"role": "user", "content": "first"}, {"role": "assistant", "content": "ok"}])
         assert prompt.index("User: first") < prompt.index("Assistant: ok") < prompt.index("now?")
         assert engine.with_history("now?", []) == "now?"
