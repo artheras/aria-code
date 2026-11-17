@@ -123,6 +123,8 @@ pub fn run(
                 {"name": "/sessions", "description": "List saved sessions"},
                 {"name": "/review", "description": "Review uncommitted git changes"},
                 {"name": "/scan", "description": "Scan workspace structure and languages"},
+                {"name": "/diff", "description": "Show uncommitted git diff"},
+                {"name": "/log", "description": "Show recent git commit log"},
                 {"name": "/new", "description": "Start a new session"}
             ]
         }))?;
@@ -430,6 +432,8 @@ enum NativeRoute {
     ModelList(Option<String>),
     Sessions(Option<String>),
     Review(Option<String>),
+    Diff(Option<String>),
+    Log(usize),
     Scan,
     OllamaChat,
     OllamaAgent,
@@ -450,6 +454,17 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     }
     if text == "/scan" {
         return Some(NativeRoute::Scan);
+    }
+    if text == "/diff" || text.starts_with("/diff ") {
+        let target = text.strip_prefix("/diff").unwrap_or("").trim();
+        return Some(NativeRoute::Diff(
+            (!target.is_empty()).then(|| target.to_owned()),
+        ));
+    }
+    if text == "/log" || text.starts_with("/log ") {
+        let arg = text.strip_prefix("/log").unwrap_or("").trim();
+        let limit = arg.parse::<usize>().unwrap_or(15).clamp(1, 50);
+        return Some(NativeRoute::Log(limit));
     }
     if text == "/sessions" || text.starts_with("/sessions ") {
         let query = text.strip_prefix("/sessions").unwrap_or("").trim();
@@ -808,6 +823,47 @@ fn try_dispatch_native_turn(
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
             }
+            NativeRoute::Diff(target) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let mut diff_out =
+                    crate::engine::tools::git_diff(&ws_path, target.as_deref(), false)
+                        .ok()
+                        .and_then(|v| v["diff"].as_str().map(str::to_owned))
+                        .unwrap_or_default();
+                if diff_out.trim().is_empty() {
+                    diff_out = crate::engine::tools::git_diff(&ws_path, target.as_deref(), true)
+                        .ok()
+                        .and_then(|v| v["diff"].as_str().map(str::to_owned))
+                        .unwrap_or_default();
+                }
+                let text = if diff_out.trim().is_empty() {
+                    if zh {
+                        "工作区干净，暂无未提交 diff。".to_owned()
+                    } else {
+                        "Working tree is clean — no uncommitted diff.".to_owned()
+                    }
+                } else {
+                    format!("```diff\n{}\n```", diff_out.trim())
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+            }
+            NativeRoute::Log(limit) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let text = match crate::engine::tools::git_log(&ws_path, None, limit) {
+                    Ok(v) => {
+                        let out = v["log"].as_str().unwrap_or("").trim();
+                        if out.is_empty() {
+                            "No git commits found.".to_owned()
+                        } else {
+                            format!("```\n{out}\n```")
+                        }
+                    }
+                    Err(e) => format!("[git log error: {e}]"),
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+            }
             NativeRoute::Review(target) => {
                 let ws_path = std::path::PathBuf::from(&workspace);
                 let status_out = crate::engine::tools::git_status(&ws_path)
@@ -1002,11 +1058,7 @@ fn try_dispatch_native_turn(
             }
             NativeRoute::CloudChat(cloud) => {
                 let use_agent = !crate::engine::policy::is_conversation_only_message(&prompt)
-                    && !matches!(
-                        cloud,
-                        crate::engine::cloud::CloudProvider::Anthropic
-                            | crate::engine::cloud::CloudProvider::Gemini
-                    );
+                    && !matches!(cloud, crate::engine::cloud::CloudProvider::Gemini);
                 if use_agent {
                     if let Some(api_key) = cloud.resolve_api_key() {
                         let ws_path = Path::new(&workspace).to_path_buf();
@@ -1902,6 +1954,17 @@ mod tests {
         assert_eq!(
             classify_native_route(&app, &json!({"type": "turn.submit", "text": "/scan"})),
             Some(NativeRoute::Scan)
+        );
+        assert_eq!(
+            classify_native_route(
+                &app,
+                &json!({"type": "turn.submit", "text": "/diff src/main.rs"})
+            ),
+            Some(NativeRoute::Diff(Some("src/main.rs".into())))
+        );
+        assert_eq!(
+            classify_native_route(&app, &json!({"type": "turn.submit", "text": "/log 5"})),
+            Some(NativeRoute::Log(5))
         );
         assert_eq!(
             classify_native_route(
