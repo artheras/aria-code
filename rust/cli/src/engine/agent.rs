@@ -52,6 +52,101 @@ fn build_agent_messages(
     messages
 }
 
+fn build_coding_system_prompt(workspace: &Path) -> String {
+    let mut prompt = format!(
+        "{}\n\nYou are Aria Code's native coding agent. You have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `write_file`, `edit_file`, `run_command`, `git_status`, `git_diff`, `git_log`, `glob`, `project_scan`). \
+         Inspect relevant files before answering or editing. Prefer targeted reads and minimal, verified edits.",
+        policy::general_system_prompt("today")
+    );
+    if let Ok(scan) = tools::project_scan(workspace) {
+        let types = scan["project_types"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default();
+        let keys = scan["key_files"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default();
+        let git = scan["git_status"].as_str().unwrap_or("").trim();
+        let mut ctx = String::new();
+        if !types.is_empty() {
+            ctx.push_str(&format!("\nWorkspace languages/stacks: {types}"));
+        }
+        if !keys.is_empty() {
+            ctx.push_str(&format!("\nKey manifests: {keys}"));
+        }
+        if !git.is_empty() {
+            let clipped_git: String = git.chars().take(1200).collect();
+            ctx.push_str(&format!("\nGit status:\n{clipped_git}"));
+        }
+        if !ctx.is_empty() {
+            prompt.push_str(&format!("\n\n[Workspace Snapshot]{ctx}"));
+        }
+    }
+    prompt
+}
+
+fn clip_tool_output(output: &Value, max_chars: usize) -> String {
+    let raw = output.to_string();
+    let count = raw.chars().count();
+    if count <= max_chars {
+        return raw;
+    }
+    let head_len = max_chars * 2 / 3;
+    let tail_len = max_chars / 4;
+    let head: String = raw.chars().take(head_len).collect();
+    let tail: String = raw.chars().skip(count.saturating_sub(tail_len)).collect();
+    format!(
+        "{head}\n...[truncated {} chars]...\n{tail}",
+        count - head_len - tail_len
+    )
+}
+
+#[derive(Default)]
+struct ToolLoopGuard {
+    last_sig: Option<String>,
+    repeat_count: usize,
+}
+
+impl ToolLoopGuard {
+    fn execute(
+        &mut self,
+        workspace: &Path,
+        call: &ToolCall,
+        allow_write: bool,
+        on_tool: &mut impl FnMut(&str, &Value, &Value),
+    ) -> String {
+        let mut output = tools::execute_tool(workspace, &call.name, &call.arguments, allow_write);
+        on_tool(&call.name, &call.arguments, &output);
+        let sig = format!("{}:{}", call.name, call.arguments);
+        if self.last_sig.as_deref() == Some(sig.as_str()) {
+            self.repeat_count += 1;
+        } else {
+            self.last_sig = Some(sig);
+            self.repeat_count = 1;
+        }
+        if self.repeat_count >= 2 {
+            if let Some(obj) = output.as_object_mut() {
+                obj.insert(
+                    "hint".into(),
+                    json!("Duplicate tool call detected; use the previous output or try a different tool/path."),
+                );
+            }
+        }
+        clip_tool_output(&output, 16_000)
+    }
+}
+
 /// Run a bounded multi-round coding/inspection loop natively in Rust.
 #[allow(clippy::too_many_arguments)]
 pub fn run_native_agent(
@@ -92,12 +187,9 @@ pub fn run_native_agent_with_history(
 ) -> Result<String, String> {
     let url = format!("{}/api/chat", base_url.trim_end_matches('/'));
     let schemas = tools::tool_schemas();
-    let system_prompt = format!(
-        "{}\n\nYou have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `write_file`, `edit_file`, `run_command`, `git_status`, `git_diff`, `git_log`, `glob`, `project_scan`). \
-         Inspect relevant files before answering or editing.",
-        policy::general_system_prompt("today")
-    );
+    let system_prompt = build_coding_system_prompt(workspace);
     let mut messages = build_agent_messages(system_prompt, history, prompt);
+    let mut guard = ToolLoopGuard::default();
     let agent = ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .build()
@@ -132,11 +224,10 @@ pub fn run_native_agent_with_history(
             })).collect::<Vec<_>>()
         }));
         for call in calls {
-            let output = tools::execute_tool(workspace, &call.name, &call.arguments, allow_write);
-            on_tool(&call.name, &call.arguments, &output);
+            let content_str = guard.execute(workspace, &call, allow_write, &mut on_tool);
             messages.push(json!({
                 "role": "tool",
-                "content": output.to_string(),
+                "content": content_str,
             }));
         }
     }
@@ -186,7 +277,7 @@ pub fn parse_openai_turn(body: &str) -> Result<(String, Vec<(String, ToolCall)>)
     Ok((content, calls))
 }
 
-fn anthropic_tool_schemas() -> Vec<Value> {
+fn messages_tool_schemas() -> Vec<Value> {
     tools::tool_schemas()
         .as_array()
         .into_iter()
@@ -202,7 +293,7 @@ fn anthropic_tool_schemas() -> Vec<Value> {
         .collect()
 }
 
-pub(crate) fn parse_anthropic_turn(raw: &str) -> Result<(String, Vec<(String, ToolCall)>), String> {
+pub(crate) fn parse_messages_turn(raw: &str) -> Result<(String, Vec<(String, ToolCall)>), String> {
     let val: Value = serde_json::from_str(raw).map_err(|e| format!("Invalid JSON: {e}"))?;
     let mut text_parts = Vec::new();
     let mut calls = Vec::new();
@@ -236,7 +327,8 @@ pub(crate) fn parse_anthropic_turn(raw: &str) -> Result<(String, Vec<(String, To
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_anthropic_agent_with_history(
+fn run_messages_agent_with_history(
+    endpoint_url: &str,
     api_key: &str,
     model: &str,
     workspace: &Path,
@@ -247,14 +339,9 @@ fn run_anthropic_agent_with_history(
     timeout: Duration,
     mut on_tool: impl FnMut(&str, &Value, &Value),
 ) -> Result<String, String> {
-    let url = CloudProvider::Anthropic.endpoint(model, api_key);
     let model_id = model.split('/').next_back().unwrap_or(model);
-    let schemas = anthropic_tool_schemas();
-    let system_prompt = format!(
-        "{}\n\nYou have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `write_file`, `edit_file`, `run_command`, `git_status`, `git_diff`, `git_log`, `glob`, `project_scan`). \
-         Inspect relevant files before answering or editing.",
-        policy::general_system_prompt("today")
-    );
+    let schemas = messages_tool_schemas();
+    let system_prompt = build_coding_system_prompt(workspace);
     let mut messages: Vec<Value> = history
         .iter()
         .filter(|(r, c)| (r == "user" || r == "assistant") && !c.trim().is_empty())
@@ -265,6 +352,7 @@ fn run_anthropic_agent_with_history(
         .timeout_global(Some(timeout))
         .build()
         .new_agent();
+    let mut guard = ToolLoopGuard::default();
 
     for _ in 0..max_rounds.clamp(1, 16) {
         let payload = json!({
@@ -275,17 +363,17 @@ fn run_anthropic_agent_with_history(
             "tools": schemas,
         });
         let mut resp = agent
-            .post(&url)
+            .post(endpoint_url)
             .header("x-api-key", api_key)
             .header("anthropic-version", "2023-06-01")
             .content_type("application/json")
             .send(payload.to_string())
-            .map_err(|e| format!("Anthropic agent request failed: {e}"))?;
+            .map_err(|e| format!("Native cloud agent request failed: {e}"))?;
         let raw = resp
             .body_mut()
             .read_to_string()
             .map_err(|e| format!("Read response failed: {e}"))?;
-        let (content, calls) = parse_anthropic_turn(&raw)?;
+        let (content, calls) = parse_messages_turn(&raw)?;
         if calls.is_empty() {
             return Ok(content);
         }
@@ -306,17 +394,138 @@ fn run_anthropic_agent_with_history(
 
         let mut tool_results = Vec::new();
         for (id, call) in calls {
-            let output = tools::execute_tool(workspace, &call.name, &call.arguments, allow_write);
-            on_tool(&call.name, &call.arguments, &output);
+            let content_str = guard.execute(workspace, &call, allow_write, &mut on_tool);
             tool_results.push(json!({
                 "type": "tool_result",
                 "tool_use_id": id,
-                "content": output.to_string(),
+                "content": content_str,
             }));
         }
         messages.push(json!({ "role": "user", "content": tool_results }));
     }
-    Err("Anthropic agent exceeded max_rounds without final answer".into())
+    Err("Native cloud agent exceeded max_rounds without final answer".into())
+}
+
+fn gemini_tool_schemas() -> Vec<Value> {
+    let decls: Vec<Value> = tools::tool_schemas()
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let func = item.get("function")?;
+            Some(json!({
+                "name": func.get("name")?.as_str()?,
+                "description": func.get("description").and_then(Value::as_str).unwrap_or(""),
+                "parameters": func.get("parameters").cloned().unwrap_or_else(|| json!({"type": "object", "properties": {}})),
+            }))
+        })
+        .collect();
+    vec![json!({ "functionDeclarations": decls })]
+}
+
+pub(crate) fn parse_gemini_turn(raw: &str) -> Result<(String, Vec<ToolCall>), String> {
+    let val: Value = serde_json::from_str(raw).map_err(|e| format!("Invalid JSON: {e}"))?;
+    let parts = val["candidates"]
+        .get(0)
+        .and_then(|c| c["content"]["parts"].as_array())
+        .ok_or("Missing candidates[0].content.parts in response")?;
+    let mut text_parts = Vec::new();
+    let mut calls = Vec::new();
+    for part in parts {
+        if let Some(t) = part.get("text").and_then(Value::as_str) {
+            if !t.is_empty() {
+                text_parts.push(t.to_owned());
+            }
+        }
+        if let Some(fc) = part.get("functionCall") {
+            if let Some(name) = fc.get("name").and_then(Value::as_str) {
+                calls.push(ToolCall {
+                    name: name.to_owned(),
+                    arguments: fc.get("args").cloned().unwrap_or_else(|| json!({})),
+                });
+            }
+        }
+    }
+    Ok((text_parts.join("\n"), calls))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_gemini_agent_with_history(
+    api_key: &str,
+    model: &str,
+    workspace: &Path,
+    history: &[(String, String)],
+    prompt: &str,
+    allow_write: bool,
+    max_rounds: usize,
+    timeout: Duration,
+    mut on_tool: impl FnMut(&str, &Value, &Value),
+) -> Result<String, String> {
+    let model_id = model.split('/').next_back().unwrap_or(model);
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent?key={api_key}"
+    );
+    let tools_decl = gemini_tool_schemas();
+    let system_prompt = build_coding_system_prompt(workspace);
+    let mut contents: Vec<Value> = history
+        .iter()
+        .filter(|(r, c)| (r == "user" || r == "assistant") && !c.trim().is_empty())
+        .map(|(r, c)| {
+            let role = if r == "assistant" { "model" } else { "user" };
+            json!({ "role": role, "parts": [{ "text": c }] })
+        })
+        .collect();
+    contents.push(json!({ "role": "user", "parts": [{ "text": prompt }] }));
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .build()
+        .new_agent();
+    let mut guard = ToolLoopGuard::default();
+
+    for _ in 0..max_rounds.clamp(1, 16) {
+        let payload = json!({
+            "systemInstruction": { "parts": [{ "text": system_prompt }] },
+            "contents": contents,
+            "tools": tools_decl,
+        });
+        let mut resp = agent
+            .post(&url)
+            .content_type("application/json")
+            .send(payload.to_string())
+            .map_err(|e| format!("Native cloud agent request failed: {e}"))?;
+        let raw = resp
+            .body_mut()
+            .read_to_string()
+            .map_err(|e| format!("Read response failed: {e}"))?;
+        let (content, calls) = parse_gemini_turn(&raw)?;
+        if calls.is_empty() {
+            return Ok(content);
+        }
+
+        let mut model_parts = Vec::new();
+        if !content.is_empty() {
+            model_parts.push(json!({ "text": content }));
+        }
+        for c in &calls {
+            model_parts.push(json!({
+                "functionCall": { "name": c.name, "args": c.arguments }
+            }));
+        }
+        contents.push(json!({ "role": "model", "parts": model_parts }));
+
+        let mut response_parts = Vec::new();
+        for call in calls {
+            let content_str = guard.execute(workspace, &call, allow_write, &mut on_tool);
+            response_parts.push(json!({
+                "functionResponse": {
+                    "name": call.name,
+                    "response": { "result": content_str }
+                }
+            }));
+        }
+        contents.push(json!({ "role": "user", "parts": response_parts }));
+    }
+    Err("Native cloud agent exceeded max_rounds without final answer".into())
 }
 
 /// Run a bounded multi-round coding/inspection loop against an OpenAI-compatible cloud endpoint.
@@ -361,7 +570,9 @@ pub fn run_cloud_agent_with_history(
     mut on_tool: impl FnMut(&str, &Value, &Value),
 ) -> Result<String, String> {
     if matches!(provider, CloudProvider::Anthropic) {
-        return run_anthropic_agent_with_history(
+        let endpoint_url = provider.endpoint(model, api_key);
+        return run_messages_agent_with_history(
+            &endpoint_url,
             api_key,
             model,
             workspace,
@@ -374,20 +585,24 @@ pub fn run_cloud_agent_with_history(
         );
     }
     if matches!(provider, CloudProvider::Gemini) {
-        return Err(format!(
-            "Native cloud tool-calling agent currently supports OpenAI-compatible and Anthropic endpoints (got {})",
-            provider.display_name()
-        ));
+        return run_gemini_agent_with_history(
+            api_key,
+            model,
+            workspace,
+            history,
+            prompt,
+            allow_write,
+            max_rounds,
+            timeout,
+            on_tool,
+        );
     }
     let url = provider.endpoint(model, api_key);
     let model_id = model.split('/').next_back().unwrap_or(model);
     let schemas = tools::tool_schemas();
-    let system_prompt = format!(
-        "{}\n\nYou have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `write_file`, `edit_file`, `run_command`, `git_status`, `git_diff`, `git_log`, `glob`, `project_scan`). \
-         Inspect relevant files before answering or editing.",
-        policy::general_system_prompt("today")
-    );
+    let system_prompt = build_coding_system_prompt(workspace);
     let mut messages = build_agent_messages(system_prompt, history, prompt);
+    let mut guard = ToolLoopGuard::default();
     let agent = ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .build()
@@ -424,12 +639,11 @@ pub fn run_cloud_agent_with_history(
             })).collect::<Vec<_>>()
         }));
         for (id, call) in calls {
-            let output = tools::execute_tool(workspace, &call.name, &call.arguments, allow_write);
-            on_tool(&call.name, &call.arguments, &output);
+            let content_str = guard.execute(workspace, &call, allow_write, &mut on_tool);
             messages.push(json!({
                 "role": "tool",
                 "tool_call_id": id,
-                "content": output.to_string(),
+                "content": content_str,
             }));
         }
     }
@@ -500,19 +714,49 @@ mod tests {
     }
 
     #[test]
-    fn parses_tool_calls_from_anthropic_response() {
+    fn parses_tool_calls_from_messages_response() {
         let raw = r#"{
             "content": [
                 { "type": "text", "text": "Checking symbol." },
                 { "type": "tool_use", "id": "toolu_1", "name": "find_symbol", "input": { "symbol": "run_agent" } }
             ]
         }"#;
-        let (content, calls) = parse_anthropic_turn(raw).unwrap();
+        let (content, calls) = parse_messages_turn(raw).unwrap();
         assert_eq!(content, "Checking symbol.");
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].0, "toolu_1");
         assert_eq!(calls[0].1.name, "find_symbol");
         assert_eq!(calls[0].1.arguments["symbol"], "run_agent");
-        assert!(!anthropic_tool_schemas().is_empty());
+        assert!(!messages_tool_schemas().is_empty());
+    }
+
+    #[test]
+    fn parses_tool_calls_from_gemini_response_and_guards_duplicates() {
+        let raw = r#"{
+            "candidates": [{
+                "content": {
+                    "parts": [
+                        { "text": "Inspecting." },
+                        { "functionCall": { "name": "git_status", "args": {} } }
+                    ]
+                }
+            }]
+        }"#;
+        let (content, calls) = parse_gemini_turn(raw).unwrap();
+        assert_eq!(content, "Inspecting.");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "git_status");
+        assert!(!gemini_tool_schemas().is_empty());
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut guard = ToolLoopGuard::default();
+        let call = ToolCall {
+            name: "list_files".into(),
+            arguments: json!({"path": "."}),
+        };
+        let first = guard.execute(dir.path(), &call, false, &mut |_, _, _| {});
+        assert!(!first.contains("Duplicate tool call"));
+        let second = guard.execute(dir.path(), &call, false, &mut |_, _, _| {});
+        assert!(second.contains("Duplicate tool call"));
     }
 }

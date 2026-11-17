@@ -1057,8 +1057,7 @@ fn try_dispatch_native_turn(
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }
             NativeRoute::CloudChat(cloud) => {
-                let use_agent = !crate::engine::policy::is_conversation_only_message(&prompt)
-                    && !matches!(cloud, crate::engine::cloud::CloudProvider::Gemini);
+                let use_agent = !crate::engine::policy::is_conversation_only_message(&prompt);
                 if use_agent {
                     if let Some(api_key) = cloud.resolve_api_key() {
                         let ws_path = Path::new(&workspace).to_path_buf();
