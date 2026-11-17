@@ -186,6 +186,139 @@ pub fn parse_openai_turn(body: &str) -> Result<(String, Vec<(String, ToolCall)>)
     Ok((content, calls))
 }
 
+fn anthropic_tool_schemas() -> Vec<Value> {
+    tools::tool_schemas()
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let func = item.get("function")?;
+            Some(json!({
+                "name": func.get("name")?.as_str()?,
+                "description": func.get("description").and_then(Value::as_str).unwrap_or(""),
+                "input_schema": func.get("parameters").cloned().unwrap_or_else(|| json!({"type": "object", "properties": {}})),
+            }))
+        })
+        .collect()
+}
+
+pub(crate) fn parse_anthropic_turn(raw: &str) -> Result<(String, Vec<(String, ToolCall)>), String> {
+    let val: Value = serde_json::from_str(raw).map_err(|e| format!("Invalid JSON: {e}"))?;
+    let mut text_parts = Vec::new();
+    let mut calls = Vec::new();
+    for block in val["content"].as_array().into_iter().flatten() {
+        match block.get("type").and_then(Value::as_str) {
+            Some("text") => {
+                if let Some(t) = block.get("text").and_then(Value::as_str) {
+                    if !t.is_empty() {
+                        text_parts.push(t.to_owned());
+                    }
+                }
+            }
+            Some("tool_use") => {
+                if let (Some(id), Some(name)) = (
+                    block.get("id").and_then(Value::as_str),
+                    block.get("name").and_then(Value::as_str),
+                ) {
+                    calls.push((
+                        id.to_owned(),
+                        ToolCall {
+                            name: name.to_owned(),
+                            arguments: block.get("input").cloned().unwrap_or_else(|| json!({})),
+                        },
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok((text_parts.join("\n"), calls))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_anthropic_agent_with_history(
+    api_key: &str,
+    model: &str,
+    workspace: &Path,
+    history: &[(String, String)],
+    prompt: &str,
+    allow_write: bool,
+    max_rounds: usize,
+    timeout: Duration,
+    mut on_tool: impl FnMut(&str, &Value, &Value),
+) -> Result<String, String> {
+    let url = CloudProvider::Anthropic.endpoint(model, api_key);
+    let model_id = model.split('/').next_back().unwrap_or(model);
+    let schemas = anthropic_tool_schemas();
+    let system_prompt = format!(
+        "{}\n\nYou have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `write_file`, `edit_file`, `run_command`, `git_status`, `git_diff`, `git_log`, `glob`, `project_scan`). \
+         Inspect relevant files before answering or editing.",
+        policy::general_system_prompt("today")
+    );
+    let mut messages: Vec<Value> = history
+        .iter()
+        .filter(|(r, c)| (r == "user" || r == "assistant") && !c.trim().is_empty())
+        .map(|(r, c)| json!({ "role": r, "content": c }))
+        .collect();
+    messages.push(json!({ "role": "user", "content": prompt }));
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .build()
+        .new_agent();
+
+    for _ in 0..max_rounds.clamp(1, 16) {
+        let payload = json!({
+            "model": model_id,
+            "max_tokens": 4096,
+            "system": system_prompt,
+            "messages": messages,
+            "tools": schemas,
+        });
+        let mut resp = agent
+            .post(&url)
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01")
+            .content_type("application/json")
+            .send(payload.to_string())
+            .map_err(|e| format!("Anthropic agent request failed: {e}"))?;
+        let raw = resp
+            .body_mut()
+            .read_to_string()
+            .map_err(|e| format!("Read response failed: {e}"))?;
+        let (content, calls) = parse_anthropic_turn(&raw)?;
+        if calls.is_empty() {
+            return Ok(content);
+        }
+
+        let mut assistant_blocks = Vec::new();
+        if !content.is_empty() {
+            assistant_blocks.push(json!({ "type": "text", "text": content }));
+        }
+        for (id, c) in &calls {
+            assistant_blocks.push(json!({
+                "type": "tool_use",
+                "id": id,
+                "name": c.name,
+                "input": c.arguments,
+            }));
+        }
+        messages.push(json!({ "role": "assistant", "content": assistant_blocks }));
+
+        let mut tool_results = Vec::new();
+        for (id, call) in calls {
+            let output = tools::execute_tool(workspace, &call.name, &call.arguments, allow_write);
+            on_tool(&call.name, &call.arguments, &output);
+            tool_results.push(json!({
+                "type": "tool_result",
+                "tool_use_id": id,
+                "content": output.to_string(),
+            }));
+        }
+        messages.push(json!({ "role": "user", "content": tool_results }));
+    }
+    Err("Anthropic agent exceeded max_rounds without final answer".into())
+}
+
 /// Run a bounded multi-round coding/inspection loop against an OpenAI-compatible cloud endpoint.
 #[allow(clippy::too_many_arguments)]
 pub fn run_cloud_agent(
@@ -227,9 +360,22 @@ pub fn run_cloud_agent_with_history(
     timeout: Duration,
     mut on_tool: impl FnMut(&str, &Value, &Value),
 ) -> Result<String, String> {
-    if matches!(provider, CloudProvider::Anthropic | CloudProvider::Gemini) {
+    if matches!(provider, CloudProvider::Anthropic) {
+        return run_anthropic_agent_with_history(
+            api_key,
+            model,
+            workspace,
+            history,
+            prompt,
+            allow_write,
+            max_rounds,
+            timeout,
+            on_tool,
+        );
+    }
+    if matches!(provider, CloudProvider::Gemini) {
         return Err(format!(
-            "Native cloud tool-calling agent currently supports OpenAI-compatible endpoints (got {})",
+            "Native cloud tool-calling agent currently supports OpenAI-compatible and Anthropic endpoints (got {})",
             provider.display_name()
         ));
     }
@@ -351,5 +497,22 @@ mod tests {
         assert_eq!(msgs[2]["content"], "hello!");
         assert_eq!(msgs[3]["role"], "user");
         assert_eq!(msgs[3]["content"], "fix bug");
+    }
+
+    #[test]
+    fn parses_tool_calls_from_anthropic_response() {
+        let raw = r#"{
+            "content": [
+                { "type": "text", "text": "Checking symbol." },
+                { "type": "tool_use", "id": "toolu_1", "name": "find_symbol", "input": { "symbol": "run_agent" } }
+            ]
+        }"#;
+        let (content, calls) = parse_anthropic_turn(raw).unwrap();
+        assert_eq!(content, "Checking symbol.");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "toolu_1");
+        assert_eq!(calls[0].1.name, "find_symbol");
+        assert_eq!(calls[0].1.arguments["symbol"], "run_agent");
+        assert!(!anthropic_tool_schemas().is_empty());
     }
 }
