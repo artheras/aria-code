@@ -710,14 +710,14 @@ pub fn git_worktree(
                 );
             }
             let wt_name = sanitize_worktree_name(name.unwrap_or(""))?;
-            let wt_dir = base.join(".aria").join("worktrees").join(&wt_name);
-            if let Some(parent) = wt_dir.parent() {
-                let _ = fs::create_dir_all(parent);
-            }
+            let rel_wt = std::path::PathBuf::from(".aria")
+                .join("worktrees")
+                .join(&wt_name);
+            let _ = fs::create_dir_all(base.join(".aria").join("worktrees"));
             let branch = format!("aria-wt/{wt_name}");
             let output = Command::new("git")
                 .args(["worktree", "add", "-b", &branch])
-                .arg(&wt_dir)
+                .arg(&rel_wt)
                 .current_dir(&base)
                 .output()
                 .map_err(|e| format!("Failed to create git worktree: {e}"))?;
@@ -725,7 +725,7 @@ pub fn git_worktree(
                 return Err(truncate_utf8(&output.stderr, 4096));
             }
             Ok(json!({
-                "created": wt_dir.to_string_lossy(),
+                "created": rel_wt.to_string_lossy(),
                 "branch": branch,
             }))
         }
@@ -736,17 +736,19 @@ pub fn git_worktree(
                 );
             }
             let wt_name = sanitize_worktree_name(name.unwrap_or(""))?;
-            let wt_dir = base.join(".aria").join("worktrees").join(&wt_name);
+            let rel_wt = std::path::PathBuf::from(".aria")
+                .join("worktrees")
+                .join(&wt_name);
             let output = Command::new("git")
                 .args(["worktree", "remove", "--force"])
-                .arg(&wt_dir)
+                .arg(&rel_wt)
                 .current_dir(&base)
                 .output()
                 .map_err(|e| format!("Failed to remove git worktree: {e}"))?;
             if !output.status.success() {
                 return Err(truncate_utf8(&output.stderr, 4096));
             }
-            Ok(json!({ "removed": wt_dir.to_string_lossy() }))
+            Ok(json!({ "removed": rel_wt.to_string_lossy() }))
         }
         other => Err(format!(
             "Unknown worktree action `{other}` (expected list, create, remove)"
