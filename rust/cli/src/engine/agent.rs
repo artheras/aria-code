@@ -93,7 +93,7 @@ pub fn run_native_agent_with_history(
     let url = format!("{}/api/chat", base_url.trim_end_matches('/'));
     let schemas = tools::tool_schemas();
     let system_prompt = format!(
-        "{}\n\nYou have native workspace tools (`list_files`, `read_file`, `search_code`, `write_file`, `edit_file`, `run_command`). \
+        "{}\n\nYou have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `write_file`, `edit_file`, `run_command`, `git_status`, `git_diff`, `git_log`, `glob`, `project_scan`). \
          Inspect relevant files before answering or editing.",
         policy::general_system_prompt("today")
     );
@@ -237,7 +237,7 @@ pub fn run_cloud_agent_with_history(
     let model_id = model.split('/').next_back().unwrap_or(model);
     let schemas = tools::tool_schemas();
     let system_prompt = format!(
-        "{}\n\nYou have native workspace tools (`list_files`, `read_file`, `search_code`, `write_file`, `edit_file`, `run_command`, `git_status`, `git_diff`). \
+        "{}\n\nYou have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `write_file`, `edit_file`, `run_command`, `git_status`, `git_diff`, `git_log`, `glob`, `project_scan`). \
          Inspect relevant files before answering or editing.",
         policy::general_system_prompt("today")
     );

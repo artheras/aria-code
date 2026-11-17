@@ -360,6 +360,101 @@ pub fn git_diff(workspace: &Path, rel: Option<&str>, staged: bool) -> Result<Val
     Ok(json!({ "diff": truncate_utf8(&output.stdout, 24_576) }))
 }
 
+/// Read-only `git log --oneline` inside the workspace, optionally scoped to `path` and `limit`.
+pub fn git_log(workspace: &Path, rel: Option<&str>, limit: usize) -> Result<Value, String> {
+    let base = workspace
+        .canonicalize()
+        .map_err(|e| format!("Invalid workspace: {e}"))?;
+    let n = limit.clamp(1, 50).to_string();
+    let mut cmd = Command::new("git");
+    cmd.args(["log", "--oneline", "-n", &n]);
+    if let Some(raw_path) = rel.map(str::trim).filter(|s| !s.is_empty()) {
+        let confined = resolve_workspace_path(&base, raw_path)?;
+        let rel_path = confined
+            .strip_prefix(&base)
+            .unwrap_or(&confined)
+            .to_path_buf();
+        cmd.arg("--").arg(rel_path);
+    }
+    let output = cmd
+        .current_dir(&base)
+        .output()
+        .map_err(|e| format!("Failed to run git log: {e}"))?;
+    if !output.status.success() {
+        return Err(truncate_utf8(&output.stderr, 4096));
+    }
+    Ok(json!({ "log": truncate_utf8(&output.stdout, 16_384) }))
+}
+
+fn is_ident_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
+}
+
+fn line_defines_symbol(line: &str, symbol: &str) -> bool {
+    const KEYWORDS: &[&str] = &[
+        "fn ",
+        "struct ",
+        "enum ",
+        "trait ",
+        "type ",
+        "def ",
+        "class ",
+        "function ",
+        "interface ",
+        "func ",
+    ];
+    for kw in KEYWORDS {
+        let mut rest = line;
+        while let Some(pos) = rest.find(kw) {
+            let before_ok = pos == 0
+                || rest[..pos]
+                    .chars()
+                    .next_back()
+                    .is_none_or(|c| !is_ident_char(c));
+            let after = &rest[pos + kw.len()..];
+            let trimmed = after.trim_start();
+            if before_ok {
+                if let Some(tail) = trimmed.strip_prefix(symbol) {
+                    if tail.chars().next().is_none_or(|c| !is_ident_char(c)) {
+                        return true;
+                    }
+                }
+            }
+            rest = after;
+        }
+    }
+    false
+}
+
+/// Locate symbol definitions (`fn`, `struct`, `enum`, `trait`, `def`, `class`, `function`, `interface`, `func`) in workspace source files.
+pub fn find_symbol(workspace: &Path, symbol: &str, max_hits: usize) -> Result<Vec<String>, String> {
+    let sym = symbol.trim();
+    if sym.is_empty() {
+        return Err("Symbol name cannot be empty".into());
+    }
+    let files = list_files(workspace, ".", 500)?;
+    let base = workspace.canonicalize().map_err(|e| e.to_string())?;
+    let limit = max_hits.clamp(1, 100);
+    let mut hits = Vec::new();
+    for rel in files {
+        if hits.len() >= limit {
+            break;
+        }
+        let Ok(content) = fs::read_to_string(base.join(&rel)) else {
+            continue;
+        };
+        for (idx, line) in content.lines().enumerate() {
+            if line_defines_symbol(line, sym) {
+                hits.push(format!("{}:{}: {}", rel, idx + 1, line.trim()));
+                if hits.len() >= limit {
+                    break;
+                }
+            }
+        }
+    }
+    Ok(hits)
+}
+
 fn glob_match(pattern: &str, text: &str) -> bool {
     let p: Vec<char> = pattern.chars().collect();
     let t: Vec<char> = text.chars().collect();
@@ -575,6 +670,34 @@ pub fn tool_schemas() -> Value {
                     "properties": {}
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "git_log",
+                "description": "Show recent git commit history (`git log --oneline`) for the workspace or a path.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" },
+                        "limit": { "type": "integer" }
+                    }
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "find_symbol",
+                "description": "Locate function, struct, class, trait, or type definitions by symbol name across the workspace.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": { "type": "string" }
+                    },
+                    "required": ["symbol"]
+                }
+            }
         }
     ])
 }
@@ -622,6 +745,15 @@ pub fn execute_tool(workspace: &Path, name: &str, args: &Value, allow_write: boo
             glob_files(workspace, pat, 200).map(|files| json!({ "files": files }))
         }
         "project_scan" => project_scan(workspace),
+        "git_log" => {
+            let rel = args.get("path").and_then(Value::as_str);
+            let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(15) as usize;
+            git_log(workspace, rel, limit)
+        }
+        "find_symbol" => {
+            let sym = args.get("symbol").and_then(Value::as_str).unwrap_or("");
+            find_symbol(workspace, sym, 50).map(|hits| json!({ "hits": hits }))
+        }
         other => Err(format!("Unknown native tool: {other}")),
     };
     match result {
@@ -714,5 +846,28 @@ mod tests {
         assert_eq!(scan["project_types"], json!(["Rust"]));
         assert_eq!(scan["key_files"], json!(["Cargo.toml"]));
         assert_eq!(scan["sampled_files"], 2);
+    }
+
+    #[test]
+    fn find_symbol_locates_rust_and_python_definitions() {
+        let dir = tempdir().unwrap();
+        write_file(
+            dir.path(),
+            "src/lib.rs",
+            "pub struct AgentLoop;\npub fn run_agent() {}\n",
+            true,
+        )
+        .unwrap();
+        write_file(
+            dir.path(),
+            "app.py",
+            "class AgentLoop:\n    pass\ndef run_agent_helper():\n    return run_agent()\n",
+            true,
+        )
+        .unwrap();
+        let structs = find_symbol(dir.path(), "AgentLoop", 10).unwrap();
+        assert_eq!(structs.len(), 2);
+        let funcs = find_symbol(dir.path(), "run_agent", 10).unwrap();
+        assert_eq!(funcs, vec!["src/lib.rs:2: pub fn run_agent() {}"]);
     }
 }

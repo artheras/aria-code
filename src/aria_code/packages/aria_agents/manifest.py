@@ -26,11 +26,6 @@ _CAPABILITIES_BY_AGENT = {
     "tester": ["code.test", "code.compile", "command.execute"],
     "debugger": ["code.debug", "code.self_heal", "traceback.analyze"],
     "strategist": ["quant.strategy", "factor.selection", "portfolio.allocation"],
-    "corporate_finance": ["finance.statements", "dupont.analysis", "working_capital.cycle", "solvency.z_score"],
-    "cashflow_burn": ["cashflow.runway", "burn_rate.analysis", "ar.aging"],
-    "warehouse_logistics_cost": ["logistics.cost", "freight.billing", "carrier.matrix"],
-    "warehouse_fulfillment_leadtime": ["fulfillment.leadtime", "warehouse.sla", "supplychain.bottleneck"],
-    "stripe_revenue": ["stripe.revenue", "saas.mrr", "subscription.churn", "dunning.recovery"],
 }
 
 
