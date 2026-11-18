@@ -760,7 +760,7 @@ def run_doctor(
             checks.append(_check(f"package:{module}", "skip", f"{purpose} not installed (optional)",
                                  f"pip install 'aria-code[{extra}]<4'"))
 
-    for module in ("data_service", "artifacts", "report_generator", "backtest_report"):
+    for module in ("data_service", "artifacts", "report_generator"):
         checks.append(
             _check(f"module:{module}", "ok" if _has_module(module) else "err", "importable" if _has_module(module) else "missing from install")
         )

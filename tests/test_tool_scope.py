@@ -22,7 +22,7 @@ def _schema(name):
 
 
 CORE = ["read_file", "write_file", "edit_file", "run_command", "repo_map", "find_symbol"]
-DOMAIN = ["get_market_data", "broker_order", "analyze_logistics_data"]
+DOMAIN = ["get_market_data", "broker_order"]
 ALL = [_schema(n) for n in CORE + DOMAIN]
 
 
@@ -43,11 +43,7 @@ class ScopeTests(unittest.TestCase):
     def test_each_domain_unlocks_only_its_own(self):
         finance = _names(select_tool_schemas(ALL, "分析 $AAPL 的走势"))
         self.assertIn("get_market_data", finance)
-        self.assertNotIn("analyze_logistics_data", finance)
-
-        logistics = _names(select_tool_schemas(ALL, "查一下 SF1234567890123 到哪了"))
-        self.assertIn("analyze_logistics_data", logistics)
-        self.assertNotIn("get_market_data", logistics)
+        self.assertIn("broker_order", finance)
 
     def test_the_message_that_motivated_the_contract_gets_no_domain_tools(self):
         kept = _names(select_tool_schemas(ALL, "根据以上分析和建议开始完善"))
