@@ -217,7 +217,8 @@ pub fn load_mcp_server_configs(workspace: &Path) -> Vec<McpServerConfig> {
     list
 }
 
-/// Detect sibling Arthera ecosystem MCP servers (`quant_engine`, `commerce`, `erp-service`, `aria-logistics`).
+/// Detect sibling Arthera ecosystem MCP servers (`quant_engine`, `commerce`, `erp-service`,
+/// `financial-service`, `healthcare-service`, `aria-logistics`).
 pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> {
     let mut found = Vec::new();
     let base = workspace
@@ -262,11 +263,19 @@ pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> 
     }
 
     let erp_root = parent.join("erp-service");
+    let erp_venv_bin = erp_root.join(".venv").join("bin").join("erp-service-mcp");
     let erp_mcp = erp_root
         .join("src")
         .join("erp_service")
         .join("mcp_server.py");
-    if erp_mcp.is_file() {
+    if erp_venv_bin.is_file() {
+        found.push(McpServerConfig {
+            name: "erp-service".into(),
+            command: erp_venv_bin.to_string_lossy().into_owned(),
+            args: Vec::new(),
+            env: HashMap::new(),
+        });
+    } else if erp_mcp.is_file() {
         let mut env = HashMap::new();
         env.insert(
             "PYTHONPATH".into(),
@@ -276,6 +285,77 @@ pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> 
             name: "erp-service".into(),
             command: "python3".into(),
             args: vec![erp_mcp.to_string_lossy().into_owned()],
+            env,
+        });
+    }
+
+    // `artheras/financial-service`: read-only finance (`arthera-finance`) and
+    // separate paper/trading server (`arthera-trading`). Never hardcode
+    // FINANCIAL_SERVICE_NETWORK or FINANCIAL_SERVICE_BROKERS_ENABLED here.
+    let fin_root = parent.join("financial-service");
+    let fin_venv_bin = fin_root
+        .join(".venv")
+        .join("bin")
+        .join("arthera-financial-service");
+    let fin_src = fin_root.join("src");
+    let fin_server_py = fin_src.join("arthera_finance").join("server.py");
+    if fin_venv_bin.is_file() {
+        found.push(McpServerConfig {
+            name: "arthera-finance".into(),
+            command: fin_venv_bin.to_string_lossy().into_owned(),
+            args: Vec::new(),
+            env: HashMap::new(),
+        });
+    } else if fin_server_py.is_file() {
+        let mut env = HashMap::new();
+        env.insert("PYTHONPATH".into(), fin_src.to_string_lossy().into_owned());
+        found.push(McpServerConfig {
+            name: "arthera-finance".into(),
+            command: "python3".into(),
+            args: vec!["-m".into(), "arthera_finance.server".into()],
+            env,
+        });
+    }
+
+    let trading_venv_bin = fin_root.join(".venv").join("bin").join("arthera-trading");
+    let trading_server_py = fin_src.join("arthera_finance").join("trading_server.py");
+    if trading_venv_bin.is_file() {
+        found.push(McpServerConfig {
+            name: "arthera-trading".into(),
+            command: trading_venv_bin.to_string_lossy().into_owned(),
+            args: Vec::new(),
+            env: HashMap::new(),
+        });
+    } else if trading_server_py.is_file() {
+        let mut env = HashMap::new();
+        env.insert("PYTHONPATH".into(), fin_src.to_string_lossy().into_owned());
+        found.push(McpServerConfig {
+            name: "arthera-trading".into(),
+            command: "python3".into(),
+            args: vec!["-m".into(), "arthera_finance.trading_server".into()],
+            env,
+        });
+    }
+
+    // `artheras/healthcare-service`: biomedical literature & evidence over MCP.
+    let hc_root = parent.join("healthcare-service");
+    let hc_venv_bin = hc_root.join(".venv").join("bin").join("aria-healthcare");
+    let hc_src = hc_root.join("src");
+    let hc_server_py = hc_src.join("aria_healthcare").join("server.py");
+    if hc_venv_bin.is_file() {
+        found.push(McpServerConfig {
+            name: "aria-healthcare".into(),
+            command: hc_venv_bin.to_string_lossy().into_owned(),
+            args: Vec::new(),
+            env: HashMap::new(),
+        });
+    } else if hc_server_py.is_file() {
+        let mut env = HashMap::new();
+        env.insert("PYTHONPATH".into(), hc_src.to_string_lossy().into_owned());
+        found.push(McpServerConfig {
+            name: "aria-healthcare".into(),
+            command: "python3".into(),
+            args: vec!["-m".into(), "aria_healthcare.server".into()],
             env,
         });
     }
@@ -454,16 +534,36 @@ mod tests {
             .join("erp-service")
             .join("src")
             .join("erp_service");
+        let fin = root
+            .path()
+            .join("financial-service")
+            .join("src")
+            .join("arthera_finance");
+        let hc = root
+            .path()
+            .join("healthcare-service")
+            .join("src")
+            .join("aria_healthcare");
         fs::create_dir_all(&ws).unwrap();
         fs::create_dir_all(&erp).unwrap();
+        fs::create_dir_all(&fin).unwrap();
+        fs::create_dir_all(&hc).unwrap();
         fs::write(erp.join("mcp_server.py"), "# stub").unwrap();
+        fs::write(fin.join("server.py"), "# stub").unwrap();
+        fs::write(fin.join("trading_server.py"), "# stub").unwrap();
+        fs::write(hc.join("server.py"), "# stub").unwrap();
 
         let found = discover_ecosystem_mcp_servers(&ws);
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].name, "erp-service");
-        assert_eq!(write_workspace_mcp_json(&ws, &found).unwrap(), 1);
+        assert_eq!(found.len(), 4);
+        assert!(found.iter().any(|c| c.name == "erp-service"));
+        assert!(found.iter().any(|c| c.name == "arthera-finance"));
+        assert!(found.iter().any(|c| c.name == "arthera-trading"));
+        assert!(found.iter().any(|c| c.name == "aria-healthcare"));
+        assert_eq!(write_workspace_mcp_json(&ws, &found).unwrap(), 4);
 
         let reloaded = load_mcp_server_configs(&ws);
         assert!(reloaded.iter().any(|c| c.name == "erp-service"));
+        assert!(reloaded.iter().any(|c| c.name == "arthera-finance"));
+        assert!(reloaded.iter().any(|c| c.name == "aria-healthcare"));
     }
 }

@@ -1008,7 +1008,7 @@ fn try_dispatch_native_turn(
                 let (text, status) = if arg.eq_ignore_ascii_case("connect") {
                     if discovered.is_empty() {
                         (
-                            "No sibling ecosystem MCP servers detected (expected `../Arthera`, `../erp-service`, or `services/aria-bots`).".to_owned(),
+                            "No sibling ecosystem MCP servers detected (expected `../financial-service`, `../healthcare-service`, `../erp-service`, `../Arthera`, or `services/aria-bots`).".to_owned(),
                             "ok",
                         )
                     } else {
