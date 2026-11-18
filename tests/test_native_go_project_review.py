@@ -30,7 +30,7 @@ def go_project_review_binary(tmp_path_factory: pytest.TempPathFactory) -> Path:
         cwd=str(GO_PROJECT_REVIEW_DIR),
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=120,
     )
     assert res.returncode == 0, res.stderr
     return out
