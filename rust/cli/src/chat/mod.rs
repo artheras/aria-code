@@ -423,6 +423,7 @@ fn native_commands_json() -> Value {
         {"name": "/map", "description": "Show workspace symbol map"},
         {"name": "/rewind", "description": "Rewind the last file edit"},
         {"name": "/worktree", "description": "Manage isolated git worktrees (list|create|remove)"},
+        {"name": "/mcp", "description": "List or connect ecosystem MCP servers (/mcp [connect])"},
         {"name": "/write-mode", "description": "Toggle workspace write permission (on|off)"},
         {"name": "/new", "description": "Start a new session"}
     ])
@@ -447,6 +448,7 @@ enum NativeRoute {
     Map,
     Rewind,
     Worktree(String, Option<String>),
+    Mcp(String),
     Verify(Option<String>),
     WriteMode(Option<bool>),
     OllamaChat,
@@ -481,6 +483,10 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
         let action = parts.next().unwrap_or("list").to_owned();
         let name = parts.next().map(str::to_owned);
         return Some(NativeRoute::Worktree(action, name));
+    }
+    if text == "/mcp" || text.starts_with("/mcp ") {
+        let arg = text.strip_prefix("/mcp").unwrap_or("").trim().to_owned();
+        return Some(NativeRoute::Mcp(arg));
     }
     if text == "/diff" || text.starts_with("/diff ") {
         let target = text.strip_prefix("/diff").unwrap_or("").trim();
@@ -992,6 +998,63 @@ fn try_dispatch_native_turn(
                         "ok",
                     ),
                     Err(e) => (format!("[worktree: {e}]"), "failed"),
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Mcp(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let discovered = crate::engine::mcp::discover_ecosystem_mcp_servers(&ws_path);
+                let (text, status) = if arg.eq_ignore_ascii_case("connect") {
+                    if discovered.is_empty() {
+                        (
+                            "No sibling ecosystem MCP servers detected (expected `../Arthera`, `../erp-service`, or `services/aria-bots`).".to_owned(),
+                            "ok",
+                        )
+                    } else {
+                        match crate::engine::mcp::write_workspace_mcp_json(&ws_path, &discovered) {
+                            Ok(n) => {
+                                let names: Vec<&str> =
+                                    discovered.iter().map(|s| s.name.as_str()).collect();
+                                (
+                                    format!(
+                                        "Connected {n} ecosystem MCP server(s) in `.mcp.json`: `{}`.",
+                                        names.join("`, `")
+                                    ),
+                                    "ok",
+                                )
+                            }
+                            Err(e) => (format!("[mcp connect error: {e}]"), "failed"),
+                        }
+                    }
+                } else {
+                    let configured = crate::engine::mcp::load_mcp_server_configs(&ws_path);
+                    let mut lines = Vec::new();
+                    if configured.is_empty() {
+                        lines.push("Configured MCP servers: (none)".to_owned());
+                    } else {
+                        lines.push("Configured MCP servers:".to_owned());
+                        for s in &configured {
+                            lines.push(format!(
+                                "- `{}`: `{}` {}",
+                                s.name,
+                                s.command,
+                                s.args.join(" ")
+                            ));
+                        }
+                    }
+                    if !discovered.is_empty() {
+                        lines.push("\nDetected sibling ecosystem MCP servers (run `/mcp connect` to write `.mcp.json`):".to_owned());
+                        for s in &discovered {
+                            lines.push(format!(
+                                "- `{}`: `{}` {}",
+                                s.name,
+                                s.command,
+                                s.args.join(" ")
+                            ));
+                        }
+                    }
+                    (lines.join("\n"), "ok")
                 };
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
@@ -2126,6 +2189,13 @@ mod tests {
                 &json!({"type": "turn.submit", "text": "/worktree create wt1"})
             ),
             Some(NativeRoute::Worktree("create".into(), Some("wt1".into())))
+        );
+        assert_eq!(
+            classify_native_route(
+                &app,
+                &json!({"type": "turn.submit", "text": "/mcp connect"})
+            ),
+            Some(NativeRoute::Mcp("connect".into()))
         );
         assert_eq!(
             classify_native_route(

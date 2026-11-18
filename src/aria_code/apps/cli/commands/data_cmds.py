@@ -244,83 +244,14 @@ class DataCommandsMixin:
                 self.context.console.print("[dim]用法: /alert [add|list|delete|check][/dim]")
 
     async def cmd_corr(self, args: str):
-        """/corr AAPL MSFT TSLA SPY [1y|2y|6mo]  — 计算相关性矩阵"""
-        import asyncio as _asyncio
-        loop = _asyncio.get_event_loop()
-        parts = args.strip().upper().split() if args.strip() else []
-
-        period = "1y"
-        if parts and parts[-1].lower() in ("1y", "2y", "3y", "6mo", "ytd", "5y"):
-            period = parts[-1].lower()
-            parts = parts[:-1]
-
-        symbols = parts if parts else ["AAPL", "MSFT", "TSLA", "SPY", "QQQ"]
-
-        try:
-            from aria_code.tools.data_analysis_tools import calc_correlation_matrix
-        except ImportError as e:
-            if self.context.has_rich:
-                self.context.console.print(f"[red]data_analysis_tools 未加载: {e}[/red]")
-            return
-
+        """/corr（已迁移至 Arthera 后端服务）."""
         if self.context.has_rich:
-            _names = ', '.join(symbols)
-            with self.context.console.status(f"[dim]{ui_text(self, f'计算 {_names} 相关性矩阵', f'Computing the {_names} correlation matrix')}...[/dim]", spinner="dots"):
-                r = await loop.run_in_executor(None, calc_correlation_matrix,
-                                               {"symbols": symbols, "period": period})
-        else:
-            r = calc_correlation_matrix({"symbols": symbols, "period": period})
-        _render_corr_matrix(r)
+            self.context.console.print("[dim]/corr 已迁移至 Arthera 后端服务。[/dim]")
 
     async def cmd_portfolio_bt(self, args: str):
-        """/ptbt AAPL MSFT GOOG [0.4 0.3 0.3] [2y] [monthly]  — 多资产组合回测"""
-        import asyncio as _asyncio
-        loop = _asyncio.get_event_loop()
-        parts = args.strip().split() if args.strip() else []
-
-        try:
-            from aria_code.tools.data_analysis_tools import portfolio_backtest
-        except ImportError as e:
-            if self.context.has_rich:
-                self.context.console.print(f"[red]data_analysis_tools 未加载: {e}[/red]")
-            return
-
-        symbols, weights, period, rebalance = [], [], "2y", "monthly"
-        _PERIODS = {"1y", "2y", "3y", "5y", "6mo", "ytd", "max"}
-        _REBALANCE = {"monthly", "quarterly", "none"}
-        for p in parts:
-            pl = p.lower()
-            if pl in _PERIODS:
-                period = pl
-                continue
-            if pl in _REBALANCE:
-                rebalance = pl
-                continue
-            try:
-                f = float(p)
-                if f < 2:
-                    weights.append(f)
-                else:
-                    symbols.append(p.upper())
-            except ValueError:
-                symbols.append(p.upper())
-
-        if not symbols:
-            symbols = ["AAPL", "MSFT", "GOOGL", "SPY"]
-            if self.context.has_rich:
-                self.context.console.print(f"[dim]未指定标的，使用默认: {symbols}[/dim]")
-
-        p_params = {"symbols": symbols, "period": period, "rebalance": rebalance}
-        if weights:
-            p_params["weights"] = weights
-
+        """/portfolio-bt（已迁移至 Arthera 后端服务）."""
         if self.context.has_rich:
-            _names = ', '.join(symbols)
-            with self.context.console.status(f"[dim]{ui_text(self, f'回测 {_names} ({period})', f'Backtesting {_names} ({period})')}...[/dim]", spinner="dots"):
-                r = await loop.run_in_executor(None, portfolio_backtest, p_params)
-        else:
-            r = portfolio_backtest(p_params)
-        _render_portfolio_bt(r)
+            self.context.console.print("[dim]/portfolio-bt 已迁移至 Arthera 后端服务。[/dim]")
 
     async def cmd_peer(self, args: str):
         """/peer <symbol> [peer1 peer2 ...]  — 同行估值对比"""

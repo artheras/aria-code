@@ -143,6 +143,43 @@ pub struct McpServerConfig {
     pub env: HashMap<String, String>,
 }
 
+fn insert_mcp_entry(name: &str, cfg: &Value, out: &mut HashMap<String, McpServerConfig>) {
+    let Some(command) = cfg.get("command").and_then(Value::as_str) else {
+        return;
+    };
+    if name.trim().is_empty() || command.trim().is_empty() {
+        return;
+    }
+    let args = cfg
+        .get("args")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    let env = cfg
+        .get("env")
+        .and_then(Value::as_object)
+        .map(|m| {
+            m.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_owned())))
+                .collect()
+        })
+        .unwrap_or_default();
+    out.insert(
+        name.to_owned(),
+        McpServerConfig {
+            name: name.to_owned(),
+            command: command.to_owned(),
+            args,
+            env,
+        },
+    );
+}
+
 fn parse_mcp_file(path: &Path, out: &mut HashMap<String, McpServerConfig>) {
     let Ok(raw) = fs::read_to_string(path) else {
         return;
@@ -150,56 +187,155 @@ fn parse_mcp_file(path: &Path, out: &mut HashMap<String, McpServerConfig>) {
     let Ok(val) = serde_json::from_str::<Value>(&raw) else {
         return;
     };
-    let Some(servers) = val.get("mcpServers").and_then(Value::as_object) else {
-        return;
-    };
-    for (name, cfg) in servers {
-        let Some(command) = cfg.get("command").and_then(Value::as_str) else {
-            continue;
-        };
-        if command.trim().is_empty() {
-            continue;
+    if let Some(servers) = val.get("mcpServers").and_then(Value::as_object) {
+        for (name, cfg) in servers {
+            insert_mcp_entry(name, cfg, out);
         }
-        let args = cfg
-            .get("args")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default();
-        let env = cfg
-            .get("env")
-            .and_then(Value::as_object)
-            .map(|m| {
-                m.iter()
-                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_owned())))
-                    .collect()
-            })
-            .unwrap_or_default();
-        out.insert(
-            name.clone(),
-            McpServerConfig {
-                name: name.clone(),
-                command: command.to_owned(),
-                args,
-                env,
-            },
-        );
+    }
+    if let Some(servers) = val.get("servers").and_then(Value::as_array) {
+        for cfg in servers {
+            if let Some(name) = cfg.get("name").and_then(Value::as_str) {
+                insert_mcp_entry(name, cfg, out);
+            }
+        }
     }
 }
 
 pub fn load_mcp_server_configs(workspace: &Path) -> Vec<McpServerConfig> {
     let mut map = HashMap::new();
-    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
-        parse_mcp_file(&Path::new(&home).join(".aria").join("mcp.json"), &mut map);
+    if !cfg!(test) {
+        if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+            let h = Path::new(&home);
+            parse_mcp_file(&h.join(".arthera").join("mcp_servers.json"), &mut map);
+            parse_mcp_file(&h.join(".aria").join("mcp_servers.json"), &mut map);
+            parse_mcp_file(&h.join(".aria").join("mcp.json"), &mut map);
+        }
     }
     parse_mcp_file(&workspace.join(".mcp.json"), &mut map);
     let mut list: Vec<McpServerConfig> = map.into_values().collect();
     list.sort_by(|a, b| a.name.cmp(&b.name));
     list
+}
+
+/// Detect sibling Arthera ecosystem MCP servers (`quant_engine`, `commerce`, `erp-service`, `aria-logistics`).
+pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> {
+    let mut found = Vec::new();
+    let base = workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf());
+    let Some(parent) = base.parent() else {
+        return found;
+    };
+
+    let arthera = parent.join("Arthera");
+    let quant_mcp = arthera
+        .join("packages")
+        .join("quant_engine")
+        .join("mcp_server.py");
+    if quant_mcp.is_file() {
+        let mut env = HashMap::new();
+        env.insert("PYTHONPATH".into(), arthera.to_string_lossy().into_owned());
+        found.push(McpServerConfig {
+            name: "arthera-quant".into(),
+            command: "python3".into(),
+            args: vec![quant_mcp.to_string_lossy().into_owned()],
+            env,
+        });
+    }
+
+    let commerce_mcp = arthera
+        .join("packages")
+        .join("commerce_mcp_server")
+        .join("server.py");
+    if commerce_mcp.is_file() {
+        let mut env = HashMap::new();
+        env.insert(
+            "PYTHONPATH".into(),
+            arthera.join("packages").to_string_lossy().into_owned(),
+        );
+        found.push(McpServerConfig {
+            name: "arthera-commerce".into(),
+            command: "python3".into(),
+            args: vec![commerce_mcp.to_string_lossy().into_owned()],
+            env,
+        });
+    }
+
+    let erp_root = parent.join("erp-service");
+    let erp_mcp = erp_root
+        .join("src")
+        .join("erp_service")
+        .join("mcp_server.py");
+    if erp_mcp.is_file() {
+        let mut env = HashMap::new();
+        env.insert(
+            "PYTHONPATH".into(),
+            erp_root.join("src").to_string_lossy().into_owned(),
+        );
+        found.push(McpServerConfig {
+            name: "erp-service".into(),
+            command: "python3".into(),
+            args: vec![erp_mcp.to_string_lossy().into_owned()],
+            env,
+        });
+    }
+
+    let bots_root = base.join("services").join("aria-bots");
+    let bots_mcp = bots_root
+        .join("src")
+        .join("aria_bots")
+        .join("logistics")
+        .join("mcp_server.py");
+    if bots_mcp.is_file() {
+        let mut env = HashMap::new();
+        env.insert(
+            "PYTHONPATH".into(),
+            bots_root.join("src").to_string_lossy().into_owned(),
+        );
+        found.push(McpServerConfig {
+            name: "aria-logistics".into(),
+            command: "python3".into(),
+            args: vec![bots_mcp.to_string_lossy().into_owned()],
+            env,
+        });
+    }
+
+    found
+}
+
+/// Merge discovered or specified MCP server configs into `<workspace>/.mcp.json`.
+pub fn write_workspace_mcp_json(
+    workspace: &Path,
+    servers: &[McpServerConfig],
+) -> Result<usize, String> {
+    let path = workspace.join(".mcp.json");
+    let mut root: Value = fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .filter(|v: &Value| v.is_object())
+        .unwrap_or_else(|| json!({ "mcpServers": {} }));
+    let obj = root
+        .as_object_mut()
+        .ok_or("Invalid .mcp.json root object")?;
+    let entry = obj.entry("mcpServers").or_insert_with(|| json!({}));
+    if !entry.is_object() {
+        *entry = json!({});
+    }
+    let map = entry.as_object_mut().ok_or("Invalid mcpServers object")?;
+    for srv in servers {
+        map.insert(
+            srv.name.clone(),
+            json!({
+                "command": srv.command,
+                "args": srv.args,
+                "env": srv.env,
+            }),
+        );
+    }
+    let pretty = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
+    fs::write(&path, format!("{pretty}\n"))
+        .map_err(|e| format!("Failed to write .mcp.json: {e}"))?;
+    Ok(servers.len())
 }
 
 /// Live registry of external stdio MCP servers discovered from `~/.aria/mcp.json` and `<workspace>/.mcp.json`.
@@ -307,5 +443,27 @@ mod tests {
                 && c.env.get("WAREHOUSE_ERP_BASE_URL").map(String::as_str)
                     == Some("https://erp.example.com")
         }));
+    }
+
+    #[test]
+    fn discovers_sibling_ecosystem_servers_and_writes_mcp_json() {
+        let root = tempfile::tempdir().unwrap();
+        let ws = root.path().join("aria-code");
+        let erp = root
+            .path()
+            .join("erp-service")
+            .join("src")
+            .join("erp_service");
+        fs::create_dir_all(&ws).unwrap();
+        fs::create_dir_all(&erp).unwrap();
+        fs::write(erp.join("mcp_server.py"), "# stub").unwrap();
+
+        let found = discover_ecosystem_mcp_servers(&ws);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].name, "erp-service");
+        assert_eq!(write_workspace_mcp_json(&ws, &found).unwrap(), 1);
+
+        let reloaded = load_mcp_server_configs(&ws);
+        assert!(reloaded.iter().any(|c| c.name == "erp-service"));
     }
 }
