@@ -2551,58 +2551,6 @@ class CoreCommandsMixin:
             )
         await self.terminal._handle_ai_message(prompt)
     async def cmd_edgar(self, args: str):
-        """
-        SEC EDGAR 美国上市公司财报与披露查询（完全免费）。
-        Usage: /edgar AAPL              — 最近财报列表
-               /edgar MSFT filings      — 10-K/10-Q 提交记录
-               /edgar TSLA facts        — 财务事实（收入/利润历史）
-               /edgar NVDA insider      — 内幕交易披露 (Form 4)
-        """
-        from aria_cli import _fetch_edgar_data
-        parts = args.strip().split()
-        if not parts:
-            self.context.console.print("  [dim]Usage: /edgar SYMBOL [filings|facts|insider][/dim]" if self.context.has_rich
-                         else "Usage: /edgar SYMBOL [filings|facts|insider]")
-            return
-
-        symbol = parts[0].upper()
-        sub    = parts[1].lower() if len(parts) > 1 else "filings"
-
+        """SEC EDGAR 财报查询（已迁移至 Arthera 后端服务）."""
         if self.context.has_rich:
-            with self.context.console.status(f"[dim]{ui_text(self, f'查询 EDGAR {symbol}', f'Querying EDGAR for {symbol}')}...[/dim]", spinner="dots"):
-                result = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: _fetch_edgar_data(symbol, sub)
-                )
-        else:
-            result = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: _fetch_edgar_data(symbol, sub)
-            )
-
-        if not result:
-            print_error(self.context, f"未找到 {symbol} 的 EDGAR 数据")
-            return
-
-        if self.context.has_rich:
-            from rich.table import Table
-            from rich import box as rich_box
-            if sub == "filings":
-                table = Table(title=f"[bold]{symbol}[/bold] SEC 财报提交",
-                              box=rich_box.SIMPLE, header_style="bold dim")
-                table.add_column("类型", width=6)
-                table.add_column("日期", width=12)
-                table.add_column("链接", style="dim")
-                for f in result[:10]:
-                    table.add_row(f.get("form",""), f.get("date",""), f.get("url","")[:60])
-                self.context.console.print(table)
-            elif sub == "facts":
-                self.context.console.print(f"  [bold]{symbol}[/bold] 财务摘要:")
-                for metric, entries in result.get("metrics", {}).items():
-                    if entries:
-                        latest = entries[0]
-                        self.context.console.print(f"  [dim]{metric}[/dim]  {latest.get('val',0):,.0f}  ({latest.get('end','')})")
-            elif sub == "insider":
-                self.context.console.print(f"  [bold]{symbol}[/bold] 近期内幕交易 ({len(result)} 条):")
-                for f in result[:10]:
-                    self.context.console.print(f"  [dim]{f.get('date','')}[/dim]  Form 4")
-        else:
-            print(f"  {symbol} EDGAR 数据: {len(result) if isinstance(result, list) else 'OK'}")
+            self.context.console.print("[dim]/edgar 已迁移至 Arthera 后端服务。[/dim]")
