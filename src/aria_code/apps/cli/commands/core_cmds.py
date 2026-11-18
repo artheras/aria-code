@@ -1813,120 +1813,34 @@ class CoreCommandsMixin:
                 import json as _j
                 print(_j.dumps(arc.to_dict(), indent=2, ensure_ascii=False))
     async def cmd_signal(self, args: str):
-        """
-        AI trading signal (BUY/SELL/HOLD) from Alibaba Cloud.
-        Usage: /signal sh600519   /signal AAPL US
-        """
-        from aria_code.apps.cli.helpers import _is_ashare_symbol
-        parts  = args.strip().split()
-        symbol = parts[0].upper() if parts else "sh600519"
-        market = parts[1].upper() if len(parts) > 1 else ("CN" if _is_ashare_symbol(symbol) else "US")
-        await self._run_tool_cmd("get_ai_signal", {"symbol": symbol, "market": market},
-                                 f"AI signal {symbol}")
-    async def cmd_predict(self, args: str):
-        """
-        ML return predictions for a list of symbols.
-        Usage: /predict sh600519 sh601318 sz000858
-        """
-        parts   = args.strip().split() if args.strip() else ["sh600519"]
-        symbols = [s for s in parts if not s.isdigit() or len(s) == 6]
-        days    = 5
-        for p in parts:
-            if p.startswith("d="):
-                try:
-                    days = int(p[2:])
-                except ValueError:
-                    pass
-        await self._run_tool_cmd("get_predictions",
-                                 {"symbols": symbols, "prediction_days": days},
-                                 f"ML predict {len(symbols)} stocks")
-    async def cmd_cloudbt(self, args: str):
-        """
-        Full ML-powered backtest on Alibaba Cloud.
-        Usage: /cloudbt sh600519 sh601318 [model=lightgbm] [months=12] [freq=weekly] [top=3]
-        """
-        parts   = args.strip().split() if args.strip() else []
-        symbols = []
-        kwargs: Dict[str, Any] = {}
-        for p in parts:
-            if "=" in p:
-                k, v = p.split("=", 1)
-                kwargs[k] = v
-            else:
-                symbols.append(p)
-        if not symbols:
-            symbols = ["sh600519"]
-        params = {
-            "symbols":        symbols,
-            "model_type":     kwargs.get("model", "lightgbm"),
-            "months":         int(kwargs.get("months", 12)),
-            "rebalance_freq": kwargs.get("freq", "weekly"),
-            "top_k":          int(kwargs.get("top", 3)),
-        }
-        await self._run_tool_cmd("cloud_backtest", params,
-                                 f"cloud backtest {len(symbols)} stocks")
-    async def cmd_insights(self, args: str):
-        """
-        AI market insights for a basket of stocks.
-        Usage: /insights sh600519 sh601318 sz000858
-        """
-        parts   = args.strip().split() if args.strip() else ["sh600519"]
-        symbols = parts
-        await self._run_tool_cmd("get_market_insights",
-                                 {"symbols": symbols},
-                                 f"market insights {len(symbols)} stocks")
-    def cmd_recommend(self, args: str):
-        """Recommend best local models for financial analysis."""
-        from aria_cli import RECOMMENDED_FINANCE_MODELS
-        from aria_code.apps.cli.helpers import detect_ollama_models
+        """AI trading signal（已迁移至 Arthera 后端 / MCP）."""
         if self.context.has_rich:
-            self.context.console.print()
-            self.context.console.print("  [bold]Recommended Local Models for Finance[/bold]")
-            self.context.console.print()
-            try:
-                available = detect_ollama_models(
-                    self.terminal.config.get("ollama_url", "http://localhost:11434")
-                )
-                for rec in RECOMMENDED_FINANCE_MODELS:
-                    model_id = rec["model"]
-                    installed = any(a.startswith(model_id.split(":")[0]) for a in available)
-                    icon  = "[green]●[/green]" if installed else "[dim]○[/dim]"
-                    vram  = rec.get("vram_gb", "?")
-                    self.context.console.print(
-                        f"  {icon} [bold]{model_id:30s}[/bold] "
-                        f"[dim]VRAM≈{vram}GB  {rec['reason'][:60]}[/dim]"
-                    )
-                    if not installed:
-                        self.context.console.print(f"    [dim]Install: {rec['install']}[/dim]")
-                self.context.console.print()
-            except Exception:
-                self.context.console.print("  [dim]Could not check installed models[/dim]")
-        else:
-            for rec in RECOMMENDED_FINANCE_MODELS:
-                print(f"  {rec['model']:30s} {rec['reason']}")
-                print(f"    Install: {rec['install']}")
+            self.context.console.print("[dim]/signal 已迁移至 Arthera 后端服务。[/dim]")
+
+    async def cmd_predict(self, args: str):
+        """ML return predictions（已迁移至 Arthera 后端 / MCP）."""
+        if self.context.has_rich:
+            self.context.console.print("[dim]/predict 已迁移至 Arthera 后端服务。[/dim]")
+
+    async def cmd_cloudbt(self, args: str):
+        """Cloud ML backtest（已迁移至 Arthera 后端 / MCP）."""
+        if self.context.has_rich:
+            self.context.console.print("[dim]/cloudbt 已迁移至 Arthera 后端服务。[/dim]")
+
+    async def cmd_insights(self, args: str):
+        """AI market insights（已迁移至 Arthera 后端 / MCP）."""
+        if self.context.has_rich:
+            self.context.console.print("[dim]/insights 已迁移至 Arthera 后端服务。[/dim]")
+
+    def cmd_recommend(self, args: str):
+        """Recommend local models（已迁移至 /model）."""
+        if self.context.has_rich:
+            self.context.console.print("[dim]请使用 /model 查看和切换本地/云端模型。[/dim]")
+
     async def cmd_optimize_port(self, args: str):
-        """Portfolio weight optimisation."""
-        from aria_code.apps.cli.tool_registry import LOCAL_TOOLS
-        symbols = [s.strip().upper() for s in args.split() if s.strip()]
-        if not symbols:
-            self.context.console.print("  [dim]Usage: /optimize-port AAPL MSFT GOOGL [method=max_sharpe][/dim]" if self.context.has_rich
-                          else "Usage: /optimize-port AAPL MSFT [method=max_sharpe]")
-            return
-        # Check if last token is method=X
-        method = "max_sharpe"
-        if symbols and "=" in symbols[-1]:
-            k, v = symbols.pop().split("=", 1)
-            if k == "method":
-                method = v
-        params = {"symbols": symbols, "method": method}
-        tool_name = "optimize_positions"
-        if tool_name in LOCAL_TOOLS:
-            await self._run_local_tool(tool_name, params, f"优化持仓 {method}")
-        else:
-            await self.terminal.send_message(
-                f"帮我用 {method} 方法优化以下资产组合的仓位权重：{', '.join(symbols)}"
-            )
+        """Portfolio weight optimisation（已迁移至 Arthera 后端 / arthera-quant MCP）."""
+        if self.context.has_rich:
+            self.context.console.print("[dim]/optimize-port 已迁移至 Arthera 后端服务。[/dim]")
     async def _run_local_tool(self, tool_name: str, params: dict, label: str = ""):
         """Run a LOCAL_TOOLS entry, display result with Rich formatting."""
         from aria_cli import _print_tool_result
