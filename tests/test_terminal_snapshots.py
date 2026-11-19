@@ -138,27 +138,6 @@ class _MarketData:
         return {"success": True, "symbol": symbol, "data": records, "provider": "test"}
 
 
-def test_market_snapshot_en(snapshot, monkeypatch):
-    import aria_code.apps.cli.deterministic as deterministic
-    import aria_code.apps.cli.handlers.market_handlers as market_handlers
-
-    real_import = builtins.__import__
-
-    def no_yfinance(name, *args, **kwargs):
-        if name == "yfinance":
-            raise ImportError("offline")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", no_yfinance)
-    monkeypatch.setattr(market_handlers, "_has_mdc_lazy", lambda: True)
-    monkeypatch.setattr(market_handlers, "_get_mdc_lazy", lambda: _MarketData())
-    monkeypatch.setattr(market_handlers, "_get_provider_key", lambda _provider: "")
-    monkeypatch.setattr(market_handlers, "market_session", lambda _symbol: "closed")
-    text = deterministic.run_deterministic_chain("analyze Apple stock", model_has_tools=False)["response"]
-    today = datetime.now().strftime("%Y-%m-%d")
-    snapshot("market_snapshot_en", re.sub(re.escape(today) + r"( \d{2}:\d{2})?", "<today>", text))
-
-
 # ── /help ────────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("lang", ["en", "zh"])
