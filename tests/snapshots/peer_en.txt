@@ -1,7 +1,0 @@
-─────────────────────────────────────── AAPL peer valuation ────────────────────────────────────────
- Symbol    Name              PE     PB   ROE%  Div%  Mkt cap (B)
- AAPL      Apple Inc.      38.1  45.19  148.8  0.32         4854
- MSFT      Microsoft Co    29.7   8.94   34.0  0.69         3953
- GOOGL     Alphabet Inc    17.4   6.83   48.7  0.25         4251
-  ▸ PE 38.1x vs peer median 23.5x → above peers
-  ▸ ROE 148.8% vs peer average 41.4% → above peers

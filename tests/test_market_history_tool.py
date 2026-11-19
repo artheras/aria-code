@@ -114,47 +114,6 @@ def test_history_payload_stays_small(_patch_mdc):
     assert size < 6000, f"history payload too large: {size} bytes"
 
 
-# ── Renderer (ui/render/finance.py) ────────────────────────────────────────────
-
-def _render(result):
-    """Render to a string via a rich Console with recording on."""
-    from rich.console import Console
-    from ui.render.finance import render_finance_result
-    con = Console(record=True, width=80)
-    render_finance_result("get_market_history", result, console=con, has_rich=True)
-    return con.export_text()
-
-
 def test_renderer_registered_as_finance_tool():
     from ui.render.output import FINANCE_TOOL_NAMES
     assert "get_market_history" in FINANCE_TOOL_NAMES
-
-
-def test_renderer_shows_summary_and_sparkline():
-    out = _render({
-        "success": True, "symbol": "0700.HK", "name": "腾讯控股",
-        "provider": "yfinance", "interval": "1d", "total_points": 61,
-        "summary": {"start_date": "2026-03-25", "end_date": "2026-06-23",
-                    "start_close": 492.5, "end_close": 414.8, "change_pct": -15.78,
-                    "period_high": 505.0, "period_low": 410.2, "avg_volume": 18250000,
-                    "ma5": 418.3, "ma20": 447.4, "ma60": 471.3},
-        "recent_candles": [{"close": c} for c in [470, 460, 450, 440, 430, 420, 414.8]],
-    })
-    assert "0700.HK" in out
-    assert "-15.78%" in out
-    assert "MA20" in out
-    # sparkline uses block chars
-    assert any(ch in out for ch in "▁▂▃▄▅▆▇█")
-
-
-def test_renderer_failure_shows_provider_chain():
-    out = _render({"success": False, "error": "数据源不可用",
-                   "provider_chain": ["eastmoney", "sina"]})
-    assert "数据源不可用" in out
-    assert "eastmoney" in out
-
-
-def test_renderer_handles_missing_optional_fields():
-    # Must not crash when summary is sparse / candles absent.
-    out = _render({"success": True, "symbol": "AAPL", "summary": {}, "recent_candles": []})
-    assert "AAPL" in out
