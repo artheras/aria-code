@@ -66,38 +66,7 @@ requests>=2.32.0        # FRED macro data, Finnhub, alternative.me Fear&Greed
 httpx[http2]>=0.27.0    # async HTTP + HTTP/2: APNs push, Telegram bot, webhooks
 PyJWT>=2.8.0            # JWT signing for APNs ES256 authentication
 
-# ─────────────────────────────────────────────────────────────────────────────
-# OPTIONAL — broker connectivity (install only what you use)
-# ─────────────────────────────────────────────────────────────────────────────
-# Interactive Brokers (IBKR TWS / IB Gateway)
-# ib_insync>=0.9.86
-
-# Futu OpenD (富途牛牛)
-# futu-api>=9.1.5108
-
-# Tiger Securities (老虎证券)
-# tigeropen>=3.2.0
-
-# Longbridge (长桥证券)
-# longbridge>=1.0.22
-
-# Alpaca Markets (US equities, paper trading)
-# alpaca-py>=0.35.0
-
-# Webull
-# webull>=0.3.14
-
-# XTQuant (迅投, 中信/华鑫/浙商 — Windows/Linux only)
-# xtquant  (installed via: pip install xtquant --index-url https://pypi.org/simple/)
-
-# EasyTrader (同花顺/通达信/华泰/国君 — Windows only)
-# easytrader>=0.21.4
-
-# ─────────────────────────────────────────────────────────────────────────────
-# OPTIONAL — enhanced local LLM features
-# ─────────────────────────────────────────────────────────────────────────────
-# Portfolio walk-forward backtesting (vectorized, much faster than pandas loops)
-# vectorbt>=0.26.2
+# Broker connectivity and vectorized backtesting live in artheras/financial-service.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OPTIONAL — Browser automation + desktop computer use
