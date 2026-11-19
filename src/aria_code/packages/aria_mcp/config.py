@@ -40,6 +40,46 @@ def trading_service_server_config(python: Path) -> Dict[str, object]:
             "enabled": True}
 
 
+def healthcare_service_server_config(python: Path) -> Dict[str, object]:
+    """Separately installed healthcare-service MCP server (biomedical literature & evidence)."""
+    python = Path(python).expanduser()
+    if not python.is_absolute() or not python.is_file():
+        raise ValueError("Provide an absolute path to the healthcare-service Python interpreter")
+    return {"name": "aria-healthcare", "command": str(python),
+            "args": ["-I", "-m", "aria_healthcare.server"],
+            "description": "Biomedical literature, trials, and clinical evidence over MCP",
+            "enabled": True}
+
+
+def erp_service_server_config(python: Path) -> Dict[str, object]:
+    """Separately installed erp-service MCP server (warehouse, inventory, carriers)."""
+    python = Path(python).expanduser()
+    if not python.is_absolute() or not python.is_file():
+        raise ValueError("Provide an absolute path to the erp-service Python interpreter")
+    return {"name": "erp-service", "command": str(python),
+            "args": ["-I", "-m", "erp_service.mcp_server"],
+            "description": "3PL warehouse, inventory planning, carrier scoring, and freight audit",
+            "enabled": True}
+
+
+def _atomic_write_json(path: Path, payload: Dict[str, object], prefix: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=prefix, delete=False) as stream:
+            temporary = Path(stream.name)
+            json.dump(payload, stream, ensure_ascii=False, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return path
+
+
 def install_financial_service_config(path: Path, python: Path, *, include_trading: bool = False) -> Path:
     """Explicit host operation: preserve other servers and replace config atomically."""
     server = financial_service_server_config(python)
@@ -51,21 +91,33 @@ def install_financial_service_config(path: Path, python: Path, *, include_tradin
     merged = merge_server_config(existing, server)
     if include_trading:
         merged = merge_server_config(merged, trading_service_server_config(python))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
-                                         prefix=".finance-mcp-", delete=False) as stream:
-            temporary = Path(stream.name)
-            json.dump(merged, stream, ensure_ascii=False, indent=2)
-            stream.write("\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-    return path
+    return _atomic_write_json(path, merged, ".finance-mcp-")
+
+
+def install_ecosystem_service_configs(
+    path: Path,
+    *,
+    financial_python: Optional[Path] = None,
+    include_trading: bool = False,
+    healthcare_python: Optional[Path] = None,
+    erp_python: Optional[Path] = None,
+) -> Path:
+    """Atomically register any subset of ecosystem MCP services in `path`."""
+    path = Path(path)
+    existing = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"servers": []}
+    if (not isinstance(existing, dict) or not isinstance(existing.get("servers", []), list)
+            or any(not isinstance(item, dict) for item in existing.get("servers", []))):
+        raise ValueError("MCP configuration must contain a list of server objects")
+    merged = existing
+    if financial_python is not None:
+        merged = merge_server_config(merged, financial_service_server_config(financial_python))
+        if include_trading:
+            merged = merge_server_config(merged, trading_service_server_config(financial_python))
+    if healthcare_python is not None:
+        merged = merge_server_config(merged, healthcare_service_server_config(healthcare_python))
+    if erp_python is not None:
+        merged = merge_server_config(merged, erp_service_server_config(erp_python))
+    return _atomic_write_json(path, merged, ".ecosystem-mcp-")
 
 
 def arthera_quant_engine_server_config(
