@@ -50,7 +50,6 @@ def _try_import_builtin(module_path: str, name: str) -> None:
 
 _try_import_builtin("aria_code.agents.engineering.coder",      "coder")
 _try_import_builtin("aria_code.agents.engineering.tester",     "tester")
-_try_import_builtin("aria_code.agents.portfolio_agent",        "portfolio")
 _try_import_builtin("aria_code.agents.supervisor",             "supervisor")
 
 
