@@ -1,6 +1,6 @@
 //! Native Rust multi-round tool-calling agent loop over Ollama `/api/chat`.
 
-use super::{cloud::CloudProvider, mcp, policy, tools};
+use super::{cloud::CloudProvider, compact, hooks, mcp, policy, tools};
 use serde_json::{json, Value};
 use std::{path::Path, time::Duration};
 
@@ -116,6 +116,7 @@ struct ToolLoopGuard {
     last_sig: Option<String>,
     repeat_count: usize,
     mcp: mcp::McpRegistry,
+    hooks: hooks::HookRegistry,
     mutated: bool,
     verified: bool,
     nudge_sent: bool,
@@ -135,6 +136,7 @@ impl ToolLoopGuard {
             last_sig: None,
             repeat_count: 0,
             mcp: mcp::McpRegistry::load_from_workspace(workspace),
+            hooks: hooks::HookRegistry::load(workspace),
             mutated: false,
             verified: false,
             nudge_sent: false,
@@ -166,12 +168,31 @@ impl ToolLoopGuard {
         allow_write: bool,
         on_tool: &mut impl FnMut(&str, &Value, &Value),
     ) -> String {
+        let pre = self
+            .hooks
+            .run_pre_tool(workspace, &call.name, &call.arguments);
+        if !pre.allowed {
+            let blocked = json!({
+                "ok": false,
+                "error": pre.reason.unwrap_or_else(|| "blocked by PreToolUse hook".into()),
+            });
+            on_tool(&call.name, &call.arguments, &blocked);
+            return clip_tool_output(&blocked, 16_000);
+        }
         let mut output = self
             .mcp
             .call_tool(&call.name, call.arguments.clone())
             .unwrap_or_else(|| {
                 tools::execute_tool(workspace, &call.name, &call.arguments, allow_write)
             });
+        let post_notes = self
+            .hooks
+            .run_post_tool(workspace, &call.name, &call.arguments, &output);
+        if !post_notes.is_empty() {
+            if let Some(obj) = output.as_object_mut() {
+                obj.insert("hook_notes".into(), json!(post_notes));
+            }
+        }
         on_tool(&call.name, &call.arguments, &output);
         if tool_mutates(&call.name, &call.arguments) {
             if self.verified {
@@ -251,6 +272,7 @@ pub fn run_native_agent_with_history(
         .new_agent();
 
     for _ in 0..max_rounds.clamp(1, 16) {
+        compact::compact_messages_if_needed(&mut messages, 24_000, 8);
         let payload = json!({
             "model": model,
             "stream": false,
@@ -417,6 +439,7 @@ fn run_messages_agent_with_history(
         .new_agent();
 
     for _ in 0..max_rounds.clamp(1, 16) {
+        compact::compact_messages_if_needed(&mut messages, 24_000, 8);
         let payload = json!({
             "model": model_id,
             "max_tokens": 4096,
@@ -685,6 +708,7 @@ pub fn run_cloud_agent_with_history(
         .new_agent();
 
     for _ in 0..max_rounds.clamp(1, 16) {
+        compact::compact_messages_if_needed(&mut messages, 24_000, 8);
         let payload = json!({
             "model": model_id,
             "messages": messages,
