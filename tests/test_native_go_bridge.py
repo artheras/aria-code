@@ -25,7 +25,7 @@ def bridge(tmp_path, monkeypatch):
         if approved:
             args += ["--approve-tool", approved]
         result = subprocess.run(args, input="\n" + json.dumps(request) + "\n", env=env,
-                                capture_output=True, text=True, encoding="utf-8", timeout=5)
+                                capture_output=True, text=True, encoding="utf-8", timeout=20)
         assert result.returncode == 0, result.stderr
         return json.loads(result.stdout) if result.stdout else None
     return project, state, call

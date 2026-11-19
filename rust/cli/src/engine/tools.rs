@@ -1342,6 +1342,23 @@ pub fn tool_schemas() -> Value {
                     "required": ["path", "line", "character"]
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "spawn_subagent",
+                "description": "Delegate a bounded coding or research subtask to a native subagent (optionally inside an isolated git worktree).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "role": { "type": "string", "enum": ["research", "coder", "reviewer"] },
+                        "prompt": { "type": "string" },
+                        "max_rounds": { "type": "integer" },
+                        "isolated_worktree": { "type": "boolean" }
+                    },
+                    "required": ["prompt"]
+                }
+            }
         }
     ])
 }
@@ -1412,6 +1429,56 @@ fn execute_lsp_tool(workspace: &Path, kind: &str, args: &Value) -> Result<Value,
         "references" => client.references(&path, line, character),
         _ => Err(format!("Unknown LSP query: {kind}")),
     }
+}
+
+fn execute_subagent_tool(
+    workspace: &Path,
+    args: &Value,
+    allow_write: bool,
+) -> Result<Value, String> {
+    let prompt = args
+        .get("prompt")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if prompt.is_empty() {
+        return Err("spawn_subagent requires a non-empty prompt".into());
+    }
+    let role = super::subagent::SubagentRole::from_str(
+        args.get("role")
+            .and_then(Value::as_str)
+            .unwrap_or("research"),
+    );
+    let isolated_worktree = args
+        .get("isolated_worktree")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if (role.allow_write() || isolated_worktree) && !allow_write {
+        return Err("Subagent write/worktree mode denied: --allow-write is required".into());
+    }
+    let max_rounds = args.get("max_rounds").and_then(Value::as_u64).unwrap_or(4) as usize;
+    let base_url = std::env::var("OLLAMA_HOST")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "http://localhost:11434".to_owned());
+    let model = std::env::var("ARIA_MODEL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "qwen2.5-coder:7b".to_owned());
+    let req = super::subagent::SubagentRequest {
+        role,
+        prompt: prompt.to_owned(),
+        max_rounds,
+        isolated_worktree,
+    };
+    let out = super::subagent::run_local_subagent(
+        &base_url,
+        &model,
+        workspace,
+        &req,
+        std::time::Duration::from_secs(60),
+    );
+    Ok(out.to_json())
 }
 
 pub fn execute_tool(workspace: &Path, name: &str, args: &Value, allow_write: bool) -> Value {
@@ -1520,6 +1587,7 @@ pub fn execute_tool(workspace: &Path, name: &str, args: &Value, allow_write: boo
         "lsp_hover" => execute_lsp_tool(workspace, "hover", args),
         "lsp_definition" => execute_lsp_tool(workspace, "definition", args),
         "lsp_references" => execute_lsp_tool(workspace, "references", args),
+        "spawn_subagent" => execute_subagent_tool(workspace, args, allow_write),
         other => Err(format!("Unknown native tool: {other}")),
     };
     match result {
@@ -1806,11 +1874,24 @@ mod tests {
             .iter()
             .filter_map(|v| v["function"]["name"].as_str())
             .collect();
-        for expected in ["process", "lsp_hover", "lsp_definition", "lsp_references"] {
+        for expected in [
+            "process",
+            "lsp_hover",
+            "lsp_definition",
+            "lsp_references",
+            "spawn_subagent",
+        ] {
             assert!(names.contains(&expected), "missing schema for {expected}");
         }
 
         let dir = tempdir().unwrap();
+        let sub_denied = execute_tool(
+            dir.path(),
+            "spawn_subagent",
+            &json!({"role": "coder", "prompt": "edit file"}),
+            false,
+        );
+        assert_eq!(sub_denied["ok"], false);
         let denied = execute_tool(
             dir.path(),
             "process",
