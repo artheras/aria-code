@@ -424,6 +424,8 @@ fn native_commands_json() -> Value {
         {"name": "/rewind", "description": "Rewind the last file edit"},
         {"name": "/worktree", "description": "Manage isolated git worktrees (list|create|remove)"},
         {"name": "/mcp", "description": "List, connect, or probe ecosystem MCP servers (/mcp [connect|probe])"},
+        {"name": "/skills", "description": "List discovered project and user skills"},
+        {"name": "/init", "description": "Generate ARIA.md for the current project (/init [--force])"},
         {"name": "/write-mode", "description": "Toggle workspace write permission (on|off)"},
         {"name": "/new", "description": "Start a new session"}
     ])
@@ -491,6 +493,8 @@ enum NativeRoute {
     Rewind,
     Worktree(String, Option<String>),
     Mcp(String),
+    Skills,
+    Init(bool),
     Hooks,
     Sandbox,
     Compact,
@@ -532,6 +536,16 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     if text == "/mcp" || text.starts_with("/mcp ") {
         let arg = text.strip_prefix("/mcp").unwrap_or("").trim().to_owned();
         return Some(NativeRoute::Mcp(arg));
+    }
+    if text == "/skills" {
+        return Some(NativeRoute::Skills);
+    }
+    if text == "/init" || text.starts_with("/init ") {
+        let force = text
+            .split_whitespace()
+            .skip(1)
+            .any(|tok| tok == "--force" || tok == "-f");
+        return Some(NativeRoute::Init(force));
     }
     if text == "/hooks" {
         return Some(NativeRoute::Hooks);
@@ -1115,6 +1129,46 @@ fn try_dispatch_native_turn(
                         }
                     }
                     (lines.join("\n"), "ok")
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Skills => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let skills = crate::engine::skills::discover_skills(&ws_path);
+                let text = if skills.is_empty() {
+                    "No skills found in `.aria/skills/` or `~/.aria/skills/`.".to_owned()
+                } else {
+                    let mut lines = vec![format!("Discovered {} skill(s):", skills.len())];
+                    for s in skills {
+                        let desc = if s.description.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" — {}", s.description)
+                        };
+                        lines.push(format!("- `{}` [{}]{}", s.name, s.scope, desc));
+                    }
+                    lines.join("\n")
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+            }
+            NativeRoute::Init(force) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) = match crate::engine::skills::generate_aria_md(&ws_path, force)
+                {
+                    Ok((path, true)) => (
+                        format!("Generated `{}` for this project.", path.display()),
+                        "ok",
+                    ),
+                    Ok((path, false)) => (
+                        format!(
+                            "`{}` already exists (pass `/init --force` to overwrite).",
+                            path.display()
+                        ),
+                        "ok",
+                    ),
+                    Err(e) => (format!("[init error: {e}]"), "failed"),
                 };
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
@@ -2326,6 +2380,17 @@ mod tests {
         assert_eq!(
             classify_native_route(&app, &json!({"type": "turn.submit", "text": "/mcp probe"})),
             Some(NativeRoute::Mcp("probe".into()))
+        );
+        assert_eq!(
+            classify_native_route(&app, &json!({"type": "turn.submit", "text": "/skills"})),
+            Some(NativeRoute::Skills)
+        );
+        assert_eq!(
+            classify_native_route(
+                &app,
+                &json!({"type": "turn.submit", "text": "/init --force"})
+            ),
+            Some(NativeRoute::Init(true))
         );
         assert_eq!(
             classify_native_route(
