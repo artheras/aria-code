@@ -53,9 +53,6 @@ from .trading import (
     list_order_previews, load_order_preview, policy_from_config, resolve_trading_mode,
     global_dry_run,
 )
-from .automation import (
-    AutoExecutePolicy, AutoExecuteDecision, evaluate_auto_execute, run_auto_execute,
-)
 
 __all__ = [
     "BrokerBase", "AccountInfo", "Position", "Order", "OrderResult", "PortfolioSummary",
@@ -74,5 +71,4 @@ __all__ = [
     "OrderIntent", "TradingPolicy", "build_order_preview", "execute_order_preview",
     "list_order_previews", "load_order_preview", "policy_from_config", "resolve_trading_mode",
     "global_dry_run",
-    "AutoExecutePolicy", "AutoExecuteDecision", "evaluate_auto_execute", "run_auto_execute",
 ]
