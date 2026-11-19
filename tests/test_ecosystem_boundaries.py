@@ -46,6 +46,7 @@ def test_decoupled_stubs_stay_under_line_budget():
         SRC / "ui" / "render" / "finance.py": 90,
         SRC / "aria_cli.py": 5200,
         SRC / "tools" / "local_finance_tools.py": 60,
+        SRC / "report_generator.py": 300,
     }
     violations = []
     for path, limit in budgets.items():

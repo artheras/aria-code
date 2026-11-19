@@ -286,22 +286,6 @@ async def test_indicator_chart_requires_symbol():
 
 
 @pytest.mark.asyncio
-@requires_charts
-async def test_indicator_chart_writes_artifact_on_success(monkeypatch, tmp_path):
-    df = _fake_ohlcv_df()
-    import report_generator
-    monkeypatch.setattr(report_generator, "_fetch_report_data_sync", lambda symbol: (df, None, {}))
-
-    fake_path = tmp_path / "out.png"
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr("artifacts.create_user_artifact", lambda *a, **kw: type("A", (), {"path": fake_path})())
-        result = await _call_indicator_chart({"symbol": "aapl"})
-    assert result["success"] is True
-    assert result["path"] == str(fake_path)
-    assert fake_path.exists()
-
-
-@pytest.mark.asyncio
 async def test_indicator_chart_no_data_reports_error(monkeypatch):
     import pandas as pd
     import report_generator
@@ -319,21 +303,6 @@ async def test_comparison_chart_requires_at_least_two_symbols():
 
 
 @pytest.mark.asyncio
-@requires_charts
-async def test_comparison_chart_writes_artifact_on_success(monkeypatch, tmp_path):
-    df = _fake_ohlcv_df()
-    import report_generator
-    monkeypatch.setattr(report_generator, "_fetch_report_data_sync", lambda symbol: (df, None, {}))
-
-    fake_path = tmp_path / "out.png"
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr("artifacts.create_user_artifact", lambda *a, **kw: type("A", (), {"path": fake_path})())
-        result = await _call_comparison_chart({"symbols": ["AAPL", "MSFT"]})
-    assert result["success"] is True
-    assert fake_path.exists()
-
-
-@pytest.mark.asyncio
 async def test_comparison_chart_no_usable_data_reports_error(monkeypatch):
     import pandas as pd
     import report_generator
@@ -341,26 +310,6 @@ async def test_comparison_chart_no_usable_data_reports_error(monkeypatch):
 
     result = await _call_comparison_chart({"symbols": ["AAPL", "MSFT"]})
     assert result["success"] is False
-
-
-@pytest.mark.asyncio
-@requires_charts
-async def test_allocation_chart_writes_artifact_on_success(monkeypatch, tmp_path):
-    import aria_code.packages.aria_mcp.server as server_mod
-    from brokers.base import Position
-
-    class _FakeBroker:
-        def positions(self):
-            return [Position(symbol="AAPL", market_value=15000)]
-
-    monkeypatch.setattr(server_mod, "_get_broker", lambda broker_id="": _FakeBroker())
-
-    fake_path = tmp_path / "out.png"
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr("artifacts.create_user_artifact", lambda *a, **kw: type("A", (), {"path": fake_path})())
-        result = await _call_allocation_chart({})
-    assert result["success"] is True
-    assert fake_path.exists()
 
 
 @pytest.mark.asyncio
