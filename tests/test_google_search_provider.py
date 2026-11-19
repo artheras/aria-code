@@ -14,7 +14,7 @@ import unittest
 from contextlib import contextmanager
 from unittest import mock
 
-from aria_code.tools.local_finance_tools import _web_search
+from aria_code.tools.web_search import _web_search
 
 GOOGLE_PAYLOAD = {
     "items": [
@@ -65,7 +65,7 @@ class GoogleSearchBackendTests(unittest.TestCase):
         # _resolve_search_key also consults ~/.arthera/providers.json; pin it to
         # the env vars so a developer's real keys cannot influence the result.
         patcher = mock.patch(
-            "aria_code.tools.local_finance_tools._resolve_search_key",
+            "aria_code.tools.web_search._resolve_search_key",
             side_effect=lambda env_var, provider: os.getenv(env_var, ""),
         )
         self.addCleanup(patcher.stop)

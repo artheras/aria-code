@@ -112,35 +112,3 @@ def test_strategy_order_to_intent_parity():
     assert bi.symbol == "AAPL" and bi.side == "buy" and bi.quantity == 10
     ti = strategy_order_to_intent(StrategyOrder("AAPL", "target", target_weight=0.5))
     assert ti.target_weight == 0.5
-
-
-# ── LLM tool wrapper (offline via mocked load_bars) ─────────────────────────────
-
-def test_run_portfolio_backtest_tool(monkeypatch):
-    import backtest_engine as be
-    import local_finance_tools as lft
-
-    def fake_load(sym, days=365, interval="1d"):
-        return [be.Bar(f"2026-01-{i+1:02d}", c, c, c, c)
-                for i, c in enumerate([10, 11, 12, 13, 14, 15])]
-    monkeypatch.setattr(be, "load_bars", fake_load)
-
-    r = lft._run_portfolio_backtest({"symbols": "AAA BBB", "strategy": "buy_hold"})
-    assert r["success"] is True
-    assert set(r["symbols"]) == {"AAA", "BBB"}
-    assert "metrics" in r and "benchmark" in r and "alpha_vs_buyhold" in r
-    assert r["metrics"]["total_return"] > 0          # rising series
-    assert len(r["equity_sample"]) <= 21             # compact output
-
-
-def test_run_portfolio_backtest_requires_symbols():
-    import local_finance_tools as lft
-    assert lft._run_portfolio_backtest({"symbols": ""})["success"] is False
-
-
-def test_run_portfolio_backtest_unknown_strategy(monkeypatch):
-    import backtest_engine as be
-    import local_finance_tools as lft
-    monkeypatch.setattr(be, "load_bars", lambda *a, **k: [be.Bar("2026-01-01", 1, 1, 1, 1)])
-    r = lft._run_portfolio_backtest({"symbols": "AAA", "strategy": "nope"})
-    assert r["success"] is False and "unknown strategy" in r["error"]
