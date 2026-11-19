@@ -29,6 +29,7 @@ def test_deleted_vertical_modules_stay_absent():
         SRC / "agents" / "portfolio_agent.py",
         SRC / "apps" / "cli" / "handlers" / "chart_handlers.py",
         SRC / "tools" / "broker_tools.py",
+        SRC / "clients" / "aliyun_data_client.py",
     ]
     present = [
         str(p.relative_to(ROOT))
@@ -44,7 +45,7 @@ def test_decoupled_stubs_stay_under_line_budget():
         SRC / "apps" / "cli" / "handlers" / "broker_handlers.py": 30,
         SRC / "ui" / "render" / "finance.py": 90,
         SRC / "aria_cli.py": 5200,
-        SRC / "tools" / "local_finance_tools.py": 3500,
+        SRC / "tools" / "local_finance_tools.py": 60,
     }
     violations = []
     for path, limit in budgets.items():
