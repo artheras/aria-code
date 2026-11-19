@@ -5,9 +5,10 @@ use std::{
     collections::HashMap,
     fs,
     io::{BufRead, BufReader, Write},
-    path::Path,
+    path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     sync::atomic::{AtomicU64, Ordering},
+    time::Instant,
 };
 
 pub struct McpStdioClient {
@@ -217,6 +218,66 @@ pub fn load_mcp_server_configs(workspace: &Path) -> Vec<McpServerConfig> {
     list
 }
 
+fn venv_bin_path(root: &Path, bin_name: &str) -> Option<PathBuf> {
+    let unix = root.join(".venv").join("bin").join(bin_name);
+    if unix.is_file() {
+        return Some(unix);
+    }
+    let win_exe = root
+        .join(".venv")
+        .join("Scripts")
+        .join(format!("{bin_name}.exe"));
+    if win_exe.is_file() {
+        return Some(win_exe);
+    }
+    let win = root.join(".venv").join("Scripts").join(bin_name);
+    if win.is_file() {
+        return Some(win);
+    }
+    None
+}
+
+fn venv_python_path(root: &Path) -> Option<PathBuf> {
+    venv_bin_path(root, "python").or_else(|| venv_bin_path(root, "python3"))
+}
+
+fn build_python_service_config(
+    name: &str,
+    root: &Path,
+    venv_bin: &str,
+    src_dir: &Path,
+    module: &str,
+    entry_file: &Path,
+) -> Option<McpServerConfig> {
+    if let Some(bin) = venv_bin_path(root, venv_bin) {
+        return Some(McpServerConfig {
+            name: name.into(),
+            command: bin.to_string_lossy().into_owned(),
+            args: Vec::new(),
+            env: HashMap::new(),
+        });
+    }
+    if !entry_file.is_file() {
+        return None;
+    }
+    if let Some(py) = venv_python_path(root) {
+        return Some(McpServerConfig {
+            name: name.into(),
+            command: py.to_string_lossy().into_owned(),
+            args: vec!["-I".into(), "-m".into(), module.into()],
+            env: HashMap::new(),
+        });
+    }
+    let mut env = HashMap::new();
+    env.insert("PYTHONPATH".into(), src_dir.to_string_lossy().into_owned());
+    Some(McpServerConfig {
+        name: name.into(),
+        command: "python3".into(),
+        args: vec!["-m".into(), module.into()],
+        env,
+    })
+}
+
 /// Detect sibling Arthera ecosystem MCP servers (`quant_engine`, `commerce`, `erp-service`,
 /// `financial-service`, `healthcare-service`, `aria-logistics`).
 pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> {
@@ -263,30 +324,17 @@ pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> 
     }
 
     let erp_root = parent.join("erp-service");
-    let erp_venv_bin = erp_root.join(".venv").join("bin").join("erp-service-mcp");
-    let erp_mcp = erp_root
-        .join("src")
-        .join("erp_service")
-        .join("mcp_server.py");
-    if erp_venv_bin.is_file() {
-        found.push(McpServerConfig {
-            name: "erp-service".into(),
-            command: erp_venv_bin.to_string_lossy().into_owned(),
-            args: Vec::new(),
-            env: HashMap::new(),
-        });
-    } else if erp_mcp.is_file() {
-        let mut env = HashMap::new();
-        env.insert(
-            "PYTHONPATH".into(),
-            erp_root.join("src").to_string_lossy().into_owned(),
-        );
-        found.push(McpServerConfig {
-            name: "erp-service".into(),
-            command: "python3".into(),
-            args: vec![erp_mcp.to_string_lossy().into_owned()],
-            env,
-        });
+    let erp_src = erp_root.join("src");
+    let erp_mcp = erp_src.join("erp_service").join("mcp_server.py");
+    if let Some(cfg) = build_python_service_config(
+        "erp-service",
+        &erp_root,
+        "erp-service-mcp",
+        &erp_src,
+        "erp_service.mcp_server",
+        &erp_mcp,
+    ) {
+        found.push(cfg);
     }
 
     // `artheras/financial-service`: read-only finance (`arthera-finance`) and
@@ -294,90 +342,44 @@ pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> 
     // venv entrypoint or `python -I -m ...` (isolated mode). Never hardcode
     // FINANCIAL_SERVICE_NETWORK or FINANCIAL_SERVICE_BROKERS_ENABLED here.
     let fin_root = parent.join("financial-service");
-    let fin_venv_bin = fin_root
-        .join(".venv")
-        .join("bin")
-        .join("arthera-financial-service");
-    let fin_venv_py = fin_root.join(".venv").join("bin").join("python");
     let fin_src = fin_root.join("src");
     let fin_server_py = fin_src.join("arthera_finance").join("server.py");
-    if fin_venv_bin.is_file() {
-        found.push(McpServerConfig {
-            name: "arthera-finance".into(),
-            command: fin_venv_bin.to_string_lossy().into_owned(),
-            args: Vec::new(),
-            env: HashMap::new(),
-        });
-    } else if fin_venv_py.is_file() && fin_server_py.is_file() {
-        found.push(McpServerConfig {
-            name: "arthera-finance".into(),
-            command: fin_venv_py.to_string_lossy().into_owned(),
-            args: vec!["-I".into(), "-m".into(), "arthera_finance.server".into()],
-            env: HashMap::new(),
-        });
-    } else if fin_server_py.is_file() {
-        let mut env = HashMap::new();
-        env.insert("PYTHONPATH".into(), fin_src.to_string_lossy().into_owned());
-        found.push(McpServerConfig {
-            name: "arthera-finance".into(),
-            command: "python3".into(),
-            args: vec!["-m".into(), "arthera_finance.server".into()],
-            env,
-        });
+    if let Some(cfg) = build_python_service_config(
+        "arthera-finance",
+        &fin_root,
+        "arthera-financial-service",
+        &fin_src,
+        "arthera_finance.server",
+        &fin_server_py,
+    ) {
+        found.push(cfg);
     }
 
-    let trading_venv_bin = fin_root.join(".venv").join("bin").join("arthera-trading");
     let trading_server_py = fin_src.join("arthera_finance").join("trading_server.py");
-    if trading_venv_bin.is_file() {
-        found.push(McpServerConfig {
-            name: "arthera-trading".into(),
-            command: trading_venv_bin.to_string_lossy().into_owned(),
-            args: Vec::new(),
-            env: HashMap::new(),
-        });
-    } else if fin_venv_py.is_file() && trading_server_py.is_file() {
-        found.push(McpServerConfig {
-            name: "arthera-trading".into(),
-            command: fin_venv_py.to_string_lossy().into_owned(),
-            args: vec![
-                "-I".into(),
-                "-m".into(),
-                "arthera_finance.trading_server".into(),
-            ],
-            env: HashMap::new(),
-        });
-    } else if trading_server_py.is_file() {
-        let mut env = HashMap::new();
-        env.insert("PYTHONPATH".into(), fin_src.to_string_lossy().into_owned());
-        found.push(McpServerConfig {
-            name: "arthera-trading".into(),
-            command: "python3".into(),
-            args: vec!["-m".into(), "arthera_finance.trading_server".into()],
-            env,
-        });
+    if let Some(cfg) = build_python_service_config(
+        "arthera-trading",
+        &fin_root,
+        "arthera-trading",
+        &fin_src,
+        "arthera_finance.trading_server",
+        &trading_server_py,
+    ) {
+        found.push(cfg);
     }
 
     // `artheras/healthcare-service`: biomedical literature & evidence over MCP.
     let hc_root = parent.join("healthcare-service");
-    let hc_venv_bin = hc_root.join(".venv").join("bin").join("aria-healthcare");
     let hc_src = hc_root.join("src");
     let hc_server_py = hc_src.join("aria_healthcare").join("server.py");
-    if hc_venv_bin.is_file() {
-        found.push(McpServerConfig {
-            name: "aria-healthcare".into(),
-            command: hc_venv_bin.to_string_lossy().into_owned(),
-            args: Vec::new(),
-            env: HashMap::new(),
-        });
-    } else if hc_server_py.is_file() {
-        let mut env = HashMap::new();
-        env.insert("PYTHONPATH".into(), hc_src.to_string_lossy().into_owned());
-        found.push(McpServerConfig {
-            name: "aria-healthcare".into(),
-            command: "python3".into(),
-            args: vec!["-m".into(), "aria_healthcare.server".into()],
-            env,
-        });
+    if let Some(cfg) = build_python_service_config(
+        "aria-healthcare",
+        &hc_root,
+        "aria-healthcare",
+        &hc_src,
+        "aria_healthcare.server",
+        &hc_server_py,
+    ) {
+        found.push(cfg);
     }
 
     let bots_root = base.join("services").join("aria-bots");
@@ -438,31 +440,130 @@ pub fn write_workspace_mcp_json(
     Ok(servers.len())
 }
 
+/// Connection health snapshot for a configured stdio MCP server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct McpServerHealth {
+    pub name: String,
+    pub command: String,
+    pub connected: bool,
+    pub tool_count: usize,
+    pub tool_names: Vec<String>,
+    pub latency_ms: u64,
+    pub error: Option<String>,
+}
+
+/// Probe a single stdio MCP server via `initialize` + `tools/list` and return its health.
+#[allow(dead_code)]
+pub fn probe_mcp_server(cfg: &McpServerConfig) -> McpServerHealth {
+    let started = Instant::now();
+    match McpStdioClient::spawn_with_env(&cfg.command, &cfg.args, &cfg.env) {
+        Ok(mut client) => match client.list_tools() {
+            Ok(tools) => {
+                let tool_names: Vec<String> = tools
+                    .iter()
+                    .filter_map(|t| t.get("name").and_then(Value::as_str).map(str::to_owned))
+                    .collect();
+                McpServerHealth {
+                    name: cfg.name.clone(),
+                    command: cfg.command.clone(),
+                    connected: true,
+                    tool_count: tool_names.len(),
+                    tool_names,
+                    latency_ms: started.elapsed().as_millis() as u64,
+                    error: None,
+                }
+            }
+            Err(err) => McpServerHealth {
+                name: cfg.name.clone(),
+                command: cfg.command.clone(),
+                connected: false,
+                tool_count: 0,
+                tool_names: Vec::new(),
+                latency_ms: started.elapsed().as_millis() as u64,
+                error: Some(err),
+            },
+        },
+        Err(err) => McpServerHealth {
+            name: cfg.name.clone(),
+            command: cfg.command.clone(),
+            connected: false,
+            tool_count: 0,
+            tool_names: Vec::new(),
+            latency_ms: started.elapsed().as_millis() as u64,
+            error: Some(err),
+        },
+    }
+}
+
+/// Probe every MCP server configured for `workspace`.
+#[allow(dead_code)]
+pub fn probe_workspace_mcp_servers(workspace: &Path) -> Vec<McpServerHealth> {
+    load_mcp_server_configs(workspace)
+        .iter()
+        .map(probe_mcp_server)
+        .collect()
+}
+
 /// Live registry of external stdio MCP servers discovered from `~/.aria/mcp.json` and `<workspace>/.mcp.json`.
 pub struct McpRegistry {
     clients: HashMap<String, McpStdioClient>,
     routes: HashMap<String, (String, String)>,
     schemas: Vec<Value>,
+    statuses: Vec<McpServerHealth>,
 }
 
 impl McpRegistry {
     pub fn load_from_workspace(workspace: &Path) -> Self {
+        let configs = load_mcp_server_configs(workspace);
+        Self::load_from_configs(&configs)
+    }
+
+    pub fn load_from_configs(configs: &[McpServerConfig]) -> Self {
         let mut clients = HashMap::new();
         let mut routes = HashMap::new();
         let mut schemas = Vec::new();
-        for cfg in load_mcp_server_configs(workspace) {
-            let Ok(mut client) = McpStdioClient::spawn_with_env(&cfg.command, &cfg.args, &cfg.env)
-            else {
-                continue;
+        let mut statuses = Vec::new();
+        for cfg in configs {
+            let started = Instant::now();
+            let mut client = match McpStdioClient::spawn_with_env(&cfg.command, &cfg.args, &cfg.env)
+            {
+                Ok(c) => c,
+                Err(err) => {
+                    statuses.push(McpServerHealth {
+                        name: cfg.name.clone(),
+                        command: cfg.command.clone(),
+                        connected: false,
+                        tool_count: 0,
+                        tool_names: Vec::new(),
+                        latency_ms: started.elapsed().as_millis() as u64,
+                        error: Some(err),
+                    });
+                    continue;
+                }
             };
-            let Ok(tools) = client.list_tools() else {
-                continue;
+            let tools = match client.list_tools() {
+                Ok(t) => t,
+                Err(err) => {
+                    statuses.push(McpServerHealth {
+                        name: cfg.name.clone(),
+                        command: cfg.command.clone(),
+                        connected: false,
+                        tool_count: 0,
+                        tool_names: Vec::new(),
+                        latency_ms: started.elapsed().as_millis() as u64,
+                        error: Some(err),
+                    });
+                    continue;
+                }
             };
             let safe_server = cfg.name.replace(['.', '-', ' '], "_");
+            let mut tool_names = Vec::new();
             for tool in tools {
                 let Some(orig_name) = tool.get("name").and_then(Value::as_str) else {
                     continue;
                 };
+                tool_names.push(orig_name.to_owned());
                 let safe_tool = orig_name.replace(['.', '-', ' '], "_");
                 let exposed = format!("mcp__{safe_server}__{safe_tool}");
                 let desc = tool
@@ -483,13 +584,28 @@ impl McpRegistry {
                 }));
                 routes.insert(exposed, (cfg.name.clone(), orig_name.to_owned()));
             }
-            clients.insert(cfg.name, client);
+            statuses.push(McpServerHealth {
+                name: cfg.name.clone(),
+                command: cfg.command.clone(),
+                connected: true,
+                tool_count: tool_names.len(),
+                tool_names,
+                latency_ms: started.elapsed().as_millis() as u64,
+                error: None,
+            });
+            clients.insert(cfg.name.clone(), client);
         }
         Self {
             clients,
             routes,
             schemas,
+            statuses,
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn statuses(&self) -> &[McpServerHealth] {
+        &self.statuses
     }
 
     pub fn tool_schemas(&self) -> &[Value] {
@@ -585,5 +701,115 @@ mod tests {
         assert!(reloaded.iter().any(|c| c.name == "erp-service"));
         assert!(reloaded.iter().any(|c| c.name == "arthera-finance"));
         assert!(reloaded.iter().any(|c| c.name == "aria-healthcare"));
+    }
+
+    #[test]
+    fn discovers_isolated_venv_python_for_ecosystem_services() {
+        let root = tempfile::tempdir().unwrap();
+        let ws = root.path().join("aria-code");
+        fs::create_dir_all(&ws).unwrap();
+
+        for (dir, pkg, file) in [
+            ("erp-service", "erp_service", "mcp_server.py"),
+            ("financial-service", "arthera_finance", "server.py"),
+            ("financial-service", "arthera_finance", "trading_server.py"),
+            ("healthcare-service", "aria_healthcare", "server.py"),
+        ] {
+            let svc = root.path().join(dir);
+            let py_dir = svc.join(".venv").join("bin");
+            let pkg_dir = svc.join("src").join(pkg);
+            fs::create_dir_all(&py_dir).unwrap();
+            fs::create_dir_all(&pkg_dir).unwrap();
+            fs::write(py_dir.join("python"), "#!/bin/sh\n").unwrap();
+            fs::write(pkg_dir.join(file), "# stub").unwrap();
+        }
+
+        let found = discover_ecosystem_mcp_servers(&ws);
+        assert_eq!(found.len(), 4);
+        for cfg in &found {
+            assert_eq!(cfg.args.first().map(String::as_str), Some("-I"));
+            assert_eq!(cfg.args.get(1).map(String::as_str), Some("-m"));
+            assert!(!cfg.env.contains_key("FINANCIAL_SERVICE_NETWORK"));
+            assert!(!cfg.env.contains_key("FINANCIAL_SERVICE_BROKERS_ENABLED"));
+        }
+    }
+
+    #[test]
+    fn stdio_client_and_registry_end_to_end_with_mock_mcp_server() {
+        let py = if Command::new("python3").arg("--version").output().is_ok() {
+            "python3"
+        } else if Command::new("python").arg("--version").output().is_ok() {
+            "python"
+        } else {
+            return;
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let server_script = dir.path().join("mock_mcp.py");
+        fs::write(
+            &server_script,
+            r#"import json, sys
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    req = json.loads(line)
+    req_id = req.get("id")
+    method = req.get("method")
+    if req_id is None:
+        continue
+    if method == "initialize":
+        resp = {"jsonrpc": "2.0", "id": req_id, "result": {"protocolVersion": "2024-11-05", "capabilities": {}}}
+    elif method == "tools/list":
+        resp = {"jsonrpc": "2.0", "id": req_id, "result": {"tools": [{"name": "echo.ping", "description": "Echo tool", "inputSchema": {"type": "object", "properties": {"msg": {"type": "string"}}}}]}}
+    elif method == "tools/call":
+        args = req.get("params", {}).get("arguments", {})
+        resp = {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": f"pong:{args.get('msg', '')}"}]}}
+    else:
+        resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "unknown"}}
+    sys.stdout.write(json.dumps(resp) + "\n")
+    sys.stdout.flush()
+"#,
+        )
+        .unwrap();
+
+        let good_cfg = McpServerConfig {
+            name: "demo-srv".into(),
+            command: py.into(),
+            args: vec![server_script.to_string_lossy().into_owned()],
+            env: HashMap::new(),
+        };
+        let bad_cfg = McpServerConfig {
+            name: "missing-srv".into(),
+            command: "__nonexistent_mcp_binary_aria__".into(),
+            args: Vec::new(),
+            env: HashMap::new(),
+        };
+
+        assert_eq!(
+            write_workspace_mcp_json(dir.path(), &[good_cfg.clone(), bad_cfg.clone()]).unwrap(),
+            2
+        );
+
+        let health = probe_workspace_mcp_servers(dir.path());
+        assert_eq!(health.len(), 2);
+        let good_h = health.iter().find(|h| h.name == "demo-srv").unwrap();
+        assert!(good_h.connected);
+        assert_eq!(good_h.tool_count, 1);
+        assert_eq!(good_h.tool_names, vec!["echo.ping"]);
+        assert!(good_h.error.is_none());
+
+        let bad_h = health.iter().find(|h| h.name == "missing-srv").unwrap();
+        assert!(!bad_h.connected);
+        assert!(bad_h.error.is_some());
+
+        let mut reg = McpRegistry::load_from_workspace(dir.path());
+        assert_eq!(reg.statuses().len(), 2);
+        assert_eq!(reg.tool_schemas().len(), 1);
+        let call = reg
+            .call_tool("mcp__demo_srv__echo_ping", json!({"msg": "hello"}))
+            .unwrap();
+        assert_eq!(call["ok"], true);
+        assert_eq!(call["data"]["content"][0]["text"], "pong:hello");
     }
 }
