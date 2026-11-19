@@ -56,12 +56,20 @@ pub fn compact_messages_if_needed(
     let mut bullets = Vec::new();
     for msg in dropped {
         let role = msg.get("role").and_then(Value::as_str).unwrap_or("unknown");
-        let content = msg.get("content").and_then(Value::as_str).unwrap_or("").trim();
+        let content = msg
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
         if content.is_empty() {
             continue;
         }
         let snippet: String = content.chars().take(180).collect();
-        let suffix = if content.chars().count() > 180 { "…" } else { "" };
+        let suffix = if content.chars().count() > 180 {
+            "…"
+        } else {
+            ""
+        };
         bullets.push(format!("- [{role}] {snippet}{suffix}"));
         if bullets.len() >= 18 {
             break;

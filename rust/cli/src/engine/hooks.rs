@@ -104,6 +104,7 @@ impl HookRegistry {
         Self { rules }
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.rules.is_empty()
     }

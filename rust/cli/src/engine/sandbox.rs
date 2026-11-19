@@ -109,13 +109,12 @@ pub fn build_sandboxed_shell_command(
 #[cfg(target_os = "linux")]
 fn which_exists(bin: &str) -> bool {
     std::env::var_os("PATH")
-        .map(|paths| {
-            std::env::split_paths(&paths).any(|dir| dir.join(bin).is_file())
-        })
+        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join(bin).is_file()))
         .unwrap_or(false)
 }
 
 /// Verify that `candidate` resolves inside `workspace` (prevents `..` traversal escapes).
+#[allow(dead_code)]
 pub fn ensure_within_workspace(workspace: &Path, candidate: &Path) -> Result<PathBuf, String> {
     let root = workspace
         .canonicalize()
@@ -143,7 +142,9 @@ pub fn ensure_within_workspace(workspace: &Path, candidate: &Path) -> Result<Pat
                 None => break,
             }
         }
-        let mut base = cursor.canonicalize().unwrap_or_else(|_| cursor.to_path_buf());
+        let mut base = cursor
+            .canonicalize()
+            .unwrap_or_else(|_| cursor.to_path_buf());
         for part in suffix.into_iter().rev() {
             base.push(part);
         }
