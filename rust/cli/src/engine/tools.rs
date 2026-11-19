@@ -1277,8 +1277,141 @@ pub fn tool_schemas() -> Value {
                     "required": ["action"]
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "process",
+                "description": "Manage background shell processes (start, read, write, stop, list).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "enum": ["start", "read", "write", "stop", "list"] },
+                        "command": { "type": "string" },
+                        "id": { "type": "string" },
+                        "input": { "type": "string" }
+                    },
+                    "required": ["action"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "lsp_hover",
+                "description": "Query type/doc hover info at a 0-based (line, character) position via LSP.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" },
+                        "line": { "type": "integer" },
+                        "character": { "type": "integer" }
+                    },
+                    "required": ["path", "line", "character"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "lsp_definition",
+                "description": "Go to symbol definition at a 0-based (line, character) position via LSP.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" },
+                        "line": { "type": "integer" },
+                        "character": { "type": "integer" }
+                    },
+                    "required": ["path", "line", "character"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "lsp_references",
+                "description": "Find symbol references at a 0-based (line, character) position via LSP.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string" },
+                        "line": { "type": "integer" },
+                        "character": { "type": "integer" }
+                    },
+                    "required": ["path", "line", "character"]
+                }
+            }
         }
     ])
+}
+
+fn global_process_manager() -> &'static std::sync::Mutex<super::processes::ProcessManager> {
+    static MGR: std::sync::OnceLock<std::sync::Mutex<super::processes::ProcessManager>> =
+        std::sync::OnceLock::new();
+    MGR.get_or_init(|| std::sync::Mutex::new(super::processes::ProcessManager::new()))
+}
+
+fn execute_process_tool(
+    workspace: &Path,
+    args: &Value,
+    allow_write: bool,
+) -> Result<Value, String> {
+    let action = args.get("action").and_then(Value::as_str).unwrap_or("list");
+    let mut mgr = global_process_manager()
+        .lock()
+        .map_err(|_| "Process manager lock poisoned".to_owned())?;
+    match action {
+        "list" => Ok(json!({ "processes": mgr.list() })),
+        "read" => {
+            let id = args.get("id").and_then(Value::as_str).unwrap_or("");
+            mgr.read_output(id)
+        }
+        "start" => {
+            if !allow_write {
+                return Err("Background process start denied: --allow-write is required".into());
+            }
+            let cmd = args.get("command").and_then(Value::as_str).unwrap_or("");
+            validate_command(cmd)?;
+            let id = mgr.start(workspace, cmd)?;
+            Ok(json!({ "id": id, "started": true }))
+        }
+        "write" => {
+            if !allow_write {
+                return Err("Background process write denied: --allow-write is required".into());
+            }
+            let id = args.get("id").and_then(Value::as_str).unwrap_or("");
+            let input = args.get("input").and_then(Value::as_str).unwrap_or("");
+            mgr.write_input(id, input)?;
+            Ok(json!({ "id": id, "written": true }))
+        }
+        "stop" => {
+            if !allow_write {
+                return Err("Background process stop denied: --allow-write is required".into());
+            }
+            let id = args.get("id").and_then(Value::as_str).unwrap_or("");
+            mgr.stop(id)
+        }
+        other => Err(format!("Unknown process action: {other}")),
+    }
+}
+
+fn execute_lsp_tool(workspace: &Path, kind: &str, args: &Value) -> Result<Value, String> {
+    let rel = args.get("path").and_then(Value::as_str).unwrap_or("");
+    let line = args.get("line").and_then(Value::as_u64).unwrap_or(0) as u32;
+    let character = args.get("character").and_then(Value::as_u64).unwrap_or(0) as u32;
+    let path = resolve_workspace_path(workspace, rel)?;
+    let spec = super::lsp::server_for_path(&path)
+        .ok_or_else(|| format!("No LSP server configured for `{rel}`"))?;
+    let text = fs::read_to_string(&path).map_err(|e| format!("Failed to read `{rel}`: {e}"))?;
+    let mut client = super::lsp::LspClient::start(&spec, workspace)?;
+    client.did_open(&path, spec.language_id, &text)?;
+    match kind {
+        "hover" => client.hover(&path, line, character),
+        "definition" => client.definition(&path, line, character),
+        "references" => client.references(&path, line, character),
+        _ => Err(format!("Unknown LSP query: {kind}")),
+    }
 }
 
 pub fn execute_tool(workspace: &Path, name: &str, args: &Value, allow_write: bool) -> Value {
@@ -1383,6 +1516,10 @@ pub fn execute_tool(workspace: &Path, name: &str, args: &Value, allow_write: boo
             let name = args.get("name").and_then(Value::as_str);
             git_worktree(workspace, action, name, allow_write)
         }
+        "process" => execute_process_tool(workspace, args, allow_write),
+        "lsp_hover" => execute_lsp_tool(workspace, "hover", args),
+        "lsp_definition" => execute_lsp_tool(workspace, "definition", args),
+        "lsp_references" => execute_lsp_tool(workspace, "references", args),
         other => Err(format!("Unknown native tool: {other}")),
     };
     match result {
@@ -1658,5 +1795,44 @@ mod tests {
         assert!(listed["worktrees"].as_str().unwrap().contains("feat1"));
         let removed = git_worktree(dir.path(), "remove", Some("feat1"), true).unwrap();
         assert!(removed["removed"].as_str().unwrap().contains("feat1"));
+    }
+
+    #[test]
+    fn exposes_process_and_lsp_tools_and_gates_process_start() {
+        let schemas = tool_schemas();
+        let names: Vec<&str> = schemas
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v["function"]["name"].as_str())
+            .collect();
+        for expected in ["process", "lsp_hover", "lsp_definition", "lsp_references"] {
+            assert!(names.contains(&expected), "missing schema for {expected}");
+        }
+
+        let dir = tempdir().unwrap();
+        let denied = execute_tool(
+            dir.path(),
+            "process",
+            &json!({"action": "start", "command": "echo hi"}),
+            false,
+        );
+        assert_eq!(denied["ok"], false);
+
+        let started = execute_tool(
+            dir.path(),
+            "process",
+            &json!({"action": "start", "command": "echo hi_tool"}),
+            true,
+        );
+        assert_eq!(started["ok"], true);
+        let id = started["data"]["id"].as_str().unwrap().to_owned();
+        let stopped = execute_tool(
+            dir.path(),
+            "process",
+            &json!({"action": "stop", "id": id}),
+            true,
+        );
+        assert_eq!(stopped["ok"], true);
     }
 }
