@@ -54,7 +54,7 @@ fn build_agent_messages(
 
 fn build_coding_system_prompt(workspace: &Path) -> String {
     let mut prompt = format!(
-        "{}\n\nYou are Aria Code's native coding agent. You have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `repo_map`, `write_file`, `edit_file`, `multi_edit`, `restore_checkpoint`, `run_command`, `git_status`, `git_diff`, `git_log`, `glob`, `project_scan`, `verify_workspace`) plus any configured MCP tools. \
+        "{}\n\nYou are Aria Code's native coding agent. You have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `repo_map`, `write_file`, `edit_file`, `multi_edit`, `restore_checkpoint`, `run_command`, `process`, `lsp_hover`, `lsp_definition`, `lsp_references`, `spawn_subagent`, `web_search`, `web_fetch`, `git_status`, `git_diff`, `git_log`, `git_worktree`, `glob`, `project_scan`, `verify_workspace`) plus any configured MCP tools. \
          Inspect relevant files before answering or editing. Prefer targeted reads and minimal edits. `edit_file` fails when `old_string` is not unique; use more context or `multi_edit` for several unique replacements in one file. After code changes, run `verify_workspace` and fix failures before the final answer.",
         policy::general_system_prompt("today")
     );
@@ -91,6 +91,40 @@ fn build_coding_system_prompt(workspace: &Path) -> String {
         }
         if !ctx.is_empty() {
             prompt.push_str(&format!("\n\n[Workspace Snapshot]{ctx}"));
+        }
+    }
+    for fname in ["ARIA.md", "AGENTS.md"] {
+        let path = workspace.join(fname);
+        if path.is_file() {
+            if let Ok(raw) = std::fs::read_to_string(&path) {
+                let trimmed = raw.trim();
+                if !trimmed.is_empty() {
+                    let clipped: String = trimmed.chars().take(4000).collect();
+                    prompt.push_str(&format!("\n\n[Project Instructions: {fname}]\n{clipped}"));
+                    break;
+                }
+            }
+        }
+    }
+    let skills_dir = workspace.join(".aria").join("skills");
+    if let Ok(entries) = std::fs::read_dir(&skills_dir) {
+        let mut skill_names: Vec<String> = entries
+            .flatten()
+            .filter_map(|e| {
+                let p = e.path();
+                if p.is_dir() && p.join("SKILL.md").is_file() {
+                    p.file_name().and_then(|n| n.to_str()).map(str::to_owned)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        skill_names.sort();
+        if !skill_names.is_empty() {
+            prompt.push_str(&format!(
+                "\n\n[Workspace Skills]\n{}",
+                skill_names.join(", ")
+            ));
         }
     }
     prompt
@@ -914,5 +948,20 @@ mod tests {
         let mut quiet = ToolLoopGuard::new(bare.path());
         let _ = quiet.execute(bare.path(), &call, true, &mut |_, _, _| {});
         assert!(quiet.verify_nudge(bare.path()).is_none());
+    }
+
+    #[test]
+    fn injects_aria_md_and_workspace_skills_into_system_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("ARIA.md"), "Always run cargo test.\n").unwrap();
+        let skill_dir = dir.path().join(".aria").join("skills").join("rust-audit");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(skill_dir.join("SKILL.md"), "# Rust audit\n").unwrap();
+
+        let prompt = build_coding_system_prompt(dir.path());
+        assert!(prompt.contains("[Project Instructions: ARIA.md]"));
+        assert!(prompt.contains("Always run cargo test."));
+        assert!(prompt.contains("[Workspace Skills]"));
+        assert!(prompt.contains("rust-audit"));
     }
 }
