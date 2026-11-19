@@ -701,36 +701,9 @@ class CoreCommandsMixin:
         msg = f"✓ Delegated to {backend}: task {task_id}. Check with /tasks or task_status('{task_id}')."
         self.context.console.print(f"[green]{msg}[/green]") if self.context.has_rich else print(msg)
     def cmd_canva(self, args: str):
-        """Manage the Canva Connect integration used for report design drafts."""
-        parts = args.strip().split(maxsplit=2)
-        sub = parts[0].lower() if parts else "status"
-
-        if sub == "connect":
-            if len(parts) < 3:
-                msg = "Usage: /canva connect <client_id> <client_secret>  (register an app first at https://www.canva.com/developers/)"
-                self.context.console.print(f"[yellow]{msg}[/yellow]") if self.context.has_rich else print(msg)
-                return
-            client_id, client_secret = parts[1], parts[2]
-            from canva_client import connect as _canva_connect
-            msg = "打开浏览器完成 Canva 授权…"
-            self.context.console.print(f"[cyan]{msg}[/cyan]") if self.context.has_rich else print(msg)
-            result = _canva_connect(client_id, client_secret)
-            if result.get("success"):
-                msg = "✓ Canva 已连接"
-                self.context.console.print(f"[green]{msg}[/green]") if self.context.has_rich else print(msg)
-            else:
-                self.context.console.print(f"[red]{result.get('error')}[/red]") if self.context.has_rich else print(result.get("error"))
-            return
-
-        if sub == "status":
-            from canva_client import _load_canva_config
-            entry = _load_canva_config()
-            msg = "✓ Canva 已连接" if entry.get("access_token") else "未连接 Canva。运行 /canva connect <client_id> <client_secret>"
-            self.context.console.print(msg) if self.context.has_rich else print(msg)
-            return
-
-        msg = "Usage: /canva connect <client_id> <client_secret> | /canva status"
-        self.context.console.print(f"[yellow]{msg}[/yellow]") if self.context.has_rich else print(msg)
+        """Canva Connect moved to external MCP plugin."""
+        if self.context.has_rich:
+            self.context.console.print("[dim]/canva 已迁移至外部 MCP 插件。[/dim]")
     def _confirm_high_risk_command(self, command: str, risk: str, policy: str) -> bool:
         """Double-confirm high-risk commands even if policy allows them."""
         msg = f"High-risk command under policy '{policy}' (risk={risk}): {command}\nRun it? [y/N]: "
