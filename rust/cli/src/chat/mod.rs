@@ -423,10 +423,52 @@ fn native_commands_json() -> Value {
         {"name": "/map", "description": "Show workspace symbol map"},
         {"name": "/rewind", "description": "Rewind the last file edit"},
         {"name": "/worktree", "description": "Manage isolated git worktrees (list|create|remove)"},
-        {"name": "/mcp", "description": "List or connect ecosystem MCP servers (/mcp [connect])"},
+        {"name": "/mcp", "description": "List, connect, or probe ecosystem MCP servers (/mcp [connect|probe])"},
         {"name": "/write-mode", "description": "Toggle workspace write permission (on|off)"},
         {"name": "/new", "description": "Start a new session"}
     ])
+}
+
+fn format_mcp_probe_report(
+    results: &[crate::engine::mcp::McpServerHealth],
+) -> (String, &'static str) {
+    if results.is_empty() {
+        return (
+            "No configured MCP servers found to probe (run `/mcp connect` first if sibling services are present).".to_owned(),
+            "ok",
+        );
+    }
+    let mut lines = Vec::with_capacity(results.len() + 1);
+    let mut all_ok = true;
+    lines.push("MCP server live probe:".to_owned());
+    for h in results {
+        if h.connected {
+            let preview = if h.tool_names.is_empty() {
+                "no tools".to_owned()
+            } else if h.tool_names.len() <= 6 {
+                h.tool_names.join(", ")
+            } else {
+                format!(
+                    "{}, +{} more",
+                    h.tool_names[..6].join(", "),
+                    h.tool_names.len() - 6
+                )
+            };
+            lines.push(format!(
+                "- `{}`: ok ({} tools, {} ms) — `{}`",
+                h.name, h.tool_count, h.latency_ms, preview
+            ));
+        } else {
+            all_ok = false;
+            lines.push(format!(
+                "- `{}`: failed ({} ms) — {}",
+                h.name,
+                h.latency_ms,
+                h.error.as_deref().unwrap_or("unknown error")
+            ));
+        }
+    }
+    (lines.join("\n"), if all_ok { "ok" } else { "failed" })
 }
 
 fn ollama_base_url() -> String {
@@ -1039,13 +1081,19 @@ fn try_dispatch_native_turn(
                             Err(e) => (format!("[mcp connect error: {e}]"), "failed"),
                         }
                     }
+                } else if arg.eq_ignore_ascii_case("probe") || arg.eq_ignore_ascii_case("status") {
+                    let results = crate::engine::mcp::probe_workspace_mcp_servers(&ws_path);
+                    format_mcp_probe_report(&results)
                 } else {
                     let configured = crate::engine::mcp::load_mcp_server_configs(&ws_path);
                     let mut lines = Vec::new();
                     if configured.is_empty() {
                         lines.push("Configured MCP servers: (none)".to_owned());
                     } else {
-                        lines.push("Configured MCP servers:".to_owned());
+                        lines.push(
+                            "Configured MCP servers (run `/mcp probe` to test live connections):"
+                                .to_owned(),
+                        );
                         for s in &configured {
                             lines.push(format!(
                                 "- `{}`: `{}` {}",
@@ -2276,6 +2324,10 @@ mod tests {
             Some(NativeRoute::Mcp("connect".into()))
         );
         assert_eq!(
+            classify_native_route(&app, &json!({"type": "turn.submit", "text": "/mcp probe"})),
+            Some(NativeRoute::Mcp("probe".into()))
+        );
+        assert_eq!(
             classify_native_route(
                 &app,
                 &json!({"type": "turn.submit", "text": "/diff src/main.rs"})
@@ -2330,5 +2382,40 @@ mod tests {
             ),
             Some(NativeRoute::OllamaAgent)
         );
+    }
+
+    #[test]
+    fn formats_mcp_probe_report_for_ok_and_failed_servers() {
+        use crate::engine::mcp::McpServerHealth;
+
+        let (empty_msg, empty_status) = format_mcp_probe_report(&[]);
+        assert_eq!(empty_status, "ok");
+        assert!(empty_msg.contains("No configured MCP servers"));
+
+        let (msg, status) = format_mcp_probe_report(&[
+            McpServerHealth {
+                name: "erp-service".into(),
+                command: "erp-service-mcp".into(),
+                connected: true,
+                tool_count: 2,
+                tool_names: vec!["erp.warehouse.analyze".into(), "erp.inventory.plan".into()],
+                latency_ms: 12,
+                error: None,
+            },
+            McpServerHealth {
+                name: "arthera-finance".into(),
+                command: "arthera-financial-service".into(),
+                connected: false,
+                tool_count: 0,
+                tool_names: vec![],
+                latency_ms: 5,
+                error: Some("not installed".into()),
+            },
+        ]);
+        assert_eq!(status, "failed");
+        assert!(msg.contains("erp-service"));
+        assert!(msg.contains("2 tools, 12 ms"));
+        assert!(msg.contains("arthera-finance"));
+        assert!(msg.contains("not installed"));
     }
 }
