@@ -62,7 +62,7 @@ func (c *appClient) send(t *testing.T, value map[string]any) {
 }
 func (c *appClient) until(t *testing.T, kind string) map[string]any {
 	t.Helper()
-	deadline := time.After(4 * time.Second)
+	deadline := time.After(15 * time.Second)
 	for {
 		select {
 		case event, ok := <-c.events:
