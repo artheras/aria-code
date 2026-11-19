@@ -26,26 +26,11 @@ from typing import Any, Dict, List, Optional, Type
 from .base import (
     BaseDataSource, QuoteResult, HistoryResult, FundamentalsResult, _detect_market
 )
-from .sources import (
-    AkshareSource, YFinanceSource, TushareSource,
-    FREDSource, EDGARSource, AlphaVantageSource, WorldBankSource,
-    FinnhubSource, WebScraperSource,
-)
 
 logger = logging.getLogger(__name__)
 
-# ── 数据源目录 ────────────────────────────────────────────────────────────────
-_SOURCE_REGISTRY: Dict[str, Type[BaseDataSource]] = {
-    "akshare":       AkshareSource,
-    "yfinance":      YFinanceSource,
-    "finnhub":       FinnhubSource,
-    "tushare":       TushareSource,
-    "fred":          FREDSource,
-    "edgar":         EDGARSource,
-    "alpha_vantage": AlphaVantageSource,
-    "world_bank":    WorldBankSource,
-    "web_scraper":   WebScraperSource,
-}
+# Data source implementations moved to artheras/financial-service.
+_SOURCE_REGISTRY: Dict[str, Type[BaseDataSource]] = {}
 
 
 def register_datasource(name: str, cls: Type[BaseDataSource]) -> None:
