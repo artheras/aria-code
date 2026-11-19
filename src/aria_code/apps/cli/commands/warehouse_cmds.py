@@ -181,70 +181,9 @@ class LogisticsCommandsMixin:
     """
 
     async def cmd_inventory(self, args: str):
-        """Reorder points, safety stock, ABC/XYZ and dead stock for one shipper."""
-        text = _labels(self)
-        params = _parse_logistics_args(args, text["inventory_usage"])
-        if params is None:
-            _emit(self, text["inventory_usage"], "yellow")
-            return
-        from aria_bots.erp_logistics import tool_plan_inventory_policy
-
-        as_json = params.pop("_json")
-        result = tool_plan_inventory_policy(params)
-        if as_json:
-            print(json.dumps(result, ensure_ascii=False, indent=2))
-            return
-        if not result["success"]:
-            _emit(self, result["error"], "red")
-            return
-        data = result["data"]
-        if not data["scope"]["client_facing"]:
-            _emit(self, data["scope"]["marker"], "bold red")
-        _emit(self, _inventory_headline(result, text is _LABELS["zh"]), "bold")
-        for item in data["items"]:
-            if item["action"] != "reorder":
-                continue
-            _emit(self, text["reorder"].format(
-                sku=item["sku"], qty=item["suggested_order_qty"], rop=item["reorder_point"],
-                ss=item["safety_stock"], cover=item["days_of_cover"], cls=_abc_xyz(item)))
-        for item in data["items"]:
-            if item["movement"] in ("dead", "slow"):
-                _emit(self, text[item["movement"]].format(sku=item["sku"], on_hand=item["on_hand"]), "yellow")
-        _emit(self, text["basis"] + text["sep"].join(data["assumptions"]), "dim")
+        """3PL inventory policy moved to erp-service MCP."""
+        _emit(self, "/inventory 已迁移至 erp-service MCP。", "dim")
 
     async def cmd_carriers(self, args: str):
-        """Carrier scorecard by lane, cost anomalies and like-for-like savings."""
-        text = _labels(self)
-        params = _parse_logistics_args(args, text["carriers_usage"])
-        if params is None:
-            _emit(self, text["carriers_usage"], "yellow")
-            return
-        from aria_bots.erp_logistics import tool_score_carriers
-
-        as_json = params.pop("_json")
-        result = tool_score_carriers(params)
-        if as_json:
-            print(json.dumps(result, ensure_ascii=False, indent=2))
-            return
-        if not result["success"]:
-            _emit(self, result["error"], "red")
-            return
-        data = result["data"]
-        if not data["scope"]["client_facing"]:
-            _emit(self, data["scope"]["marker"], "bold red")
-        _emit(self, _carriers_headline(result, text is _LABELS["zh"]), "bold")
-        for entry in data["scorecard"]:
-            rank = f"#{entry['rank_in_lane']}" if entry["rank_in_lane"] else text["too_few"]
-            on_time = (text["on_time"].format(rate=entry["on_time_rate"], low=entry["on_time_lower_bound"])
-                       if entry["on_time_rate"] is not None else text["no_on_time"])
-            cost = f"{entry['median_cost_per_kg']:.2f}/kg" if entry["median_cost_per_kg"] is not None else "-"
-            _emit(self, text["carrier"].format(lane=entry["lane"], rank=rank, carrier=entry["carrier"],
-                                               n=entry["shipments"], on_time=on_time, cost=cost))
-        for saving in data["savings"]:
-            _emit(self, text["saving"].format(amount=saving["estimated_saving"], lane=saving["lane"],
-                                              src=saving["from_carrier"], dst=saving["to_carrier"],
-                                              diff=saving["rate_difference_per_kg"]), "green")
-        for anomaly in data["anomalies"]:
-            _emit(self, text["check"].format(waybill=anomaly["waybill_no"], carrier=anomaly["carrier"],
-                                             detail=anomaly["detail"]), "yellow")
-        _emit(self, text["basis"] + text["sep"].join(data["assumptions"]), "dim")
+        """3PL carrier scorecard moved to erp-service MCP."""
+        _emit(self, "/carriers 已迁移至 erp-service MCP。", "dim")

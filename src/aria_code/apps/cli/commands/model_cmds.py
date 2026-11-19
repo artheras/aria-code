@@ -1685,36 +1685,6 @@ class ModelCommandsMixin:
                 else:
                     print(f"  ✗ {label:18s} {hint}")
 
-        # ── Free data source registry (akshare / yfinance / tushare) ────────────
-        try:
-            from aria_code.datasources.router import DataRouter as _DR
-            free_sources = _DR().list_sources()
-        except Exception:
-            free_sources = []
-
-        if free_sources:
-            if self.context.has_rich:
-                self.context.console.print()
-                self.context.console.print("  [bold]免费行情数据源[/bold]  [dim](datasources/router — no API key required)[/dim]")
-                self.context.console.print()
-            else:
-                print("\n  == Free Market Data Sources ==")
-            for s in free_sources:
-                ok_icon = "[green]✓[/green]" if s["configured"] else "[dim]○[/dim]"
-                key_tag = " [dim](no key)[/dim]" if not s["needs_key"] else " [dim](API key)[/dim]"
-                mkts    = ", ".join(s.get("markets", []))
-                if self.context.has_rich:
-                    self.context.console.print(
-                        f"  {ok_icon} [bold]{s['name']:12s}[/bold]  "
-                        f"[dim]{mkts:22s}[/dim]{key_tag}"
-                    )
-                else:
-                    ok   = "✓" if s["configured"] else "○"
-                    key  = "(no key)" if not s["needs_key"] else "(key)"
-                    print(f"  {ok} {s['name']:12s}  {mkts:22s}  {key}")
-            if self.context.has_rich:
-                self.context.console.print("  [dim]Config: ~/.aria/datasources.yaml[/dim]")
-
         if self.context.has_rich:
             self.context.console.print()
             self.context.console.print("  [dim]配置 LLM Key:   /apikey set deepseek <key>[/dim]")
