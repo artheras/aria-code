@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from aria_code.apps.cli.handlers.broker_handlers import handle_broker_query
-from aria_code.apps.cli.handlers.chart_handlers import handle_stock_chart_analysis
 from aria_code.apps.cli.handlers.market_handlers import (
     _try_handle_market_overview,
     _try_handle_market_snapshot_analysis,
@@ -93,11 +92,7 @@ def _handle_realty_query(message: str) -> dict:
 
 
 def _handle_stock_chart_analysis(message: str) -> dict:
-    return handle_stock_chart_analysis(
-        message,
-        is_chart_request=_is_stock_chart_analysis_request,
-        extract_symbol=_extract_market_symbol,
-    )
+    return {"success": False, "error": "chart_handlers_not_available"}
 
 
 def run_deterministic_chain(
