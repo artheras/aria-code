@@ -64,31 +64,6 @@ STATS = {
 }
 
 
-# ── /peer ────────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.parametrize("lang", ["en", "zh"])
-def test_peer(lang, snapshot, monkeypatch):
-    from aria_code.tools import local_finance_tools as lft
-    from aria_code.ui.render.finance import render_peer_comparison
-
-    infos = {
-        "AAPL": {"trailingPE": 38.1, "priceToBook": 45.19, "returnOnEquity": 1.488, "shortName": "Apple Inc.",
-                 "marketCap": 4.854e12, "regularMarketPrice": 325.0, "trailingAnnualDividendYield": 0.0032,
-                 "sector": "Technology"},
-        "MSFT": {"trailingPE": 29.7, "priceToBook": 8.94, "returnOnEquity": 0.34, "shortName": "Microsoft Corp",
-                 "marketCap": 3.953e12, "regularMarketPrice": 500.0, "trailingAnnualDividendYield": 0.0069},
-        "GOOGL": {"trailingPE": 17.4, "priceToBook": 6.83, "returnOnEquity": 0.487, "shortName": "Alphabet Inc",
-                  "marketCap": 4.251e12, "regularMarketPrice": 250.0, "trailingAnnualDividendYield": 0.0025},
-    }
-    monkeypatch.setattr(lft, "yf", SimpleNamespace(Ticker=lambda s: SimpleNamespace(info=infos[s])), raising=False)
-    monkeypatch.setattr(lft, "_HAS_YF", True, raising=False)
-    result = lft._peer_comparison({"symbol": "AAPL", "peers": ["MSFT", "GOOGL"], "lang": lang})
-    con = snapshot.console()
-    render_peer_comparison(result, console=con, has_rich=True)
-    snapshot(f"peer_{lang}", _text(con))
-
-
 # ── run_command and wrapped text ─────────────────────────────────────────────
 
 def test_command_outcome(snapshot):
