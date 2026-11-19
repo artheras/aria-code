@@ -152,6 +152,23 @@ impl ToolLoopGuard {
         Some("You changed workspace files without running verify_workspace. Call verify_workspace, repair any failure, then answer.")
     }
 
+    /// Execute `Stop` hooks at turn completion and append any failure notes.
+    fn finalize_turn(&self, workspace: &Path, mut answer: String) -> String {
+        let notes = self.hooks.run_stop(workspace, &answer);
+        if !notes.is_empty() {
+            if !answer.is_empty() {
+                answer.push_str("\n\n");
+            }
+            answer.push_str("[Stop hook notes]\n");
+            for note in notes {
+                answer.push_str("- ");
+                answer.push_str(&note);
+                answer.push('\n');
+            }
+        }
+        answer
+    }
+
     fn all_tool_schemas(&self) -> Value {
         let mut arr = tools::tool_schemas()
             .as_array()
@@ -297,7 +314,7 @@ pub fn run_native_agent_with_history(
                 messages.push(json!({ "role": "user", "content": nudge }));
                 continue;
             }
-            return Ok(content);
+            return Ok(guard.finalize_turn(workspace, content));
         }
 
         messages.push(json!({
@@ -467,7 +484,7 @@ fn run_messages_agent_with_history(
                 messages.push(json!({ "role": "user", "content": nudge }));
                 continue;
             }
-            return Ok(content);
+            return Ok(guard.finalize_turn(workspace, content));
         }
 
         let mut assistant_blocks = Vec::new();
@@ -598,7 +615,7 @@ fn run_gemini_agent_with_history(
                 contents.push(json!({ "role": "user", "parts": [{ "text": nudge }] }));
                 continue;
             }
-            return Ok(content);
+            return Ok(guard.finalize_turn(workspace, content));
         }
 
         let mut model_parts = Vec::new();
@@ -733,7 +750,7 @@ pub fn run_cloud_agent_with_history(
                 messages.push(json!({ "role": "user", "content": nudge }));
                 continue;
             }
-            return Ok(content);
+            return Ok(guard.finalize_turn(workspace, content));
         }
 
         messages.push(json!({

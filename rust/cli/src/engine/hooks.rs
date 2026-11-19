@@ -160,7 +160,6 @@ impl HookRegistry {
     }
 
     /// Run all `Stop` hooks at turn completion.
-    #[allow(dead_code)]
     pub fn run_stop(&self, workspace: &Path, summary: &str) -> Vec<String> {
         let payload = json!({
             "event": HookEvent::Stop.as_str(),
@@ -265,6 +264,64 @@ fn run_shell_hook(workspace: &Path, command: &str, payload: &Value) -> Result<()
     Err(msg)
 }
 
+/// Build a stack-aware `.aria/hooks.json` starter template with deterministic `PostToolUse` checks.
+#[allow(dead_code)]
+pub fn default_hooks_template(workspace: &Path) -> Value {
+    let mut post_rules = Vec::new();
+    let cargo_toml = if workspace.join("Cargo.toml").is_file() {
+        Some("Cargo.toml")
+    } else if workspace
+        .join("rust")
+        .join("cli")
+        .join("Cargo.toml")
+        .is_file()
+    {
+        Some("rust/cli/Cargo.toml")
+    } else {
+        None
+    };
+    if let Some(manifest) = cargo_toml {
+        let cmd = format!("cargo fmt --manifest-path {manifest} --check");
+        for tool in ["write_file", "edit_file", "multi_edit"] {
+            post_rules.push(json!({ "matcher": tool, "command": cmd }));
+        }
+    } else if workspace.join("pyproject.toml").is_file() {
+        let cmd = "python3 -m compileall -q src tests 2>/dev/null || true";
+        for tool in ["write_file", "edit_file", "multi_edit"] {
+            post_rules.push(json!({ "matcher": tool, "command": cmd }));
+        }
+    } else if workspace.join("package.json").is_file() {
+        let cmd = "npm run --if-present lint";
+        for tool in ["write_file", "edit_file", "multi_edit"] {
+            post_rules.push(json!({ "matcher": tool, "command": cmd }));
+        }
+    }
+    json!({
+        "hooks": {
+            "PreToolUse": [],
+            "PostToolUse": post_rules,
+            "Stop": []
+        }
+    })
+}
+
+/// Write `.aria/hooks.json` with a starter template if it does not already exist.
+/// Returns `(path, created)`.
+#[allow(dead_code)]
+pub fn write_default_hooks_if_missing(workspace: &Path) -> Result<(PathBuf, bool), String> {
+    let dir = workspace.join(".aria");
+    let path = dir.join("hooks.json");
+    if path.exists() {
+        return Ok((path, false));
+    }
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create .aria dir: {e}"))?;
+    let template = default_hooks_template(workspace);
+    let pretty = serde_json::to_string_pretty(&template).map_err(|e| e.to_string())?;
+    fs::write(&path, format!("{pretty}\n"))
+        .map_err(|e| format!("Failed to write hooks.json: {e}"))?;
+    Ok((path, true))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,5 +368,34 @@ mod tests {
         };
         assert!(rule.matches("mcp__arthera-finance__financial_quote"));
         assert!(!rule.matches("read_file"));
+    }
+
+    #[test]
+    fn generates_stack_aware_default_hooks_without_overwriting() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("Cargo.toml"), "[package]\nname=\"demo\"\n").unwrap();
+
+        let (path, created) = write_default_hooks_if_missing(tmp.path()).unwrap();
+        assert!(created);
+        assert!(path.is_file());
+
+        let reg = HookRegistry::load(tmp.path());
+        assert_eq!(reg.rules().len(), 3);
+        assert!(reg
+            .rules()
+            .iter()
+            .all(|r| r.event == HookEvent::PostToolUse && r.command.contains("cargo fmt")));
+
+        // Second call preserves existing hooks.json.
+        fs::write(
+            &path,
+            "{\"hooks\":{\"Stop\":[{\"matcher\":\"*\",\"command\":\"true\"}]}}\n",
+        )
+        .unwrap();
+        let (_, created_again) = write_default_hooks_if_missing(tmp.path()).unwrap();
+        assert!(!created_again);
+        let reloaded = HookRegistry::load(tmp.path());
+        assert_eq!(reloaded.rules().len(), 1);
+        assert_eq!(reloaded.rules()[0].event, HookEvent::Stop);
     }
 }
