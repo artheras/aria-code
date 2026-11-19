@@ -1481,150 +1481,44 @@ class CoreCommandsMixin:
         self.context.console.print()
 
     async def cmd_market(self, args: str):
-        """Market overview: /market [indices|sectors]"""
-        from aria_code.apps.cli.tool_executor import execute_aria_tool
-        from aria_code.apps.cli._optional import HAS_MDC as _HAS_MDC, get_mdc as _get_mdc
-        sub = args.strip().lower()
-        if sub == "sectors":
-            await self._run_tool_cmd("get_sector_performance", {}, "sector performance")
-        else:
-            # Try remote tool first; fall back to local MarketDataClient if backend unavailable
-            result = await execute_aria_tool(self.terminal.api_url, "get_market_indices", {})
-            if result and result.get("success"):
-                await self._run_tool_cmd("get_market_indices", {}, "market indices")
-            elif _HAS_MDC:
-                # Local fallback via MarketDataClient.indices()
-                try:
-                    mdc = _get_mdc()
-                    idx_result = mdc.indices()
-                    if idx_result.get("success") and idx_result.get("indices"):
-                        if self.context.has_rich:
-                            self.context.console.print()
-                            self.context.console.print("  [bold]Global Indices[/bold]  [dim](local data)[/dim]")
-                            self.context.console.print()
-                        for name, d in idx_result["indices"].items():
-                            price = d.get("price", "N/A")
-                            chg   = d.get("change_pct", 0)
-                            sign  = "+" if chg >= 0 else ""
-                            color = "green" if chg >= 0 else "red"
-                            if self.context.has_rich:
-                                self.context.console.print(f"  [dim]{name:<20s}[/dim]  {price:>10}  [{color}]{sign}{chg:.2f}%[/{color}]")
-                            else:
-                                print(f"  {name:<20s}  {price:>10}  {sign}{chg:.2f}%")
-                    else:
-                        self.context.console.print("[dim]市场数据暂不可用。请检查网络连接。[/dim]") if self.context.has_rich else print("Market data unavailable.")
-                except Exception as _e:
-                    self.context.console.print(f"[dim]本地数据获取失败: {_e}[/dim]") if self.context.has_rich else print(f"Local data error: {_e}")
-            else:
-                self.context.console.print("[dim]后端不可用，本地数据模块未加载。使用 /indices 命令查看实时行情。[/dim]") if self.context.has_rich else print("Backend unavailable. Try /indices.")
+        """Market overview moved to Arthera backend service."""
+        if self.context.has_rich:
+            self.context.console.print("[dim]/market 已迁移至 Arthera 后端服务。[/dim]")
+
     async def cmd_optimize(self, args: str):
-        """Optimize portfolio: /optimize [symbols...]"""
-        symbols = args.upper().split() if args else self.terminal.config.get("watchlist", ["AAPL", "MSFT", "GOOGL"])
-        await self._run_tool_cmd("optimize_positions", {
-            "symbols": symbols, "objective": "max_sharpe",
-        }, f"optimizing {len(symbols)} positions")
+        """Portfolio optimization moved to Arthera backend service."""
+        if self.context.has_rich:
+            self.context.console.print("[dim]/optimize 已迁移至 Arthera 后端服务。[/dim]")
+
     async def cmd_stress(self, args: str):
-        """Stress test: /stress <strategy> [symbol]"""
-        parts = args.split() if args else ["momentum", "SPY"]
-        strategy = parts[0] if parts else "momentum"
-        symbol = parts[1].upper() if len(parts) > 1 else "SPY"
-        await self._run_tool_cmd("stress_test_strategy", {
-            "strategy": strategy, "symbol": symbol,
-        }, f"stress test {strategy}/{symbol}")
+        """Strategy stress test moved to Arthera backend service."""
+        if self.context.has_rich:
+            self.context.console.print("[dim]/stress 已迁移至 Arthera 后端服务。[/dim]")
+
     async def cmd_factors(self, args: str):
-        """Factor analysis: /factors AAPL"""
-        symbol = args.strip().upper() or "AAPL"
-        await self._run_tool_cmd("calculate_factors", {"symbol": symbol}, f"factors {symbol}")
+        """Factor analysis moved to Arthera backend service."""
+        if self.context.has_rich:
+            self.context.console.print("[dim]/factors 已迁移至 Arthera 后端服务。[/dim]")
+
     async def cmd_factor_lab(self, args: str):
-        """/factor-lab <SYMBOL> [days=252] — 量化因子工作台（动量/波动率/Sharpe/Amihud）"""
-        parts  = args.strip().split()
-        symbol = parts[0].upper() if parts else "AAPL"
-        market = "CN" if any(symbol.startswith(p) for p in ("SH", "SZ", "6", "0", "3")) else "US"
+        """Factor lab moved to Arthera backend service."""
+        if self.context.has_rich:
+            self.context.console.print("[dim]/factor-lab 已迁移至 Arthera 后端服务。[/dim]")
 
-        await self._run_tool_cmd(
-            "equity_factor_scores",
-            {"symbol": symbol, "period": "1y", "market": market},
-            f"factor-lab {symbol}",
-        )
     async def cmd_execution(self, args: str):
-        """/execution <SYMBOL> <buy|sell> <qty> [algo=compare] [price=0] — 执行算法对比"""
-        parts = args.strip().split()
-        if len(parts) < 3:
-            if self.context.has_rich:
-                self.context.console.print("[dim]Usage: /execution AAPL buy 100000 [algo=compare] [price=180][/dim]")
-            return
+        """Execution algorithms moved to Arthera backend service."""
+        if self.context.has_rich:
+            self.context.console.print("[dim]/execution 已迁移至 Arthera 后端服务。[/dim]")
 
-        symbol    = parts[0].upper()
-        side      = parts[1].lower()
-        try:
-            total_qty = float(parts[2].replace(",", ""))
-        except ValueError:
-            if self.context.has_rich: self.context.console.print("[red]qty 必须是数字[/red]")
-            return
-
-        algo  = "compare"
-        price = 0.0
-        for p in parts[3:]:
-            if p.startswith("algo="):
-                algo = p.split("=", 1)[1]
-            elif p.startswith("price="):
-                try:
-                    price = float(p.split("=", 1)[1])
-                except ValueError:
-                    pass
-
-        if price <= 0:
-            # 尝试从市场数据获取现价
-            try:
-                import yfinance as yf
-                t = yf.Ticker(symbol)
-                info = t.fast_info
-                price = float(getattr(info, "last_price", 0) or 0)
-            except Exception:
-                price = 100.0
-
-        await self._run_tool_cmd(
-            "execution_schedule",
-            {
-                "symbol":          symbol,
-                "side":            side,
-                "total_qty":       total_qty,
-                "benchmark_price": price,
-                "algo":            algo,
-            },
-            f"执行计划 {symbol} {side} {total_qty:,.0f}股",
-        )
     async def cmd_stat_arb(self, args: str):
-        """/stat-arb <SYMBOL_A> <SYMBOL_B> [period=2y] — 配对协整检验 + 当前 z-score"""
-        from aria_cli import _generate_stat_arb_chart
-        parts = args.strip().split()
-        if len(parts) < 2:
-            if self.context.has_rich:
-                self.context.console.print("[dim]Usage: /stat-arb GLD SLV [period=2y][/dim]")
-            return
+        """Stat-arb pair testing moved to Arthera backend service."""
+        if self.context.has_rich:
+            self.context.console.print("[dim]/stat-arb 已迁移至 Arthera 后端服务。[/dim]")
 
-        sym_a  = parts[0].upper()
-        sym_b  = parts[1].upper()
-        period = "2y"
-        for p in parts[2:]:
-            if p.startswith("period="):
-                period = p.split("=", 1)[1]
-
-        await self._run_tool_cmd(
-            "pair_stats",
-            {"symbol_a": sym_a, "symbol_b": sym_b, "period": period},
-            f"配对检验 {sym_a}/{sym_b}",
-        )
-        # Generate interactive z-score chart
-        await asyncio.get_event_loop().run_in_executor(
-            None, lambda: _generate_stat_arb_chart(sym_a, sym_b, period)
-        )
     async def cmd_compliance(self, args: str):
-        """Compliance check: /compliance <strategy>"""
-        strategy = args.strip() or "momentum"
-        await self._run_tool_cmd("check_strategy_compliance", {
-            "strategy": strategy,
-        }, f"compliance {strategy}")
+        """Strategy compliance check moved to Arthera backend service."""
+        if self.context.has_rich:
+            self.context.console.print("[dim]/compliance 已迁移至 Arthera 后端服务。[/dim]")
     async def cmd_search_web(self, args: str):
         """Web search: /web <query>"""
         query = args.strip()
@@ -1870,243 +1764,19 @@ class CoreCommandsMixin:
         # Pretty-print result
         _print_tool_result(tool_name, result, elapsed=0)
     async def cmd_ui(self, args: str):
-        """
-        Generate a Bloomberg Terminal-style HTML file for any requested view.
-        Usage: /ui <description>
-               /ui 今日A股板块热力图
-               /ui 持仓组合风险报告
-               /ui 宏观利率与大宗商品看板
-        """
-        desc = args.strip()
-        if not desc:
-            if self.context.has_rich:
-                self.context.console.print("[dim]Usage: /ui <描述>[/dim]")
-                self.context.console.print("[dim]  /ui 今日A股热力图[/dim]")
-                self.context.console.print("[dim]  /ui 持仓组合报告[/dim]")
-                self.context.console.print("[dim]  /ui 市场晨报看板[/dim]")
-            else:
-                print("Usage: /ui <description>")
-            return
-
-        try:
-            from apps.cli.prompts.ui import UI_SYSTEM_PROMPT
-        except ImportError:
-            UI_SYSTEM_PROMPT = ""
-        try:
-            from artifacts import user_generated_dir
-            generated_dir = user_generated_dir()
-        except Exception:
-            generated_dir = pathlib.Path.home() / "Documents" / "Aria Code" / "generated"
-
-        prompt = (
-            f"{UI_SYSTEM_PROMPT}\n\n"
-            "---\n\n"
-            f"USER REQUEST: {desc}\n\n"
-            "Generate a Bloomberg Terminal-style HTML dashboard for this request.\n"
-            "Follow the workflow:\n"
-            "1. Identify what data you need (symbols, metrics, time range).\n"
-            f"2. Write a Python generator script under {generated_dir} using write_file:\n"
-            "   - Fetch all data with yfinance / akshare\n"
-            "   - Embed data as JS/HTML constants\n"
-            "   - Apply the full Bloomberg CSS design system (dark/light via prefers-color-scheme)\n"
-            f"   - Save timestamped HTML under {generated_dir}\n"
-            "3. Run the script with run_command.\n"
-            "4. Open the output HTML in the browser.\n\n"
-            "Design requirements (non-negotiable):\n"
-            "- No emojis anywhere — use [+] [-] [!] [ACTIVE] text indicators\n"
-            "- border-radius: 0 everywhere\n"
-            "- IBM Plex Mono for all prices and numbers\n"
-            "- prefers-color-scheme: dark default, light override\n"
-            "- ALL CAPS section headers, 10px, letter-spacing 0.12em\n"
-            "- Accent color: dark=#F5A623, light=#B8520A\n"
-        )
-
+        """Bloomberg dashboard UI moved to Arthera backend service."""
         if self.context.has_rich:
-            self.context.console.print(f"[bold]UI Generation:[/bold] {desc}")
-        else:
-            print(f"Generating UI: {desc}")
+            self.context.console.print("[dim]/ui 已迁移至 Arthera 后端服务。[/dim]")
 
-        await self.terminal.send_message(prompt)
     async def cmd_dashboard(self, args: str):
-        """
-        生成个人化 Dashboard HTML，自动在浏览器打开。
-        Usage: /dashboard [brief|market|portfolio|full]
-        数据来源: 本地持仓DB + 价格预警DB + yfinance 实时行情 + 最近生成文件
-        """
-        try:
-            from dashboard_generator import generate_and_open
-        except ImportError:
-            if self.context.has_rich:
-                self.context.console.print("[red]dashboard_generator.py 未找到，请检查安装[/red]")
-            else:
-                print("dashboard_generator.py 未找到")
-            return
-
-        parts = args.strip().split()
-        mode = parts[0].lower() if parts and parts[0].lower() in {"brief", "market", "portfolio", "full"} else "brief"
-        watchlist = self.terminal.config.get("watchlist", [])
+        """Personal dashboard moved to Arthera backend service."""
         if self.context.has_rich:
-            self.context.console.print(f"[dim]正在抓取数据并生成 Dashboard（{mode}）…[/dim]")
-        else:
-            print(f"正在生成 Dashboard（{mode}）…")
+            self.context.console.print("[dim]/dashboard 已迁移至 Arthera 后端服务。[/dim]")
 
-        try:
-            out = generate_and_open(watchlist=watchlist, config=self.terminal.config, mode=mode)
-            if self.context.has_rich:
-                self.context.console.print(
-                    f"  [green]✓[/green] Dashboard 已生成并在浏览器打开\n"
-                    f"  [dim]路径: [bold]{out}[/bold][/dim]"
-                )
-            else:
-                print(f"Dashboard saved: {out}")
-        except Exception as exc:
-            if self.context.has_rich:
-                self.context.console.print(f"[red]生成失败: {exc}[/red]")
-            else:
-                print(f"生成失败: {exc}")
     async def cmd_tv(self, args: str):
-        """Print a TradingView chart URL or export a Pine Script strategy."""
-        from aria_cli import _build_tradingview_indicator_readout, _resolve_market_arg_symbol, _src_market_snapshot_analysis, _strip_latex, _write_text_companion, make_markdown
-        from aria_code.apps.cli.helpers import _chart_display_label, _copy_text_to_clipboard, _open_path_or_url, _reveal_path_in_finder
-        parts = [p.strip() for p in args.strip().split() if p.strip()]
-        open_browser = any(p in {"--open", "-o", "open"} for p in parts)
-        export_pine = any(p in {"--pine", "pine", "--strategy", "strategy", "策略"} for p in parts)
-        copy_pine = any(p in {"--copy", "copy", "复制"} for p in parts)
-        reveal_file = any(p in {"--reveal", "reveal", "finder", "访达", "目录"} for p in parts)
-        txt_copy = any(p in {"--txt", "txt", "文本"} for p in parts)
-        bullish_analysis = any(p in {"--bullish", "bullish", "看涨", "偏多"} for p in parts)
-        bearish_analysis = any(p in {"--bearish", "bearish", "看跌", "偏空"} for p in parts)
-        general_analysis = any(p in {"--analyze", "--analysis", "analyze", "analysis", "分析"} for p in parts)
-        tv_analysis_mode = "bullish" if bullish_analysis else ("bearish" if bearish_analysis else ("analyze" if general_analysis else ""))
-        interval = None
-        symbol_parts = []
-        skip_next = False
-        for idx, part in enumerate(parts):
-            if skip_next:
-                skip_next = False
-                continue
-            low = part.lower()
-            if low in {
-                "--open", "-o", "open", "--pine", "pine", "--strategy", "strategy", "策略",
-                "--copy", "copy", "复制", "--reveal", "reveal", "finder", "访达", "目录",
-                "--txt", "txt", "文本", "--bullish", "bullish", "看涨", "偏多",
-                "--bearish", "bearish", "看跌", "偏空", "--analyze", "--analysis",
-                "analyze", "analysis", "分析",
-            }:
-                continue
-            if low.startswith("--interval="):
-                interval = part.split("=", 1)[1]
-                continue
-            if low == "--interval" and idx + 1 < len(parts):
-                interval = parts[idx + 1]
-                skip_next = True
-                continue
-            symbol_parts.append(part.strip(",，"))
-
-        raw_symbol = symbol_parts[0] if symbol_parts else "AAPL"
-        symbol = _resolve_market_arg_symbol(raw_symbol)
-        try:
-            from apps.cli.tradingview_bridge import (
-                export_pine_strategy,
-                tradingview_symbol,
-                tradingview_url,
-            )
-            tv_symbol = tradingview_symbol(symbol)
-            url = tradingview_url(symbol, interval=interval)
-        except Exception as exc:
-            print_error(self.context, f"TradingView URL 生成失败: {exc}")
-            return
-
+        """TradingView bridge moved to Arthera backend service."""
         if self.context.has_rich:
-            self.context.console.print(f"\n  [bold]TradingView[/bold]  {_chart_display_label(raw_symbol, symbol)}")
-            self.context.console.print(f"  [dim]symbol:[/dim] {symbol}  [dim]tv:[/dim] {tv_symbol}")
-            self.context.console.print(f"  [link={url}]{url}[/link]")
-        else:
-            print(f"TradingView {symbol} -> {tv_symbol}")
-            print(url)
-        self.terminal._pending_market_artifact = {
-            "kind": "tradingview_chart",
-            "symbol": symbol,
-            "display": _chart_display_label(raw_symbol, symbol),
-            "tv_symbol": tv_symbol,
-            "url": url,
-            "command": f"/tv {symbol}",
-        }
-
-        if export_pine:
-            try:
-                pine_path = export_pine_strategy(symbol)
-                self.terminal._pending_market_artifact = {
-                    "kind": "tradingview_pine_strategy",
-                    "symbol": symbol,
-                    "display": _chart_display_label(raw_symbol, symbol),
-                    "tv_symbol": tv_symbol,
-                    "url": url,
-                    "pine_path": str(pine_path),
-                    "path": str(pine_path),
-                    "command": f"/tv {symbol} --pine",
-                }
-                if self.context.has_rich:
-                    self.context.console.print(f"  [green]✓[/green] Pine strategy saved: [link={_file_uri(pine_path)}]{pine_path}[/link]")
-                    self.context.console.print("  [dim]Use: TradingView → Pine Editor → paste script → Save → Add to chart[/dim]")
-                else:
-                    print(f"Pine strategy saved: {pine_path}")
-                    print("Use: TradingView -> Pine Editor -> paste script -> Save -> Add to chart")
-                if txt_copy:
-                    companion = _write_text_companion(str(pine_path))
-                    if companion:
-                        if self.context.has_rich:
-                            self.context.console.print(f"  [green]✓[/green] Text copy saved: [link={_file_uri(companion)}]{companion}[/link]")
-                        else:
-                            print(f"Text copy saved: {companion}")
-                if copy_pine:
-                    try:
-                        copied, copy_err = _copy_text_to_clipboard(pine_path.read_text(encoding="utf-8"))
-                    except Exception as exc:
-                        copied, copy_err = False, str(exc)
-                    if self.context.has_rich:
-                        self.context.console.print("  [green]✓[/green] Pine script copied to clipboard" if copied else f"  [yellow]copy failed:[/yellow] {copy_err}")
-                    else:
-                        print("Pine script copied to clipboard" if copied else f"copy failed: {copy_err}")
-                if reveal_file:
-                    revealed, reveal_err = _reveal_path_in_finder(str(pine_path))
-                    if self.context.has_rich:
-                        self.context.console.print("  [green]✓[/green] Revealed in Finder" if revealed else f"  [yellow]reveal failed:[/yellow] {reveal_err}")
-                    else:
-                        print("Revealed in Finder" if revealed else f"reveal failed: {reveal_err}")
-            except Exception as exc:
-                print_error(self.context, f"Pine Script 导出失败: {exc}")
-                return
-
-        if open_browser and url:
-            opened, open_err = _open_path_or_url(url)
-            if self.context.has_rich:
-                self.context.console.print("  [green]✓[/green] opened in browser" if opened else f"  [yellow]open failed:[/yellow] {open_err}")
-            else:
-                print("opened in browser" if opened else f"open failed: {open_err}")
-
-        if tv_analysis_mode:
-            snapshot = _src_market_snapshot_analysis(f"分析 {symbol} 股票")
-            if snapshot.get("success"):
-                readout = _build_tradingview_indicator_readout(
-                    snapshot,
-                    tv_symbol=tv_symbol,
-                    mode=tv_analysis_mode,
-                )
-                if self.context.has_rich:
-                    self.context.console.print(make_markdown(_strip_latex(readout)))
-                else:
-                    print(readout)
-                self.terminal._last_response = readout
-            else:
-                msg = (
-                    f"TradingView 已打开，但当前无法生成 {symbol} 的指标分析："
-                    f"{snapshot.get('error') or '行情数据不可用'}"
-                )
-                if self.context.has_rich:
-                    self.context.console.print(f"  [yellow]{msg}[/yellow]")
-                else:
-                    print(msg)
+            self.context.console.print("[dim]/tv 已迁移至 Arthera 后端服务。[/dim]")
     async def cmd_chart(self, args: str):
         """
         生成股票分析图表（HTML，含K线/均线/RSI/MACD）。
@@ -2314,122 +1984,9 @@ class CoreCommandsMixin:
         if self.context.has_rich:
             self.context.console.print("[dim]/hot 已迁移至 Arthera 后端，请使用 /market。[/dim]")
     async def cmd_ta(self, args: str):
-        """技术指标分析.  Usage: /ta NVDA [days=120]"""
-        from aria_cli import _generate_chart_sync, parse_technical_args, print_ta_result
-        from aria_code.ui.render.output import display_path as _display_path
-        from aria_code.apps.cli.helpers import _chart_period_from_ta_days, _display_value
-        zh = str(self.terminal.config.get("ui_lang", "en")).lower().startswith("zh")
-        T = (lambda zh_text, en_text: zh_text) if zh else (lambda zh_text, en_text: en_text)
-        parsed = parse_technical_args(args)
-        symbol = parsed.symbol
-        days = parsed.days
-
-        service_result = None
+        """Technical indicators moved to Arthera backend service."""
         if self.context.has_rich:
-            with self.context.console.status(f"[dim]{T(f'计算 {symbol} 技术指标', f'Calculating {symbol} indicators')}...[/dim]", spinner="dots"):
-                from packages.aria_services.data import DataService
-                service_result = DataService().technical_indicators(symbol, days=days)
-        else:
-            from packages.aria_services.data import DataService
-            service_result = DataService().technical_indicators(symbol, days=days)
-        if not service_result or not service_result.success:
-            _ta_warns = (service_result.warnings or []) if service_result else []
-            _ta_errs  = (service_result.errors   or []) if service_result else []
-            _ta_data  = (service_result.data or {})    if service_result else {}
-            _missing  = ", ".join(service_result.missing_fields) if service_result else ""
-            _all_msgs = " ".join(_ta_warns + _ta_errs).lower()
-            # Show current price when we have partial data (e.g. new IPO with 1 bar)
-            _price_line = ""
-            if _ta_data.get("price"):
-                _price_line = f"  {T('当前价格', 'Price')}  [bold]{_display_value(_ta_data['price'])}[/bold]"
-                if _ta_data.get("history_bars"):
-                    _price_line += f"  [dim]({_ta_data['history_bars']} {T('个交易日数据', 'trading days of data')})[/dim]"
-                _price_line += "\n"
-            if "数据不足" in _all_msgs or "新上市" in _all_msgs:
-                _reason = T(
-                    f"[yellow]历史数据不足[/yellow] — {symbol} 上市时间较短（< 14 个交易日），TA 指标无法计算\n  [dim]可待更多交易日积累后重试，或运行 `/analyze {symbol}` 查看基本面[/dim]",
-                    f"[yellow]Not enough history[/yellow] — {symbol} has fewer than 14 trading days, so indicators cannot be computed\n  [dim]Try again later, or run `/analyze {symbol}` for fundamentals[/dim]")
-            elif "rate" in _all_msgs or "429" in _all_msgs or "too many" in _all_msgs:
-                _reason = T("[yellow]数据源频率限制[/yellow] — 稍后重试，或用 `/apikey set finnhub <KEY>` 切换数据源",
-                            "[yellow]Rate-limited by the data source[/yellow] — retry later, or switch sources with `/apikey set finnhub <KEY>`")
-            else:
-                _err = "; ".join(_ta_errs or _ta_warns) or T("数据源暂时不可用", "data source temporarily unavailable")
-                _reason = f"[red]{_err[:120]}[/red]"
-                if _missing:
-                    _reason += f"  [dim]missing: {_missing}[/dim]"
-            if self.context.has_rich:
-                if _price_line:
-                    self.context.console.print(f"\n{_price_line}")
-                self.context.console.print(f"  {_reason}\n")
-            else:
-                import re as _re
-                print(f"\n  {_re.sub(r'[[/].*?]', '', _price_line + _reason)}\n")
-            return
-
-        print_ta_result(
-            console=self.context.console,
-            has_rich=self.context.has_rich,
-            symbol=symbol,
-            days=days,
-            service_result=service_result,
-            formatter=_display_value,
-            lang="zh" if zh else "en",
-        )
-
-        period = _chart_period_from_ta_days(days)
-        self.terminal._pending_market_artifact = {
-            "kind": "ta_chart",
-            "symbol": symbol,
-            "period": period,
-            "command": f"/chart {symbol} {period}",
-        }
-        chart_result = None
-        if self.context.has_rich:
-            with self.context.console.status(f"[dim]{T(f'生成 {symbol} 技术图表', f'Drawing the {symbol} chart')} HTML/PNG...[/dim]", spinner="dots"):
-                chart_result = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: _generate_chart_sync(symbol, period=period)
-                )
-        else:
-            print(f"  {T(f'生成 {symbol} 技术图表', f'Drawing the {symbol} chart')} HTML/PNG...")
-            chart_result = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: _generate_chart_sync(symbol, period=period)
-            )
-
-        if chart_result and chart_result.get("success"):
-            html_path = chart_result.get("chart_path") or ""
-            png_path = chart_result.get("png_path") or ""
-            png_error = chart_result.get("png_error") or ""
-            self.terminal._pending_market_artifact = {
-                "kind": "ta_chart",
-                "symbol": symbol,
-                "period": period,
-                "html_path": html_path,
-                "png_path": png_path,
-                "command": f"/chart {symbol} {period}",
-            }
-            if self.context.has_rich:
-                self.context.console.print()
-                self.context.console.print(f"  [green]✓[/green] {T('技术图表已生成', 'Chart saved')}")
-                if html_path:
-                    self.context.console.print(f"  [dim]HTML:[/dim] [link={_file_uri(html_path)}]{_display_path(html_path)}[/link]")
-                if png_path:
-                    self.context.console.print(f"  [dim]PNG :[/dim] [link={_file_uri(png_path)}]{_display_path(png_path)}[/link]")
-                elif png_error:
-                    self.context.console.print(f"  [yellow]{T('PNG 跳过', 'PNG skipped')}:[/yellow] {png_error[:90]}")
-            else:
-                print(f"\n  {T('技术图表已生成', 'Chart saved')}")
-                if html_path:
-                    print(f"  HTML: {_display_path(html_path)}")
-                if png_path:
-                    print(f"  PNG : {_display_path(png_path)}")
-                elif png_error:
-                    print(f"  {T('PNG 跳过', 'PNG skipped')}: {png_error[:90]}")
-        elif chart_result:
-            err = chart_result.get("error") or T("图表生成失败", "chart failed")
-            if self.context.has_rich:
-                self.context.console.print(f"  [yellow]{T('图表生成跳过', 'Chart skipped')}:[/yellow] {err[:120]}")
-            else:
-                print(f"  {T('图表生成跳过', 'Chart skipped')}: {err[:120]}")
+            self.context.console.print("[dim]/ta 已迁移至 Arthera 后端服务。[/dim]")
     def _extract_last_code(self) -> str:
         """从对话历史中提取最后一段 Python 代码块."""
         import re
@@ -2442,28 +1999,9 @@ class CoreCommandsMixin:
                 return max(matches, key=len)
         return ""
     async def cmd_orcl(self, args: str):
-        """Oracle Corporation (ORCL) analysis."""
-        deep = "deep" in args.lower()
-        if deep:
-            prompt = (
-                "Perform a comprehensive multi-factor analysis of Oracle Corporation (ORCL):\n"
-                "1. Technical: trend, RSI, MACD, key support/resistance levels\n"
-                "2. Fundamental: revenue growth, cloud transition progress, margins, PE vs peers (MSFT, SAP, NOW)\n"
-                "3. Competitive: OCI vs AWS/Azure/GCP market share, Autonomous DB moat\n"
-                "4. AI angle: Oracle's AI infrastructure deals (NVIDIA partnership, xAI, OpenAI cloud)\n"
-                "5. Risks: debt load from cloud capex, Cerner integration, FX exposure\n"
-                "6. Verdict: Bull/Bear/Neutral with price target and conviction level"
-            )
-        else:
-            prompt = (
-                "Give me a quick snapshot of Oracle (ORCL):\n"
-                "1. Current price, YTD performance vs S&P500\n"
-                "2. Key metrics: PE, forward PE, revenue growth, cloud ARR\n"
-                "3. Recent news and catalysts\n"
-                "4. Technical signal: Buy/Hold/Sell\n"
-                "5. One-line thesis"
-            )
-        await self.terminal._handle_ai_message(prompt)
+        """ORCL vertical analysis moved to Arthera backend service."""
+        if self.context.has_rich:
+            self.context.console.print("[dim]/orcl 已迁移至 Arthera 后端服务。[/dim]")
     async def cmd_edgar(self, args: str):
         """SEC EDGAR 财报查询（已迁移至 Arthera 后端服务）."""
         if self.context.has_rich:
