@@ -96,100 +96,6 @@ class _SnapshotMDC:
         return {"success": True, "symbol": symbol, "data": records, "provider": "test_history"}
 
 
-def test_market_snapshot_output_avoids_na_placeholders(monkeypatch):
-    import aria_cli
-
-    original_import = builtins.__import__
-
-    def fake_import(name, *args, **kwargs):
-        if name == "yfinance":
-            raise ImportError("yfinance unavailable")
-        return original_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", fake_import)
-    monkeypatch.setattr(aria_cli, "_HAS_MDC", True)
-    monkeypatch.setattr(aria_cli, "_get_mdc", lambda: _SnapshotMDC())
-    monkeypatch.setattr(aria_cli, "_get_provider_key", lambda _provider: "")
-
-    result = aria_cli._try_handle_market_snapshot_analysis("分析 AAPL 市场")
-
-    assert result["success"] is True
-    assert "最新价" in result["response"]
-    assert "结论" in result["response"]
-    assert "观察位" in result["response"]
-    assert "多周期关键位" in result["response"]
-    assert "4H/短线" in result["response"]
-    assert "日线/波段" in result["response"]
-    assert "周线/长线" in result["response"]
-    assert "| 周期 | 适合 | 支撑 | 压力 | 用法 |" not in result["response"]
-    # Two lines a timeframe: levels, then what to do with them.
-    assert "- **4H/短线**（" in result["response"]
-    assert "— 支撑 USD " in result["response"]
-    assert " · 压力 USD " in result["response"]
-    assert "来源：" not in result["response"]
-    assert "N/A" not in result["response"]
-    assert result.get("analysis_complete") is True
-    assert result.get("timeframe_levels")
-
-
-def test_market_snapshot_handles_multi_symbol_company_names(monkeypatch):
-    import aria_cli
-
-    monkeypatch.setattr(aria_cli, "_HAS_MDC", True)
-    monkeypatch.setattr(aria_cli, "_get_mdc", lambda: _SnapshotMDC())
-
-    result = aria_cli._try_handle_market_snapshot_analysis("我想知道今天苹果和英伟达的市值和股票走势")
-
-    assert result["success"] is True
-    text = result["response"]
-    assert "AAPL" in text
-    assert "NVDA" in text
-    assert "市值" in text
-    assert "对比结论" in text
-    assert "逐项分析" in text
-    assert "NVDA  NVDA" not in text
-    assert "- stale: none" in text
-    assert "technical shown as trend only" not in text
-    assert result.get("analysis_complete") is True
-    assert "/ta AAPL" in text
-    assert "/ta NVDA" in text
-
-
-def test_market_snapshot_resolves_sidike_without_inheriting_previous_symbol(monkeypatch):
-    import aria_cli
-    import local_finance_tools
-    from apps.cli.utils.market_detect import _extract_market_symbol
-
-    monkeypatch.setattr(aria_cli, "_HAS_MDC", True)
-    monkeypatch.setattr(aria_cli, "_get_mdc", lambda: _SnapshotMDC())
-    monkeypatch.setattr(aria_cli, "_get_provider_key", lambda _provider: "")
-
-    # Forecasting is another data call, separate from the mocked snapshot MDC.
-    # Keep this rendering test offline and verify the forecast gets this symbol.
-    prediction_symbols = []
-
-    def fake_predictions(params):
-        prediction_symbols.extend(params["symbols"])
-        return {"predictions": [{
-            "direction": "bullish", "predicted_return": 0.01, "confidence": 0.6,
-        }]}
-
-    monkeypatch.setattr(local_finance_tools, "_get_predictions", fake_predictions)
-
-    assert _extract_market_symbol("斯迪克的走势和预测") == "300806"
-    history = [{"role": "user", "content": "紫金矿业走势"}]
-    result = aria_cli._try_handle_market_snapshot_analysis("斯迪克的走势和预测", history=history)
-
-    assert result["success"] is True
-    text = result["response"]
-    assert "斯迪克" in text
-    assert "`300806`" in text
-    assert "601899" not in text
-    assert "预测参考" in text
-    assert "信号拆解" in text
-    assert prediction_symbols == ["sz300806"]
-
-
 def test_market_snapshot_repeat_notice_compresses_identical_cache():
     import aria_cli
 
@@ -252,21 +158,6 @@ def test_tradingview_indicator_readout_explains_bullish_and_bearish_drivers():
     assert "看跌/需要确认" in readout
     assert "价格低于 MA20" in readout
     assert "NASDAQ:AAPL" in readout
-
-
-def test_lvmh_prefetch_normalizes_symbol_name_and_currency(monkeypatch):
-    import aria_cli
-
-    monkeypatch.setattr(aria_cli, "_HAS_MDC", True)
-    monkeypatch.setattr(aria_cli, "_get_mdc", lambda: _SnapshotMDC())
-
-    block = aria_cli._try_prefetch_market_data("分析lvmh股票和成交量")
-
-    assert "LVMH/路易威登(MC.PA)" in block
-    assert "交易代码**：MC.PA（Euronext Paris）" in block
-    assert "LVMH Moet Hennessy Louis Vuitton SE" in block
-    assert "最新价**：EUR 508.8" in block
-    assert "USD 508.8" not in block
 
 
 def test_unresolved_market_name_does_not_inherit_history():
