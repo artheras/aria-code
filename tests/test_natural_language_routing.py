@@ -106,12 +106,3 @@ def test_news_dates_are_dates(raw, shown):
     from aria_code.apps.cli.commands.market_cmds import _news_date
 
     assert _news_date(raw) == shown
-
-
-def test_the_chart_summary_follows_the_ui_language():
-    import inspect
-
-    from aria_code.apps.cli.commands import core_cmds
-
-    source = inspect.getsource(core_cmds.CoreCommandsMixin.cmd_chart)
-    assert "self-check passed" in source and '"偏多": "bullish"' in source

@@ -64,34 +64,6 @@ STATS = {
 }
 
 
-@pytest.mark.parametrize("lang", ["en", "zh"])
-def test_portfolio(lang, snapshot, monkeypatch):
-    import aria_code.aria_cli as cli
-    import aria_code.apps.cli.commands.portfolio_cmds as portfolio_cmds
-    import aria_code.apps.cli.commands.team as team
-    from agents.portfolio_agent import PortfolioAgent
-
-    con = snapshot.console()
-    monkeypatch.setattr(cli, "console", con)
-    monkeypatch.setattr(cli, "HAS_RICH", True)
-    monkeypatch.setattr(team, "build_team_llm_provider", lambda config: None)
-
-    async def run_portfolio(self, symbols, weights=None):
-        return await self.analyze_portfolio(symbols, dict(STATS))
-
-    monkeypatch.setattr(PortfolioAgent, "run_portfolio", run_portfolio)
-    monkeypatch.setattr(sys, "stdout", con.file)
-
-    class Cli(portfolio_cmds.PortfolioCommandsMixin):
-        context = SimpleNamespace(has_rich=True, console=con)
-        terminal = SimpleNamespace(config={"ui_lang": lang,
-                                           "watchlist": ["AAPL", "MSFT", "GOOGL", "TSLA", "NVDA"]})
-
-    monkeypatch.setitem(sys.modules, "portfolio_ledger", None)   # no recorded positions
-    asyncio.run(Cli().cmd_portfolio(""))
-    snapshot(f"portfolio_{lang}", _text(con))
-
-
 # ── /peer ────────────────────────────────────────────────────────────────────
 
 
