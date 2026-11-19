@@ -109,6 +109,10 @@ impl HookRegistry {
         self.rules.is_empty()
     }
 
+    pub fn rules(&self) -> &[HookRule] {
+        &self.rules
+    }
+
     /// Run all matching `PreToolUse` hooks. Returns `deny` on the first non-zero exit status.
     pub fn run_pre_tool(&self, workspace: &Path, tool_name: &str, args: &Value) -> HookOutcome {
         let payload = json!({
