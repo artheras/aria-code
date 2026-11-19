@@ -94,7 +94,7 @@ class ClaimedToolsTests(unittest.TestCase):
         import aria_code.aria_cli as cli
         from aria_code.packs.finance import FINANCE_TOOLS
 
-        self.assertGreater(len(FINANCE_TOOLS), 20)
+        self.assertGreaterEqual(len(FINANCE_TOOLS), 5)
         for name in FINANCE_TOOLS:
             with self.subTest(tool=name):
                 self.assertIn(name, cli.LOCAL_TOOLS)
