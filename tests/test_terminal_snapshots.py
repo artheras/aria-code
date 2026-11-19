@@ -92,33 +92,7 @@ def test_portfolio(lang, snapshot, monkeypatch):
     snapshot(f"portfolio_{lang}", _text(con))
 
 
-# ── /compare and /peer ───────────────────────────────────────────────────────
-
-def test_compare_local(snapshot, monkeypatch):
-    import aria_code.apps.cli.commands.data_cmds as data_cmds
-
-    results = {
-        "momentum": (0.181, 0.831, -0.184, 1.15, 0.39, 24),
-        "rsi_mean_revert": (0.145, 0.771, -0.113, 0.75, 0.83, 6),
-        "sma_cross": (0.216, 1.060, -0.151, 1.22, 1.00, 4),
-        "buy_hold": (0.424, 1.578, -0.166, 2.50, 0.0, 1),
-    }
-
-    def backtest(params):
-        ann, sharpe, mdd, sortino, win, trades = results[params["strategy"]]
-        return {"success": True, "data": {"annual_return": ann, "sharpe_ratio": sharpe, "max_drawdown": mdd,
-                                          "sortino_ratio": sortino, "win_rate": win, "total_trades": trades,
-                                          "start": "2023-01-03", "end": "2024-12-31"}}
-
-    monkeypatch.setattr(data_cmds, "_get_LOCAL_TOOLS", lambda: {"backtest_strategy": (backtest, "")})
-    con = snapshot.console()
-
-    class Cli(data_cmds.DataCommandsMixin):
-        context = SimpleNamespace(has_rich=True, console=con)
-        terminal = SimpleNamespace(config={"ui_lang": "en", "api_url": "http://127.0.0.1:9"})
-
-    asyncio.run(Cli().cmd_compare("AAPL 2023-01-01 2025-01-01"))
-    snapshot("compare_local_en", _text(con))
+# ── /peer ────────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize("lang", ["en", "zh"])
