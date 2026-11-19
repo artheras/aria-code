@@ -1359,6 +1359,36 @@ pub fn tool_schemas() -> Value {
                     "required": ["prompt"]
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "web_search",
+                "description": "Search the web via Brave, Tavily, or Google Programmable Search.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Search query" },
+                        "num_results": { "type": "integer", "description": "Max results (1-10)" }
+                    },
+                    "required": ["query"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "web_fetch",
+                "description": "Fetch a web page over HTTP/HTTPS and return extracted plain text.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string", "description": "http:// or https:// URL" },
+                        "max_chars": { "type": "integer", "description": "Max characters to return (default 8000)" }
+                    },
+                    "required": ["url"]
+                }
+            }
         }
     ])
 }
@@ -1588,12 +1618,276 @@ pub fn execute_tool(workspace: &Path, name: &str, args: &Value, allow_write: boo
         "lsp_definition" => execute_lsp_tool(workspace, "definition", args),
         "lsp_references" => execute_lsp_tool(workspace, "references", args),
         "spawn_subagent" => execute_subagent_tool(workspace, args, allow_write),
+        "web_search" => execute_web_search(args),
+        "web_fetch" => execute_web_fetch(args),
         other => Err(format!("Unknown native tool: {other}")),
     };
     match result {
         Ok(data) => json!({ "ok": true, "data": data }),
         Err(err) => json!({ "ok": false, "error": err }),
     }
+}
+
+fn resolve_search_key(env_var: &str, provider: &str) -> Option<String> {
+    if let Ok(v) = std::env::var(env_var) {
+        let trimmed = v.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_owned());
+        }
+    }
+    if cfg!(test) {
+        return None;
+    }
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    for dir in [".arthera", ".aria"] {
+        let path = Path::new(&home).join(dir).join("providers.json");
+        let Ok(raw) = fs::read_to_string(path) else {
+            continue;
+        };
+        let Ok(val) = serde_json::from_str::<Value>(&raw) else {
+            continue;
+        };
+        for section in ["data", "llm"] {
+            if let Some(entry) = val.get(section).and_then(|s| s.get(provider)) {
+                if let Some(key) = entry
+                    .get("api_key")
+                    .and_then(Value::as_str)
+                    .or_else(|| entry.as_str())
+                {
+                    if !key.trim().is_empty() {
+                        return Some(key.trim().to_owned());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn http_agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(12)))
+        .build()
+        .new_agent()
+}
+
+fn execute_web_search(args: &Value) -> Result<Value, String> {
+    let query = args
+        .get("query")
+        .or_else(|| args.get("q"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+    if query.is_empty() {
+        return Err("web_search requires a non-empty query".into());
+    }
+    let num = args
+        .get("num_results")
+        .or_else(|| args.get("max_results"))
+        .and_then(Value::as_u64)
+        .unwrap_or(5)
+        .clamp(1, 10) as usize;
+    let agent = http_agent();
+
+    if let Some(key) = resolve_search_key("BRAVE_SEARCH_API_KEY", "brave") {
+        let num_str = num.to_string();
+        if let Ok(mut resp) = agent
+            .get("https://api.search.brave.com/res/v1/web/search")
+            .query("q", query)
+            .query("count", &num_str)
+            .header("Accept", "application/json")
+            .header("X-Subscription-Token", &key)
+            .call()
+        {
+            if let Ok(body) = resp.body_mut().read_to_string() {
+                if let Ok(data) = serde_json::from_str::<Value>(&body) {
+                    let results: Vec<Value> = data["web"]["results"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .take(num)
+                                .map(|item| {
+                                    json!({
+                                        "title": item["title"].as_str().unwrap_or(""),
+                                        "url": item["url"].as_str().unwrap_or(""),
+                                        "snippet": item["description"].as_str().unwrap_or(""),
+                                    })
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    if !results.is_empty() {
+                        return Ok(
+                            json!({ "query": query, "provider": "brave", "results": results }),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(key) = resolve_search_key("TAVILY_API_KEY", "tavily") {
+        let payload = json!({
+            "api_key": key,
+            "query": query,
+            "max_results": num,
+            "search_depth": "basic",
+        })
+        .to_string();
+        if let Ok(mut resp) = agent
+            .post("https://api.tavily.com/search")
+            .header("Content-Type", "application/json")
+            .send(payload)
+        {
+            if let Ok(body) = resp.body_mut().read_to_string() {
+                if let Ok(data) = serde_json::from_str::<Value>(&body) {
+                    let results: Vec<Value> = data["results"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .take(num)
+                                .map(|item| {
+                                    json!({
+                                        "title": item["title"].as_str().unwrap_or(""),
+                                        "url": item["url"].as_str().unwrap_or(""),
+                                        "snippet": item["content"].as_str().unwrap_or("").chars().take(300).collect::<String>(),
+                                    })
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    if !results.is_empty() {
+                        return Ok(
+                            json!({ "query": query, "provider": "tavily", "results": results }),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    if let (Some(key), Some(cx)) = (
+        resolve_search_key("GOOGLE_SEARCH_API_KEY", "google"),
+        resolve_search_key("GOOGLE_SEARCH_ENGINE_ID", "google_cx"),
+    ) {
+        let num_str = num.to_string();
+        if let Ok(mut resp) = agent
+            .get("https://www.googleapis.com/customsearch/v1")
+            .query("key", &key)
+            .query("cx", &cx)
+            .query("q", query)
+            .query("num", &num_str)
+            .call()
+        {
+            if let Ok(body) = resp.body_mut().read_to_string() {
+                if let Ok(data) = serde_json::from_str::<Value>(&body) {
+                    let results: Vec<Value> = data["items"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .take(num)
+                                .map(|item| {
+                                    json!({
+                                        "title": item["title"].as_str().unwrap_or(""),
+                                        "url": item["link"].as_str().unwrap_or(""),
+                                        "snippet": item["snippet"].as_str().unwrap_or(""),
+                                    })
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    if !results.is_empty() {
+                        return Ok(
+                            json!({ "query": query, "provider": "google", "results": results }),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    Err("No web search API key configured (set BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, or GOOGLE_SEARCH_API_KEY + GOOGLE_SEARCH_ENGINE_ID).".into())
+}
+
+fn strip_html_to_text(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut in_tag = false;
+    let mut skip_depth = 0usize;
+    let lower = raw.to_ascii_lowercase();
+    let bytes = raw.as_bytes();
+    let lower_bytes = lower.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if lower_bytes[i..].starts_with(b"<script") || lower_bytes[i..].starts_with(b"<style") {
+            skip_depth = skip_depth.saturating_add(1);
+            in_tag = true;
+            i += 1;
+            continue;
+        }
+        if lower_bytes[i..].starts_with(b"</script>") || lower_bytes[i..].starts_with(b"</style>") {
+            skip_depth = skip_depth.saturating_sub(1);
+        }
+        let ch = raw[i..].chars().next().unwrap_or(' ');
+        if ch == '<' {
+            in_tag = true;
+        } else if ch == '>' {
+            in_tag = false;
+            if skip_depth == 0 {
+                out.push(' ');
+            }
+        } else if !in_tag && skip_depth == 0 {
+            out.push(ch);
+        }
+        i += ch.len_utf8();
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn execute_web_fetch(args: &Value) -> Result<Value, String> {
+    let url = args
+        .get("url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("web_fetch requires an http:// or https:// URL".into());
+    }
+    let max_chars = args
+        .get("max_chars")
+        .and_then(Value::as_u64)
+        .unwrap_or(8000)
+        .clamp(200, 32000) as usize;
+    let agent = http_agent();
+    let mut resp = agent
+        .get(url)
+        .header("User-Agent", "AriaCode/0.5")
+        .call()
+        .map_err(|e| format!("web_fetch failed: {e}"))?;
+    let status = resp.status().as_u16();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_owned();
+    let body = resp
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| format!("Read body failed: {e}"))?;
+    let text = if content_type.contains("html") || body.trim_start().starts_with('<') {
+        strip_html_to_text(&body)
+    } else {
+        body
+    };
+    let truncated = text.chars().count() > max_chars;
+    let snippet: String = text.chars().take(max_chars).collect();
+    Ok(json!({
+        "url": url,
+        "status": status,
+        "content_type": content_type,
+        "truncated": truncated,
+        "content": snippet,
+    }))
 }
 
 #[cfg(test)]
@@ -1880,11 +2174,26 @@ mod tests {
             "lsp_definition",
             "lsp_references",
             "spawn_subagent",
+            "web_search",
+            "web_fetch",
         ] {
             assert!(names.contains(&expected), "missing schema for {expected}");
         }
 
         let dir = tempdir().unwrap();
+        let ws_empty = execute_tool(dir.path(), "web_search", &json!({"query": ""}), false);
+        assert_eq!(ws_empty["ok"], false);
+        let wf_bad = execute_tool(
+            dir.path(),
+            "web_fetch",
+            &json!({"url": "file:///etc/passwd"}),
+            false,
+        );
+        assert_eq!(wf_bad["ok"], false);
+        assert_eq!(
+            strip_html_to_text("<html><style>body{}</style><body><h1>Hello</h1><script>x()</script><p>World</p></body></html>"),
+            "Hello World"
+        );
         let sub_denied = execute_tool(
             dir.path(),
             "spawn_subagent",

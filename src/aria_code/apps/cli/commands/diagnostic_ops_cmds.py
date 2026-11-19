@@ -61,9 +61,6 @@ import time
 import shlex
 from typing import Dict, Any, Optional
 
-def _test_datasource(*args, **kwargs):
-    from aria_cli import _test_datasource as fn
-    return fn(*args, **kwargs)
 def _get_ARIA_TOOLS():
     # Owned by apps/cli/tool_registry.py; aria_cli fills it in place.
     from ..tool_registry import ARIA_TOOLS as val
