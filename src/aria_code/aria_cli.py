@@ -282,10 +282,6 @@ from aria_code.apps.cli.tools.market_tools import (
 )
 from aria_code.apps.cli.handlers.broker_handlers import handle_broker_query as _src_handle_broker_query
 from aria_code.apps.cli.handlers.strategy_advice import handle_strategy_advice as _src_strategy_advice
-from aria_code.apps.cli.handlers.chart_handlers import (
-    handle_stock_chart_analysis_direct as _src_chart_analysis_direct,
-    handle_stock_chart_analysis        as _src_chart_analysis,
-)
 from aria_code.apps.cli.utils.market_detect import (  # noqa: F401 — re-exported
     _re_sym, _STOCK_PATTERN,
     _CRYPTO_WORDS, _COMPANY_TO_TICKER,
@@ -2521,15 +2517,11 @@ def _try_handle_broker_query(message: str) -> dict:
 
 
 def _try_handle_stock_chart_analysis_direct(symbol: str, period: str = "1y") -> dict:
-    return _src_chart_analysis_direct(symbol, period=period)
+    return {"success": False, "error": "chart_handlers_not_available"}
 
 
 def _try_handle_stock_chart_analysis(message: str) -> dict:
-    return _src_chart_analysis(
-        message,
-        is_chart_request=_is_stock_chart_analysis_request,
-        extract_symbol=_extract_market_symbol,
-    )
+    return {"success": False, "error": "chart_handlers_not_available"}
 
 
 # stream_ollama is rebound at the end of this module — see _rebind_stream_ollama().
