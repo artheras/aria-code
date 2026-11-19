@@ -37,7 +37,6 @@ _EXTRA_FINANCE_TOOLS = (
     "get_market_history",
     "broker_query",
     "broker_order",
-    "get_broker_portfolio",
     "analyze_news",
 )
 
