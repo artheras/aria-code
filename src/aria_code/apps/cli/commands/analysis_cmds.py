@@ -9,44 +9,19 @@ from aria_code.apps.cli.commands.market_context import context_has_price
 
 
 import logging
-import json
-import asyncio
-import datetime
-import time
-import shlex
-import sys
-import os
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 def _get__HAS_BROKERS():
     from .._optional import HAS_BROKERS as val
     return val
-def _render_cb_rates(*args, **kwargs):
-    from aria_cli import _render_cb_rates as fn
-    return fn(*args, **kwargs)
-def _render_fear_greed(*args, **kwargs):
-    from aria_cli import _render_fear_greed as fn
-    return fn(*args, **kwargs)
-def _render_quality_scores(*args, **kwargs):
-    from aria_cli import _render_quality_scores as fn
-    return fn(*args, **kwargs)
-def _render_options_chain(*args, **kwargs):
-    from aria_cli import _render_options_chain as fn
-    return fn(*args, **kwargs)
 def build_analyze_context(*args, **kwargs):
     from aria_cli import build_analyze_context as fn
-    return fn(*args, **kwargs)
-def _render_funding_rates(*args, **kwargs):
-    from aria_cli import _render_funding_rates as fn
     return fn(*args, **kwargs)
 def _get_broker_registry(*args, **kwargs):
     from .._optional import get_registry as fn
     return fn(*args, **kwargs)
 def build_analyze_prompt(*args, **kwargs):
     from aria_cli import build_analyze_prompt as fn
-    return fn(*args, **kwargs)
-def _render_funding_compare(*args, **kwargs):
-    from aria_cli import _render_funding_compare as fn
     return fn(*args, **kwargs)
 def _is_ashare_symbol(*args, **kwargs):
     from aria_code.apps.cli.helpers import _is_ashare_symbol as fn
@@ -60,27 +35,9 @@ def _ashare_code_to_name(*args, **kwargs):
 def _get__HAS_LOCAL_FINANCE():
     from aria_cli import _HAS_LOCAL_FINANCE as val
     return val
-def _render_econ_calendar(*args, **kwargs):
-    from aria_cli import _render_econ_calendar as fn
-    return fn(*args, **kwargs)
-def _render_macro_result(*args, **kwargs):
-    from aria_cli import _render_macro_result as fn
-    return fn(*args, **kwargs)
-def _render_ichimoku(*args, **kwargs):
-    from aria_cli import _render_ichimoku as fn
-    return fn(*args, **kwargs)
 def _get_mdc(*args, **kwargs):
     from .._optional import get_mdc as fn
     return fn(*args, **kwargs)
-
-import json
-import asyncio
-import datetime
-import time
-import shlex
-import sys
-import os
-from typing import Dict, Any, Optional
 
 # A real logger. This was a `def logger(*args, **kwargs)` forwarding to
 # aria_cli, so every `logger.debug(...)` raised AttributeError — and all but

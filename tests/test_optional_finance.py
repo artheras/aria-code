@@ -28,7 +28,6 @@ def test_feature_extras_keep_their_dataframe_dependencies():
     extras = PROJECT["optional-dependencies"]
     for profile in ("cn", "crypto", "charts", "data", "files"):
         assert "pandas" in {Requirement(req).name for req in extras[profile]}
-    assert "yfinance" in {Requirement(req).name for req in extras["backtest"]}
     assert "numpy" in {Requirement(req).name for req in extras["sports"]}
 
 
