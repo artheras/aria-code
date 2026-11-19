@@ -290,13 +290,15 @@ pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> 
     }
 
     // `artheras/financial-service`: read-only finance (`arthera-finance`) and
-    // separate paper/trading server (`arthera-trading`). Never hardcode
+    // separate paper/trading server (`arthera-trading`). Prefer the service
+    // venv entrypoint or `python -I -m ...` (isolated mode). Never hardcode
     // FINANCIAL_SERVICE_NETWORK or FINANCIAL_SERVICE_BROKERS_ENABLED here.
     let fin_root = parent.join("financial-service");
     let fin_venv_bin = fin_root
         .join(".venv")
         .join("bin")
         .join("arthera-financial-service");
+    let fin_venv_py = fin_root.join(".venv").join("bin").join("python");
     let fin_src = fin_root.join("src");
     let fin_server_py = fin_src.join("arthera_finance").join("server.py");
     if fin_venv_bin.is_file() {
@@ -304,6 +306,13 @@ pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> 
             name: "arthera-finance".into(),
             command: fin_venv_bin.to_string_lossy().into_owned(),
             args: Vec::new(),
+            env: HashMap::new(),
+        });
+    } else if fin_venv_py.is_file() && fin_server_py.is_file() {
+        found.push(McpServerConfig {
+            name: "arthera-finance".into(),
+            command: fin_venv_py.to_string_lossy().into_owned(),
+            args: vec!["-I".into(), "-m".into(), "arthera_finance.server".into()],
             env: HashMap::new(),
         });
     } else if fin_server_py.is_file() {
@@ -324,6 +333,17 @@ pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> 
             name: "arthera-trading".into(),
             command: trading_venv_bin.to_string_lossy().into_owned(),
             args: Vec::new(),
+            env: HashMap::new(),
+        });
+    } else if fin_venv_py.is_file() && trading_server_py.is_file() {
+        found.push(McpServerConfig {
+            name: "arthera-trading".into(),
+            command: fin_venv_py.to_string_lossy().into_owned(),
+            args: vec![
+                "-I".into(),
+                "-m".into(),
+                "arthera_finance.trading_server".into(),
+            ],
             env: HashMap::new(),
         });
     } else if trading_server_py.is_file() {

@@ -1562,12 +1562,18 @@ class CoreCommandsMixin:
             from aria_code.packages.aria_mcp.config import install_financial_service_config
             try:
                 parts = shlex.split(args.strip(), posix=True)
-                if len(parts) != 3 or parts[:2] != ["finance", "install"]:
+                include_trading = "--with-trading" in parts
+                clean_parts = [p for p in parts if p != "--with-trading"]
+                if len(clean_parts) != 3 or clean_parts[:2] != ["finance", "install"]:
                     self.context.console.print(
                         'Install financial-service in its own environment, then run: '
-                        '/mcp finance install "/absolute/path/to/service-venv/bin/python"')
+                        '/mcp finance install "/absolute/path/to/service-venv/bin/python" [--with-trading]')
                     return
-                target = install_financial_service_config(Path(MCP_CONFIG_PATH), Path(parts[2]))
+                target = install_financial_service_config(
+                    Path(MCP_CONFIG_PATH),
+                    Path(clean_parts[2]),
+                    include_trading=include_trading,
+                )
                 self.context.console.print(
                     f"Financial MCP configured at {target}. Networking is off. Run /mcp reload to connect.")
             except (OSError, ValueError) as exc:

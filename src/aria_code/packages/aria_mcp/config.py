@@ -29,7 +29,18 @@ def financial_service_server_config(python: Path) -> Dict[str, object]:
             "enabled": True}
 
 
-def install_financial_service_config(path: Path, python: Path) -> Path:
+def trading_service_server_config(python: Path) -> Dict[str, object]:
+    """Separate paper/trading MCP server from financial-service (gated by host env)."""
+    python = Path(python).expanduser()
+    if not python.is_absolute() or not python.is_file():
+        raise ValueError("Provide an absolute path to the financial-service Python interpreter")
+    return {"name": "arthera-trading", "command": str(python),
+            "args": ["-I", "-m", "arthera_finance.trading_server"],
+            "description": "Paper/trading order preview and execution; gated by ARTHERA_TRADING_ENABLED",
+            "enabled": True}
+
+
+def install_financial_service_config(path: Path, python: Path, *, include_trading: bool = False) -> Path:
     """Explicit host operation: preserve other servers and replace config atomically."""
     server = financial_service_server_config(python)
     path = Path(path)
@@ -38,6 +49,8 @@ def install_financial_service_config(path: Path, python: Path) -> Path:
             or any(not isinstance(item, dict) for item in existing.get("servers", []))):
         raise ValueError("MCP configuration must contain a list of server objects")
     merged = merge_server_config(existing, server)
+    if include_trading:
+        merged = merge_server_config(merged, trading_service_server_config(python))
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
     try:

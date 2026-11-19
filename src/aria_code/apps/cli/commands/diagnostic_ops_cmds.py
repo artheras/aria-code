@@ -160,31 +160,9 @@ class DiagnosticOpsCommandsMixin:
             print(f"  ✓ Bug recorded locally. Upload via /privacy opt-in, or file: {gh}")
 
     def cmd_accuracy(self, args: str):
-        res = self.terminal._verify_predictions(min_age_hours=24.0)
-        try:
-            from apps.cli.prediction_feedback import PredictionTracker
-            acc = PredictionTracker(_get_CONFIG_DIR()).accuracy()
-        except Exception:
-            acc = {}
+        """Prediction accuracy tracking moved to Arthera backend / financial-service MCP."""
         if self.context.has_rich:
-            self.context.console.print()
-            self.context.console.print("  [bold]预测战绩[/bold]  [dim]LLM 方向判断 vs 实际行情[/dim]")
-            if res.get("settled"):
-                self.context.console.print(f"  [dim]本次结算 {res['settled']} 笔："
-                              f"命中 [green]{res['correct']}[/green] / "
-                              f"落空 [red]{res['wrong']}[/red][/dim]")
-            _acc = acc.get("accuracy")
-            _acc_str = f"{_acc:.0%}" if _acc is not None else "—"
-            self.context.console.print(
-                f"  累计：已结算 [bold]{acc.get('settled',0)}[/bold] · "
-                f"命中率 [#C08050]{_acc_str}[/#C08050] · "
-                f"待结算 [dim]{acc.get('pending',0)}[/dim]"
-            )
-            if not acc.get("total"):
-                self.context.console.print("  [dim]暂无记录 — 用 /team 或 /analyze 让 AI 给出方向判断后会自动追踪[/dim]")
-        else:
-            print(f"  预测战绩: 结算{res.get('settled',0)} 命中率"
-                  f"{acc.get('accuracy')} 待结算{acc.get('pending',0)}")
+            self.context.console.print("[dim]/accuracy 已迁移至 Arthera 后端 / financial-service MCP。[/dim]")
 
     def cmd_cost(self, args: str):
         import time as _t
@@ -714,100 +692,6 @@ class DiagnosticOpsCommandsMixin:
                           if self.context.has_rich else f"pip failed: {err_tail}")
 
     async def cmd_datasource(self, args: str):
-        sub = args.strip().lower()
-        if sub.startswith("test "):
-            src_name = sub[5:].strip()
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: _test_datasource(src_name)
-            )
-            return
-
-        if sub == "config":
-            paths = [
-                "~/.aria/datasources.yaml",
-                "~/.aria/.env",
-                str(_get_CONFIG_DIR() / "providers.json"),
-            ]
-            if self.context.has_rich:
-                self.context.console.print("  [bold]数据源配置文件:[/bold]")
-                for p in paths:
-                    import pathlib
-                    full = pathlib.Path(p).expanduser()
-                    exists = "[green]✓[/green]" if full.exists() else "[dim]✗ (未创建)[/dim]"
-                    self.context.console.print(f"  {exists}  [dim]{p}[/dim]")
-                self.context.console.print("\n  [dim]环境变量: TUSHARE_TOKEN FRED_API_KEY ALPHA_VANTAGE_KEY[/dim]")
-            return
-
-        try:
-            from datasources.router import _SOURCE_REGISTRY, DataRouter
-            router = DataRouter()
-        except ImportError:
-            print_error(self.context, "datasources 模块未找到")
-            return
-
+        """Financial datasources moved to financial-service MCP."""
         if self.context.has_rich:
-            from rich.markup import escape
-            from rich.table import Table
-            from rich import box
-            from ui.render.responsive import StackedRecord, render_stacked_records, structured_layout
-
-            _DESC = {
-                "yfinance": "Yahoo Finance (免费)",
-                "akshare": "AkShare A股 (免费)",
-                "tushare": "Tushare Pro (需Token)",
-                "fred": "美联储经济数据 (免费)",
-                "edgar": "SEC EDGAR 财报 (免费)",
-                "alpha_vantage": "Alpha Vantage (免费Key)",
-                "world_bank": "世界银行 (免费)",
-            }
-            source_rows = []
-            for name, cls in _SOURCE_REGISTRY.items():
-                try:
-                    source = cls()
-                    configured = source.is_configured()
-                    status = "[green]✓ 就绪[/green]" if configured else "[dim]✗ 未配置[/dim]"
-                    needs_key = "是" if cls.requires_key else "否"
-                    markets = ", ".join(getattr(cls, "markets", []))
-                except Exception:
-                    status, needs_key, markets = "[red]错误[/red]", "?", "?"
-                source_rows.append((name, markets, needs_key, status, _DESC.get(name, "")))
-
-            layout = structured_layout(self.context.console)
-            if layout == "stacked":
-                records = [
-                    StackedRecord(
-                        headline=f"{escape(str(name))}  {status}",
-                        lines=(
-                            f"[dim]市场[/dim] {escape(str(markets or '—'))}  ·  "
-                            f"[dim]需要 Key[/dim] {needs_key}",
-                            f"[dim]说明[/dim] {escape(str(description or '—'))}",
-                        ),
-                    )
-                    for name, markets, needs_key, status, description in source_rows
-                ]
-                render_stacked_records(
-                    self.context.console,
-                    title="数据源状态",
-                    records=records,
-                    footer="/datasource config — 配置文件路径",
-                )
-                return
-
-            table = Table(title="数据源状态", box=_get_rich_box().SIMPLE, header_style="bold dim")
-            table.add_column("名称", width=16)
-            table.add_column("市场", width=20)
-            table.add_column("需要Key", width=8)
-            table.add_column("状态", width=8)
-            if layout == "full":
-                table.add_column("说明")
-            for name, markets, needs_key, status, description in source_rows:
-                row = [name, markets, needs_key, status]
-                if layout == "full":
-                    row.append(description)
-                table.add_row(*row)
-            self.context.console.print(table)
-            self.context.console.print("  [dim]/datasource config — 配置文件路径[/dim]")
-        else:
-            for name, cls in _SOURCE_REGISTRY.items():
-                src = cls()
-                print(f"  {name}: {'ready' if src.is_configured() else 'not configured'}")
+            self.context.console.print("[dim]/datasource 已迁移至 financial-service MCP（financial_datasource_status）。[/dim]")
