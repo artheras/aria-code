@@ -1,6 +1,9 @@
 pub mod agent;
 pub mod cloud;
+pub mod compact;
+pub mod hooks;
 pub mod mcp;
 pub mod ollama;
 pub mod policy;
+pub mod sandbox;
 pub mod tools;

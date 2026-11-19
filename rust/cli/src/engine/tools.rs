@@ -551,17 +551,8 @@ pub fn run_command(workspace: &Path, cmd: &str, allow_write: bool) -> Result<Val
     let base = workspace
         .canonicalize()
         .map_err(|e| format!("Invalid workspace: {e}"))?;
-    #[cfg(unix)]
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(cmd)
-        .current_dir(&base)
-        .output()
-        .map_err(|e| format!("Spawn failed: {e}"))?;
-    #[cfg(windows)]
-    let output = Command::new("cmd")
-        .args(["/C", cmd])
-        .current_dir(&base)
+    let mode = super::sandbox::SandboxMode::from_env();
+    let output = super::sandbox::build_sandboxed_shell_command(&base, cmd, mode)
         .output()
         .map_err(|e| format!("Spawn failed: {e}"))?;
 
