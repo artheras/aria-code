@@ -29,6 +29,7 @@ impl SandboxMode {
 }
 
 /// Generate a macOS Seatbelt (SBPL) profile that restricts writes to `workspace` (and `/tmp`).
+#[allow(dead_code)]
 pub fn build_macos_seatbelt_profile(workspace: &Path, mode: SandboxMode) -> String {
     let ws = workspace
         .canonicalize()

@@ -270,17 +270,18 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let aria_dir = tmp.path().join(".aria");
         fs::create_dir_all(&aria_dir).unwrap();
-        fs::write(
-            aria_dir.join("hooks.json"),
-            r#"{
-              "hooks": {
+        #[cfg(windows)]
+        let block_cmd = "echo blocked by policy 1>&2 & exit /b 2";
+        #[cfg(not(windows))]
+        let block_cmd = "echo 'blocked by policy' >&2; exit 2";
+        let config = json!({
+            "hooks": {
                 "PreToolUse": [
-                  { "matcher": "run_command", "command": "echo 'blocked by policy' >&2; exit 2" }
+                    { "matcher": "run_command", "command": block_cmd }
                 ]
-              }
-            }"#,
-        )
-        .unwrap();
+            }
+        });
+        fs::write(aria_dir.join("hooks.json"), config.to_string()).unwrap();
 
         let reg = HookRegistry::load(tmp.path());
         assert!(!reg.is_empty());
