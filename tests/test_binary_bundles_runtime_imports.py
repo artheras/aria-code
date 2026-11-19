@@ -67,7 +67,7 @@ class EveryRuntimeImportIsListed(unittest.TestCase):
         # would make the next test pass vacuously.
         targets = _runtime_targets()
         self.assertGreaterEqual(len(targets["shim"]), 6)
-        self.assertGreaterEqual(len(targets["broker"]), 5)
+        self.assertGreaterEqual(len(targets["broker"]), 1)
         self.assertGreaterEqual(len(targets["agent"]), 3)
 
     def test_each_target_is_listed_under_its_exact_name(self) -> None:

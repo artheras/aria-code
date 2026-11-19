@@ -37,21 +37,12 @@ _BROKER_CLASSES: Dict[str, Type[BrokerBase]] = {}
 
 
 def _register_all() -> None:
-    """延迟注册所有内置适配器（避免 import 循环）。"""
+    """延迟注册内置模拟盘适配器（实盘券商适配器已迁移至 artheras/financial-service）。"""
     # No `global` needed: _BROKER_CLASSES is only read and mutated in place.
     if _BROKER_CLASSES:
         return
     _map: Dict[str, tuple] = {
-        "paper":      ("brokers.paper_broker",        "PaperBroker"),
-        "xtquant":    ("brokers.cn.xtquant_broker",    "XTQuantBroker"),
-        "easytrader": ("brokers.cn.easytrader_broker", "EasyTraderBroker"),
-        "futu":       ("brokers.cn.futu_broker",       "FutuBroker"),
-        "tiger":      ("brokers.cn.tiger_broker",      "TigerBroker"),
-        "longbridge": ("brokers.cn.longbridge_broker", "LongbridgeBroker"),
-        "ibkr":       ("brokers.intl.ibkr_broker",     "IBKRBroker"),
-        "alpaca":     ("brokers.intl.alpaca_broker",   "AlpacaBroker"),
-        "webull":     ("brokers.intl.webull_broker",   "WebullBroker"),
-        "trading212": ("brokers.intl.trading212_broker", "Trading212Broker"),
+        "paper": ("brokers.paper_broker", "PaperBroker"),
     }
     for btype, (module_path, class_name) in _map.items():
         try:
@@ -92,7 +83,8 @@ class BrokerRegistry:
         if not cls:
             raise ValueError(
                 f"不支持的券商类型: {broker_type!r}\n"
-                f"支持的类型: {', '.join(_BROKER_CLASSES)}"
+                f"本地仅保留模拟盘类型: {', '.join(_BROKER_CLASSES)}\n"
+                "实盘券商适配器已迁移至 artheras/financial-service，请连接 arthera-trading MCP 服务。"
             )
 
         instance = cls(broker_id=broker_id, config=cfg)
