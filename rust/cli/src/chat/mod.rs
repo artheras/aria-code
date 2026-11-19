@@ -449,6 +449,9 @@ enum NativeRoute {
     Rewind,
     Worktree(String, Option<String>),
     Mcp(String),
+    Hooks,
+    Sandbox,
+    Compact,
     Verify(Option<String>),
     WriteMode(Option<bool>),
     OllamaChat,
@@ -487,6 +490,15 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     if text == "/mcp" || text.starts_with("/mcp ") {
         let arg = text.strip_prefix("/mcp").unwrap_or("").trim().to_owned();
         return Some(NativeRoute::Mcp(arg));
+    }
+    if text == "/hooks" {
+        return Some(NativeRoute::Hooks);
+    }
+    if text == "/sandbox" {
+        return Some(NativeRoute::Sandbox);
+    }
+    if text == "/compact" {
+        return Some(NativeRoute::Compact);
     }
     if text == "/diff" || text.starts_with("/diff ") {
         let target = text.strip_prefix("/diff").unwrap_or("").trim();
@@ -1058,6 +1070,72 @@ fn try_dispatch_native_turn(
                 };
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Hooks => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let reg = crate::engine::hooks::HookRegistry::load(&ws_path);
+                let rules = reg.rules();
+                let text = if rules.is_empty() {
+                    "No lifecycle hooks configured. Add rules in `.aria/hooks.json` or `~/.aria/hooks.json` (`PreToolUse`, `PostToolUse`, `Stop`).".to_owned()
+                } else {
+                    let mut lines = vec![format!("Configured lifecycle hooks ({}):", rules.len())];
+                    for r in rules {
+                        lines.push(format!(
+                            "- `{}` matcher=`{}` -> `{}`",
+                            r.event.as_str(),
+                            r.matcher,
+                            r.command
+                        ));
+                    }
+                    lines.join("\n")
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+            }
+            NativeRoute::Sandbox => {
+                let mode = crate::engine::sandbox::SandboxMode::from_env();
+                let mode_str = match mode {
+                    crate::engine::sandbox::SandboxMode::Off => "off",
+                    crate::engine::sandbox::SandboxMode::ReadOnly => "read-only",
+                    crate::engine::sandbox::SandboxMode::WorkspaceWrite => "workspace-write",
+                };
+                #[cfg(target_os = "macos")]
+                let backend = if std::path::Path::new("/usr/bin/sandbox-exec").is_file() {
+                    "macOS Seatbelt (`/usr/bin/sandbox-exec` available)"
+                } else {
+                    "macOS Seatbelt unavailable"
+                };
+                #[cfg(target_os = "linux")]
+                let backend = "Linux `bwrap` (when installed on PATH)";
+                #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+                let backend = "OS process sandbox not available on this platform";
+                let text = format!(
+                    "Sandbox mode: `{mode_str}` ({backend}).\nSet `ARIA_SANDBOX_MODE=workspace-write` or `read-only` to enforce OS-level shell isolation."
+                );
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+            }
+            NativeRoute::Compact => {
+                let mut msgs: Vec<Value> = history
+                    .iter()
+                    .map(|(role, content)| json!({ "role": role, "content": content }))
+                    .collect();
+                let before_tokens = crate::engine::compact::estimate_messages_tokens(&msgs);
+                let before_count = msgs.len();
+                let compacted = crate::engine::compact::compact_messages_if_needed(&mut msgs, 1, 4);
+                let after_tokens = crate::engine::compact::estimate_messages_tokens(&msgs);
+                let text = if compacted {
+                    format!(
+                        "Context compacted: {before_count} -> {} messages (~{before_tokens} -> ~{after_tokens} tokens). Auto-compaction also runs automatically at 24,000 tokens.",
+                        msgs.len()
+                    )
+                } else {
+                    format!(
+                        "Context is already compact ({before_count} messages, ~{before_tokens} tokens)."
+                    )
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
             }
             NativeRoute::Verify(target) => {
                 let ws_path = std::path::PathBuf::from(&workspace);
