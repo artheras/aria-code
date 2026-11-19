@@ -8,5 +8,6 @@ pub mod ollama;
 pub mod policy;
 pub mod processes;
 pub mod sandbox;
+pub mod skills;
 pub mod subagent;
 pub mod tools;
