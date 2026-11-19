@@ -194,8 +194,14 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut mgr = ProcessManager::new();
         let id = mgr.start(tmp.path(), "echo hello_bg").unwrap();
-        thread::sleep(Duration::from_millis(120));
-        let info = mgr.read_output(&id).unwrap();
+        let mut info = Value::Null;
+        for _ in 0..40 {
+            thread::sleep(Duration::from_millis(50));
+            info = mgr.read_output(&id).unwrap();
+            if info["output"].as_str().unwrap_or("").contains("hello_bg") {
+                break;
+            }
+        }
         assert!(info["output"].as_str().unwrap_or("").contains("hello_bg"));
         let stopped = mgr.stop(&id).unwrap();
         assert_eq!(stopped["stopped"], true);
