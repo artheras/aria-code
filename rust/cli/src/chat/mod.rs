@@ -562,6 +562,7 @@ enum NativeRoute {
     Hooks(String),
     Sandbox,
     Compact,
+    Roi,
     Verify(Option<String>),
     WriteMode(Option<bool>),
     OllamaChat,
@@ -640,6 +641,9 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     }
     if text == "/compact" {
         return Some(NativeRoute::Compact);
+    }
+    if text == "/roi" || text == "/cost" || text == "/usage" {
+        return Some(NativeRoute::Roi);
     }
     if text == "/diff" || text.starts_with("/diff ") {
         let target = text.strip_prefix("/diff").unwrap_or("").trim();
@@ -893,6 +897,7 @@ fn try_dispatch_native_turn(
                      - `/mcp [connect|connect --uvx|probe]` — 连接或探测外部 MCP 服务\n\
                      - `/skills` | `/init [--force]` — 查看工作区技能或初始化 `ARIA.md`\n\
                      - `/scan` | `/map` | `/diff` | `/log` | `/review` | `/verify` — 代码检查与验证\n\
+                     - `/roi` | `/cost` — 查看 AI ROI 与 Token 效率计分卡\n\
                      - `/rewind` | `/worktree` | `/write-mode on|off` | `/compact` | `/sessions` — 工作区与会话管理"
                 } else {
                     "**Aria Code Native Commands:**\n\
@@ -905,6 +910,7 @@ fn try_dispatch_native_turn(
                      - `/mcp [connect|connect --uvx|probe]` — Connect or probe external MCP servers\n\
                      - `/skills` | `/init [--force]` — List workspace skills or initialize `ARIA.md`\n\
                      - `/scan` | `/map` | `/diff` | `/log` | `/review` | `/verify` — Code inspection and verification\n\
+                     - `/roi` | `/cost` — View Enterprise AI ROI & Token Efficiency Scorecard\n\
                      - `/rewind` | `/worktree` | `/write-mode on|off` | `/compact` | `/sessions` — Workspace and session controls"
                 };
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
@@ -1475,6 +1481,19 @@ fn try_dispatch_native_turn(
                         "Context is already compact ({before_count} messages, ~{before_tokens} tokens)."
                     )
                 };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+            }
+            NativeRoute::Roi => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let text = crate::engine::roi::build_roi_scorecard(
+                    &ws_path,
+                    &provider,
+                    &model,
+                    allow_write,
+                    &history,
+                    zh,
+                );
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
             }

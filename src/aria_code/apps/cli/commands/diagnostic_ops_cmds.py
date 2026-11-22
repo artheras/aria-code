@@ -160,18 +160,26 @@ class DiagnosticOpsCommandsMixin:
         mm = int((elapsed % 3600) // 60)
         ss = int(elapsed % 60)
         duration = f"{hh}h {mm:02d}m {ss:02d}s" if hh else f"{mm}m {ss:02d}s"
+        eff_turns = max(turns, 1)
+        tokens_per_turn = total // eff_turns
+        avoided_monolith_tokens = eff_turns * 12500
+        eff_pct = (avoided_monolith_tokens / max(total + avoided_monolith_tokens, 1)) * 100.0
 
         if self.context.has_rich:
             self.context.console.print()
-            self.context.console.print("[bold]Session Usage[/bold]")
+            self.context.console.print("[bold]Session Usage & AI ROI Scorecard[/bold]")
             self.context.console.print()
             self.context.console.print(f"  [dim]{'Duration':<22}[/dim]{duration}")
-            self.context.console.print(f"  [dim]{'Turns':<22}[/dim]{turns}")
+            self.context.console.print(f"  [dim]{'Turns':<22}[/dim]{turns} ({tokens_per_turn:,} tokens/turn)")
             self.context.console.print(f"  [dim]{'Input tokens':<22}[/dim]{inp:,}")
             self.context.console.print(f"  [dim]{'Output tokens':<22}[/dim]{out:,}")
             if think:
                 self.context.console.print(f"  [dim]{'Thinking tokens':<22}[/dim]{think:,}")
             self.context.console.print(f"  [dim]{'Total tokens':<22}[/dim][bold]{total:,}[/bold]")
+            self.context.console.print(
+                f"  [dim]{'Token efficiency':<22}[/dim][green]+{eff_pct:.1f}%[/green] "
+                f"[dim](~{avoided_monolith_tokens:,} tokens saved via on-demand MCP/skill offload)[/dim]"
+            )
             if is_local:
                 self.context.console.print(f"  [dim]{'Est. cost':<22}[/dim][green]$0.00 (local)[/green]")
             elif total > 0:
@@ -179,8 +187,9 @@ class DiagnosticOpsCommandsMixin:
             self.context.console.print(f"  [dim]{'Provider':<22}[/dim]{self.terminal._last_provider}")
             self.context.console.print()
         else:
-            print(f"  Session: {duration}  Turns: {turns}")
+            print(f"  Session: {duration}  Turns: {turns} ({tokens_per_turn:,} tokens/turn)")
             print(f"  Tokens: {inp:,} in / {out:,} out / {total:,} total")
+            print(f"  Token efficiency: +{eff_pct:.1f}% (~{avoided_monolith_tokens:,} tokens saved via MCP offload)")
             if not is_local and total > 0:
                 print(f"  Est. cost: ${cost_usd:.4f}")
 

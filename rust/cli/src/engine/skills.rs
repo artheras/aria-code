@@ -118,6 +118,7 @@ pub fn builtin_ecosystem_skills() -> Vec<(SkillInfo, &'static str)> {
                 - `financial_stat_arb` for OLS log-price hedge ratio, rolling spread Z-score, and Ornstein-Uhlenbeck half-life\n\
                 - `financial_optimize_weights` (`max_sharpe`, `min_var`, `equal_weight`) for portfolio allocation\n\
                 - `financial_portfolio_backtest` (`monthly`, `quarterly`, `none`) for multi-asset rebalanced simulation against an optional benchmark\n\
+                - `financial_ohlcv_quality_audit` for OHLCV bar integrity, rolling return Z-score outliers, and trading-calendar gap auditing\n\
              4. **Macro & Derivatives Context**: Combine `financial_us_macro` / `financial_cn_macro` / `financial_central_bank_rates` / `financial_treasury_yields` or `financial_options_chain` / `financial_funding_rates` when macro or derivatives drivers are relevant.\n\
              5. **If MCP Tools Are Missing**: Guide the user to run `/mcp connect` (local sibling repo) or `/mcp connect --uvx`.\n",
         ),

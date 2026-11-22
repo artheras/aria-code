@@ -4099,33 +4099,6 @@ class ArtheraTerminal(_ChatTurn, _Chrome, _HeadlessMixin):
         except ImportError:
             pass
 
-    async def _alert_watchdog(self):
-        """Background task: check price alerts every 30s and fire notifications."""
-        import asyncio as _asyncio
-        loop = _asyncio.get_event_loop()
-        while self.running:
-            await _asyncio.sleep(30)
-            if not self.running:
-                break
-            try:
-                from aria_code.tools.data_analysis_tools import check_alerts
-                result = await loop.run_in_executor(None, check_alerts)
-                triggered = result.get("triggered", [])
-                if triggered:
-                    for alrt in triggered:
-                        sym = alrt.get("symbol", "")
-                        cur = alrt.get("triggered_price", "")
-                        self._pending_notifications.append(
-                            f"\n[bold yellow]⚡ 预警触发[/bold yellow] [cyan]{sym}[/cyan] → {cur}"
-                        )
-                        try:
-                            from aria_code.tools.notification_tools import send_alert_notification
-                            await loop.run_in_executor(None, send_alert_notification, alrt)
-                        except Exception as _ne:
-                            logger.debug("Alert notification failed: %s", _ne)
-            except Exception as _we:
-                logger.debug("Alert watchdog error: %s", _we)
-
     async def run_interactive(self):
         """Run the interactive REPL loop."""
         self.print_header()
@@ -4176,9 +4149,6 @@ class ArtheraTerminal(_ChatTurn, _Chrome, _HeadlessMixin):
                     asyncio.create_task(_plugin_watcher.start())
                 except Exception:
                     pass
-
-        # ── Start alert watchdog (30s background price-alert checker) ─────
-        asyncio.create_task(self._alert_watchdog())
 
         while self.running:
             try:

@@ -1334,50 +1334,7 @@ class CoreCommandsMixin:
                 print_error(self.context, f"{lbl}: {r}")
             else:
                 _print_finance_result(tool_name, r)
-    async def _fetch_and_display_finance(self, tool_name: str, params: dict, label: str,
-                                          mdc_fallback_symbol: str = "") -> bool:
-        """Try tool → local finance tool → market_data_client fallback. Returns True if data shown."""
-        from aria_cli import _print_finance_result
-        from aria_code.apps.cli.tool_executor import execute_aria_tool
-        from aria_code.apps.cli.tool_registry import LOCAL_TOOLS
-        from aria_code.apps.cli._optional import HAS_MDC as _HAS_MDC, get_mdc as _get_mdc
-        result = None
-        # 1. LOCAL_TOOLS (ccxt / local finance)
-        if tool_name in LOCAL_TOOLS:
-            fn = LOCAL_TOOLS[tool_name][0]
-            result = await asyncio.get_event_loop().run_in_executor(None, fn, params)
-        # 2. Remote backend
-        if not (result and result.get("success")):
-            result = await execute_aria_tool(self.terminal.api_url, tool_name, params)
-        # 3. MarketDataClient yfinance fallback
-        if not (result and result.get("success")) and _HAS_MDC and mdc_fallback_symbol:
-            try:
-                mdc = _get_mdc()
-                result = mdc.quote(mdc_fallback_symbol)
-                if result.get("success"):
-                    result["provider"] = "yfinance"
-            except Exception:
-                pass
 
-        if result and result.get("success"):
-            _print_finance_result(tool_name, result)
-            # Also show basic price line if _print_finance_result didn't handle this tool
-            if tool_name not in ("get_market_data", "get_crypto_data", "get_forex_data"):
-                px   = result.get("price", result.get("rate", 0))
-                chg  = result.get("change_pct", 0)
-                sign = "+" if chg >= 0 else ""
-                color = "green" if chg >= 0 else "red"
-                prov  = result.get("provider", "")
-                if self.context.has_rich and px:
-                    self.context.console.print(f"  [bold]{label:<12}[/bold]  {px}  [{color}]{sign}{chg:.2f}%[/{color}]  [dim]{prov}[/dim]")
-            return True
-        else:
-            err = (result or {}).get("error") or "数据暂不可用"
-            if self.context.has_rich:
-                self.context.console.print(f"  [yellow]⚠ {label}: {err}[/yellow]")
-            else:
-                print(f"  ⚠ {label}: {err}")
-            return False
     async def cmd_risk(self, args: str):
         """Risk metrics moved to financial-service MCP."""
         if self.context.has_rich:
@@ -1644,34 +1601,7 @@ class CoreCommandsMixin:
         """Portfolio weight optimisation（已迁移至 Arthera 后端 / arthera-quant MCP）."""
         if self.context.has_rich:
             self.context.console.print("[dim]/optimize-port 已迁移至 Arthera 后端服务。[/dim]")
-    async def _run_local_tool(self, tool_name: str, params: dict, label: str = ""):
-        """Run a LOCAL_TOOLS entry, display result with Rich formatting."""
-        from aria_cli import _print_tool_result
-        from aria_code.apps.cli.tool_registry import LOCAL_TOOLS
-        from aria_code.apps.cli.helpers import _clean_tool_error_message
-        if tool_name not in LOCAL_TOOLS:
-            if self.context.has_rich:
-                self.context.console.print(f"  [dim]Tool {tool_name!r} not available[/dim]")
-            return
-        handler, _ = LOCAL_TOOLS[tool_name]
-        label_text = label or tool_name
-        if self.context.has_rich:
-            with self.context.console.status(f"[dim]{label_text}…[/dim]", spinner="dots"):
-                result = handler(params)
-        else:
-            print(f"  {label_text}…")
-            result = handler(params)
 
-        if not result.get("success", True):
-            err = _clean_tool_error_message(result.get("error", "unknown error"))
-            if self.context.has_rich:
-                self.context.console.print(f"  [red]✗[/red] {err}")
-            else:
-                print(f"  ✗ {err}")
-            return
-
-        # Pretty-print result
-        _print_tool_result(tool_name, result, elapsed=0)
     async def cmd_ui(self, args: str):
         """Bloomberg dashboard UI moved to Arthera backend service."""
         if self.context.has_rich:

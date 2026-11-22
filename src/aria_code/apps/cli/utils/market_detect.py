@@ -430,48 +430,6 @@ def _is_realty_query(message: str) -> bool:
     return False
 
 
-def _detect_market_overview(message: str):
-    """Detect a whole-market overview request → 'cn' | 'us' | 'hk' | None.
-
-    Critical disambiguation: "分析A股市场行情" means the A-share MARKET (indices),
-    NOT a stock with ticker 'A' (Agilent). This must run before any ticker
-    extraction so a market name never collapses into a wrong single stock.
-    Returns None for coding/chart/realty requests or specific-stock queries.
-    """
-    if _is_realty_query(message):
-        return None
-    low = message.lower().strip()
-    _coding_kw = ("write", "generate", "script", "code", "plot", "backtest",
-                  "策略", "代码", "回测", "编写", "k线", "kline", "python", "dashboard")
-    if any(k in low for k in _coding_kw):
-        return None
-    if _is_stock_chart_analysis_request(message) or _is_visual_market_artifact_request(message):
-        return None
-
-    # Market-level intent words (overview, not a single stock)
-    _overview_kw = (
-        "市场", "大盘", "行情", "今天怎么样", "今日", "现在怎么样", "怎么样",
-        "收盘", "开盘", "走势", "整体", "表现", "概况", "overview", "market",
-    )
-    if not any(k in low for k in _overview_kw):
-        return None
-
-    # Market identifiers (ordered: check before generic '大盘' defaults to CN)
-    _us = ("美股", "美国股市", "美国市场", "华尔街", "纳斯达克", "纳指", "标普",
-           "道琼斯", "道指", "us market", "wall street", "nasdaq", "s&p", "dow")
-    _hk = ("港股", "恒生", "香港股市", "香港市场", "hk market", "hang seng", "hsi")
-    _cn = ("a股", "a 股", "沪深", "上证", "深证", "创业板", "沪市", "深市",
-           "科创板", "a-share", "ashare", "china market", "中国股市", "大盘")
-
-    if any(k in low for k in _us):
-        return "us"
-    if any(k in low for k in _hk):
-        return "hk"
-    if any(k in low for k in _cn):
-        return "cn"
-    return None
-
-
 def _is_market_snapshot_request(message: str, history: list = None, *,
                                 evidence_required: bool = False) -> bool:
     """Return True for simple quote / market snapshot analysis requests.
