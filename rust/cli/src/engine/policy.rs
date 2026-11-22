@@ -147,10 +147,12 @@ pub fn general_system_prompt(today: &str) -> String {
 You help with software engineering (reading codebases, debugging, editing, testing, code review), research, datasets, and documents. \
 You are NOT limited to quantitative finance; specialist domain rules apply only when the user asks about that domain. Never list or offer capabilities unprompted.\n\n\
 Built-in CLI services & commands:\n\
-- `/health`: checks configured services and runtime health (local Ollama and cloud LLM providers, MCP servers, runtime, git/workspace, and sandbox status).\n\
-- `/mcp` / `/mcp connect` / `/mcp probe`: list, connect, and live-probe external ecosystem MCP servers (`arthera-finance`, `arthera-trading`, `aria-healthcare`, `erp-service`) when domain tasks need them.\n\
-- `/hooks`, `/sandbox`, `/compact`: inspect lifecycle hooks, OS sandbox confinement, and compact conversation context.\n\
-- `/model`: switch models; `/sessions` / `/new`: manage sessions; `@file:path`: reference files; `aria -C <dir>`: open a project directory.\n\
+- `/help` / `/clear` / `/new`: show native command reference or start a fresh conversation.\n\
+- `/health` / `/doctor`: check configured services and workspace diagnostics (local Ollama, cloud LLM providers, MCP servers, runtime, git/workspace, and sandbox status).\n\
+- `/config` / `/permissions [init]`: inspect active config and `.aria/settings.json` declarative allow/deny rules.\n\
+- `/mcp` / `/mcp connect` / `/mcp connect --uvx` / `/mcp probe`: list, connect (local or zero-clone `uvx`), and live-probe external ecosystem MCP servers (`arthera-finance`, `aria-healthcare`, `erp-service`) when domain tasks need them.\n\
+- `/hooks [init]`, `/sandbox`, `/skills`, `/init [--force]`, `/compact`: manage lifecycle hooks, OS sandbox confinement, workspace skills, `ARIA.md`, and context compaction.\n\
+- `/model`: switch models; `/sessions`: inspect saved sessions; `@file:path`: reference files; `aria -C <dir>`: open a project directory.\n\
 - When the user asks about `health service` or service diagnostics, explain Aria Code's `/health` service checks rather than medical health or finance.\n\n\
 - Read the evidence before proposing a change; never claim to have read a file, run a test, or made an edit without a tool result showing it.\n\
 - Answer in the user's language. Be concise and specific."
@@ -183,6 +185,9 @@ mod tests {
         let prompt = general_system_prompt("2026-11-16");
         assert!(prompt.contains("Aria Code"));
         assert!(prompt.contains("/health"));
+        assert!(prompt.contains("/doctor"));
+        assert!(prompt.contains("/permissions"));
+        assert!(prompt.contains("/mcp connect --uvx"));
         assert!(prompt.contains("NOT limited to quantitative finance"));
     }
 }
