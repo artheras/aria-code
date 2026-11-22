@@ -1,6 +1,6 @@
 //! Native Rust multi-round tool-calling agent loop over Ollama `/api/chat`.
 
-use super::{cloud::CloudProvider, compact, hooks, mcp, permissions, policy, tools};
+use super::{cloud::CloudProvider, compact, hooks, mcp, permissions, policy, skills, tools};
 use serde_json::{json, Value};
 use std::{
     io::{BufRead, BufReader},
@@ -80,7 +80,7 @@ fn build_agent_messages(
 
 fn build_coding_system_prompt(workspace: &Path) -> String {
     let mut prompt = format!(
-        "{}\n\nYou are Aria Code's native coding agent. You have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `repo_map`, `write_file`, `edit_file`, `multi_edit`, `restore_checkpoint`, `run_command`, `process`, `lsp_hover`, `lsp_definition`, `lsp_references`, `spawn_subagent`, `web_search`, `web_fetch`, `git_status`, `git_diff`, `git_log`, `git_worktree`, `glob`, `project_scan`, `verify_workspace`) plus any configured MCP tools. \
+        "{}\n\nYou are Aria Code's native coding agent. You have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `repo_map`, `write_file`, `edit_file`, `multi_edit`, `restore_checkpoint`, `run_command`, `process`, `lsp_hover`, `lsp_definition`, `lsp_references`, `spawn_subagent`, `web_search`, `web_fetch`, `read_skill`, `git_status`, `git_diff`, `git_log`, `git_worktree`, `glob`, `project_scan`, `verify_workspace`) plus any configured MCP tools. \
          Inspect relevant files before answering or editing. Prefer targeted reads and minimal edits. `edit_file` fails when `old_string` is not unique; use more context or `multi_edit` for several unique replacements in one file. After code changes, run `verify_workspace` and fix failures before the final answer.",
         policy::general_system_prompt("today")
     );
@@ -119,39 +119,32 @@ fn build_coding_system_prompt(workspace: &Path) -> String {
             prompt.push_str(&format!("\n\n[Workspace Snapshot]{ctx}"));
         }
     }
-    for fname in ["ARIA.md", "AGENTS.md"] {
-        let path = workspace.join(fname);
-        if path.is_file() {
-            if let Ok(raw) = std::fs::read_to_string(&path) {
-                let trimmed = raw.trim();
-                if !trimmed.is_empty() {
-                    let clipped: String = trimmed.chars().take(4000).collect();
-                    prompt.push_str(&format!("\n\n[Project Instructions: {fname}]\n{clipped}"));
-                    break;
-                }
-            }
+    if let Some((path, raw)) = skills::load_project_instructions(workspace) {
+        let fname = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("ARIA.md");
+        let clipped: String = raw.trim().chars().take(4000).collect();
+        if !clipped.is_empty() {
+            prompt.push_str(&format!("\n\n[Project Instructions: {fname}]\n{clipped}"));
         }
     }
-    let skills_dir = workspace.join(".aria").join("skills");
-    if let Ok(entries) = std::fs::read_dir(&skills_dir) {
-        let mut skill_names: Vec<String> = entries
-            .flatten()
-            .filter_map(|e| {
-                let p = e.path();
-                if p.is_dir() && p.join("SKILL.md").is_file() {
-                    p.file_name().and_then(|n| n.to_str()).map(str::to_owned)
+    let discovered_skills = skills::discover_skills(workspace);
+    if !discovered_skills.is_empty() {
+        let lines: Vec<String> = discovered_skills
+            .iter()
+            .map(|s| {
+                if s.description.is_empty() {
+                    format!("- `{}`", s.name)
                 } else {
-                    None
+                    format!("- `{}`: {}", s.name, s.description)
                 }
             })
             .collect();
-        skill_names.sort();
-        if !skill_names.is_empty() {
-            prompt.push_str(&format!(
-                "\n\n[Workspace Skills]\n{}",
-                skill_names.join(", ")
-            ));
-        }
+        prompt.push_str(&format!(
+            "\n\n[Workspace Skills] (call `read_skill` to load full instructions)\n{}",
+            lines.join("\n")
+        ));
     }
     prompt
 }
@@ -211,6 +204,7 @@ pub fn is_read_only_tool(name: &str, args: &Value) -> bool {
             | "lsp_references"
             | "web_search"
             | "web_fetch"
+            | "read_skill"
     ) || (name == "git_worktree"
         && args.get("action").and_then(Value::as_str).unwrap_or("list") == "list")
         || (name == "process"
@@ -1140,6 +1134,7 @@ mod tests {
     fn classifies_read_only_and_mutating_tools() {
         assert!(is_read_only_tool("read_file", &json!({"path": "a.rs"})));
         assert!(is_read_only_tool("web_search", &json!({"query": "rust"})));
+        assert!(is_read_only_tool("read_skill", &json!({"name": "audit"})));
         assert!(is_read_only_tool(
             "git_worktree",
             &json!({"action": "list"})
