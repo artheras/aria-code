@@ -1,6 +1,6 @@
 //! Native Rust multi-round tool-calling agent loop over Ollama `/api/chat`.
 
-use super::{cloud::CloudProvider, compact, hooks, mcp, policy, tools};
+use super::{cloud::CloudProvider, compact, hooks, mcp, permissions, policy, tools};
 use serde_json::{json, Value};
 use std::{
     io::{BufRead, BufReader},
@@ -177,6 +177,7 @@ struct ToolLoopGuard {
     repeat_count: usize,
     mcp: mcp::McpRegistry,
     hooks: hooks::HookRegistry,
+    permissions: permissions::PermissionPolicy,
     mutated: bool,
     verified: bool,
     nudge_sent: bool,
@@ -226,6 +227,7 @@ impl ToolLoopGuard {
             repeat_count: 0,
             mcp: mcp::McpRegistry::load_from_workspace(workspace),
             hooks: hooks::HookRegistry::load(workspace),
+            permissions: permissions::PermissionPolicy::load(workspace),
             mutated: false,
             verified: false,
             nudge_sent: false,
@@ -274,6 +276,19 @@ impl ToolLoopGuard {
         allow_write: bool,
         on_tool: &mut impl FnMut(&str, &Value, &Value),
     ) -> String {
+        let read_only = is_read_only_tool(&call.name, &call.arguments)
+            || self.mcp.is_tool_read_only(&call.name);
+        if let permissions::PermissionDecision::Deny(reason) =
+            self.permissions
+                .evaluate(&call.name, &call.arguments, read_only)
+        {
+            let blocked = json!({
+                "ok": false,
+                "error": reason,
+            });
+            on_tool(&call.name, &call.arguments, &blocked);
+            return clip_tool_output(&blocked, 16_000);
+        }
         let pre = self
             .hooks
             .run_pre_tool(workspace, &call.name, &call.arguments);
@@ -1193,5 +1208,33 @@ mod tests {
         assert_eq!(content, "Checking files.");
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].name, "list_files");
+    }
+
+    #[test]
+    fn enforces_declarative_permission_deny_rules_in_tool_loop() {
+        let dir = tempfile::tempdir().unwrap();
+        let aria_dir = dir.path().join(".aria");
+        std::fs::create_dir_all(&aria_dir).unwrap();
+        std::fs::write(
+            aria_dir.join("settings.json"),
+            r#"{"permissions":{"deny":["Write(.env*)","Bash(cargo publish*)"]}}"#,
+        )
+        .unwrap();
+
+        let mut guard = ToolLoopGuard::new(dir.path());
+        let blocked_write = ToolCall {
+            name: "write_file".into(),
+            arguments: json!({"path": ".env.prod", "content": "SECRET=1"}),
+        };
+        let out = guard.execute(dir.path(), &blocked_write, true, &mut |_, _, _| {});
+        assert!(out.contains("Denied by permission rule"));
+        assert!(!dir.path().join(".env.prod").exists());
+
+        let blocked_cmd = ToolCall {
+            name: "run_command".into(),
+            arguments: json!({"command": "cargo publish --dry-run"}),
+        };
+        let out_cmd = guard.execute(dir.path(), &blocked_cmd, true, &mut |_, _, _| {});
+        assert!(out_cmd.contains("Denied by permission rule"));
     }
 }
