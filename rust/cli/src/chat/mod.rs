@@ -423,10 +423,12 @@ fn native_commands_json() -> Value {
         {"name": "/map", "description": "Show workspace symbol map"},
         {"name": "/rewind", "description": "Rewind the last file edit"},
         {"name": "/worktree", "description": "Manage isolated git worktrees (list|create|remove)"},
-        {"name": "/mcp", "description": "List, connect, or probe ecosystem MCP servers (/mcp [connect|probe])"},
+        {"name": "/mcp", "description": "List, connect, or probe ecosystem MCP servers (/mcp [connect [--uvx]|probe])"},
         {"name": "/skills", "description": "List discovered project and user skills"},
         {"name": "/init", "description": "Generate ARIA.md for the current project (/init [--force])"},
         {"name": "/doctor", "description": "Run native runtime, provider, MCP, hook, and sandbox diagnostics"},
+        {"name": "/config", "description": "Show native runtime configuration (provider, model, sandbox, MCP)"},
+        {"name": "/permissions", "description": "Inspect write permission, OS sandbox, and lifecycle hook policy"},
         {"name": "/write-mode", "description": "Toggle workspace write permission (on|off)"},
         {"name": "/new", "description": "Start a new session"}
     ])
@@ -553,6 +555,8 @@ enum NativeRoute {
     Skills,
     Init(bool),
     Doctor,
+    Config,
+    Permissions,
     Hooks(String),
     Sandbox,
     Compact,
@@ -607,6 +611,12 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     }
     if text == "/doctor" {
         return Some(NativeRoute::Doctor);
+    }
+    if text == "/config" {
+        return Some(NativeRoute::Config);
+    }
+    if text == "/permissions" {
+        return Some(NativeRoute::Permissions);
     }
     if text == "/hooks" || text.starts_with("/hooks ") {
         let arg = text.strip_prefix("/hooks").unwrap_or("").trim().to_owned();
@@ -1135,10 +1145,27 @@ fn try_dispatch_native_turn(
             NativeRoute::Mcp(arg) => {
                 let ws_path = std::path::PathBuf::from(&workspace);
                 let discovered = crate::engine::mcp::discover_ecosystem_mcp_servers(&ws_path);
-                let (text, status) = if arg.eq_ignore_ascii_case("connect") {
+                let lower = arg.to_ascii_lowercase();
+                let (text, status) = if lower == "connect --uvx" || lower == "uvx" {
+                    let uvx_servers = crate::engine::mcp::ecosystem_uvx_mcp_configs();
+                    match crate::engine::mcp::write_workspace_mcp_json(&ws_path, &uvx_servers) {
+                        Ok(n) => {
+                            let names: Vec<&str> =
+                                uvx_servers.iter().map(|s| s.name.as_str()).collect();
+                            (
+                                format!(
+                                    "Connected {n} zero-clone `uvx` ecosystem MCP server(s) in `.mcp.json`: `{}`.\nRun `/mcp probe` to verify connectivity.",
+                                    names.join("`, `")
+                                ),
+                                "ok",
+                            )
+                        }
+                        Err(e) => (format!("[mcp connect --uvx error: {e}]"), "failed"),
+                    }
+                } else if lower == "connect" {
                     if discovered.is_empty() {
                         (
-                            "No sibling ecosystem MCP servers detected (expected `../financial-service`, `../healthcare-service`, `../erp-service`, `../Arthera`, or `services/aria-bots`).".to_owned(),
+                            "No sibling ecosystem MCP servers detected (expected `../financial-service`, `../healthcare-service`, `../erp-service`, `../Arthera`, or `services/aria-bots`).\nTip: run `/mcp connect --uvx` to connect published ecosystem services without cloning them.".to_owned(),
                             "ok",
                         )
                     } else {
@@ -1157,7 +1184,7 @@ fn try_dispatch_native_turn(
                             Err(e) => (format!("[mcp connect error: {e}]"), "failed"),
                         }
                     }
-                } else if arg.eq_ignore_ascii_case("probe") || arg.eq_ignore_ascii_case("status") {
+                } else if lower == "probe" || lower == "status" {
                     let results = crate::engine::mcp::probe_workspace_mcp_servers(&ws_path);
                     format_mcp_probe_report(&results)
                 } else {
@@ -1238,6 +1265,46 @@ fn try_dispatch_native_turn(
             NativeRoute::Doctor => {
                 let ws_path = std::path::PathBuf::from(&workspace);
                 let text = build_native_doctor_report(&ws_path);
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+            }
+            NativeRoute::Config => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let mode = crate::engine::sandbox::SandboxMode::from_env();
+                let mode_str = match mode {
+                    crate::engine::sandbox::SandboxMode::Off => "off",
+                    crate::engine::sandbox::SandboxMode::ReadOnly => "read-only",
+                    crate::engine::sandbox::SandboxMode::WorkspaceWrite => "workspace-write",
+                };
+                let mcp_count = crate::engine::mcp::load_mcp_server_configs(&ws_path).len();
+                let hooks_count = crate::engine::hooks::HookRegistry::load(&ws_path)
+                    .rules()
+                    .len();
+                let text = format!(
+                    "Native Configuration:\n- Provider / Model: `{}` / `{}`\n- Workspace: `{}`\n- Write mode: `{}` (toggle with `/write-mode on|off`)\n- Sandbox mode: `{mode_str}` (`ARIA_SANDBOX_MODE`)\n- MCP servers configured: {mcp_count} (`/mcp` · `/mcp probe`)\n- Lifecycle hooks: {hooks_count} (`/hooks` · `/hooks init`)",
+                    if provider.is_empty() { "ollama" } else { &provider },
+                    if model.is_empty() { "default" } else { &model },
+                    ws_path.display(),
+                    if allow_write { "enabled" } else { "read-only" },
+                );
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+            }
+            NativeRoute::Permissions => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let mode = crate::engine::sandbox::SandboxMode::from_env();
+                let mode_str = match mode {
+                    crate::engine::sandbox::SandboxMode::Off => "off",
+                    crate::engine::sandbox::SandboxMode::ReadOnly => "read-only",
+                    crate::engine::sandbox::SandboxMode::WorkspaceWrite => "workspace-write",
+                };
+                let hooks_count = crate::engine::hooks::HookRegistry::load(&ws_path)
+                    .rules()
+                    .len();
+                let text = format!(
+                    "Permissions & Guardrails:\n- Workspace writes: `{}` (change with `/write-mode on` or `/write-mode off`)\n- OS shell sandbox: `{mode_str}` (set `ARIA_SANDBOX_MODE=workspace-write|read-only`)\n- Pre/Post/Stop hooks: {hooks_count} rule(s) loaded (manage with `/hooks` or `/hooks init`)",
+                    if allow_write { "allowed" } else { "read-only" },
+                );
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
             }
@@ -1460,6 +1527,16 @@ fn try_dispatch_native_turn(
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }
             NativeRoute::OllamaAgent => {
+                let _ = tx.send(json!({
+                    "protocol": 1,
+                    "type": "turn.phase",
+                    "phase": "plan",
+                    "label": if zh {
+                        format!("等待 {model} 规划工具调用…")
+                    } else {
+                        format!("Waiting for {model} to plan…")
+                    }
+                }));
                 let ws_path = std::path::PathBuf::from(&workspace);
                 let res = crate::engine::agent::run_native_agent_with_history(
                     &url,
@@ -1508,6 +1585,16 @@ fn try_dispatch_native_turn(
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }
             NativeRoute::OllamaChat => {
+                let _ = tx.send(json!({
+                    "protocol": 1,
+                    "type": "turn.phase",
+                    "phase": "plan",
+                    "label": if zh {
+                        format!("等待 {model} 响应…")
+                    } else {
+                        format!("Waiting for {model}…")
+                    }
+                }));
                 let sys = crate::engine::policy::general_system_prompt("today");
                 let mut reply = String::new();
                 let res = crate::engine::ollama::stream_chat_cancelable(
@@ -1544,6 +1631,16 @@ fn try_dispatch_native_turn(
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }
             NativeRoute::CloudChat(cloud) => {
+                let _ = tx.send(json!({
+                    "protocol": 1,
+                    "type": "turn.phase",
+                    "phase": "plan",
+                    "label": if zh {
+                        format!("等待 {model} 响应…")
+                    } else {
+                        format!("Waiting for {model}…")
+                    }
+                }));
                 let use_agent = !crate::engine::policy::is_conversation_only_message(&prompt);
                 if use_agent {
                     if let Some(api_key) = cloud.resolve_api_key() {
@@ -2481,6 +2578,24 @@ mod tests {
         assert_eq!(
             classify_native_route(&app, &json!({"type": "turn.submit", "text": "/doctor"})),
             Some(NativeRoute::Doctor)
+        );
+        assert_eq!(
+            classify_native_route(&app, &json!({"type": "turn.submit", "text": "/config"})),
+            Some(NativeRoute::Config)
+        );
+        assert_eq!(
+            classify_native_route(
+                &app,
+                &json!({"type": "turn.submit", "text": "/permissions"})
+            ),
+            Some(NativeRoute::Permissions)
+        );
+        assert_eq!(
+            classify_native_route(
+                &app,
+                &json!({"type": "turn.submit", "text": "/mcp connect --uvx"})
+            ),
+            Some(NativeRoute::Mcp("connect --uvx".into()))
         );
         assert_eq!(
             classify_native_route(&app, &json!({"type": "turn.submit", "text": "/hooks init"})),

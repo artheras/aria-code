@@ -405,6 +405,43 @@ pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> 
     found
 }
 
+/// Zero-clone `uvx` MCP server entries for published Arthera ecosystem services.
+/// Never hardcodes `FINANCIAL_SERVICE_NETWORK` or `FINANCIAL_SERVICE_BROKERS_ENABLED`.
+pub fn ecosystem_uvx_mcp_configs() -> Vec<McpServerConfig> {
+    vec![
+        McpServerConfig {
+            name: "arthera-finance".into(),
+            command: "uvx".into(),
+            args: vec![
+                "--from".into(),
+                "git+https://github.com/artheras/financial-service.git".into(),
+                "arthera-financial-service".into(),
+            ],
+            env: HashMap::new(),
+        },
+        McpServerConfig {
+            name: "aria-healthcare".into(),
+            command: "uvx".into(),
+            args: vec![
+                "--from".into(),
+                "git+https://github.com/artheras/healthcare-service.git".into(),
+                "aria-healthcare".into(),
+            ],
+            env: HashMap::new(),
+        },
+        McpServerConfig {
+            name: "erp-service".into(),
+            command: "uvx".into(),
+            args: vec![
+                "--from".into(),
+                "git+https://github.com/artheras/erp-service.git".into(),
+                "erp-service-mcp".into(),
+            ],
+            env: HashMap::new(),
+        },
+    ]
+}
+
 /// Merge discovered or specified MCP server configs into `<workspace>/.mcp.json`.
 pub fn write_workspace_mcp_json(
     workspace: &Path,
@@ -811,5 +848,18 @@ for line in sys.stdin:
             .unwrap();
         assert_eq!(call["ok"], true);
         assert_eq!(call["data"]["content"][0]["text"], "pong:hello");
+    }
+
+    #[test]
+    fn builds_uvx_ecosystem_configs_without_hardcoded_finance_env() {
+        let cfgs = ecosystem_uvx_mcp_configs();
+        assert_eq!(cfgs.len(), 3);
+        for cfg in &cfgs {
+            assert_eq!(cfg.command, "uvx");
+            assert!(cfg.env.is_empty());
+        }
+        assert!(cfgs.iter().any(|c| c.name == "arthera-finance"));
+        assert!(cfgs.iter().any(|c| c.name == "aria-healthcare"));
+        assert!(cfgs.iter().any(|c| c.name == "erp-service"));
     }
 }
