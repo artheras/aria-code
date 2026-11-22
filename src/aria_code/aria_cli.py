@@ -2824,76 +2824,10 @@ def _sanitize_team_result_with_market_data(team_result, data_bundle) -> list[str
 
 
 
-# A-share code → Chinese name lookup with on-disk JSON cache (7-day TTL)
-_ASHARE_NAMES_CACHE: dict = {}
-_ASHARE_NAMES_LOADED: bool = False
-_ASHARE_NAMES_FAIL_TS: float = 0.0  # timestamp of last fetch failure; retry after 5 min
-_ASHARE_NAMES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "research", ".cache", "ashare_names.json")
-
-
-def _ensure_ashare_names_loaded() -> dict:
-    """Load (and auto-refresh) the A-share code→Chinese name mapping."""
-    global _ASHARE_NAMES_CACHE, _ASHARE_NAMES_LOADED, _ASHARE_NAMES_FAIL_TS
-    if _ASHARE_NAMES_LOADED:
-        return _ASHARE_NAMES_CACHE
-
-    import json as _json
-    import time as _time
-
-    # Back off for 5 minutes after a network failure to avoid hammering AKShare
-    if _ASHARE_NAMES_FAIL_TS and _time.time() - _ASHARE_NAMES_FAIL_TS < 300:
-        return _ASHARE_NAMES_CACHE
-
-    cache_path = _ASHARE_NAMES_PATH
-    cache_dir  = os.path.dirname(cache_path)
-
-    # Try reading existing cache
-    if os.path.exists(cache_path):
-        try:
-            mtime = os.path.getmtime(cache_path)
-            if _time.time() - mtime < 7 * 86400:  # 7-day TTL
-                with open(cache_path, encoding="utf-8") as _f:
-                    _ASHARE_NAMES_CACHE = _json.load(_f)
-                _ASHARE_NAMES_LOADED = True
-                return _ASHARE_NAMES_CACHE
-        except Exception:
-            pass
-
-    # Cache missing or stale — rebuild from akshare
-    try:
-        import akshare as _ak  # type: ignore
-        df = _ak.stock_info_a_code_name()
-        if df is not None and not df.empty:
-            mapping: dict = {}
-            for _, row in df.iterrows():
-                code = str(row.get("code", row.iloc[0])).zfill(6)
-                name = str(row.get("name", row.iloc[1]))
-                mapping[code] = name
-            _ASHARE_NAMES_CACHE = mapping
-            # Persist to disk
-            try:
-                os.makedirs(cache_dir, exist_ok=True)
-                with open(cache_path, "w", encoding="utf-8") as _f:
-                    _json.dump(mapping, _f, ensure_ascii=False)
-            except Exception:
-                pass
-            _ASHARE_NAMES_LOADED = True
-    except Exception:
-        _ASHARE_NAMES_FAIL_TS = _time.time()  # retry after 5-min backoff, not permanently locked
-
-    return _ASHARE_NAMES_CACHE
-
-
 def _ashare_code_to_name(symbol: str) -> str:
     """Return the Chinese company name for a 6-digit A-share code, or empty string."""
-    # Normalise to bare 6-digit code
-    code = symbol.upper().strip()
-    code = code.replace(".SS", "").replace(".SZ", "")
-    code = code.lstrip("SH").lstrip("SZ") if not code[:2].isdigit() else code
-    code = code.zfill(6) if code.isdigit() else code
+    return ""
 
-    names = _ensure_ashare_names_loaded()
-    return names.get(code, "")
 
 
 from aria_code.ui.render.output import FINANCE_TOOL_NAMES as _FINANCE_TOOL_NAMES
