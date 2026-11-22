@@ -1128,8 +1128,35 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut buf = [0u8; 4096];
-            let _ = stream.read(&mut buf);
+            let mut req = Vec::new();
+            let mut buf = [0u8; 1024];
+            let header_end = loop {
+                let n = stream.read(&mut buf).unwrap();
+                if n == 0 {
+                    break req.len();
+                }
+                req.extend_from_slice(&buf[..n]);
+                if let Some(pos) = req.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break pos + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&req[..header_end]);
+            let content_len = headers
+                .lines()
+                .find_map(|line| {
+                    let (k, v) = line.split_once(':')?;
+                    k.eq_ignore_ascii_case("content-length")
+                        .then(|| v.trim().parse::<usize>().ok())
+                        .flatten()
+                })
+                .unwrap_or(0);
+            while req.len() < header_end + content_len {
+                let n = stream.read(&mut buf).unwrap();
+                if n == 0 {
+                    break;
+                }
+                req.extend_from_slice(&buf[..n]);
+            }
             let body = concat!(
                 "{\"message\":{\"content\":\"Checking \"},\"done\":false}\n",
                 "{\"message\":{\"content\":\"files.\"},\"done\":false}\n",
@@ -1141,6 +1168,8 @@ mod tests {
                 body
             );
             stream.write_all(resp.as_bytes()).unwrap();
+            stream.flush().unwrap();
+            let _ = stream.shutdown(std::net::Shutdown::Write);
         });
 
         let agent = ureq::Agent::config_builder()
