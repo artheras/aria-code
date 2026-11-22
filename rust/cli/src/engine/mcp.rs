@@ -542,10 +542,40 @@ pub fn probe_workspace_mcp_servers(workspace: &Path) -> Vec<McpServerHealth> {
         .collect()
 }
 
+/// Standard MCP tool annotations parsed from `tools/list` (`annotations` field).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct McpToolAnnotations {
+    pub read_only: bool,
+    pub destructive: bool,
+    pub idempotent: bool,
+}
+
+fn parse_tool_annotations(tool: &Value) -> McpToolAnnotations {
+    let Some(ann) = tool.get("annotations").and_then(Value::as_object) else {
+        return McpToolAnnotations::default();
+    };
+    McpToolAnnotations {
+        read_only: ann
+            .get("readOnlyHint")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        destructive: ann
+            .get("destructiveHint")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        idempotent: ann
+            .get("idempotentHint")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    }
+}
+
 /// Live registry of external stdio MCP servers discovered from `~/.aria/mcp.json` and `<workspace>/.mcp.json`.
 pub struct McpRegistry {
     clients: HashMap<String, McpStdioClient>,
     routes: HashMap<String, (String, String)>,
+    annotations: HashMap<String, McpToolAnnotations>,
     schemas: Vec<Value>,
     statuses: Vec<McpServerHealth>,
 }
@@ -559,6 +589,7 @@ impl McpRegistry {
     pub fn load_from_configs(configs: &[McpServerConfig]) -> Self {
         let mut clients = HashMap::new();
         let mut routes = HashMap::new();
+        let mut annotations = HashMap::new();
         let mut schemas = Vec::new();
         let mut statuses = Vec::new();
         for cfg in configs {
@@ -619,6 +650,7 @@ impl McpRegistry {
                         "parameters": params,
                     }
                 }));
+                annotations.insert(exposed.clone(), parse_tool_annotations(&tool));
                 routes.insert(exposed, (cfg.name.clone(), orig_name.to_owned()));
             }
             statuses.push(McpServerHealth {
@@ -635,6 +667,7 @@ impl McpRegistry {
         Self {
             clients,
             routes,
+            annotations,
             schemas,
             statuses,
         }
@@ -643,6 +676,18 @@ impl McpRegistry {
     #[allow(dead_code)]
     pub fn statuses(&self) -> &[McpServerHealth] {
         &self.statuses
+    }
+
+    #[allow(dead_code)]
+    pub fn tool_annotations(&self, exposed_name: &str) -> Option<&McpToolAnnotations> {
+        self.annotations.get(exposed_name)
+    }
+
+    #[allow(dead_code)]
+    pub fn is_tool_read_only(&self, exposed_name: &str) -> bool {
+        self.annotations
+            .get(exposed_name)
+            .is_some_and(|a| a.read_only && !a.destructive)
     }
 
     pub fn tool_schemas(&self) -> &[Value] {
@@ -798,7 +843,10 @@ for line in sys.stdin:
     if method == "initialize":
         resp = {"jsonrpc": "2.0", "id": req_id, "result": {"protocolVersion": "2024-11-05", "capabilities": {}}}
     elif method == "tools/list":
-        resp = {"jsonrpc": "2.0", "id": req_id, "result": {"tools": [{"name": "echo.ping", "description": "Echo tool", "inputSchema": {"type": "object", "properties": {"msg": {"type": "string"}}}}]}}
+        resp = {"jsonrpc": "2.0", "id": req_id, "result": {"tools": [
+            {"name": "echo.ping", "description": "Echo tool", "inputSchema": {"type": "object", "properties": {"msg": {"type": "string"}}}, "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}},
+            {"name": "order.create", "description": "Create order", "inputSchema": {"type": "object", "properties": {}}, "annotations": {"readOnlyHint": False, "destructiveHint": True}}
+        ]}}
     elif method == "tools/call":
         args = req.get("params", {}).get("arguments", {})
         resp = {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": f"pong:{args.get('msg', '')}"}]}}
@@ -832,8 +880,8 @@ for line in sys.stdin:
         assert_eq!(health.len(), 2);
         let good_h = health.iter().find(|h| h.name == "demo-srv").unwrap();
         assert!(good_h.connected);
-        assert_eq!(good_h.tool_count, 1);
-        assert_eq!(good_h.tool_names, vec!["echo.ping"]);
+        assert_eq!(good_h.tool_count, 2);
+        assert_eq!(good_h.tool_names, vec!["echo.ping", "order.create"]);
         assert!(good_h.error.is_none());
 
         let bad_h = health.iter().find(|h| h.name == "missing-srv").unwrap();
@@ -842,7 +890,17 @@ for line in sys.stdin:
 
         let mut reg = McpRegistry::load_from_workspace(dir.path());
         assert_eq!(reg.statuses().len(), 2);
-        assert_eq!(reg.tool_schemas().len(), 1);
+        assert_eq!(reg.tool_schemas().len(), 2);
+        assert!(reg.is_tool_read_only("mcp__demo_srv__echo_ping"));
+        assert!(!reg.is_tool_read_only("mcp__demo_srv__order_create"));
+        assert_eq!(
+            reg.tool_annotations("mcp__demo_srv__echo_ping"),
+            Some(&McpToolAnnotations {
+                read_only: true,
+                destructive: false,
+                idempotent: true,
+            })
+        );
         let call = reg
             .call_tool("mcp__demo_srv__echo_ping", json!({"msg": "hello"}))
             .unwrap();
