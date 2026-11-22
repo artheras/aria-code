@@ -426,6 +426,7 @@ fn native_commands_json() -> Value {
         {"name": "/mcp", "description": "List, connect, or probe ecosystem MCP servers (/mcp [connect|probe])"},
         {"name": "/skills", "description": "List discovered project and user skills"},
         {"name": "/init", "description": "Generate ARIA.md for the current project (/init [--force])"},
+        {"name": "/doctor", "description": "Run native runtime, provider, MCP, hook, and sandbox diagnostics"},
         {"name": "/write-mode", "description": "Toggle workspace write permission (on|off)"},
         {"name": "/new", "description": "Start a new session"}
     ])
@@ -473,6 +474,62 @@ fn format_mcp_probe_report(
     (lines.join("\n"), if all_ok { "ok" } else { "failed" })
 }
 
+fn build_native_doctor_report(workspace: &std::path::Path) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "Aria Code Native Doctor (v{})",
+        env!("CARGO_PKG_VERSION")
+    ));
+    lines.push(format!("- Workspace: `{}`", workspace.display()));
+    let instructions = crate::engine::skills::load_project_instructions(workspace);
+    lines.push(match instructions {
+        Some((p, _)) => format!("- Project instructions: `{}`", p.display()),
+        None => "- Project instructions: none (run `/init` to generate `ARIA.md`)".to_owned(),
+    });
+    let skills = crate::engine::skills::discover_skills(workspace);
+    lines.push(format!("- Skills discovered: {}", skills.len()));
+    let hooks = crate::engine::hooks::HookRegistry::load(workspace);
+    lines.push(format!(
+        "- Lifecycle hooks: {} rule(s) (run `/hooks init` to scaffold `.aria/hooks.json`)",
+        hooks.rules().len()
+    ));
+    let mode = crate::engine::sandbox::SandboxMode::from_env();
+    let mode_str = match mode {
+        crate::engine::sandbox::SandboxMode::Off => "off",
+        crate::engine::sandbox::SandboxMode::ReadOnly => "read-only",
+        crate::engine::sandbox::SandboxMode::WorkspaceWrite => "workspace-write",
+    };
+    lines.push(format!("- Sandbox mode: `{mode_str}`"));
+    let configured_mcp = crate::engine::mcp::load_mcp_server_configs(workspace);
+    let sibling_mcp = crate::engine::mcp::discover_ecosystem_mcp_servers(workspace);
+    lines.push(format!(
+        "- MCP servers: {} configured, {} sibling ecosystem detected (run `/mcp probe` to verify)",
+        configured_mcp.len(),
+        sibling_mcp.len()
+    ));
+    let mut providers = Vec::new();
+    for (label, env_key) in [
+        ("OpenAI", "OPENAI_API_KEY"),
+        ("Anthropic", "ANTHROPIC_API_KEY"),
+        ("Gemini", "GEMINI_API_KEY"),
+        ("Google", "GOOGLE_API_KEY"),
+    ] {
+        if std::env::var(env_key)
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false)
+        {
+            providers.push(label);
+        }
+    }
+    let provider_line = if providers.is_empty() {
+        "none in env (using local Ollama or saved config)".to_owned()
+    } else {
+        providers.join(", ")
+    };
+    lines.push(format!("- Cloud LLM env keys: {provider_line}"));
+    lines.join("\n")
+}
+
 fn ollama_base_url() -> String {
     std::env::var("OLLAMA_HOST")
         .ok()
@@ -495,7 +552,8 @@ enum NativeRoute {
     Mcp(String),
     Skills,
     Init(bool),
-    Hooks,
+    Doctor,
+    Hooks(String),
     Sandbox,
     Compact,
     Verify(Option<String>),
@@ -547,8 +605,12 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
             .any(|tok| tok == "--force" || tok == "-f");
         return Some(NativeRoute::Init(force));
     }
-    if text == "/hooks" {
-        return Some(NativeRoute::Hooks);
+    if text == "/doctor" {
+        return Some(NativeRoute::Doctor);
+    }
+    if text == "/hooks" || text.starts_with("/hooks ") {
+        let arg = text.strip_prefix("/hooks").unwrap_or("").trim().to_owned();
+        return Some(NativeRoute::Hooks(arg));
     }
     if text == "/sandbox" {
         return Some(NativeRoute::Sandbox);
@@ -1173,26 +1235,50 @@ fn try_dispatch_native_turn(
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }
-            NativeRoute::Hooks => {
+            NativeRoute::Doctor => {
                 let ws_path = std::path::PathBuf::from(&workspace);
-                let reg = crate::engine::hooks::HookRegistry::load(&ws_path);
-                let rules = reg.rules();
-                let text = if rules.is_empty() {
-                    "No lifecycle hooks configured. Add rules in `.aria/hooks.json` or `~/.aria/hooks.json` (`PreToolUse`, `PostToolUse`, `Stop`).".to_owned()
-                } else {
-                    let mut lines = vec![format!("Configured lifecycle hooks ({}):", rules.len())];
-                    for r in rules {
-                        lines.push(format!(
-                            "- `{}` matcher=`{}` -> `{}`",
-                            r.event.as_str(),
-                            r.matcher,
-                            r.command
-                        ));
-                    }
-                    lines.join("\n")
-                };
+                let text = build_native_doctor_report(&ws_path);
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+            }
+            NativeRoute::Hooks(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) = if arg.eq_ignore_ascii_case("init") {
+                    match crate::engine::hooks::write_default_hooks_if_missing(&ws_path) {
+                        Ok((path, true)) => (
+                            format!("Created starter lifecycle hooks at `{}`.", path.display()),
+                            "ok",
+                        ),
+                        Ok((path, false)) => (
+                            format!("`{}` already exists (left unchanged).", path.display()),
+                            "ok",
+                        ),
+                        Err(e) => (format!("[hooks init error: {e}]"), "failed"),
+                    }
+                } else {
+                    let reg = crate::engine::hooks::HookRegistry::load(&ws_path);
+                    let rules = reg.rules();
+                    if rules.is_empty() {
+                        (
+                            "No lifecycle hooks configured. Run `/hooks init` to create `.aria/hooks.json` (`PreToolUse`, `PostToolUse`, `Stop`).".to_owned(),
+                            "ok",
+                        )
+                    } else {
+                        let mut lines =
+                            vec![format!("Configured lifecycle hooks ({}):", rules.len())];
+                        for r in rules {
+                            lines.push(format!(
+                                "- `{}` matcher=`{}` -> `{}`",
+                                r.event.as_str(),
+                                r.matcher,
+                                r.command
+                            ));
+                        }
+                        (lines.join("\n"), "ok")
+                    }
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }
             NativeRoute::Sandbox => {
                 let mode = crate::engine::sandbox::SandboxMode::from_env();
@@ -2391,6 +2477,14 @@ mod tests {
                 &json!({"type": "turn.submit", "text": "/init --force"})
             ),
             Some(NativeRoute::Init(true))
+        );
+        assert_eq!(
+            classify_native_route(&app, &json!({"type": "turn.submit", "text": "/doctor"})),
+            Some(NativeRoute::Doctor)
+        );
+        assert_eq!(
+            classify_native_route(&app, &json!({"type": "turn.submit", "text": "/hooks init"})),
+            Some(NativeRoute::Hooks("init".into()))
         );
         assert_eq!(
             classify_native_route(
