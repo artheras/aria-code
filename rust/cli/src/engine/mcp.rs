@@ -485,6 +485,7 @@ pub struct McpServerHealth {
     pub command: String,
     pub connected: bool,
     pub tool_count: usize,
+    pub read_only_count: usize,
     pub tool_names: Vec<String>,
     pub latency_ms: u64,
     pub error: Option<String>,
@@ -497,15 +498,23 @@ pub fn probe_mcp_server(cfg: &McpServerConfig) -> McpServerHealth {
     match McpStdioClient::spawn_with_env(&cfg.command, &cfg.args, &cfg.env) {
         Ok(mut client) => match client.list_tools() {
             Ok(tools) => {
-                let tool_names: Vec<String> = tools
-                    .iter()
-                    .filter_map(|t| t.get("name").and_then(Value::as_str).map(str::to_owned))
-                    .collect();
+                let mut tool_names = Vec::new();
+                let mut read_only_count = 0usize;
+                for t in &tools {
+                    if let Some(name) = t.get("name").and_then(Value::as_str) {
+                        tool_names.push(name.to_owned());
+                        let ann = parse_tool_annotations(t);
+                        if ann.read_only && !ann.destructive {
+                            read_only_count += 1;
+                        }
+                    }
+                }
                 McpServerHealth {
                     name: cfg.name.clone(),
                     command: cfg.command.clone(),
                     connected: true,
                     tool_count: tool_names.len(),
+                    read_only_count,
                     tool_names,
                     latency_ms: started.elapsed().as_millis() as u64,
                     error: None,
@@ -516,6 +525,7 @@ pub fn probe_mcp_server(cfg: &McpServerConfig) -> McpServerHealth {
                 command: cfg.command.clone(),
                 connected: false,
                 tool_count: 0,
+                read_only_count: 0,
                 tool_names: Vec::new(),
                 latency_ms: started.elapsed().as_millis() as u64,
                 error: Some(err),
@@ -526,6 +536,7 @@ pub fn probe_mcp_server(cfg: &McpServerConfig) -> McpServerHealth {
             command: cfg.command.clone(),
             connected: false,
             tool_count: 0,
+            read_only_count: 0,
             tool_names: Vec::new(),
             latency_ms: started.elapsed().as_millis() as u64,
             error: Some(err),
@@ -603,6 +614,7 @@ impl McpRegistry {
                         command: cfg.command.clone(),
                         connected: false,
                         tool_count: 0,
+                        read_only_count: 0,
                         tool_names: Vec::new(),
                         latency_ms: started.elapsed().as_millis() as u64,
                         error: Some(err),
@@ -618,6 +630,7 @@ impl McpRegistry {
                         command: cfg.command.clone(),
                         connected: false,
                         tool_count: 0,
+                        read_only_count: 0,
                         tool_names: Vec::new(),
                         latency_ms: started.elapsed().as_millis() as u64,
                         error: Some(err),
@@ -627,6 +640,7 @@ impl McpRegistry {
             };
             let safe_server = cfg.name.replace(['.', '-', ' '], "_");
             let mut tool_names = Vec::new();
+            let mut read_only_count = 0usize;
             for tool in tools {
                 let Some(orig_name) = tool.get("name").and_then(Value::as_str) else {
                     continue;
@@ -650,7 +664,11 @@ impl McpRegistry {
                         "parameters": params,
                     }
                 }));
-                annotations.insert(exposed.clone(), parse_tool_annotations(&tool));
+                let ann = parse_tool_annotations(&tool);
+                if ann.read_only && !ann.destructive {
+                    read_only_count += 1;
+                }
+                annotations.insert(exposed.clone(), ann);
                 routes.insert(exposed, (cfg.name.clone(), orig_name.to_owned()));
             }
             statuses.push(McpServerHealth {
@@ -658,6 +676,7 @@ impl McpRegistry {
                 command: cfg.command.clone(),
                 connected: true,
                 tool_count: tool_names.len(),
+                read_only_count,
                 tool_names,
                 latency_ms: started.elapsed().as_millis() as u64,
                 error: None,
@@ -881,6 +900,7 @@ for line in sys.stdin:
         let good_h = health.iter().find(|h| h.name == "demo-srv").unwrap();
         assert!(good_h.connected);
         assert_eq!(good_h.tool_count, 2);
+        assert_eq!(good_h.read_only_count, 1);
         assert_eq!(good_h.tool_names, vec!["echo.ping", "order.create"]);
         assert!(good_h.error.is_none());
 

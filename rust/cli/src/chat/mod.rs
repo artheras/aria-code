@@ -460,8 +460,8 @@ fn format_mcp_probe_report(
                 )
             };
             lines.push(format!(
-                "- `{}`: ok ({} tools, {} ms) — `{}`",
-                h.name, h.tool_count, h.latency_ms, preview
+                "- `{}`: ok ({} tools, {} read-only, {} ms) — `{}`",
+                h.name, h.tool_count, h.read_only_count, h.latency_ms, preview
             ));
         } else {
             all_ok = false;
@@ -2733,6 +2733,7 @@ mod tests {
                 command: "erp-service-mcp".into(),
                 connected: true,
                 tool_count: 2,
+                read_only_count: 2,
                 tool_names: vec!["erp.warehouse.analyze".into(), "erp.inventory.plan".into()],
                 latency_ms: 12,
                 error: None,
@@ -2742,6 +2743,7 @@ mod tests {
                 command: "arthera-financial-service".into(),
                 connected: false,
                 tool_count: 0,
+                read_only_count: 0,
                 tool_names: vec![],
                 latency_ms: 5,
                 error: Some("not installed".into()),
@@ -2749,7 +2751,7 @@ mod tests {
         ]);
         assert_eq!(status, "failed");
         assert!(msg.contains("erp-service"));
-        assert!(msg.contains("2 tools, 12 ms"));
+        assert!(msg.contains("2 tools, 2 read-only, 12 ms"));
         assert!(msg.contains("arthera-finance"));
         assert!(msg.contains("not installed"));
     }

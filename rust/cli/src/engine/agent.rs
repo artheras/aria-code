@@ -1237,4 +1237,84 @@ mod tests {
         let out_cmd = guard.execute(dir.path(), &blocked_cmd, true, &mut |_, _, _| {});
         assert!(out_cmd.contains("Denied by permission rule"));
     }
+
+    #[test]
+    fn read_only_mode_allows_readonly_mcp_and_blocks_destructive_mcp() {
+        let py = if std::process::Command::new("python3")
+            .arg("--version")
+            .output()
+            .is_ok()
+        {
+            "python3"
+        } else if std::process::Command::new("python")
+            .arg("--version")
+            .output()
+            .is_ok()
+        {
+            "python"
+        } else {
+            return;
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("mock_mcp.py");
+        std::fs::write(
+            &script,
+            r#"import json, sys
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    req = json.loads(line)
+    req_id = req.get("id")
+    if req_id is None:
+        continue
+    m = req.get("method")
+    if m == "initialize":
+        resp = {"jsonrpc": "2.0", "id": req_id, "result": {"protocolVersion": "2024-11-05", "capabilities": {}}}
+    elif m == "tools/list":
+        resp = {"jsonrpc": "2.0", "id": req_id, "result": {"tools": [
+            {"name": "echo.ping", "description": "Read-only echo", "inputSchema": {"type": "object"}, "annotations": {"readOnlyHint": True, "destructiveHint": False}},
+            {"name": "order.create", "description": "Mutating order", "inputSchema": {"type": "object"}, "annotations": {"readOnlyHint": False, "destructiveHint": True}}
+        ]}}
+    elif m == "tools/call":
+        resp = {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": "ok"}]}}
+    else:
+        resp = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "unknown"}}
+    sys.stdout.write(json.dumps(resp) + "\n")
+    sys.stdout.flush()
+"#,
+        )
+        .unwrap();
+
+        let aria_dir = dir.path().join(".aria");
+        std::fs::create_dir_all(&aria_dir).unwrap();
+        std::fs::write(
+            aria_dir.join("settings.json"),
+            r#"{"permissions":{"defaultMode":"read-only"}}"#,
+        )
+        .unwrap();
+        let cfg = mcp::McpServerConfig {
+            name: "demo-srv".into(),
+            command: py.into(),
+            args: vec![script.to_string_lossy().into_owned()],
+            env: std::collections::HashMap::new(),
+        };
+        mcp::write_workspace_mcp_json(dir.path(), &[cfg]).unwrap();
+
+        let mut guard = ToolLoopGuard::new(dir.path());
+        let ro_call = ToolCall {
+            name: "mcp__demo_srv__echo_ping".into(),
+            arguments: json!({}),
+        };
+        let ro_out = guard.execute(dir.path(), &ro_call, false, &mut |_, _, _| {});
+        assert!(ro_out.contains("\"ok\":true"));
+
+        let mut_call = ToolCall {
+            name: "mcp__demo_srv__order_create".into(),
+            arguments: json!({}),
+        };
+        let mut_out = guard.execute(dir.path(), &mut_call, false, &mut |_, _, _| {});
+        assert!(mut_out.contains("read-only permission mode"));
+    }
 }
