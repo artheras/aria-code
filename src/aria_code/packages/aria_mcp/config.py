@@ -62,6 +62,43 @@ def erp_service_server_config(python: Path) -> Dict[str, object]:
             "enabled": True}
 
 
+def discover_sibling_ecosystem_servers(
+    workspace: Optional[Path] = None,
+) -> List[Dict[str, object]]:
+    """Auto-discover sibling financial-service, erp-service, and healthcare-service MCP servers."""
+    roots: List[Path] = []
+    for candidate in (
+        Path(workspace).expanduser().resolve().parent if workspace is not None else None,
+        Path.cwd().resolve().parent,
+        Path(__file__).resolve().parents[4].parent,
+        Path.home() / "Desktop",
+    ):
+        if candidate is not None and candidate not in roots:
+            roots.append(candidate)
+
+    specs = (
+        ("financial-service", financial_service_server_config),
+        ("erp-service", erp_service_server_config),
+        ("healthcare-service", healthcare_service_server_config),
+    )
+    servers: List[Dict[str, object]] = []
+    seen_names: set[str] = set()
+    for repo_dir, builder in specs:
+        for root in roots:
+            for rel_py in (Path(".venv") / "bin" / "python", Path(".venv") / "Scripts" / "python.exe"):
+                py_path = root / repo_dir / rel_py
+                if py_path.is_file():
+                    cfg = builder(py_path)
+                    name = str(cfg.get("name", ""))
+                    if name and name not in seen_names:
+                        seen_names.add(name)
+                        servers.append(cfg)
+                    break
+            if any(str(s.get("command", "")).startswith(str(root / repo_dir)) for s in servers):
+                break
+    return servers
+
+
 def _atomic_write_json(path: Path, payload: Dict[str, object], prefix: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
