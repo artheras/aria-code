@@ -276,6 +276,18 @@ impl ToolLoopGuard {
         allow_write: bool,
         on_tool: &mut impl FnMut(&str, &Value, &Value),
     ) -> String {
+        self.execute_with_start(workspace, call, allow_write, &mut |_, _| {}, on_tool)
+    }
+
+    fn execute_with_start(
+        &mut self,
+        workspace: &Path,
+        call: &ToolCall,
+        allow_write: bool,
+        on_tool_start: &mut impl FnMut(&str, &Value),
+        on_tool: &mut impl FnMut(&str, &Value, &Value),
+    ) -> String {
+        on_tool_start(&call.name, &call.arguments);
         let read_only = is_read_only_tool(&call.name, &call.arguments)
             || self.mcp.is_tool_read_only(&call.name);
         if let permissions::PermissionDecision::Deny(reason) =
@@ -435,12 +447,14 @@ pub fn run_native_agent_with_history(
         allow_write,
         max_rounds,
         timeout,
+        |_, _| {},
         on_tool,
         |_| {},
     )
 }
 
-/// Run a bounded multi-round coding/inspection loop natively in Rust, streaming token deltas live.
+/// Run a bounded multi-round coding/inspection loop natively in Rust, streaming token deltas
+/// and emitting `on_tool_start` immediately before each tool runs.
 #[allow(clippy::too_many_arguments)]
 pub fn run_native_agent_with_history_streaming(
     base_url: &str,
@@ -451,6 +465,7 @@ pub fn run_native_agent_with_history_streaming(
     allow_write: bool,
     max_rounds: usize,
     timeout: Duration,
+    mut on_tool_start: impl FnMut(&str, &Value),
     mut on_tool: impl FnMut(&str, &Value, &Value),
     mut on_delta: impl FnMut(&str),
 ) -> Result<String, String> {
@@ -487,7 +502,13 @@ pub fn run_native_agent_with_history_streaming(
             })).collect::<Vec<_>>()
         }));
         for call in calls {
-            let content_str = guard.execute(workspace, &call, allow_write, &mut on_tool);
+            let content_str = guard.execute_with_start(
+                workspace,
+                &call,
+                allow_write,
+                &mut on_tool_start,
+                &mut on_tool,
+            );
             messages.push(json!({
                 "role": "tool",
                 "content": content_str,
@@ -1316,5 +1337,27 @@ for line in sys.stdin:
         };
         let mut_out = guard.execute(dir.path(), &mut_call, false, &mut |_, _, _| {});
         assert!(mut_out.contains("read-only permission mode"));
+    }
+
+    #[test]
+    fn emits_tool_start_strictly_before_tool_completion() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut guard = ToolLoopGuard::new(dir.path());
+        let call = ToolCall {
+            name: "list_files".into(),
+            arguments: json!({"path": "."}),
+        };
+        let events = std::cell::RefCell::new(Vec::<String>::new());
+        let _ = guard.execute_with_start(
+            dir.path(),
+            &call,
+            false,
+            &mut |name, _| events.borrow_mut().push(format!("start:{name}")),
+            &mut |name, _, _| events.borrow_mut().push(format!("done:{name}")),
+        );
+        assert_eq!(
+            *events.borrow(),
+            vec!["start:list_files".to_owned(), "done:list_files".to_owned()]
+        );
     }
 }
