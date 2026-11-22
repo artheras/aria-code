@@ -78,26 +78,48 @@ fn collect_skills_from_dir(dir: &Path, scope: &'static str, out: &mut BTreeMap<S
     }
 }
 
-/// Discover skills from `~/.aria/skills` and `<workspace>/.aria/skills` (workspace overrides global).
+/// Discover skills from global (`~/.claude/skills`, `~/.agents/skills`, `~/.aria/skills`)
+/// and project (`.claude/skills`, `.agents/skills`, `.aria/skills`) directories.
+/// Project skills override global skills, and `.aria/skills` takes highest precedence.
 pub fn discover_skills(workspace: &Path) -> Vec<SkillInfo> {
     let mut map = BTreeMap::new();
     if !cfg!(test) {
         if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
-            collect_skills_from_dir(
-                &Path::new(&home).join(".aria").join("skills"),
-                "global",
-                &mut map,
-            );
+            let h = Path::new(&home);
+            for folder in [".claude", ".agents", ".aria"] {
+                collect_skills_from_dir(&h.join(folder).join("skills"), "global", &mut map);
+            }
         }
     }
-    collect_skills_from_dir(&workspace.join(".aria").join("skills"), "project", &mut map);
+    for folder in [".claude", ".agents", ".aria"] {
+        collect_skills_from_dir(&workspace.join(folder).join("skills"), "project", &mut map);
+    }
     map.into_values().collect()
 }
 
-/// Load `<workspace>/ARIA.md` or `<workspace>/AGENTS.md` if present.
+/// Load a discovered skill's full `SKILL.md` content by exact name (case-insensitive fallback).
+pub fn load_skill_content(workspace: &Path, name: &str) -> Result<(SkillInfo, String), String> {
+    let target = name.trim();
+    if target.is_empty() {
+        return Err("Skill name is required".into());
+    }
+    let skills = discover_skills(workspace);
+    let found = skills
+        .iter()
+        .find(|s| s.name == target)
+        .or_else(|| skills.iter().find(|s| s.name.eq_ignore_ascii_case(target)))
+        .cloned()
+        .ok_or_else(|| format!("Skill `{target}` not found"))?;
+    let raw = fs::read_to_string(&found.path)
+        .map_err(|e| format!("Failed to read `{}`: {e}", found.path.display()))?;
+    let clipped: String = raw.chars().take(16_000).collect();
+    Ok((found, clipped))
+}
+
+/// Load `<workspace>/ARIA.md`, `AGENTS.md`, or `CLAUDE.md` if present.
 #[allow(dead_code)]
 pub fn load_project_instructions(workspace: &Path) -> Option<(PathBuf, String)> {
-    for fname in ["ARIA.md", "AGENTS.md"] {
+    for fname in ["ARIA.md", "AGENTS.md", "CLAUDE.md"] {
         let p = workspace.join(fname);
         if p.is_file() {
             if let Ok(raw) = fs::read_to_string(&p) {
@@ -238,5 +260,44 @@ mod tests {
         let (_, forced) = generate_aria_md(tmp.path(), true).unwrap();
         assert!(forced);
         assert!(fs::read_to_string(&path).unwrap().contains("Rust (Cargo)"));
+    }
+
+    #[test]
+    fn supports_claude_and_agents_skill_dirs_with_aria_precedence_and_claude_md() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("CLAUDE.md"), "Follow strict types.\n").unwrap();
+        let (instr_path, instr) = load_project_instructions(tmp.path()).unwrap();
+        assert!(instr_path.ends_with("CLAUDE.md"));
+        assert!(instr.contains("Follow strict types."));
+
+        let claude_skill = tmp.path().join(".claude").join("skills").join("audit");
+        let aria_skill = tmp.path().join(".aria").join("skills").join("audit");
+        let agents_skill = tmp.path().join(".agents").join("skills").join("deploy");
+        fs::create_dir_all(&claude_skill).unwrap();
+        fs::create_dir_all(&aria_skill).unwrap();
+        fs::create_dir_all(&agents_skill).unwrap();
+        fs::write(
+            claude_skill.join("SKILL.md"),
+            "---\nname: audit\ndescription: Claude version\n---\nOld\n",
+        )
+        .unwrap();
+        fs::write(
+            aria_skill.join("SKILL.md"),
+            "---\nname: audit\ndescription: Aria override\n---\nNew body\n",
+        )
+        .unwrap();
+        fs::write(
+            agents_skill.join("SKILL.md"),
+            "---\nname: deploy\ndescription: Deploy checklist\n---\nSteps\n",
+        )
+        .unwrap();
+
+        let skills = discover_skills(tmp.path());
+        assert_eq!(skills.len(), 2);
+        let (info, body) = load_skill_content(tmp.path(), "audit").unwrap();
+        assert_eq!(info.description, "Aria override");
+        assert!(body.contains("New body"));
+        let (deploy_info, _) = load_skill_content(tmp.path(), "DEPLOY").unwrap();
+        assert_eq!(deploy_info.name, "deploy");
     }
 }

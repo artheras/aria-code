@@ -1389,6 +1389,19 @@ pub fn tool_schemas() -> Value {
                     "required": ["url"]
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "read_skill",
+                "description": "List available workspace/global skills (when name is omitted) or load a skill's full SKILL.md instructions by name.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "description": "Optional skill name to load" }
+                    }
+                }
+            }
         }
     ])
 }
@@ -1620,12 +1633,43 @@ pub fn execute_tool(workspace: &Path, name: &str, args: &Value, allow_write: boo
         "spawn_subagent" => execute_subagent_tool(workspace, args, allow_write),
         "web_search" => execute_web_search(args),
         "web_fetch" => execute_web_fetch(args),
+        "read_skill" => execute_read_skill(workspace, args),
         other => Err(format!("Unknown native tool: {other}")),
     };
     match result {
         Ok(data) => json!({ "ok": true, "data": data }),
         Err(err) => json!({ "ok": false, "error": err }),
     }
+}
+
+fn execute_read_skill(workspace: &Path, args: &Value) -> Result<Value, String> {
+    let name = args
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if name.is_empty() {
+        let list: Vec<Value> = super::skills::discover_skills(workspace)
+            .into_iter()
+            .map(|s| {
+                json!({
+                    "name": s.name,
+                    "description": s.description,
+                    "scope": s.scope,
+                    "path": s.path.to_string_lossy(),
+                })
+            })
+            .collect();
+        return Ok(json!({ "skills": list }));
+    }
+    let (info, content) = super::skills::load_skill_content(workspace, name)?;
+    Ok(json!({
+        "name": info.name,
+        "description": info.description,
+        "scope": info.scope,
+        "path": info.path.to_string_lossy(),
+        "content": content,
+    }))
 }
 
 fn resolve_search_key(env_var: &str, provider: &str) -> Option<String> {
@@ -2224,5 +2268,28 @@ mod tests {
             true,
         );
         assert_eq!(stopped["ok"], true);
+    }
+
+    #[test]
+    fn read_skill_lists_and_loads_workspace_skills() {
+        let dir = tempfile::tempdir().unwrap();
+        let skill_dir = dir.path().join(".claude").join("skills").join("release");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: release\ndescription: Release workflow\n---\nRun cargo test first.\n",
+        )
+        .unwrap();
+
+        let listed = execute_tool(dir.path(), "read_skill", &json!({}), false);
+        assert_eq!(listed["ok"], true);
+        assert_eq!(listed["data"]["skills"][0]["name"], "release");
+
+        let loaded = execute_tool(dir.path(), "read_skill", &json!({"name": "release"}), false);
+        assert_eq!(loaded["ok"], true);
+        assert!(loaded["data"]["content"]
+            .as_str()
+            .unwrap()
+            .contains("Run cargo test first."));
     }
 }
