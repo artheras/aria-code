@@ -8,6 +8,7 @@ pub mod ollama;
 pub mod permissions;
 pub mod policy;
 pub mod processes;
+pub mod roi;
 pub mod sandbox;
 pub mod skills;
 pub mod subagent;

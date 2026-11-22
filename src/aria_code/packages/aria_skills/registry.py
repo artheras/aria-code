@@ -96,6 +96,7 @@ def builtin_skill_specs() -> List[SkillSpec]:
                 "arthera-finance/financial_correlation_matrix",
                 "arthera-finance/financial_stat_arb",
                 "arthera-finance/financial_portfolio_backtest",
+                "arthera-finance/financial_ohlcv_quality_audit",
                 "arthera-finance/financial_strategy_backtest",
             ],
             permissions=[PermissionLevel.READ_ONLY],
