@@ -2,7 +2,11 @@
 
 use super::{cloud::CloudProvider, compact, hooks, mcp, policy, tools};
 use serde_json::{json, Value};
-use std::{path::Path, time::Duration};
+use std::{
+    io::{BufRead, BufReader},
+    path::Path,
+    time::Duration,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToolCall {
@@ -11,6 +15,7 @@ pub struct ToolCall {
 }
 
 /// Extract assistant text and native tool calls from an Ollama `/api/chat` response.
+#[allow(dead_code)]
 pub fn parse_ollama_turn(body: &str) -> Result<(String, Vec<ToolCall>), String> {
     let val: Value = serde_json::from_str(body).map_err(|e| format!("Invalid Ollama JSON: {e}"))?;
     let msg = val.get("message").ok_or("Missing message in response")?;
@@ -19,8 +24,12 @@ pub fn parse_ollama_turn(body: &str) -> Result<(String, Vec<ToolCall>), String> 
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_owned();
-    let calls = msg
-        .get("tool_calls")
+    let calls = extract_ollama_tool_calls(msg);
+    Ok((content, calls))
+}
+
+fn extract_ollama_tool_calls(msg: &Value) -> Vec<ToolCall> {
+    msg.get("tool_calls")
         .and_then(Value::as_array)
         .map(|arr| {
             arr.iter()
@@ -32,8 +41,25 @@ pub fn parse_ollama_turn(body: &str) -> Result<(String, Vec<ToolCall>), String> 
                 })
                 .collect()
         })
-        .unwrap_or_default();
-    Ok((content, calls))
+        .unwrap_or_default()
+}
+
+/// Parse one NDJSON line from a streaming Ollama `/api/chat` response into `(delta, tool_calls, done)`.
+pub fn parse_ollama_stream_line(line: &str) -> Option<(String, Vec<ToolCall>, bool)> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let val: Value = serde_json::from_str(trimmed).ok()?;
+    let done = val.get("done").and_then(Value::as_bool).unwrap_or(false);
+    let msg = val.get("message");
+    let content = msg
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    let calls = msg.map(extract_ollama_tool_calls).unwrap_or_default();
+    Some((content, calls, done))
 }
 
 /// Build the initial OpenAI/Ollama message list with optional prior `(role, content)` turns.
@@ -162,6 +188,35 @@ fn tool_mutates(name: &str, args: &Value) -> bool {
         "write_file" | "edit_file" | "multi_edit" | "restore_checkpoint"
     ) || (name == "git_worktree"
         && args.get("action").and_then(Value::as_str).unwrap_or("list") != "list")
+}
+
+/// Return true when a built-in native tool call is strictly read-only (no filesystem or process mutation).
+#[allow(dead_code)]
+pub fn is_read_only_tool(name: &str, args: &Value) -> bool {
+    matches!(
+        name,
+        "list_files"
+            | "read_file"
+            | "search_code"
+            | "find_symbol"
+            | "repo_map"
+            | "git_status"
+            | "git_diff"
+            | "git_log"
+            | "glob"
+            | "project_scan"
+            | "lsp_hover"
+            | "lsp_definition"
+            | "lsp_references"
+            | "web_search"
+            | "web_fetch"
+    ) || (name == "git_worktree"
+        && args.get("action").and_then(Value::as_str).unwrap_or("list") == "list")
+        || (name == "process"
+            && matches!(
+                args.get("action").and_then(Value::as_str).unwrap_or("list"),
+                "list" | "read" | "status"
+            ))
 }
 
 impl ToolLoopGuard {
@@ -299,6 +354,50 @@ pub fn run_native_agent(
     )
 }
 
+/// Stream a single Ollama `/api/chat` agent turn, forwarding text deltas live as NDJSON chunks arrive.
+fn stream_ollama_agent_turn(
+    agent: &ureq::Agent,
+    url: &str,
+    model: &str,
+    messages: &[Value],
+    schemas: &Value,
+    mut on_delta: impl FnMut(&str),
+) -> Result<(String, Vec<ToolCall>), String> {
+    let payload = json!({
+        "model": model,
+        "stream": true,
+        "messages": messages,
+        "tools": schemas,
+    });
+    let mut resp = agent
+        .post(url)
+        .content_type("application/json")
+        .send(payload.to_string())
+        .map_err(|e| format!("Ollama agent request failed: {e}"))?;
+    let reader = BufReader::new(resp.body_mut().as_reader());
+    let mut content = String::new();
+    let mut calls = Vec::new();
+    let mut saw_chunk = false;
+    for line in reader.lines() {
+        let line = line.map_err(|e| format!("Read stream failed: {e}"))?;
+        if let Some((delta, chunk_calls, done)) = parse_ollama_stream_line(&line) {
+            saw_chunk = true;
+            if !delta.is_empty() {
+                on_delta(&delta);
+                content.push_str(&delta);
+            }
+            calls.extend(chunk_calls);
+            if done {
+                break;
+            }
+        }
+    }
+    if !saw_chunk {
+        return Err("Empty response from Ollama agent".into());
+    }
+    Ok((content, calls))
+}
+
 /// Run a bounded multi-round coding/inspection loop natively in Rust with prior turn history.
 #[allow(clippy::too_many_arguments)]
 pub fn run_native_agent_with_history(
@@ -310,7 +409,35 @@ pub fn run_native_agent_with_history(
     allow_write: bool,
     max_rounds: usize,
     timeout: Duration,
+    on_tool: impl FnMut(&str, &Value, &Value),
+) -> Result<String, String> {
+    run_native_agent_with_history_streaming(
+        base_url,
+        model,
+        workspace,
+        history,
+        prompt,
+        allow_write,
+        max_rounds,
+        timeout,
+        on_tool,
+        |_| {},
+    )
+}
+
+/// Run a bounded multi-round coding/inspection loop natively in Rust, streaming token deltas live.
+#[allow(clippy::too_many_arguments)]
+pub fn run_native_agent_with_history_streaming(
+    base_url: &str,
+    model: &str,
+    workspace: &Path,
+    history: &[(String, String)],
+    prompt: &str,
+    allow_write: bool,
+    max_rounds: usize,
+    timeout: Duration,
     mut on_tool: impl FnMut(&str, &Value, &Value),
+    mut on_delta: impl FnMut(&str),
 ) -> Result<String, String> {
     let url = format!("{}/api/chat", base_url.trim_end_matches('/'));
     let mut guard = ToolLoopGuard::new(workspace);
@@ -324,22 +451,8 @@ pub fn run_native_agent_with_history(
 
     for _ in 0..max_rounds.clamp(1, 16) {
         compact::compact_messages_if_needed(&mut messages, 24_000, 8);
-        let payload = json!({
-            "model": model,
-            "stream": false,
-            "messages": messages,
-            "tools": schemas,
-        });
-        let mut resp = agent
-            .post(&url)
-            .content_type("application/json")
-            .send(payload.to_string())
-            .map_err(|e| format!("Ollama agent request failed: {e}"))?;
-        let raw = resp
-            .body_mut()
-            .read_to_string()
-            .map_err(|e| format!("Read response failed: {e}"))?;
-        let (content, calls) = parse_ollama_turn(&raw)?;
+        let (content, calls) =
+            stream_ollama_agent_turn(&agent, &url, model, &messages, &schemas, &mut on_delta)?;
         if calls.is_empty() {
             if let Some(nudge) = guard.verify_nudge(workspace) {
                 if !content.is_empty() {
@@ -963,5 +1076,93 @@ mod tests {
         assert!(prompt.contains("Always run cargo test."));
         assert!(prompt.contains("[Workspace Skills]"));
         assert!(prompt.contains("rust-audit"));
+    }
+
+    #[test]
+    fn parses_ollama_stream_lines_for_text_and_tool_calls() {
+        assert!(parse_ollama_stream_line("   ").is_none());
+        assert!(parse_ollama_stream_line("not json").is_none());
+
+        let (d1, c1, done1) =
+            parse_ollama_stream_line(r#"{"message":{"content":"Hello "},"done":false}"#).unwrap();
+        assert_eq!(d1, "Hello ");
+        assert!(c1.is_empty());
+        assert!(!done1);
+
+        let (d2, c2, done2) = parse_ollama_stream_line(
+            r#"{"message":{"content":"world","tool_calls":[{"function":{"name":"read_file","arguments":{"path":"Cargo.toml"}}}]},"done":true}"#,
+        )
+        .unwrap();
+        assert_eq!(d2, "world");
+        assert_eq!(c2.len(), 1);
+        assert_eq!(c2[0].name, "read_file");
+        assert_eq!(c2[0].arguments["path"], "Cargo.toml");
+        assert!(done2);
+    }
+
+    #[test]
+    fn classifies_read_only_and_mutating_tools() {
+        assert!(is_read_only_tool("read_file", &json!({"path": "a.rs"})));
+        assert!(is_read_only_tool("web_search", &json!({"query": "rust"})));
+        assert!(is_read_only_tool(
+            "git_worktree",
+            &json!({"action": "list"})
+        ));
+        assert!(is_read_only_tool("process", &json!({"action": "status"})));
+
+        assert!(!is_read_only_tool("write_file", &json!({"path": "a.rs"})));
+        assert!(!is_read_only_tool("run_command", &json!({"command": "ls"})));
+        assert!(!is_read_only_tool(
+            "git_worktree",
+            &json!({"action": "add", "name": "feat"})
+        ));
+        assert!(!is_read_only_tool("process", &json!({"action": "start"})));
+    }
+
+    #[test]
+    fn streams_ollama_agent_turn_end_to_end_over_http() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let body = concat!(
+                "{\"message\":{\"content\":\"Checking \"},\"done\":false}\n",
+                "{\"message\":{\"content\":\"files.\"},\"done\":false}\n",
+                "{\"message\":{\"content\":\"\",\"tool_calls\":[{\"function\":{\"name\":\"list_files\",\"arguments\":{\"path\":\".\"}}}]},\"done\":true}\n"
+            );
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(resp.as_bytes()).unwrap();
+        });
+
+        let agent = ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(5)))
+            .build()
+            .new_agent();
+        let url = format!("http://{addr}/api/chat");
+        let mut deltas = Vec::new();
+        let (content, calls) = stream_ollama_agent_turn(
+            &agent,
+            &url,
+            "qwen3:8b",
+            &[json!({"role": "user", "content": "hi"})],
+            &json!([]),
+            |d| deltas.push(d.to_owned()),
+        )
+        .unwrap();
+        server.join().unwrap();
+
+        assert_eq!(deltas, vec!["Checking ".to_owned(), "files.".to_owned()]);
+        assert_eq!(content, "Checking files.");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "list_files");
     }
 }
