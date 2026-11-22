@@ -5,6 +5,7 @@ pub mod hooks;
 pub mod lsp;
 pub mod mcp;
 pub mod ollama;
+pub mod permissions;
 pub mod policy;
 pub mod processes;
 pub mod sandbox;
