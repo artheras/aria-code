@@ -741,13 +741,21 @@ pub fn draw(frame: &mut Frame, app: &App) {
     if !scroll.is_empty() {
         status_line.push(Span::styled(scroll, Style::new().fg(p.warn)));
     }
-    status_line.push(Span::styled(
-        format!(
-            " · {}",
-            app.tr("F1 help · Ctrl+O details", "F1 帮助 · Ctrl+O 详情")
-        ),
-        Style::new().fg(p.muted),
-    ));
+    let used_cols: usize = status_line
+        .iter()
+        .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+        .sum();
+    let max_cols = usize::from(parts[3].width);
+    let full_hints = format!(
+        " · {}",
+        app.tr("F1 help · Ctrl+O details", "F1 帮助 · Ctrl+O 详情")
+    );
+    let short_hint = format!(" · {}", app.tr("F1 help", "F1 帮助"));
+    if used_cols + UnicodeWidthStr::width(full_hints.as_str()) <= max_cols {
+        status_line.push(Span::styled(full_hints, Style::new().fg(p.muted)));
+    } else if used_cols + UnicodeWidthStr::width(short_hint.as_str()) <= max_cols {
+        status_line.push(Span::styled(short_hint, Style::new().fg(p.muted)));
+    }
     frame.render_widget(Paragraph::new(Line::from(status_line)), parts[3]);
     if app.help {
         let rect = popup(area, 88, 24);

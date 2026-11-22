@@ -7,7 +7,208 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
+fn is_cjk(c: char) -> bool {
+    ('\u{4E00}'..='\u{9FFF}').contains(&c) || ('\u{3400}'..='\u{4DBF}').contains(&c)
+}
+
+fn is_inline_fragment(s: &str) -> bool {
+    let t = s.trim();
+    if t.is_empty() || t.len() > 24 {
+        return false;
+    }
+    if t.starts_with('#') || t.starts_with('-') || t.starts_with('*') || t.starts_with('|') {
+        return false;
+    }
+    let all_num_or_ticker = t
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '%' | ',' | '+' | '-' | '$' | '¥'));
+    let short_cjk_or_punct = t.chars().count() <= 3
+        && t.chars().all(|c| {
+            is_cjk(c)
+                || matches!(
+                    c,
+                    '。' | '，'
+                        | '：'
+                        | '；'
+                        | '（'
+                        | '）'
+                        | '('
+                        | ')'
+                        | '！'
+                        | '？'
+                        | '.'
+                        | ','
+                        | ':'
+                        | ';'
+                )
+        });
+    all_num_or_ticker || short_cjk_or_punct
+}
+
+fn join_inline_fragment(prev: &str, next: &str) -> String {
+    let p = prev.trim_end();
+    let n = next.trim_start();
+    let last = p.chars().last();
+    let first = n.chars().next();
+    let need_space = matches!(
+        (last, first),
+        (Some(a), Some(b))
+            if (a.is_ascii_alphanumeric() && b.is_ascii_alphanumeric())
+                || (is_cjk(a) && b.is_ascii_alphanumeric())
+                || (a.is_ascii_alphanumeric() && is_cjk(b))
+    );
+    if need_space {
+        format!("{p} {n}")
+    } else {
+        format!("{p}{n}")
+    }
+}
+
+/// Normalize weak LLM Markdown (e.g. `###标题`, `。###`, `-中文`, fragmented `\n\n125.53\n\n`)
+/// outside fenced code blocks so CommonMark renders clean headings, lists, and paragraphs.
+fn normalize_llm_markdown(source: &str) -> String {
+    let mut out_lines: Vec<String> = Vec::new();
+    let mut in_fence = false;
+    let raw_lines: Vec<&str> = source.lines().collect();
+
+    // Pass 1: collapse fragmented single-token blank-line splits outside fences.
+    let mut collapsed: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < raw_lines.len() {
+        let line = raw_lines[i];
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            collapsed.push(line.to_owned());
+            i += 1;
+            continue;
+        }
+        if in_fence {
+            collapsed.push(line.to_owned());
+            i += 1;
+            continue;
+        }
+        if line.trim().is_empty()
+            && !collapsed.is_empty()
+            && i + 1 < raw_lines.len()
+            && !raw_lines[i + 1].trim().is_empty()
+        {
+            let prev = collapsed.last().unwrap().as_str();
+            let next = raw_lines[i + 1];
+            let prev_ends_open = prev.trim_end().chars().last().is_some_and(|c| {
+                matches!(c, '（' | '(' | '为' | '是' | '的' | '：' | ':') || is_cjk(c)
+            });
+            let next_starts_close = next.trim_start().chars().next().is_some_and(|c| {
+                matches!(
+                    c,
+                    '）' | ')' | '。' | '，' | '：' | '；' | '美' | '元' | '%' | '.'
+                )
+            });
+            let prev_ends_num = prev
+                .trim_end()
+                .chars()
+                .last()
+                .is_some_and(|c| c.is_ascii_alphanumeric());
+            if (is_inline_fragment(next) && prev_ends_open)
+                || ((is_inline_fragment(prev) || prev_ends_num) && next_starts_close)
+                || (is_inline_fragment(prev) && is_inline_fragment(next))
+            {
+                let merged = join_inline_fragment(prev, next);
+                *collapsed.last_mut().unwrap() = merged;
+                i += 2;
+                continue;
+            }
+        }
+        collapsed.push(line.to_owned());
+        i += 1;
+    }
+
+    // Pass 2: split glued headings (`。###标题`) / glued bullets (` -中文`) and add missing space.
+    in_fence = false;
+    for line in collapsed {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            out_lines.push(line);
+            continue;
+        }
+        if in_fence {
+            out_lines.push(line);
+            continue;
+        }
+
+        // Split glued inline `###` headings (2-6 `#` preceded by non-`#` / non-whitespace or space).
+        let mut expanded = String::with_capacity(line.len() + 16);
+        let chars: Vec<char> = line.chars().collect();
+        let mut k = 0;
+        while k < chars.len() {
+            if k > 0 && chars[k] == '#' {
+                let mut hashes = 0;
+                while k + hashes < chars.len() && chars[k + hashes] == '#' {
+                    hashes += 1;
+                }
+                if (2..=6).contains(&hashes) {
+                    let prev = chars[k - 1];
+                    if matches!(
+                        prev,
+                        '。' | '！' | '？' | '.' | '!' | '?' | ' ' | '；' | ';'
+                    ) {
+                        if !expanded.ends_with('\n') {
+                            expanded.push('\n');
+                        }
+                        for _ in 0..hashes {
+                            expanded.push('#');
+                        }
+                        if k + hashes < chars.len() && chars[k + hashes] != ' ' {
+                            expanded.push(' ');
+                        }
+                        k += hashes;
+                        continue;
+                    }
+                }
+            }
+            if k > 1
+                && chars[k] == '-'
+                && k + 1 < chars.len()
+                && (is_cjk(chars[k + 1]) || chars[k + 1] == '*')
+            {
+                let prev = chars[k - 1];
+                if matches!(prev, ' ' | '。' | '！' | '？' | '；' | '：') {
+                    expanded.push('\n');
+                    expanded.push_str("- ");
+                    k += 1;
+                    continue;
+                }
+            }
+            expanded.push(chars[k]);
+            k += 1;
+        }
+
+        for sub in expanded.split('\n') {
+            let mut s = sub.to_owned();
+            // Fix leading `###标题` -> `### 标题`
+            let hash_count = s.chars().take_while(|&c| c == '#').count();
+            if (1..=6).contains(&hash_count) {
+                let rest = &s[hash_count..];
+                if rest.chars().next().is_some_and(|c| c != ' ' && c != '#') {
+                    s = format!("{} {}", "#".repeat(hash_count), rest);
+                }
+            } else if let Some(rest) = s.strip_prefix('-') {
+                // Fix leading `-动量因子` or `-**加粗**` -> `- 动量因子` (do not touch `--` or `-0.4`)
+                if rest.chars().next().is_some_and(|c| is_cjk(c) || c == '*') {
+                    s = format!("- {rest}");
+                }
+            }
+            out_lines.push(s);
+        }
+    }
+
+    out_lines.join("\n")
+}
+
 pub fn render(source: &str, palette: Palette, width: u16) -> Vec<Line<'static>> {
+    let normalized = normalize_llm_markdown(source);
+    let source = normalized.as_str();
     let mut out = Vec::new();
     let mut spans = Vec::new();
     let mut styles = vec![Style::default()];
@@ -141,7 +342,7 @@ pub fn render(source: &str, palette: Palette, width: u16) -> Vec<Line<'static>> 
                 if in_cell {
                     cell.push(Span::raw(" "));
                 } else {
-                    spans.push(Span::raw(" "));
+                    flush(&mut out, &mut spans);
                 }
             }
             Event::HardBreak => flush(&mut out, &mut spans),
@@ -302,5 +503,16 @@ mod tests {
             text(&render(source, Palette::for_theme("light"), 10)).contains("文件: src/你好.rs")
         );
         assert!(text(&render(source, Palette::for_theme("light"), 80)).contains('│'));
+    }
+    #[test]
+    fn normalizes_glued_headings_bullets_and_fragmented_numbers() {
+        let raw = "此外，英伟达的最新价格为\n\n125.53\n\n美元，数据点总数为\n\n250\n\n。接下来分析。###动量因子\n-动量因子（12个月至1个月）：0.0978 -这个因子表明趋势。###波动率\n-年化波动率：0.4125";
+        let rendered = text(&render(raw, Palette::for_theme("light"), 80));
+        assert!(rendered.contains("125.53 美元"), "got:\n{rendered}");
+        assert!(rendered.contains("250。"), "got:\n{rendered}");
+        assert!(!rendered.contains("###"), "bare ### leaked:\n{rendered}");
+        assert!(rendered.contains("动量因子"), "got:\n{rendered}");
+        assert!(rendered.contains("• 动量因子"), "got:\n{rendered}");
+        assert!(rendered.contains("• 年化波动率"), "got:\n{rendered}");
     }
 }
