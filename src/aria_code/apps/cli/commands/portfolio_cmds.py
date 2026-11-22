@@ -7,122 +7,98 @@ by _rebind_mixin_globals() called at module load time.
 
 from __future__ import annotations
 
-from aria_code.ui.render.output import file_uri as _file_uri
+import asyncio
+import datetime
+import json
+import logging
+import os
+import shlex
+import sys
+import time
+from typing import Any, Dict, Optional
 
 from aria_code.apps.cli.i18n import ui_text
+from aria_code.apps.cli.tool_executor import execute_aria_tool
+from aria_code.ui.render.output import file_uri as _file_uri
 
 from ._ui import Panel, print_error
 
-
-def _detect_lang_for_team(text: str) -> str:
-    if not text:
-        return "zh"
-    zh_chars = sum(1 for c in text if '一' <= c <= '鿿')
-    return "zh" if zh_chars / max(len(text), 1) > 0.15 else "en"
+logger = logging.getLogger(__name__)
 
 
-import logging
-import json
-import asyncio
-import datetime
-import time
-import shlex
-from typing import Dict, Any, Optional
-
-def parse_team_args(*args, **kwargs):
-    from aria_cli import parse_team_args as fn
-    return fn(*args, **kwargs)
-def resolve_team_symbols(*args, **kwargs):
-    from aria_cli import resolve_team_symbols as fn
-    return fn(*args, **kwargs)
-def team_agent_names(*args, **kwargs):
-    from aria_cli import team_agent_names as fn
-    return fn(*args, **kwargs)
-# execute_aria_tool lives in apps/cli/tool_executor.py and needs nothing from
-# aria_cli — the cache it reads is owned there now, so the hop was pointless.
-from aria_code.apps.cli.tool_executor import execute_aria_tool
 def export_report_pdf(*args, **kwargs):
     from aria_cli import export_report_pdf as fn
     return fn(*args, **kwargs)
-def run_team_analysis(*args, **kwargs):
-    from aria_cli import run_team_analysis as fn
-    return fn(*args, **kwargs)
+
+
 def save_markdown_report(*args, **kwargs):
     from aria_cli import save_markdown_report as fn
     return fn(*args, **kwargs)
+
+
 def all_agents_failed(*args, **kwargs):
     from aria_cli import all_agents_failed as fn
     return fn(*args, **kwargs)
-def _get_Panel():
-    # Resolved locally now — see ._ui; no aria_cli round-trip.
-    return Panel
+
+
 def save_team_report(*args, **kwargs):
     from aria_cli import save_team_report as fn
     return fn(*args, **kwargs)
+
+
 def _print_verdict_banner(*args, **kwargs):
     from aria_cli import _print_verdict_banner as fn
     return fn(*args, **kwargs)
+
+
 def _get_mdc(*args, **kwargs):
     from .._optional import get_mdc as fn
     return fn(*args, **kwargs)
+
+
 def report_agent_names(*args, **kwargs):
     from aria_cli import report_agent_names as fn
     return fn(*args, **kwargs)
+
+
 def _tool_run_command(*args, **kwargs):
     from aria_cli import _tool_run_command as fn
     return fn(*args, **kwargs)
-def run_deep_cli(*args, **kwargs):
-    from aria_cli import run_deep_cli as fn
-    return fn(*args, **kwargs)
+
+
 def report_agent_health(*args, **kwargs):
     from aria_cli import report_agent_health as fn
     return fn(*args, **kwargs)
+
+
 def report_file_size_kb(*args, **kwargs):
     from aria_cli import report_file_size_kb as fn
     return fn(*args, **kwargs)
+
+
 def generate_html_report(*args, **kwargs):
     from aria_cli import generate_html_report as fn
     return fn(*args, **kwargs)
+
+
 def _get__HAS_MDC():
     from .._optional import HAS_MDC as val
     return val
-def _sanitize_team_result_with_market_data(*args, **kwargs):
-    from aria_cli import _sanitize_team_result_with_market_data as fn
-    return fn(*args, **kwargs)
+
+
 def update_report_index(*args, **kwargs):
     from aria_cli import update_report_index as fn
     return fn(*args, **kwargs)
+
+
 def build_markdown_report_prompt(*args, **kwargs):
     from aria_cli import build_markdown_report_prompt as fn
     return fn(*args, **kwargs)
+
+
 def parse_report_args(*args, **kwargs):
     from aria_cli import parse_report_args as fn
     return fn(*args, **kwargs)
-
-import json
-import asyncio
-import datetime
-import time
-import shlex
-import sys
-import os
-from typing import Dict, Any, Optional
-
-
-import json
-import asyncio
-import datetime
-import time
-import shlex
-import sys
-import os
-from typing import Dict, Any, Optional
-
-# A real logger. This was a `def logger(*args, **kwargs)` forwarding to
-# aria_cli, so every `logger.debug(...)` raised AttributeError — and all but
-# one of them sit in an except block, where the failure replaced whatever
-# error was being reported.
-logger = logging.getLogger(__name__)
 
 
 class PortfolioCommandsMixin:
