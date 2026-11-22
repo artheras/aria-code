@@ -7,9 +7,10 @@
 use serde_json::{json, Value};
 use std::{
     fs,
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    time::{Duration, Instant},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,10 +53,18 @@ impl HookRule {
         if m.is_empty() || m == "*" {
             return true;
         }
-        if let Some(prefix) = m.strip_suffix('*') {
-            return tool_name.starts_with(prefix);
-        }
-        m == tool_name
+        m.split('|').any(|part| {
+            let pat = part.trim();
+            if pat.is_empty() {
+                false
+            } else if pat == "*" {
+                true
+            } else if let Some(prefix) = pat.strip_suffix('*') {
+                tool_name.starts_with(prefix)
+            } else {
+                pat == tool_name
+            }
+        })
     }
 }
 
@@ -221,7 +230,25 @@ fn parse_hooks_json(val: &Value, out: &mut Vec<HookRule>) {
     }
 }
 
+fn hook_timeout() -> Duration {
+    let secs = std::env::var("ARIA_HOOK_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|&s| s > 0)
+        .unwrap_or(30);
+    Duration::from_secs(secs)
+}
+
 fn run_shell_hook(workspace: &Path, command: &str, payload: &Value) -> Result<(), String> {
+    run_shell_hook_with_timeout(workspace, command, payload, hook_timeout())
+}
+
+fn run_shell_hook_with_timeout(
+    workspace: &Path,
+    command: &str,
+    payload: &Value,
+    timeout: Duration,
+) -> Result<(), String> {
     #[cfg(windows)]
     let mut cmd = {
         let mut c = Command::new("cmd");
@@ -246,20 +273,40 @@ fn run_shell_hook(workspace: &Path, command: &str, payload: &Value) -> Result<()
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(payload.to_string().as_bytes());
     }
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("hook wait failed: {e}"))?;
-    if output.status.success() {
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break st,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!("hook timed out after {}s", timeout.as_secs()));
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(e) => return Err(format!("hook wait failed: {e}")),
+        }
+    };
+    if status.success() {
         return Ok(());
     }
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    let mut stderr = String::new();
+    if let Some(mut err) = child.stderr.take() {
+        let _ = err.read_to_string(&mut stderr);
+    }
+    let mut stdout = String::new();
+    if let Some(mut out) = child.stdout.take() {
+        let _ = out.read_to_string(&mut stdout);
+    }
+    let stderr = stderr.trim();
+    let stdout = stdout.trim();
     let msg = if !stderr.is_empty() {
-        stderr
+        stderr.to_owned()
     } else if !stdout.is_empty() {
-        stdout
+        stdout.to_owned()
     } else {
-        format!("hook exited with status {}", output.status)
+        format!("hook exited with status {status}")
     };
     Err(msg)
 }
@@ -395,5 +442,32 @@ mod tests {
         let reloaded = HookRegistry::load(tmp.path());
         assert_eq!(reloaded.rules().len(), 1);
         assert_eq!(reloaded.rules()[0].event, HookEvent::Stop);
+    }
+
+    #[test]
+    fn supports_pipe_separated_matchers_and_enforces_hook_timeout() {
+        let rule = HookRule {
+            event: HookEvent::PreToolUse,
+            matcher: "write_file|edit_file|mcp__erp*".into(),
+            command: "true".into(),
+        };
+        assert!(rule.matches("write_file"));
+        assert!(rule.matches("edit_file"));
+        assert!(rule.matches("mcp__erp_service__create"));
+        assert!(!rule.matches("read_file"));
+
+        let tmp = tempfile::tempdir().unwrap();
+        #[cfg(windows)]
+        let slow_cmd = "ping -n 4 127.0.0.1 >nul";
+        #[cfg(not(windows))]
+        let slow_cmd = "sleep 3";
+        let err = run_shell_hook_with_timeout(
+            tmp.path(),
+            slow_cmd,
+            &json!({"event": "PreToolUse"}),
+            Duration::from_millis(120),
+        )
+        .unwrap_err();
+        assert!(err.contains("timed out"));
     }
 }

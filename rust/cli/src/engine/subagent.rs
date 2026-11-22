@@ -6,7 +6,17 @@
 
 use super::{agent, tools};
 use serde_json::{json, Value};
-use std::{path::Path, time::Duration};
+use std::{
+    path::Path,
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
+};
+
+fn next_worktree_branch_name() -> String {
+    static SEQ: AtomicU64 = AtomicU64::new(1);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("aria-subagent-{}-{seq}", std::process::id())
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SubagentRole {
@@ -76,7 +86,7 @@ pub fn run_local_subagent(
 ) -> SubagentOutcome {
     let mut worktree_dir: Option<std::path::PathBuf> = None;
     let effective_ws = if req.isolated_worktree && req.role.allow_write() {
-        let branch = format!("aria-subagent-{}", std::process::id());
+        let branch = next_worktree_branch_name();
         let target = workspace.join(".aria").join("worktrees").join(&branch);
         let created = tools::execute_tool(
             workspace,
@@ -158,5 +168,14 @@ mod tests {
         assert_eq!(v["role"], "research");
         assert_eq!(v["ok"], true);
         assert_eq!(v["tool_calls"], 2);
+    }
+
+    #[test]
+    fn generates_unique_worktree_branch_names_within_same_process() {
+        let a = next_worktree_branch_name();
+        let b = next_worktree_branch_name();
+        assert_ne!(a, b);
+        assert!(a.starts_with("aria-subagent-"));
+        assert!(b.starts_with("aria-subagent-"));
     }
 }
