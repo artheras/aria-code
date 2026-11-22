@@ -52,6 +52,9 @@ pub fn frame_lsp_message(payload: &Value) -> Vec<u8> {
     format!("Content-Length: {}\r\n\r\n{}", body.len(), body).into_bytes()
 }
 
+/// Maximum accepted LSP JSON-RPC payload size (16 MiB) to guard against OOM on corrupt headers.
+const MAX_LSP_CONTENT_LENGTH: usize = 16 * 1024 * 1024;
+
 /// Read one `Content-Length` framed JSON-RPC message from `reader`.
 pub fn read_lsp_message<R: BufRead>(reader: &mut R) -> Result<Value, String> {
     let mut content_length: Option<usize> = None;
@@ -67,11 +70,18 @@ pub fn read_lsp_message<R: BufRead>(reader: &mut R) -> Result<Value, String> {
         if trimmed.is_empty() {
             break;
         }
-        if let Some(rest) = trimmed.strip_prefix("Content-Length:") {
-            content_length = rest.trim().parse::<usize>().ok();
+        if let Some((key, val)) = trimmed.split_once(':') {
+            if key.trim().eq_ignore_ascii_case("content-length") {
+                content_length = val.trim().parse::<usize>().ok();
+            }
         }
     }
     let len = content_length.ok_or("Missing Content-Length header")?;
+    if len > MAX_LSP_CONTENT_LENGTH {
+        return Err(format!(
+            "LSP Content-Length {len} exceeds maximum allowed {MAX_LSP_CONTENT_LENGTH} bytes"
+        ));
+    }
     let mut buf = vec![0u8; len];
     reader
         .read_exact(&mut buf)
@@ -79,9 +89,19 @@ pub fn read_lsp_message<R: BufRead>(reader: &mut R) -> Result<Value, String> {
     serde_json::from_slice(&buf).map_err(|e| format!("Invalid LSP JSON: {e}"))
 }
 
+fn format_file_uri_from_str(raw: &str) -> String {
+    let stripped = raw.strip_prefix(r"\\?\").unwrap_or(raw);
+    let normalized = stripped.replace('\\', "/").replace(' ', "%20");
+    if normalized.starts_with('/') {
+        format!("file://{normalized}")
+    } else {
+        format!("file:///{normalized}")
+    }
+}
+
 pub fn file_uri(path: &Path) -> String {
     let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    format!("file://{}", canon.to_string_lossy())
+    format_file_uri_from_str(&canon.to_string_lossy())
 }
 
 pub struct LspClient {
@@ -246,5 +266,27 @@ mod tests {
             "gopls"
         );
         assert!(server_for_path(Path::new("notes.txt")).is_none());
+    }
+
+    #[test]
+    fn handles_lowercase_content_length_rejects_oversized_and_normalizes_file_uris() {
+        let raw = b"content-length: 17\r\n\r\n{\"jsonrpc\":\"2.0\"}";
+        let mut cur = Cursor::new(raw.as_slice());
+        assert_eq!(read_lsp_message(&mut cur).unwrap()["jsonrpc"], "2.0");
+
+        let huge = b"Content-Length: 999999999\r\n\r\n{}";
+        let mut huge_cur = Cursor::new(huge.as_slice());
+        assert!(read_lsp_message(&mut huge_cur)
+            .unwrap_err()
+            .contains("exceeds maximum"));
+
+        assert_eq!(
+            format_file_uri_from_str("/Users/mac/My Repo/src/main.rs"),
+            "file:///Users/mac/My%20Repo/src/main.rs"
+        );
+        assert_eq!(
+            format_file_uri_from_str(r"\\?\C:\Users\dev\My Repo\main.rs"),
+            "file:///C:/Users/dev/My%20Repo/main.rs"
+        );
     }
 }
