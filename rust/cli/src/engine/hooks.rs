@@ -265,7 +265,6 @@ fn run_shell_hook(workspace: &Path, command: &str, payload: &Value) -> Result<()
 }
 
 /// Build a stack-aware `.aria/hooks.json` starter template with deterministic `PostToolUse` checks.
-#[allow(dead_code)]
 pub fn default_hooks_template(workspace: &Path) -> Value {
     let mut post_rules = Vec::new();
     let cargo_toml = if workspace.join("Cargo.toml").is_file() {
@@ -307,7 +306,6 @@ pub fn default_hooks_template(workspace: &Path) -> Value {
 
 /// Write `.aria/hooks.json` with a starter template if it does not already exist.
 /// Returns `(path, created)`.
-#[allow(dead_code)]
 pub fn write_default_hooks_if_missing(workspace: &Path) -> Result<(PathBuf, bool), String> {
     let dir = workspace.join(".aria");
     let path = dir.join("hooks.json");
