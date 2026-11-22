@@ -4215,27 +4215,7 @@ class ArtheraTerminal(_ChatTurn, _Chrome, _HeadlessMixin):
             print(message)
 
     async def _try_football_nl_intercept(self, message: str) -> bool:
-        """Route an NL football query to the Poisson engine. Returns True if handled.
-
-        Shared by send_message (REPL) and run_prompt (-p) so the two paths can't
-        drift — this intercept was previously missing from -p mode, letting the
-        LLM hallucinate match data.
-        """
-        if message.startswith("/"):
-            return False
-        try:
-            from apps.cli.commands.market_cmds import (
-                _is_probable_football_query as _pfq,
-                _parse_nl_team_pair as _pfnl,
-            )
-            pair = _pfnl(message)
-            if pair and _pfq(message, pair):
-                if HAS_RICH:
-                    console.print("\n[dim]⚽ 识别足球对阵，调用 Poisson 引擎…[/dim]")
-                await self.commands.cmd_football(f"{pair[0]} vs {pair[1]} wc")
-                return True
-        except Exception:
-            pass
+        """Football vertical moved to external service."""
         return False
 
     def _persist_runtime_event(self, event) -> None:
