@@ -556,7 +556,7 @@ enum NativeRoute {
     Init(bool),
     Doctor,
     Config,
-    Permissions,
+    Permissions(String),
     Hooks(String),
     Sandbox,
     Compact,
@@ -615,8 +615,13 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     if text == "/config" {
         return Some(NativeRoute::Config);
     }
-    if text == "/permissions" {
-        return Some(NativeRoute::Permissions);
+    if text == "/permissions" || text.starts_with("/permissions ") {
+        let arg = text
+            .strip_prefix("/permissions")
+            .unwrap_or("")
+            .trim()
+            .to_owned();
+        return Some(NativeRoute::Permissions(arg));
     }
     if text == "/hooks" || text.starts_with("/hooks ") {
         let arg = text.strip_prefix("/hooks").unwrap_or("").trim().to_owned();
@@ -1290,23 +1295,53 @@ fn try_dispatch_native_turn(
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
             }
-            NativeRoute::Permissions => {
+            NativeRoute::Permissions(arg) => {
                 let ws_path = std::path::PathBuf::from(&workspace);
-                let mode = crate::engine::sandbox::SandboxMode::from_env();
-                let mode_str = match mode {
-                    crate::engine::sandbox::SandboxMode::Off => "off",
-                    crate::engine::sandbox::SandboxMode::ReadOnly => "read-only",
-                    crate::engine::sandbox::SandboxMode::WorkspaceWrite => "workspace-write",
+                let (text, status) = if arg.eq_ignore_ascii_case("init") {
+                    match crate::engine::permissions::write_default_settings_if_missing(&ws_path) {
+                        Ok(path) => (
+                            format!(
+                                "Permission settings ready at `{}` (edit `permissions.allow` / `permissions.deny`).",
+                                path.display()
+                            ),
+                            "ok",
+                        ),
+                        Err(e) => (format!("[permissions init error: {e}]"), "failed"),
+                    }
+                } else {
+                    let mode = crate::engine::sandbox::SandboxMode::from_env();
+                    let mode_str = match mode {
+                        crate::engine::sandbox::SandboxMode::Off => "off",
+                        crate::engine::sandbox::SandboxMode::ReadOnly => "read-only",
+                        crate::engine::sandbox::SandboxMode::WorkspaceWrite => "workspace-write",
+                    };
+                    let hooks_count = crate::engine::hooks::HookRegistry::load(&ws_path)
+                        .rules()
+                        .len();
+                    let policy = crate::engine::permissions::PermissionPolicy::load(&ws_path);
+                    let allow_summary = if policy.allow.is_empty() {
+                        "none".to_owned()
+                    } else {
+                        policy.allow.join(", ")
+                    };
+                    let deny_summary = if policy.deny.is_empty() {
+                        "none".to_owned()
+                    } else {
+                        policy.deny.join(", ")
+                    };
+                    (
+                        format!(
+                            "Permissions & Guardrails:\n- Declarative mode (`.aria/settings.json`): `{}` (run `/permissions init` to create starter rules)\n- Allow rules: {}\n- Deny rules: {}\n- Workspace writes: `{}` (change with `/write-mode on` or `/write-mode off`)\n- OS shell sandbox: `{mode_str}` (set `ARIA_SANDBOX_MODE=workspace-write|read-only`)\n- Pre/Post/Stop hooks: {hooks_count} rule(s) loaded (manage with `/hooks` or `/hooks init`)",
+                            policy.mode.as_str(),
+                            allow_summary,
+                            deny_summary,
+                            if allow_write { "allowed" } else { "read-only" },
+                        ),
+                        "ok",
+                    )
                 };
-                let hooks_count = crate::engine::hooks::HookRegistry::load(&ws_path)
-                    .rules()
-                    .len();
-                let text = format!(
-                    "Permissions & Guardrails:\n- Workspace writes: `{}` (change with `/write-mode on` or `/write-mode off`)\n- OS shell sandbox: `{mode_str}` (set `ARIA_SANDBOX_MODE=workspace-write|read-only`)\n- Pre/Post/Stop hooks: {hooks_count} rule(s) loaded (manage with `/hooks` or `/hooks init`)",
-                    if allow_write { "allowed" } else { "read-only" },
-                );
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
-                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }
             NativeRoute::Hooks(arg) => {
                 let ws_path = std::path::PathBuf::from(&workspace);
@@ -1538,7 +1573,8 @@ fn try_dispatch_native_turn(
                     }
                 }));
                 let ws_path = std::path::PathBuf::from(&workspace);
-                let res = crate::engine::agent::run_native_agent_with_history(
+                let mut streamed = String::new();
+                let res = crate::engine::agent::run_native_agent_with_history_streaming(
                     &url,
                     &model,
                     &ws_path,
@@ -1562,14 +1598,32 @@ fn try_dispatch_native_turn(
                             "output": result.to_string()
                         }));
                     },
-                );
-                let status = match res {
-                    Ok(answer) => {
+                    |delta| {
+                        streamed.push_str(delta);
                         let _ = tx.send(json!({
                             "protocol": 1,
                             "type": "answer.delta",
-                            "text": answer
+                            "text": delta
                         }));
+                    },
+                );
+                let status = match res {
+                    Ok(answer) => {
+                        if streamed.is_empty() {
+                            let _ = tx.send(json!({
+                                "protocol": 1,
+                                "type": "answer.delta",
+                                "text": answer
+                            }));
+                        } else if let Some(tail) = answer.strip_prefix(&streamed) {
+                            if !tail.is_empty() {
+                                let _ = tx.send(json!({
+                                    "protocol": 1,
+                                    "type": "answer.delta",
+                                    "text": tail
+                                }));
+                            }
+                        }
                         persist_native_turn(&workspace, &model, &prompt, &answer);
                         "ok"
                     }
@@ -2588,7 +2642,14 @@ mod tests {
                 &app,
                 &json!({"type": "turn.submit", "text": "/permissions"})
             ),
-            Some(NativeRoute::Permissions)
+            Some(NativeRoute::Permissions(String::new()))
+        );
+        assert_eq!(
+            classify_native_route(
+                &app,
+                &json!({"type": "turn.submit", "text": "/permissions init"})
+            ),
+            Some(NativeRoute::Permissions("init".into()))
         );
         assert_eq!(
             classify_native_route(
