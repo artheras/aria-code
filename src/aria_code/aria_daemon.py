@@ -574,160 +574,11 @@ async def _run_morning_brief() -> str:
             p, _ = await _fetch_price(sym)
             lines.append(f"  {name}: `{p:.4f}`" if p else f"  {name}: N/A")
 
-        # ── Portfolio P&L summary ─────────────────────────────────────────
-        pnl = await _get_portfolio_daily_pnl()
-        if pnl:
-            lines.append("\n*💼 持仓日内 P&L*")
-            lines.append(pnl)
-
         lines.append("\n_数据来自 yfinance，仅供参考_")
         return "\n".join(lines)
     except Exception as exc:
         logger.warning("morning brief error: %s", exc)
         return f"⚠️ 晨报生成失败: {exc}"
-
-
-async def _run_evening_brief() -> str:
-    """Post-market A-share evening summary."""
-    try:
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-        lines = [f"*🌆 Aria 收盘简报  {now_str}*\n"]
-
-        cn_indices = [
-            ("上证指数", "000001.SS"), ("深证成指", "399001.SZ"),
-            ("创业板",   "399006.SZ"), ("沪深300", "000300.SS"),
-        ]
-        lines.append("*今日收盘*")
-        for name, sym in cn_indices:
-            p, pc = await _fetch_price(sym)
-            if p:
-                arrow = "📈" if (pc or 0) >= 0 else "📉"
-                pct_str = f" {pc:+.2f}%" if pc is not None else ""
-                lines.append(f"  {arrow} {name}: `¥{p:.2f}`{pct_str}")
-
-        pnl = await _get_portfolio_daily_pnl()
-        if pnl:
-            lines.append(f"\n*💼 今日持仓损益*\n{pnl}")
-
-        lines.append("\n_数据来自 yfinance · 请以实盘数据为准_")
-        return "\n".join(lines)
-    except Exception as exc:
-        return f"⚠️ 收盘简报失败: {exc}"
-
-
-async def _run_weekly_recap() -> str:
-    """Friday end-of-week performance summary."""
-    try:
-        now_str = datetime.now().strftime("%Y 第%W周")
-        lines = [f"*📅 Aria 周报  {now_str}*\n"]
-
-        us_etfs = [("S&P500", "SPY"), ("纳指", "QQQ"), ("罗素", "IWM"), ("黄金", "GLD")]
-        lines.append("*本周美股 ETF 表现*")
-        for name, sym in us_etfs:
-            try:
-                import yfinance as _yf
-                df = _yf.download(sym, period="5d", progress=False, auto_adjust=True)
-                if not df.empty and len(df) >= 2:
-                    if hasattr(df.columns, 'levels'):
-                        df.columns = df.columns.droplevel(1)
-                    w_ret = (df["Close"].iloc[-1] / df["Close"].iloc[0] - 1) * 100
-                    arrow = "📈" if w_ret >= 0 else "📉"
-                    lines.append(f"  {arrow} {name}: `{w_ret:+.2f}%`")
-            except Exception:
-                lines.append(f"  — {name}: N/A")
-
-        cn_indices = [("上证", "000001.SS"), ("沪深300", "000300.SS"), ("创业板", "399006.SZ")]
-        lines.append("\n*本周A股指数*")
-        for name, sym in cn_indices:
-            try:
-                import yfinance as _yf
-                df = _yf.download(sym, period="5d", progress=False, auto_adjust=True)
-                if not df.empty and len(df) >= 2:
-                    if hasattr(df.columns, 'levels'):
-                        df.columns = df.columns.droplevel(1)
-                    w_ret = (df["Close"].iloc[-1] / df["Close"].iloc[0] - 1) * 100
-                    arrow = "📈" if w_ret >= 0 else "📉"
-                    lines.append(f"  {arrow} {name}: `{w_ret:+.2f}%`")
-            except Exception:
-                lines.append(f"  — {name}: N/A")
-
-        lines.append("\n_数据来自 yfinance，仅供参考_")
-        return "\n".join(lines)
-    except Exception as exc:
-        return f"⚠️ 周报生成失败: {exc}"
-
-
-async def _get_portfolio_daily_pnl() -> str:
-    """Read portfolio positions from DB and compute daily P&L."""
-    try:
-        portfolio_db = _ARIA_DIR / "portfolio.db"
-        if not portfolio_db.exists():
-            return ""
-        with sqlite3.connect(portfolio_db) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                "SELECT symbol, quantity, avg_cost FROM positions WHERE quantity > 0 LIMIT 10"
-            ).fetchall()
-        if not rows:
-            return ""
-        total_pnl = 0.0
-        position_lines = []
-        for r in rows:
-            sym = r["symbol"]
-            qty = r["quantity"]
-            cost = r["avg_cost"]
-            price, pct = await _fetch_price(sym)
-            if price and cost and qty:
-                day_pnl = (price - cost) * qty
-                total_pnl += day_pnl
-                arrow = "📈" if day_pnl >= 0 else "📉"
-                position_lines.append(
-                    f"  {arrow} {sym}: ¥{price:.2f}  日盈亏 `{day_pnl:+.2f}`"
-                )
-        if not position_lines:
-            return ""
-        result = "\n".join(position_lines)
-        result += f"\n  合计: `{total_pnl:+.2f}`"
-        return result
-    except Exception as exc:
-        logger.debug("portfolio pnl error: %s", exc)
-        return ""
-
-
-async def _portfolio_loss_watchdog() -> None:
-    """Check portfolio positions every 5 min; push alert if any position drops > threshold."""
-    LOSS_THRESHOLD_PCT = float(os.environ.get("ARIA_LOSS_ALERT_PCT", "5.0"))
-    logger.info("Portfolio loss watchdog started (threshold: %.1f%%)", LOSS_THRESHOLD_PCT)
-    while True:
-        try:
-            portfolio_db = _ARIA_DIR / "portfolio.db"
-            if portfolio_db.exists():
-                with sqlite3.connect(portfolio_db) as conn:
-                    conn.row_factory = sqlite3.Row
-                    rows = conn.execute(
-                        "SELECT symbol, quantity, avg_cost FROM positions WHERE quantity > 0"
-                    ).fetchall()
-                for r in rows:
-                    sym = r["symbol"]
-                    qty = float(r["quantity"])
-                    cost = float(r["avg_cost"] or 0)
-                    if qty <= 0 or cost <= 0:
-                        continue
-                    price, pct = await _fetch_price(sym)
-                    if price and pct is not None and pct <= -LOSS_THRESHOLD_PCT:
-                        day_loss = (price - cost) * qty
-                        title = f"⚠️ {sym} 跌幅预警"
-                        body = (
-                            f"{sym} 当前价 ¥{price:.2f}，"
-                            f"日跌幅 {pct:.2f}%，"
-                            f"持仓损益 {day_loss:+.2f} 元"
-                        )
-                        logger.info("Portfolio loss alert: %s %.2f%%", sym, pct)
-                        await _telegram_push(f"*{title}*\n{body}")
-                        await _feishu_push(title, body)
-        except Exception as exc:
-            logger.debug("portfolio watchdog error: %s", exc)
-        await asyncio.sleep(300)
 
 
 def _system_notify(title: str, body: str) -> None:
@@ -751,31 +602,6 @@ def _system_notify(title: str, body: str) -> None:
                 pass
     except Exception:
         pass
-
-
-async def _run_screener() -> str:
-    """Quick hot-stock screener using market_data_client if available."""
-    try:
-        spec = __import__("importlib.util").util.spec_from_file_location(
-            "market_data_client", _ARIA_CODE_DIR / "market_data_client.py"
-        )
-        mdc = __import__("importlib.util").util.module_from_spec(spec)
-        spec.loader.exec_module(mdc)
-        client = mdc.MarketDataClient()
-        result = await asyncio.wait_for(client.hot_ashare(limit=8), timeout=10.0)
-        stocks = result if isinstance(result, list) else []
-        if not stocks:
-            return "⚠️ 暂时无法获取行情数据（市场未开市或数据源异常）"
-        lines = ["*🔥 A股热门*\n"]
-        for s in stocks[:8]:
-            sym  = s.get("symbol", "")
-            name = s.get("name", sym)
-            p    = s.get("price", 0)
-            chg  = s.get("change_pct", 0)
-            lines.append(f"  `{sym}` {name}  ¥{p:.2f}  {chg:+.2f}%")
-        return "\n".join(lines)
-    except Exception as exc:
-        return f"⚠️ 筛选器出错: {exc}"
 
 
 async def _run_chat(text: str) -> str:
@@ -928,10 +754,8 @@ async def _execute_job(job: dict) -> None:
             result = await _run_tradingview_alert(payload)
         elif command in ("morning-brief", "/morning-brief", "brief"):
             result = await _run_morning_brief()
-        elif command in ("screen", "/screen"):
-            result = await _run_screener()
         else:
-            raise ValueError(f"未知 Webhook 命令: {command!r}（支持: chat: / report / morning-brief / screen）")
+            raise ValueError(f"未知 Webhook 命令: {command!r}（支持: chat: / report / morning-brief）")
 
         with sqlite3.connect(_DB_PATH) as conn:
             conn.execute(
@@ -1041,25 +865,7 @@ def _start_scheduler() -> None:
             replace_existing=True,
             misfire_grace_time=600,
         )
-        # A-share post-market evening brief: 15:35 weekdays
-        scheduler.add_job(
-            _run_evening_brief_and_push,
-            CronTrigger.from_crontab("35 15 * * 1-5", timezone="Asia/Shanghai"),
-            id="default_evening_brief",
-            name="A股收盘晚报",
-            replace_existing=True,
-            misfire_grace_time=600,
-        )
-        # Weekly recap: Friday 16:30 CN time
-        scheduler.add_job(
-            _run_weekly_recap_and_push,
-            CronTrigger.from_crontab("30 16 * * 5", timezone="Asia/Shanghai"),
-            id="default_weekly_recap",
-            name="周报",
-            replace_existing=True,
-            misfire_grace_time=1800,
-        )
-        logger.info("Registered 4 default scheduled jobs (morning / US / evening / weekly)")
+        logger.info("Registered default scheduled jobs (morning / US)")
 
         # Shipper digest: each group bound to a shipper gets what needs
         # attention. Only when the operator has said where the data is.
@@ -1095,19 +901,13 @@ async def _run_scheduled_job(schedule: dict) -> None:
     try:
         if cmd in ("morning-brief", "morning"):
             result = await _run_morning_brief()
-        elif cmd in ("evening-brief", "evening"):
-            result = await _run_evening_brief()
-        elif cmd in ("weekly-recap", "weekly"):
-            result = await _run_weekly_recap()
-        elif cmd == "screen":
-            result = await _run_screener()
         elif cmd.startswith("report "):
             result = await _run_report(cmd.split()[-1].upper())
         elif cmd.startswith("custom:"):
             result = f"Custom job: {cmd[7:]}"
         else:
             raise ValueError(
-                f"未知定时命令: {cmd!r}（支持: morning-brief / evening-brief / weekly-recap / screen / report <symbol> / custom:<payload>）"
+                f"未知定时命令: {cmd!r}（支持: morning-brief / report <symbol> / custom:<payload>）"
             )
     except Exception as exc:
         result = f"⚠️ 定时任务 [{cmd}] 失败: {exc}"
@@ -1132,24 +932,6 @@ async def _run_morning_brief_and_push() -> None:
     await _telegram_push(brief)
     await _feishu_push("📊 Aria 晨报", brief[:2000])
     _system_notify("Aria 晨报", brief[:120])
-
-
-async def _run_evening_brief_and_push() -> None:
-    if _go_daemon_running():
-        return
-    brief = await _run_evening_brief()
-    await _telegram_push(brief)
-    await _feishu_push("🌆 Aria 收盘简报", brief[:2000])
-    _system_notify("Aria 收盘简报", brief[:120])
-
-
-async def _run_weekly_recap_and_push() -> None:
-    if _go_daemon_running():
-        return
-    recap = await _run_weekly_recap()
-    await _telegram_push(recap)
-    await _feishu_push("📅 Aria 周报", recap[:2000])
-    _system_notify("Aria 周报", recap[:120])
 
 
 # ── PID management ────────────────────────────────────────────────────────────
@@ -1244,7 +1026,6 @@ async def main() -> None:
         asyncio.create_task(_alert_watchdog(), name="alert_watchdog"),
         asyncio.create_task(_webhook_executor(), name="webhook_executor"),
         asyncio.create_task(_webhook_http_server(), name="webhook_http_server"),
-        asyncio.create_task(_portfolio_loss_watchdog(), name="portfolio_watchdog"),
     ]
 
     scheduler = _start_scheduler()

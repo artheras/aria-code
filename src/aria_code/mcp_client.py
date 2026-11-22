@@ -389,15 +389,24 @@ class MCPToolRegistry:
     # ── config ─────────────────────────────────────────────────────────────
 
     def load_config(self) -> List[Dict[str, Any]]:
-        if not self.config_path.exists():
-            return []
-        try:
-            with open(self.config_path) as f:
-                data = json.load(f)
-            return data.get("servers", [])
-        except Exception as exc:
-            logger.warning("MCP config load failed: %s", exc)
-            return []
+        servers: List[Dict[str, Any]] = []
+        if self.config_path.exists():
+            try:
+                with open(self.config_path) as f:
+                    data = json.load(f)
+                raw = data.get("servers", [])
+                if isinstance(raw, list):
+                    servers = [s for s in raw if isinstance(s, dict)]
+            except Exception as exc:
+                logger.warning("MCP config load failed: %s", exc)
+                return []
+        if not servers and self.config_path == MCP_CONFIG_PATH:
+            try:
+                from aria_code.packages.aria_mcp.config import discover_sibling_ecosystem_servers
+                servers = [dict(s) for s in discover_sibling_ecosystem_servers()]
+            except Exception as exc:
+                logger.debug("Sibling MCP auto-discovery skipped: %s", exc)
+        return servers
 
     def save_example_config(self):
         """Write an example mcp_servers.json if none exists."""

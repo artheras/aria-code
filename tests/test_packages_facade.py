@@ -55,6 +55,26 @@ def test_builtin_skills_connect_tools_and_agents():
     assert "get_risk_metrics" in skills["equity-research-report"].tools
     assert "synthesis" in skills["equity-research-report"].agents
     assert "workspace-coding" in skills
+    assert "financial-orchestration" in skills
+    assert "arthera-finance/financial_portfolio_backtest" in skills["financial-orchestration"].tools
+    assert "erp-orchestration" in skills
+    assert "erp-service/erp.warehouse.analyze" in skills["erp-orchestration"].tools
+    assert "healthcare-orchestration" in skills
+
+
+def test_discover_sibling_ecosystem_servers(tmp_path):
+    from packages.aria_mcp import discover_sibling_ecosystem_servers
+
+    workspace = tmp_path / "aria-code"
+    workspace.mkdir()
+    for repo in ("financial-service", "erp-service"):
+        py_bin = tmp_path / repo / ".venv" / "bin" / "python"
+        py_bin.parent.mkdir(parents=True)
+        py_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    discovered = discover_sibling_ecosystem_servers(workspace)
+    names = {item["name"] for item in discovered}
+    assert {"arthera-finance", "erp-service"}.issubset(names)
 
 
 def test_service_boundaries_are_registered():
