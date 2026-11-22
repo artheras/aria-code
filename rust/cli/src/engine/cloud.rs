@@ -66,21 +66,67 @@ impl CloudProvider {
             .unwrap_or_else(|| "https://api.arthera.xyz".to_owned())
     }
 
-    pub fn endpoint(self, model: &str, api_key: &str) -> String {
-        let model_id = model.split('/').next_back().unwrap_or(model);
+    pub fn base_url_env(self) -> &'static [&'static str] {
         match self {
-            Self::Arthera => format!(
-                "{}/v1/chat/completions",
-                Self::arthera_base_url().trim_end_matches('/')
-            ),
-            Self::OpenAI => "https://api.openai.com/v1/chat/completions".to_owned(),
-            Self::Anthropic => "https://api.anthropic.com/v1/messages".to_owned(),
-            Self::Gemini => format!(
-                "https://generativelanguage.googleapis.com/v1beta/models/{model_id}:streamGenerateContent?alt=sse&key={api_key}"
-            ),
-            Self::DeepSeek => "https://api.deepseek.com/v1/chat/completions".to_owned(),
-            Self::OpenRouter => "https://openrouter.ai/api/v1/chat/completions".to_owned(),
+            Self::Arthera => &["ARIA_API_URL"],
+            Self::OpenAI => &["OPENAI_BASE_URL", "OPENAI_API_BASE"],
+            Self::Anthropic => &["ANTHROPIC_BASE_URL"],
+            Self::Gemini => &["GEMINI_BASE_URL"],
+            Self::DeepSeek => &["DEEPSEEK_BASE_URL"],
+            Self::OpenRouter => &["OPENROUTER_BASE_URL"],
         }
+    }
+
+    pub fn default_base_url(self) -> &'static str {
+        match self {
+            Self::Arthera => "https://api.arthera.xyz",
+            Self::OpenAI => "https://api.openai.com",
+            Self::Anthropic => "https://api.anthropic.com",
+            Self::Gemini => "https://generativelanguage.googleapis.com",
+            Self::DeepSeek => "https://api.deepseek.com",
+            Self::OpenRouter => "https://openrouter.ai/api",
+        }
+    }
+
+    pub fn resolve_base_url(self) -> String {
+        self.base_url_env()
+            .iter()
+            .find_map(|name| env::var(name).ok().filter(|v| !v.trim().is_empty()))
+            .unwrap_or_else(|| self.default_base_url().to_owned())
+    }
+
+    pub fn endpoint_with_base(self, base: &str, model: &str, api_key: &str) -> String {
+        let model_id = model.split('/').next_back().unwrap_or(model);
+        let root = base.trim().trim_end_matches('/');
+        match self {
+            Self::Arthera | Self::OpenAI | Self::DeepSeek | Self::OpenRouter => {
+                if root.ends_with("/v1") {
+                    format!("{root}/chat/completions")
+                } else {
+                    format!("{root}/v1/chat/completions")
+                }
+            }
+            Self::Anthropic => {
+                if root.ends_with("/v1") {
+                    format!("{root}/messages")
+                } else {
+                    format!("{root}/v1/messages")
+                }
+            }
+            Self::Gemini => {
+                if root.ends_with("/v1beta") {
+                    format!("{root}/models/{model_id}:streamGenerateContent?alt=sse&key={api_key}")
+                } else {
+                    format!(
+                        "{root}/v1beta/models/{model_id}:streamGenerateContent?alt=sse&key={api_key}"
+                    )
+                }
+            }
+        }
+    }
+
+    pub fn endpoint(self, model: &str, api_key: &str) -> String {
+        self.endpoint_with_base(&self.resolve_base_url(), model, api_key)
     }
 }
 
@@ -153,21 +199,15 @@ pub fn parse_anthropic_sse_data(data: &str) -> Option<(String, bool)> {
 /// Parse one SSE `data: ...` payload for Gemini `streamGenerateContent?alt=sse`.
 pub fn parse_gemini_sse_data(data: &str) -> Option<(String, bool)> {
     let val: Value = serde_json::from_str(data.trim()).ok()?;
-    let text = val
-        .get("candidates")?
-        .get(0)?
+    let candidate = val.get("candidates")?.get(0)?;
+    let text = candidate
         .get("content")?
         .get("parts")?
-        .get(0)?
-        .get("text")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_owned();
-    let done = val
-        .get("candidates")?
-        .get(0)?
-        .get("finishReason")
-        .is_some_and(|r| !r.is_null());
+        .as_array()?
+        .iter()
+        .filter_map(|part| part.get("text").and_then(Value::as_str))
+        .collect::<String>();
+    let done = candidate.get("finishReason").is_some_and(|r| !r.is_null());
     Some((text, done))
 }
 
@@ -297,9 +337,36 @@ mod tests {
             Some(("".into(), true))
         );
 
-        let gem =
-            r#"{"candidates":[{"content":{"parts":[{"text":"Aria"}]},"finishReason":"STOP"}]}"#;
-        assert_eq!(parse_gemini_sse_data(gem), Some(("Aria".into(), true)));
+        let gem = r#"{"candidates":[{"content":{"parts":[{"text":"Aria"},{"text":" Code"}]},"finishReason":"STOP"}]}"#;
+        assert_eq!(parse_gemini_sse_data(gem), Some(("Aria Code".into(), true)));
+    }
+
+    #[test]
+    fn resolves_custom_base_urls_without_duplicate_version_segments() {
+        assert_eq!(
+            CloudProvider::OpenAI.endpoint_with_base("https://proxy.corp/v1/", "gpt-4o", "k"),
+            "https://proxy.corp/v1/chat/completions"
+        );
+        assert_eq!(
+            CloudProvider::OpenAI.endpoint_with_base("https://proxy.corp", "gpt-4o", "k"),
+            "https://proxy.corp/v1/chat/completions"
+        );
+        assert_eq!(
+            CloudProvider::Anthropic.endpoint_with_base(
+                "https://claude-proxy.corp/v1",
+                "claude-3-7-sonnet",
+                "k"
+            ),
+            "https://claude-proxy.corp/v1/messages"
+        );
+        assert_eq!(
+            CloudProvider::Gemini.endpoint_with_base(
+                "https://gemini-proxy.corp/v1beta",
+                "google/gemini-3.8-flash",
+                "k"
+            ),
+            "https://gemini-proxy.corp/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse&key=k"
+        );
     }
 
     #[test]
