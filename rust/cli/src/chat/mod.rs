@@ -194,7 +194,7 @@ pub fn run(
                 dirty = true;
                 deadline = Some(Instant::now() + timeout);
                 if try_dispatch_native_turn(
-                    &app,
+                    &mut app,
                     &request,
                     &native_tx,
                     &native_cancel,
@@ -365,7 +365,7 @@ pub fn run(
                             .send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
                         deadline = None;
                     } else if try_dispatch_native_turn(
-                        &app,
+                        &mut app,
                         &request,
                         &native_tx,
                         &native_cancel,
@@ -541,6 +541,8 @@ fn ollama_base_url() -> String {
 
 #[derive(Debug, PartialEq, Eq)]
 enum NativeRoute {
+    Help,
+    Clear,
     Health,
     ModelList(Option<String>),
     Sessions(Option<String>),
@@ -576,6 +578,12 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
         return None;
     }
     let is_ollama = app.provider.eq_ignore_ascii_case("ollama");
+    if text == "/help" {
+        return Some(NativeRoute::Help);
+    }
+    if text == "/clear" || text == "/new" {
+        return Some(NativeRoute::Clear);
+    }
     if text == "/health" && (is_ollama || app.provider.is_empty()) {
         return Some(NativeRoute::Health);
     }
@@ -752,7 +760,7 @@ fn collect_agent_history(app: &App, current_prompt: &str) -> Vec<(String, String
 }
 
 fn try_dispatch_native_turn(
-    app: &App,
+    app: &mut App,
     request: &Value,
     tx: &mpsc::Sender<Value>,
     cancel: &Arc<AtomicBool>,
@@ -777,6 +785,19 @@ fn try_dispatch_native_turn(
         } else {
             "Write mode OFF: native coding agent is in read-only safe mode."
         };
+        let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": msg}));
+        let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+        return true;
+    }
+    if matches!(route, NativeRoute::Clear) {
+        app.entries.clear();
+        app.scroll = 0;
+        let msg = if app.zh() {
+            "已清空当前对话，开启新会话。"
+        } else {
+            "Started a fresh conversation."
+        };
+        let _ = tx.send(json!({"protocol": 1, "type": "turn.started"}));
         let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": msg}));
         let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
         return true;
@@ -859,6 +880,36 @@ fn try_dispatch_native_turn(
     thread::spawn(move || {
         let _ = tx.send(json!({"protocol": 1, "type": "turn.started"}));
         match route {
+            NativeRoute::Clear => {}
+            NativeRoute::Help => {
+                let text = if zh {
+                    "**Aria Code 原生命令：**\n\
+                     - `/help` — 查看命令帮助\n\
+                     - `/clear` | `/new` — 清空当前对话并开启新会话\n\
+                     - `/model [模型名]` — 列出或切换模型\n\
+                     - `/health` | `/doctor` — 检查服务与环境健康状态\n\
+                     - `/config` | `/permissions [init]` — 查看运行配置与 `.aria/settings.json` 权限规则\n\
+                     - `/hooks [init]` | `/sandbox` — 管理生命周期 Hook 与 OS 沙箱\n\
+                     - `/mcp [connect|connect --uvx|probe]` — 连接或探测外部 MCP 服务\n\
+                     - `/skills` | `/init [--force]` — 查看工作区技能或初始化 `ARIA.md`\n\
+                     - `/scan` | `/map` | `/diff` | `/log` | `/review` | `/verify` — 代码检查与验证\n\
+                     - `/rewind` | `/worktree` | `/write-mode on|off` | `/compact` | `/sessions` — 工作区与会话管理"
+                } else {
+                    "**Aria Code Native Commands:**\n\
+                     - `/help` — Show this command reference\n\
+                     - `/clear` | `/new` — Clear history and start a fresh session\n\
+                     - `/model [name]` — List or switch models\n\
+                     - `/health` | `/doctor` — Check services and workspace diagnostics\n\
+                     - `/config` | `/permissions [init]` — Inspect config and `.aria/settings.json` rules\n\
+                     - `/hooks [init]` | `/sandbox` — Manage lifecycle hooks and OS sandbox\n\
+                     - `/mcp [connect|connect --uvx|probe]` — Connect or probe external MCP servers\n\
+                     - `/skills` | `/init [--force]` — List workspace skills or initialize `ARIA.md`\n\
+                     - `/scan` | `/map` | `/diff` | `/log` | `/review` | `/verify` — Code inspection and verification\n\
+                     - `/rewind` | `/worktree` | `/write-mode on|off` | `/compact` | `/sessions` — Workspace and session controls"
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+            }
             NativeRoute::Health => {
                 let probe = crate::engine::ollama::probe_ollama(&url, Duration::from_secs(5));
                 let (cloud_ok, cloud_ms, cloud_err) =
@@ -1583,13 +1634,15 @@ fn try_dispatch_native_turn(
                     allow_write,
                     6,
                     timeout,
-                    |tool, args, result| {
+                    |tool, args| {
                         let _ = tx.send(json!({
                             "protocol": 1,
                             "type": "tool.started",
                             "tool": tool,
                             "params": args
                         }));
+                    },
+                    |tool, _args, result| {
                         let _ = tx.send(json!({
                             "protocol": 1,
                             "type": "tool.completed",
@@ -2632,6 +2685,18 @@ mod tests {
         assert_eq!(
             classify_native_route(&app, &json!({"type": "turn.submit", "text": "/doctor"})),
             Some(NativeRoute::Doctor)
+        );
+        assert_eq!(
+            classify_native_route(&app, &json!({"type": "turn.submit", "text": "/help"})),
+            Some(NativeRoute::Help)
+        );
+        assert_eq!(
+            classify_native_route(&app, &json!({"type": "turn.submit", "text": "/clear"})),
+            Some(NativeRoute::Clear)
+        );
+        assert_eq!(
+            classify_native_route(&app, &json!({"type": "turn.submit", "text": "/new"})),
+            Some(NativeRoute::Clear)
         );
         assert_eq!(
             classify_native_route(&app, &json!({"type": "turn.submit", "text": "/config"})),
