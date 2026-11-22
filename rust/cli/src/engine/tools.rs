@@ -1649,7 +1649,16 @@ fn execute_read_skill(workspace: &Path, args: &Value) -> Result<Value, String> {
         .unwrap_or("")
         .trim();
     if name.is_empty() {
-        let list: Vec<Value> = super::skills::discover_skills(workspace)
+        let mut all = super::skills::discover_skills(workspace);
+        for (builtin, _) in super::skills::builtin_ecosystem_skills() {
+            if !all
+                .iter()
+                .any(|s| s.name.eq_ignore_ascii_case(&builtin.name))
+            {
+                all.push(builtin);
+            }
+        }
+        let list: Vec<Value> = all
             .into_iter()
             .map(|s| {
                 json!({

@@ -97,23 +97,83 @@ pub fn discover_skills(workspace: &Path) -> Vec<SkillInfo> {
     map.into_values().collect()
 }
 
-/// Load a discovered skill's full `SKILL.md` content by exact name (case-insensitive fallback).
+/// Built-in ecosystem MCP orchestration skills (`financial-orchestration`, `erp-orchestration`,
+/// `healthcare-orchestration`) compiled into the binary for zero-config multi-tool coordination.
+pub fn builtin_ecosystem_skills() -> Vec<(SkillInfo, &'static str)> {
+    vec![
+        (
+            SkillInfo {
+                name: "financial-orchestration".into(),
+                description: "Coordinate arthera-finance MCP tools for symbol resolution, equity/macro research, correlation matrices, pairs stat-arb, and portfolio optimization".into(),
+                path: PathBuf::from("builtin://financial-orchestration/SKILL.md"),
+                scope: "builtin",
+            },
+            "---\nname: financial-orchestration\ndescription: Coordinate arthera-finance MCP tools for multi-step financial and quantitative analysis\n---\n\
+             # Financial Service Orchestration Playbook\n\n\
+             1. **Symbol Resolution First**: When the user provides a Chinese/English company name, brand, or bare 6-digit A-share code (e.g. `贵州茅台`, `宁德时代`, `路易威登`, `600036`), call `mcp__arthera_finance__financial_resolve_symbol` first to obtain the canonical ticker and market.\n\
+             2. **Single-Asset Deep Research**: Chain `financial_quote` + `financial_fundamentals` + `financial_market_history` (or `financial_ashare_history` for CN) -> pass the close series to `financial_technical_factors` and statement fields to `financial_quality_scores` (Piotroski F / Altman Z'').\n\
+             3. **Multi-Asset / Pairs / Stat-Arb**: Fetch aligned daily closes for each asset, then call:\n\
+                - `financial_peer_comparison` for valuation multiples vs peer median\n\
+                - `financial_correlation_matrix` for pairwise log-return correlations and diversification score\n\
+                - `financial_stat_arb` for OLS log-price hedge ratio, rolling spread Z-score, and Ornstein-Uhlenbeck half-life\n\
+                - `financial_optimize_weights` (`max_sharpe`, `min_var`, `equal_weight`) for portfolio allocation\n\
+             4. **Macro & Derivatives Context**: Combine `financial_us_macro` / `financial_cn_macro` / `financial_central_bank_rates` / `financial_treasury_yields` or `financial_options_chain` / `financial_funding_rates` when macro or derivatives drivers are relevant.\n\
+             5. **If MCP Tools Are Missing**: Guide the user to run `/mcp connect` (local sibling repo) or `/mcp connect --uvx`.\n",
+        ),
+        (
+            SkillInfo {
+                name: "erp-orchestration".into(),
+                description: "Coordinate erp-service MCP tools across warehouse, inventory, procurement, logistics, and finance reconciliation".into(),
+                path: PathBuf::from("builtin://erp-orchestration/SKILL.md"),
+                scope: "builtin",
+            },
+            "---\nname: erp-orchestration\ndescription: Coordinate erp-service MCP tools in causal supply-chain order\n---\n\
+             # ERP Service Orchestration Playbook\n\n\
+             Execute supply-chain and enterprise operations in causal order:\n\
+             1. **Inventory & Warehouse Diagnostics**: Inspect stock levels, safety stock gaps, and warehouse utilization via `mcp__erp_service__*` read-only tools.\n\
+             2. **Procurement & Logistics Planning**: Feed stock-out risks and reorder quantities into procurement and carrier/route evaluation tools.\n\
+             3. **Financial Reconciliation & Executive Decision**: Reconcile cost/margin impact and synthesize an actionable decision summary with explicit bottlenecks and next actions.\n",
+        ),
+        (
+            SkillInfo {
+                name: "healthcare-orchestration".into(),
+                description: "Coordinate aria-healthcare MCP tools for PubMed literature search, evidence review, and clinical workflow navigation".into(),
+                path: PathBuf::from("builtin://healthcare-orchestration/SKILL.md"),
+                scope: "builtin",
+            },
+            "---\nname: healthcare-orchestration\ndescription: Coordinate aria-healthcare MCP tools for evidence-based biomedical research\n---\n\
+             # Healthcare Service Orchestration Playbook\n\n\
+             1. **Literature Retrieval**: Query PubMed / biomedical literature via `mcp__aria_healthcare__*` search tools with structured MeSH / keyword filters.\n\
+             2. **Evidence Grading**: Pass retrieved studies into the evidence review / synthesis tool to separate RCTs, meta-analyses, and observational data.\n\
+             3. **Clinical & Research Workbench**: Structure findings with clear citations, limitations, and non-diagnostic safety boundaries.\n",
+        ),
+    ]
+}
+
+/// Load a discovered or built-in skill's full `SKILL.md` content by exact name (case-insensitive fallback).
 pub fn load_skill_content(workspace: &Path, name: &str) -> Result<(SkillInfo, String), String> {
     let target = name.trim();
     if target.is_empty() {
         return Err("Skill name is required".into());
     }
     let skills = discover_skills(workspace);
-    let found = skills
+    if let Some(found) = skills
         .iter()
         .find(|s| s.name == target)
         .or_else(|| skills.iter().find(|s| s.name.eq_ignore_ascii_case(target)))
         .cloned()
-        .ok_or_else(|| format!("Skill `{target}` not found"))?;
-    let raw = fs::read_to_string(&found.path)
-        .map_err(|e| format!("Failed to read `{}`: {e}", found.path.display()))?;
-    let clipped: String = raw.chars().take(16_000).collect();
-    Ok((found, clipped))
+    {
+        let raw = fs::read_to_string(&found.path)
+            .map_err(|e| format!("Failed to read `{}`: {e}", found.path.display()))?;
+        let clipped: String = raw.chars().take(16_000).collect();
+        return Ok((found, clipped));
+    }
+    for (info, body) in builtin_ecosystem_skills() {
+        if info.name.eq_ignore_ascii_case(target) {
+            return Ok((info, body.to_owned()));
+        }
+    }
+    Err(format!("Skill `{target}` not found"))
 }
 
 /// Load `<workspace>/ARIA.md`, `AGENTS.md`, or `CLAUDE.md` if present.
@@ -299,5 +359,11 @@ mod tests {
         assert!(body.contains("New body"));
         let (deploy_info, _) = load_skill_content(tmp.path(), "DEPLOY").unwrap();
         assert_eq!(deploy_info.name, "deploy");
+
+        let (fin_info, fin_body) =
+            load_skill_content(tmp.path(), "financial-orchestration").unwrap();
+        assert_eq!(fin_info.scope, "builtin");
+        assert!(fin_body.contains("financial_resolve_symbol"));
+        assert!(fin_body.contains("financial_stat_arb"));
     }
 }

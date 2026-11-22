@@ -213,6 +213,11 @@ pub fn load_mcp_server_configs(workspace: &Path) -> Vec<McpServerConfig> {
         }
     }
     parse_mcp_file(&workspace.join(".mcp.json"), &mut map);
+    if !cfg!(test) && map.is_empty() {
+        for srv in discover_ecosystem_mcp_servers(workspace) {
+            map.entry(srv.name.clone()).or_insert(srv);
+        }
+    }
     let mut list: Vec<McpServerConfig> = map.into_values().collect();
     list.sort_by(|a, b| a.name.cmp(&b.name));
     list
