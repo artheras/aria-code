@@ -119,6 +119,7 @@ pub fn builtin_ecosystem_skills() -> Vec<(SkillInfo, &'static str)> {
                 - `financial_optimize_weights` (`max_sharpe`, `min_var`, `equal_weight`) for portfolio allocation\n\
                 - `financial_portfolio_backtest` (`monthly`, `quarterly`, `none`) for multi-asset rebalanced simulation against an optional benchmark\n\
                 - `financial_ohlcv_quality_audit` for OHLCV bar integrity, rolling return Z-score outliers, and trading-calendar gap auditing\n\
+                - `financial_pretrade_risk_check` for position concentration, gross leverage, drawdown circuit-breaker, cash reserve floor, and short-selling compliance checks\n\
              4. **Macro & Derivatives Context**: Combine `financial_us_macro` / `financial_cn_macro` / `financial_central_bank_rates` / `financial_treasury_yields` or `financial_options_chain` / `financial_funding_rates` when macro or derivatives drivers are relevant.\n\
              5. **If MCP Tools Are Missing**: Guide the user to run `/mcp connect` (local sibling repo) or `/mcp connect --uvx`.\n",
         ),
@@ -132,9 +133,9 @@ pub fn builtin_ecosystem_skills() -> Vec<(SkillInfo, &'static str)> {
             "---\nname: erp-orchestration\ndescription: Coordinate erp-service MCP tools in causal supply-chain order\n---\n\
              # ERP Service Orchestration Playbook\n\n\
              Execute supply-chain and enterprise operations in causal order:\n\
-             1. **Inventory & Warehouse Diagnostics**: Inspect stock levels, safety stock gaps, and warehouse utilization via `mcp__erp_service__*` read-only tools.\n\
-             2. **Procurement & Logistics Planning**: Feed stock-out risks and reorder quantities into procurement and carrier/route evaluation tools.\n\
-             3. **Financial Reconciliation & Executive Decision**: Reconcile cost/margin impact and synthesize an actionable decision summary with explicit bottlenecks and next actions.\n",
+             1. **Inventory & Warehouse Diagnostics**: Inspect stock levels, safety stock gaps, and warehouse utilization via `erp.warehouse.analyze`, `erp.warehouse.snapshot`, and `erp.inventory.plan`.\n\
+             2. **Procurement, Carrier Scoring & Freight Audit**: Feed stock-out risks and waybills into `erp.carriers.score`, `erp.freight.audit`, or `erp.warehouse.task`.\n\
+             3. **Tenant-Isolated Daily Shipper Digest**: Call `erp.shipper.digest` with `owner_id` to produce a single-tenant digest combining reorder alerts and carrier/freight anomalies without cross-shipper leakage.\n",
         ),
         (
             SkillInfo {
