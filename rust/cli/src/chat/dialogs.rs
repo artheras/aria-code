@@ -113,9 +113,32 @@ pub(super) fn risk_card(app: &App, risk: &Risk, p: Palette) -> Vec<Line<'static>
         row(app.tr("Impact", "影响"), std::slice::from_ref(&risk.impact));
     }
     row(app.tr("Affects", "涉及"), &risk.systems);
-    let why: Vec<String> = risk.reasons.iter().take(2).cloned().collect();
+    let why: Vec<String> = risk
+        .reasons
+        .iter()
+        .take(2)
+        .map(|r| localize_risk_reason(app, r))
+        .collect();
     row(app.tr("Why", "原因"), &why);
     lines
+}
+
+fn localize_risk_reason(app: &App, reason: &str) -> String {
+    if !app.zh() {
+        return reason.to_owned();
+    }
+    if let Some(tool) = reason
+        .strip_prefix("Runs the ")
+        .and_then(|s| s.strip_suffix(" tool"))
+    {
+        return format!("调用 {tool} 工具");
+    }
+    match reason {
+        "Fetches from the network" => "发起网络请求".into(),
+        "Reads from GitHub" => "读取 GitHub 数据".into(),
+        "Places an order with a broker" => "向券商提交交易订单".into(),
+        other => other.to_owned(),
+    }
 }
 
 /// The model picker: a searchable list, one row per model under group
