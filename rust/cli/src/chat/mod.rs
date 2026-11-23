@@ -571,6 +571,9 @@ enum NativeRoute {
     Plan(String),
     ApplyPlan(String),
     Artifacts(String),
+    Privacy(String),
+    Feedback(String),
+    Ecosystem(String),
     Verify(Option<String>),
     WriteMode(Option<bool>),
     OllamaChat,
@@ -696,6 +699,30 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
             .trim()
             .to_owned();
         return Some(NativeRoute::Artifacts(arg));
+    }
+    if text == "/privacy" || text.starts_with("/privacy ") {
+        let arg = text
+            .strip_prefix("/privacy")
+            .unwrap_or("")
+            .trim()
+            .to_owned();
+        return Some(NativeRoute::Privacy(arg));
+    }
+    if text == "/feedback" || text.starts_with("/feedback ") {
+        let arg = text
+            .strip_prefix("/feedback")
+            .unwrap_or("")
+            .trim()
+            .to_owned();
+        return Some(NativeRoute::Feedback(arg));
+    }
+    if text == "/ecosystem" || text.starts_with("/ecosystem ") {
+        let arg = text
+            .strip_prefix("/ecosystem")
+            .unwrap_or("")
+            .trim()
+            .to_owned();
+        return Some(NativeRoute::Ecosystem(arg));
     }
     if text == "/diff" || text.starts_with("/diff ") {
         let target = text.strip_prefix("/diff").unwrap_or("").trim();
@@ -985,10 +1012,10 @@ fn try_dispatch_native_turn(
                      - `/health` | `/doctor` — 检查服务与环境健康状态\n\
                      - `/config` | `/permissions [init]` — 查看运行配置与 `.aria/settings.json` 权限规则\n\
                      - `/hooks [init]` | `/sandbox` — 管理生命周期 Hook 与 OS 沙箱\n\
-                     - `/mcp [connect|connect --uvx|probe]` — 连接或探测外部 MCP 服务\n\
+                     - `/mcp [connect|connect --uvx|probe]` | `/ecosystem [probe]` — 连接或探测外部垂直 MCP 生态服务\n\
                      - `/skills` | `/init [--force]` — 查看工作区技能或初始化 `ARIA.md`\n\
                      - `/scan` | `/map` | `/diff` | `/log` | `/review` | `/verify` — 代码检查与验证\n\
-                     - `/roi` | `/cost` — 查看 AI ROI 与 Token 效率计分卡\n\
+                     - `/roi` | `/cost` | `/privacy` | `/feedback` — ROI 计分卡、本地隐私与反馈记录\n\
                      - `/memory` | `/todo` | `/note` — 项目记忆、待办清单与 `ARIA.md` 笔记\n\
                      - `/workflow [list|show|run]` | `/export [md|json]` | `/artifacts [stats|prune]` — 工作流、导出与产物管理\n\
                      - `/plan [list|add|rm|clear]` | `/apply-plan [--from N]` — 持久化执行计划与策略门控\n\
@@ -1001,10 +1028,10 @@ fn try_dispatch_native_turn(
                      - `/health` | `/doctor` — Check services and workspace diagnostics\n\
                      - `/config` | `/permissions [init]` — Inspect config and `.aria/settings.json` rules\n\
                      - `/hooks [init]` | `/sandbox` — Manage lifecycle hooks and OS sandbox\n\
-                     - `/mcp [connect|connect --uvx|probe]` — Connect or probe external MCP servers\n\
+                     - `/mcp [connect|connect --uvx|probe]` | `/ecosystem [probe]` — Connect or probe vertical MCP ecosystem\n\
                      - `/skills` | `/init [--force]` — List workspace skills or initialize `ARIA.md`\n\
                      - `/scan` | `/map` | `/diff` | `/log` | `/review` | `/verify` — Code inspection and verification\n\
-                     - `/roi` | `/cost` — View Enterprise AI ROI & Token Efficiency Scorecard\n\
+                     - `/roi` | `/cost` | `/privacy` | `/feedback` — AI ROI scorecard, local-first privacy, and feedback\n\
                      - `/memory` | `/todo` | `/note` — Manage project memory, tasks, and `ARIA.md` notes\n\
                      - `/workflow [list|show|run]` | `/export [md|json]` | `/artifacts [stats|prune]` — Workflows, transcript export, and artifacts\n\
                      - `/plan [list|add|rm|clear]` | `/apply-plan [--from N]` — Persistent plan management and gated execution\n\
@@ -1644,6 +1671,28 @@ fn try_dispatch_native_turn(
                     allow_write,
                     zh,
                 );
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Privacy(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) =
+                    crate::engine::privacy::handle_privacy_command(&ws_path, &arg, zh);
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Feedback(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) = crate::engine::privacy::handle_feedback_command(
+                    &ws_path, &model, &history, &arg,
+                );
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Ecosystem(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) =
+                    crate::engine::ecosystem::handle_ecosystem_command(&ws_path, &arg, zh);
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }
