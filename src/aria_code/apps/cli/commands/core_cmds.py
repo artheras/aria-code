@@ -910,106 +910,35 @@ class CoreCommandsMixin:
                 else:
                     print("No code block found to save")
     async def cmd_feedback(self, args: str):
-        """Rate the last AI response and store feedback locally by default.
-
-        Usage: /feedback good|bad [comment]
-               /feedback note <comment>
-        """
+        """Rate the last AI response locally (also native in Rust CLI)."""
         from aria_cli import CONFIG_DIR
-        from aria_code.privacy import FeedbackRecord
-        from aria_code.privacy import FeedbackStore
+        from aria_code.privacy import FeedbackRecord, FeedbackStore
+        from aria_code.safety import SafetyService
         from aria_code.ui.render.output import display_path as _display_path
+
         parts = args.strip().split(maxsplit=1)
         vote = parts[0].lower() if parts else ""
         comment = parts[1].strip() if len(parts) > 1 else ""
-
-        aliases = {
-            "good": "positive", "up": "positive", "1": "positive", "+": "positive",
-            "bad": "negative", "down": "negative", "0": "negative", "-": "negative",
-            "note": "note",
-        }
+        aliases = {"good": "positive", "up": "positive", "1": "positive", "+": "positive",
+                   "bad": "negative", "down": "negative", "0": "negative", "-": "negative", "note": "note"}
         rating = aliases.get(vote)
+        say = (lambda m: self.context.console.print(m)) if self.context.has_rich else print
         if rating is None or (rating == "note" and not comment):
-            self.context.console.print("[dim]Usage: /feedback good|bad [comment] | /feedback note <comment>[/dim]" if self.context.has_rich
-                          else "Usage: /feedback good|bad [comment] | /feedback note <comment>")
+            say("Usage: /feedback good|bad [comment] | /feedback note <comment>")
             return
-
-        # Find last assistant message and its position
-        last_msg = None
-        msg_idx = None
-        for i in range(len(self.terminal.conversation) - 1, -1, -1):
-            if self.terminal.conversation[i]["role"] == "assistant":
-                last_msg = self.terminal.conversation[i]["content"][:500]
-                msg_idx = i
-                break
-        if not last_msg:
-            self.context.console.print("[dim]No AI response to rate[/dim]" if self.context.has_rich else "No response to rate")
+        last_pair = next(((i, m["content"][:500]) for i in range(len(self.terminal.conversation) - 1, -1, -1)
+                          if (m := self.terminal.conversation[i])["role"] == "assistant"), None)
+        if not last_pair:
+            say("No AI response to rate")
             return
-
-        from aria_code.safety import SafetyService
         settings = SafetyService(self.terminal.config).privacy()
         record = FeedbackRecord.create(
-            rating=rating,
-            message=last_msg,
-            comment=comment,
-            model=self.terminal.config.get("model", ""),
-            session_id=self.terminal.session_id,
-            message_index=msg_idx,
-            shared=settings.data_sharing and settings.feedback_upload,
+            rating=rating, message=last_pair[1], comment=comment,
+            model=self.terminal.config.get("model", ""), session_id=self.terminal.session_id,
+            message_index=last_pair[0], shared=settings.data_sharing and settings.feedback_upload,
         )
-        store = FeedbackStore(CONFIG_DIR)
-
-        # Persist locally first. This is the default and works offline.
-        try:
-            feedback_path = store.append(record)
-        except Exception as exc:
-            msg = f"Could not save feedback locally: {exc}"
-            self.context.console.print(f"[red]{msg}[/red]" if self.context.has_rich else msg)
-            return
-
-        # Optional remote upload only after explicit opt-in. Posts to the
-        # backend /feedback endpoint in the shape it expects (FeedbackRequest)
-        # so the rating reaches production_data_collector → DPO training.
-        # No trail_id needed: the backend matches the latest sample for this
-        # session_id (good→thumbs_up, bad→thumbs_down; bad+comment→DPO pair).
-        api_success = False
-        upload_attempted = settings.data_sharing and settings.feedback_upload
-        if upload_attempted and rating in ("positive", "negative"):
-            try:
-                import aiohttp
-                headers = {}
-                if self.terminal.config.get("auth_token"):
-                    headers["Authorization"] = f"Bearer {self.terminal.config['auth_token']}"
-                payload = {
-                    "user_id":       self.terminal.config.get("user_id") or "cli",
-                    "session_id":    self.terminal.session_id,
-                    "feedback_type": "thumbs_up" if rating == "positive" else "thumbs_down",
-                    "response_id":   self.terminal.session_id,  # latest-in-session match
-                    "value":         comment or None,
-                }
-                async with aiohttp.ClientSession(trust_env=True) as session:
-                    async with session.post(
-                        f"{self.terminal.api_url}/feedback",
-                        json=payload,
-                        headers=headers,
-                        timeout=aiohttp.ClientTimeout(total=8)
-                    ) as resp:
-                        api_success = resp.status in (200, 201, 204)
-            except Exception:
-                api_success = False
-
-        icon = "↑" if rating == "positive" else ("↓" if rating == "negative" else "note")
-        if upload_attempted:
-            sync_note = "" if api_success else " [dim](saved locally; upload failed)[/dim]"
-        else:
-            sync_note = " [dim](saved locally; sharing off)[/dim]"
-        if self.context.has_rich:
-            comment_note = f" — {comment}" if comment else ""
-            self.context.console.print(f"[green]Feedback {icon}[/green]{comment_note}{sync_note}")
-            self.context.console.print(f"[dim]Saved: {_display_path(feedback_path)}[/dim]")
-        else:
-            print(f"Feedback {icon}" + (f" — {comment}" if comment else "") +
-                  (" (uploaded)" if api_success else " (saved locally)"))
+        path = FeedbackStore(CONFIG_DIR).append(record)
+        say(f"Feedback saved locally: {_display_path(path)}")
     def cmd_privacy(self, args: str):
         """Manage local privacy and feedback-sharing settings (also native in Rust CLI)."""
         from aria_cli import CONFIG_DIR
