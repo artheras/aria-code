@@ -20,6 +20,9 @@ class Page:
         self.target.is_visible.return_value = True
         self.target.evaluate_all.return_value = [{"selector":"button:nth-of-type(1)","tag":"button","label":"Save"}]
         self.goto = Mock(side_effect=lambda url, **kw: setattr(self, 'url', url))
+        self.go_back = Mock()
+        self.go_forward = Mock()
+        self.reload = Mock()
 
     def content(self): return self.html
     def title(self): return 'Example'
@@ -125,7 +128,10 @@ def test_mcp_protocol_images_and_notifications(session):
     def msg(method, params=None):
         return dispatch(session, {'jsonrpc':'2.0','id':1,'method':method,'params':params or {}})
     assert msg('initialize')['result']['capabilities'] == {'tools': {}}
-    assert len(msg('tools/list')['result']['tools']) == 7
+    tools = msg('tools/list')['result']['tools']
+    assert len(tools) == 14
+    names = {t['name'] for t in tools}
+    assert {'browser_batch', 'browser_scroll', 'browser_wait', 'browser_hover', 'browser_history', 'browser_select', 'browser_export_recording'} <= names
     assert dispatch(session, {'jsonrpc':'2.0','method':'notifications/initialized'}) is None
     result = msg('tools/call', {'name':'browser_observe'})['result']
     assert not result['isError']
@@ -244,7 +250,7 @@ async def test_real_stdio_process_handshake_and_permissions():
                   env={'ARIA_COMPUTER_ORIGINS':''})
     try:
         assert await s.start()
-        assert len(s.tools) == 7
+        assert len(s.tools) == 14
         result = await s.call_tool('browser_capabilities', {})
         assert result['origins'] == []
         assert result['desktop_input'] is False
@@ -374,4 +380,64 @@ def test_virtual_cursor_thought_hud_visual_diff_and_recording_export(session, tm
     rec = session.call('browser_export_recording', {'output_path': str(out_gif)})
     assert rec['frames'] >= 2
     assert out_gif.exists() or out_gif.with_suffix('.png').exists()
+
+
+def test_browser_scroll_and_wait_return_fresh_observations(session):
+    scrolled = session.call('browser_scroll', {'direction': 'down', 'amount': 400})
+    assert 'observation_id' in scrolled
+    with pytest.raises(ValueError):
+        session.call('browser_scroll', {'direction': 'sideways'})
+    waited = session.call('browser_wait', {'wait_ms': 100})
+    assert 'observation_id' in waited
+    assert waited['observation_id'] != scrolled['observation_id']
+
+
+def test_browser_select_hover_and_history_actions(session):
+    obs = session.observe()
+    hovered = session.call('browser_hover', {'observation_id': obs['observation_id'], 'selector': 'button'})
+    assert 'observation_id' in hovered
+    session.page.target.hover.assert_called_once()
+
+    selected = session.call('browser_select', {
+        'observation_id': hovered['observation_id'],
+        'selector': 'select',
+        'value': 'pro',
+    })
+    assert 'observation_id' in selected
+    session.page.target.select_option.assert_called_once_with(value='pro')
+
+    back = session.call('browser_history', {'action': 'back'})
+    assert 'observation_id' in back
+    session.page.go_back.assert_called_once()
+    with pytest.raises(ValueError):
+        session.call('browser_history', {'action': 'invalid'})
+
+
+def test_cross_platform_approval_adapters(monkeypatch):
+    from aria_code import computer_use_server as cus
+
+    monkeypatch.setattr(cus.sys, 'platform', 'win32')
+    monkeypatch.setattr(cus.subprocess, 'run', lambda *a, **kw: types.SimpleNamespace(returncode=0, stdout='Yes\n'))
+    assert approve('Allow?') is True
+
+    monkeypatch.setattr(cus.sys, 'platform', 'linux')
+    monkeypatch.setenv('DISPLAY', ':0')
+    monkeypatch.setattr(cus.shutil, 'which', lambda cmd: '/usr/bin/zenity' if cmd == 'zenity' else None)
+    monkeypatch.setattr(cus.subprocess, 'run', lambda *a, **kw: types.SimpleNamespace(returncode=0, stdout=''))
+    assert approve('Allow?') is True
+
+    monkeypatch.delenv('DISPLAY', raising=False)
+    monkeypatch.delenv('WAYLAND_DISPLAY', raising=False)
+    assert approve('Allow?') is False
+
+
+def test_computer_use_contract_manifest_matches_tools():
+    from pathlib import Path
+    from aria_code.computer_use_server import TOOLS
+
+    manifest_path = Path(__file__).resolve().parents[1] / 'contracts' / 'computer_use_tools.json'
+    assert manifest_path.is_file()
+    data = json.loads(manifest_path.read_text(encoding='utf-8'))
+    assert data['server'] == 'aria-computer-use'
+    assert data['tools'] == TOOLS
 
