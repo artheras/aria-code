@@ -7,7 +7,10 @@ from collections.abc import Iterable, Mapping
 
 
 _MARKET_IDENTIFIER = re.compile(
-    r"\b[A-Z]{1,5}(?:\.[A-Z]{1,4})?\b|\b\d{6}(?:\.(?:SH|SZ|SS|HK))?\b"
+    r"\$[A-Z]{1,5}\b|(?<!\d)\d{6}(?:\.(?:SH|SZ|SS|HK))?(?!\d)"
+)
+_KNOWN_TICKERS = re.compile(
+    r"(?<![A-Za-z])(?:AAPL|MSFT|NVDA|GOOGL|GOOG|AMZN|META|TSLA|BRK\.B|TSM|AMD|INTC|NFLX|BABA|JD|PDD|TCEHY|SPY|QQQ|IWM|DIA|VOO|JPM|GS|MS|BAC|BTC|ETH|SOL|BNB|XRP|DOGE)(?![A-Za-z])"
 )
 # Words that name a financial subject on their own. Everyday words used to be
 # in this list too — market, share, option, volume, price, holding, fund, and
@@ -90,8 +93,9 @@ def _names_an_instrument(text: str) -> bool:
         if any(a.pack == "finance" for a in activate_packs(text)):
             return True
     except Exception:
-        if _MARKET_IDENTIFIER.search(text):
-            return True
+        pass
+    if _MARKET_IDENTIFIER.search(text) or _KNOWN_TICKERS.search(text):
+        return True
     try:
         from aria_code.apps.cli.intent_signals import _ENTITY_TERMS
     except Exception:

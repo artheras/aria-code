@@ -60,8 +60,26 @@ class TurnPromptTests(unittest.TestCase):
         self.assertIn("# Repo: demo", built)
 
     def test_an_active_pack_contributes_its_guidance(self):
-        built = build_turn_system_prompt("分析 $AAPL 的走势")
-        self.assertIn("金融标的已识别", built)
+        from aria_code.packs import BaseDomainPack, EntityMatch, register_pack, unregister_pack
+
+        class _DemoPack(BaseDomainPack):
+            name = "_test_prompt_guidance_pack"
+            description = "Synthetic pack for prompt guidance test"
+
+            def resolve_entities(self, message: str):
+                if "$AAPL" in message:
+                    return (EntityMatch(pack=self.name, kind="ticker", value="AAPL", surface="$AAPL", confidence=0.95),)
+                return ()
+
+            def prompt_fragment(self, activation):
+                return "金融标的已识别: " + ", ".join(m.value for m in activation.entities)
+
+        register_pack(_DemoPack())
+        try:
+            built = build_turn_system_prompt("分析 $AAPL 的走势")
+            self.assertIn("金融标的已识别", built)
+        finally:
+            unregister_pack("_test_prompt_guidance_pack")
 
     def test_a_code_turn_is_never_handed_market_guidance(self):
         built = build_turn_system_prompt("修好 paginate.py 的 off-by-one")
