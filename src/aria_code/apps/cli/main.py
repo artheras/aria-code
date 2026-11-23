@@ -20,12 +20,6 @@ def main() -> None:
     from aria_code.apps.cli.native_entry import dispatch_worker, maybe_native
     dispatch_worker()
     maybe_native()
-    if sys.argv[1:2] == ["review"]:
-        # Headless review for CI: no REPL, no banner, an exit code to gate on.
-        # Dispatched before the full CLI loads, so it starts quickly.
-        from aria_code.apps.cli.review_runner import run_headless
-
-        sys.exit(run_headless(sys.argv[2:]))
 
     from aria_cli import main as _async_main
 
