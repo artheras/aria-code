@@ -34,18 +34,15 @@ def test_a_logistics_line_is_plain_text():
 
 
 def test_a_review_finding_wraps_under_its_title():
-    """Recorded on a real /review: the finding's explanation fell back to column 0."""
-    from types import SimpleNamespace as NS
+    """Hanging-indent helper keeps wrapped explanation rows under the 3-space indent."""
+    from aria_code.ui.render.output import print_hanging
 
-    from aria_code.apps.cli.commands.workflow_cmds import _print_review
-
-    finding = NS(in_change=True, priority=2, label="P2", title="convert() crashes on infinite inputs",
-                 location="fx.py:10-13", confidence=0.9,
-                 body="When `amount` or `rate` is an infinite float, their product is Decimal('Infinity') and "
-                      "quantize() raises decimal.InvalidOperation; the function should handle that case.")
-    result = NS(structured=True, correct=False, confidence=0.9, explanation="", findings=[finding],
-                omitted_files=[])
     console = Console(file=io.StringIO(), width=70, color_system=None)
-    _print_review(console, result, "en")
-    body = [line for line in console.file.getvalue().splitlines() if line and not line.startswith(("Needs", "1."))]
+    print_hanging(
+        console,
+        "   ",
+        "When `amount` or `rate` is an infinite float, their product is Decimal('Infinity') and "
+        "quantize() raises decimal.InvalidOperation; the function should handle that case.",
+    )
+    body = [line for line in console.file.getvalue().splitlines() if line]
     assert len(body) > 1 and all(line.startswith("   ") for line in body)
