@@ -24,14 +24,16 @@ def _periods_per_year(rets) -> float:
     sqrt(252) overstated volatility and Sharpe about 4.6x. An index that is not
     dates falls back to 252 (daily), the old assumption.
     """
-    from aria_code.domain import performance_stats as stats
-
     try:
         idx = rets.index
-        found = stats.periods_per_year_from_dates(len(rets) - 1, idx[0], idx[-1])
+        intervals = len(rets) - 1
+        if intervals >= 1:
+            span_days = (idx[-1] - idx[0]).days
+            if span_days > 0:
+                return float(intervals) * 365.25 / float(span_days)
     except Exception:
-        found = None
-    return found if found else float(stats.FALLBACK_PERIODS_PER_YEAR)
+        pass
+    return 252.0
 
 
 def _annual_vol(rets) -> float:
