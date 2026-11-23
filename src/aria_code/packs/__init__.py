@@ -39,20 +39,14 @@ _BUILTIN_LOADED = False
 
 
 def load_builtin_packs() -> tuple[str, ...]:
-    """Register the packs that ship with Aria.  Idempotent.
+    """Register any built-in packs that ship with Aria.  Idempotent.
 
-    Finance is a built-in for continuity, not for precedence — it registers
-    through the same contract any third-party pack would use, and so do the
-    rest. Each is loaded in its own try/except because the cost of one broken
-    pack must be that pack, not the session.
+    Vertical domain packs (finance, healthcare, logistics, etc.) have moved to
+    external MCP services; third-party packs can still register via
+    :func:`register_pack`.
     """
     global _BUILTIN_LOADED
     if not _BUILTIN_LOADED:
-        for module in ("finance",):
-            try:
-                __import__(f"aria_code.packs.{module}", fromlist=["register"]).register()
-            except Exception:  # pragma: no cover - a broken pack must not block startup
-                pass
         _BUILTIN_LOADED = True
     return tuple(getattr(p, "name", "") for p in registered_packs())
 

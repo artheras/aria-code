@@ -556,7 +556,7 @@ enum NativeRoute {
     Mcp(String),
     Skills,
     Init(bool),
-    Doctor,
+    Doctor(String),
     Config,
     Permissions(String),
     Hooks(String),
@@ -631,8 +631,9 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
             .any(|tok| tok == "--force" || tok == "-f");
         return Some(NativeRoute::Init(force));
     }
-    if text == "/doctor" {
-        return Some(NativeRoute::Doctor);
+    if text == "/doctor" || text.starts_with("/doctor ") {
+        let arg = text.strip_prefix("/doctor").unwrap_or("").trim().to_owned();
+        return Some(NativeRoute::Doctor(arg));
     }
     if text == "/config" {
         return Some(NativeRoute::Config);
@@ -1488,11 +1489,18 @@ fn try_dispatch_native_turn(
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }
-            NativeRoute::Doctor => {
+            NativeRoute::Doctor(arg) => {
                 let ws_path = std::path::PathBuf::from(&workspace);
-                let text = build_native_doctor_report(&ws_path);
+                let (text, status) = if arg.is_empty() {
+                    let legacy = build_native_doctor_report(&ws_path);
+                    let (structured, st) =
+                        crate::engine::doctor::handle_doctor_command(&ws_path, "", zh);
+                    (format!("{structured}\n\n{legacy}"), st)
+                } else {
+                    crate::engine::doctor::handle_doctor_command(&ws_path, &arg, zh)
+                };
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
-                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }
             NativeRoute::Config => {
                 let ws_path = std::path::PathBuf::from(&workspace);
@@ -2950,7 +2958,7 @@ mod tests {
         );
         assert_eq!(
             classify_native_route(&app, &json!({"type": "turn.submit", "text": "/doctor"})),
-            Some(NativeRoute::Doctor)
+            Some(NativeRoute::Doctor(String::new()))
         );
         assert_eq!(
             classify_native_route(&app, &json!({"type": "turn.submit", "text": "/help"})),
