@@ -935,35 +935,18 @@ async def _call_backtest_run(args: Dict[str, Any]) -> Dict[str, Any]:
     return {"success": True, **asdict(result)}
 
 
+_CREATIVE_PLUGIN_MOVED = (
+    "Moved to external MCP plugin aria-creative-media "
+    "(artheras/aria-plugins/plugins/creative-media). Connect via /mcp."
+)
+
+
 async def _call_figma_read_file(args: Dict[str, Any]) -> Dict[str, Any]:
-    import asyncio
-
-    from aria_code.clients.figma_client import get_file_summary
-
-    file_key = str(args.get("file_key", "")).strip()
-    if not file_key:
-        return {"success": False, "error": "file_key is required"}
-    depth = int(args.get("depth", 2) or 2)
-    loop = asyncio.get_event_loop()
-    try:
-        return await loop.run_in_executor(None, lambda: get_file_summary(file_key, depth=depth))
-    except Exception as exc:
-        return {"success": False, "error": str(exc)}
+    return {"success": False, "error": _CREATIVE_PLUGIN_MOVED}
 
 
 async def _call_figma_comments(args: Dict[str, Any]) -> Dict[str, Any]:
-    import asyncio
-
-    from aria_code.clients.figma_client import list_comments
-
-    file_key = str(args.get("file_key", "")).strip()
-    if not file_key:
-        return {"success": False, "error": "file_key is required"}
-    loop = asyncio.get_event_loop()
-    try:
-        return await loop.run_in_executor(None, list_comments, file_key)
-    except Exception as exc:
-        return {"success": False, "error": str(exc)}
+    return {"success": False, "error": _CREATIVE_PLUGIN_MOVED}
 
 
 async def _call_video_probe(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1126,27 +1109,17 @@ async def _call_video_detect_scenes(args: Dict[str, Any]) -> Dict[str, Any]:
         return {"success": False, "error": str(exc)}
 
 
-_VIDEO_GEN_PROVIDERS = {"kling": "aria_code.clients.kling_video_client", "runway": "aria_code.clients.runway_video_client"}
+_VIDEO_GEN_PROVIDERS = ("kling", "runway")
 
 
 async def _call_video_generate_estimate(args: Dict[str, Any]) -> Dict[str, Any]:
     provider = str(args.get("provider", "")).strip().lower()
-    module_name = _VIDEO_GEN_PROVIDERS.get(provider)
-    if not module_name:
-        return {"success": False, "error": f"provider must be one of {sorted(_VIDEO_GEN_PROVIDERS)}"}
-    duration = int(args.get("duration", 0) or 0)
-    if duration <= 0:
-        return {"success": False, "error": "duration must be a positive number of seconds"}
-
-    import importlib
-    client = importlib.import_module(module_name)
-    return {"success": True, **client.estimate_cost(duration)}
+    if provider not in _VIDEO_GEN_PROVIDERS:
+        return {"success": False, "error": f"provider must be one of {list(_VIDEO_GEN_PROVIDERS)}"}
+    return {"success": False, "error": _CREATIVE_PLUGIN_MOVED}
 
 
 async def _call_video_generate_submit(args: Dict[str, Any]) -> Dict[str, Any]:
-    # Real money is spent the instant client.submit_video() succeeds — this
-    # check is the actual safety boundary for aria.video.generate_submit
-    # being in _WRITE_SAFE, not just the allowlist membership itself.
     if args.get("confirmed") is not True:
         return {
             "success": False,
@@ -1156,51 +1129,17 @@ async def _call_video_generate_submit(args: Dict[str, Any]) -> Dict[str, Any]:
                 "with confirmed=true."
             ),
         }
-
     provider = str(args.get("provider", "")).strip().lower()
-    module_name = _VIDEO_GEN_PROVIDERS.get(provider)
-    if not module_name:
-        return {"success": False, "error": f"provider must be one of {sorted(_VIDEO_GEN_PROVIDERS)}"}
-    prompt = str(args.get("prompt", "")).strip()
-    if not prompt:
-        return {"success": False, "error": "prompt is required"}
-
-    import asyncio
-    import importlib
-    from functools import partial
-
-    client = importlib.import_module(module_name)
-    kwargs: Dict[str, Any] = {"duration": int(args.get("duration", 5) or 5)}
-    aspect_ratio = args.get("aspect_ratio")
-    if aspect_ratio:
-        kwargs["aspect_ratio" if provider == "kling" else "ratio"] = aspect_ratio
-
-    loop = asyncio.get_event_loop()
-    fn = partial(client.submit_video, prompt, **kwargs)
-    try:
-        return await loop.run_in_executor(None, fn)
-    except Exception as exc:
-        return {"success": False, "error": str(exc)}
+    if provider not in _VIDEO_GEN_PROVIDERS:
+        return {"success": False, "error": f"provider must be one of {list(_VIDEO_GEN_PROVIDERS)}"}
+    return {"success": False, "error": _CREATIVE_PLUGIN_MOVED}
 
 
 async def _call_video_generate_status(args: Dict[str, Any]) -> Dict[str, Any]:
     provider = str(args.get("provider", "")).strip().lower()
-    module_name = _VIDEO_GEN_PROVIDERS.get(provider)
-    if not module_name:
-        return {"success": False, "error": f"provider must be one of {sorted(_VIDEO_GEN_PROVIDERS)}"}
-    task_id = str(args.get("task_id", "")).strip()
-    if not task_id:
-        return {"success": False, "error": "task_id is required"}
-
-    import asyncio
-    import importlib
-
-    client = importlib.import_module(module_name)
-    loop = asyncio.get_event_loop()
-    try:
-        return await loop.run_in_executor(None, client.poll_video, task_id)
-    except Exception as exc:
-        return {"success": False, "error": str(exc)}
+    if provider not in _VIDEO_GEN_PROVIDERS:
+        return {"success": False, "error": f"provider must be one of {list(_VIDEO_GEN_PROVIDERS)}"}
+    return {"success": False, "error": _CREATIVE_PLUGIN_MOVED}
 
 
 async def _call_report_docx(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1248,25 +1187,10 @@ async def _call_report_pptx(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _call_estimate_image_cost(args: Dict[str, Any]) -> Dict[str, Any]:
-    from aria_code.clients.openai_image_client import estimate_cost
-
-    try:
-        return {
-            "success": True,
-            **estimate_cost(
-                size=args.get("size") or "1024x1536",
-                quality=args.get("quality") or "high",
-                model=args.get("model"),
-            ),
-        }
-    except Exception as exc:
-        return {"success": False, "error": str(exc)}
+    return {"success": False, "error": _CREATIVE_PLUGIN_MOVED}
 
 
 async def _call_generate_image(args: Dict[str, Any]) -> Dict[str, Any]:
-    # Real money is spent the instant generate_image() calls OpenAI — this
-    # check is the actual safety boundary, not just _WRITE_SAFE membership
-    # (same pattern as _call_video_generate_submit).
     if args.get("confirmed") is not True:
         return {
             "success": False,
@@ -1275,34 +1199,10 @@ async def _call_generate_image(args: Dict[str, Any]) -> Dict[str, Any]:
                 "Call aria.report.estimate_image_cost first to see the cost, then resubmit with confirmed=true."
             ),
         }
-
-    import asyncio
-    from functools import partial
-
-    from aria_code.clients.openai_image_client import generate_image
-
-    prompt = str(args.get("prompt", "")).strip()
-    if not prompt:
-        return {"success": False, "error": "prompt is required"}
-
-    loop = asyncio.get_event_loop()
-    try:
-        fn = partial(
-            generate_image, prompt,
-            size=args.get("size") or "1024x1536",
-            quality=args.get("quality") or "high",
-            model=args.get("model"),
-            complexity=args.get("complexity"),
-            output_format=args.get("output_format"),
-            confirmed=True,
-        )
-        return await loop.run_in_executor(None, fn)
-    except Exception as exc:
-        return {"success": False, "error": str(exc)}
+    return {"success": False, "error": _CREATIVE_PLUGIN_MOVED}
 
 
 async def _call_edit_image(args: Dict[str, Any]) -> Dict[str, Any]:
-    # Same real-money gate as _call_generate_image above.
     if args.get("confirmed") is not True:
         return {
             "success": False,
@@ -1311,38 +1211,7 @@ async def _call_edit_image(args: Dict[str, Any]) -> Dict[str, Any]:
                 "Call aria.report.estimate_image_cost first to see the cost, then resubmit with confirmed=true."
             ),
         }
-
-    import asyncio
-    from functools import partial
-
-    from aria_code.clients.openai_image_client import edit_image
-
-    image_path = str(args.get("image_path", "")).strip()
-    prompt = str(args.get("prompt", "")).strip()
-    if not image_path or not prompt:
-        return {"success": False, "error": "image_path and prompt are required"}
-
-    mask_path = args.get("mask_path")
-    mask_path = str(mask_path).strip() if mask_path else None
-    region_hint = args.get("region_hint")
-    region_hint = str(region_hint).strip() if region_hint else None
-
-    loop = asyncio.get_event_loop()
-    try:
-        fn = partial(
-            edit_image, image_path, prompt,
-            size=args.get("size") or "1024x1536",
-            quality=args.get("quality") or "high",
-            mask_path=mask_path,
-            region_hint=region_hint,
-            model=args.get("model"),
-            complexity=args.get("complexity"),
-            output_format=args.get("output_format"),
-            confirmed=True,
-        )
-        return await loop.run_in_executor(None, fn)
-    except Exception as exc:
-        return {"success": False, "error": str(exc)}
+    return {"success": False, "error": _CREATIVE_PLUGIN_MOVED}
 
 
 async def _call_generate_image_local(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1389,38 +1258,11 @@ async def _call_edit_image_local(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _call_canva_design(args: Dict[str, Any]) -> Dict[str, Any]:
-    import asyncio
-
-    from aria_code.clients.canva_client import autofill_design
-
-    template_id = str(args.get("template_id", "")).strip()
-    data = args.get("data") or {}
-    if not template_id or not isinstance(data, dict):
-        return {"success": False, "error": "template_id and data (object) are required"}
-
-    loop = asyncio.get_event_loop()
-    try:
-        result = await loop.run_in_executor(None, autofill_design, template_id, data)
-    except Exception as exc:
-        return {"success": False, "error": str(exc)}
-    return result
+    return {"success": False, "error": _CREATIVE_PLUGIN_MOVED}
 
 
 async def _call_canva_upload_asset(args: Dict[str, Any]) -> Dict[str, Any]:
-    import asyncio
-
-    from aria_code.clients.canva_client import upload_asset
-
-    file_path = str(args.get("file_path", "")).strip()
-    if not file_path:
-        return {"success": False, "error": "file_path is required"}
-
-    loop = asyncio.get_event_loop()
-    try:
-        result = await loop.run_in_executor(None, upload_asset, file_path)
-    except Exception as exc:
-        return {"success": False, "error": str(exc)}
-    return result
+    return {"success": False, "error": _CREATIVE_PLUGIN_MOVED}
 
 
 def _project_root(value: Any) -> Path:
