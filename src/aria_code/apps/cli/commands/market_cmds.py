@@ -41,38 +41,6 @@ def _rss_items_from_xml(xml_text: str, limit: int = 5) -> list[dict]:
     return items
 
 
-def _fetch_public_news_fallback(topic: str, limit: int = 5) -> list[dict]:
-    """Fetch public RSS news without API keys."""
-    import re as _re
-    import urllib.parse as _parse
-    import urllib.request as _request
-
-    topic = (topic or "market").strip()
-    urls: list[str] = []
-    if _re.match(r"^[A-Z]{1,6}(?:[.-][A-Z]{1,3})?$", topic):
-        urls.append(
-            "https://feeds.finance.yahoo.com/rss/2.0/headline?"
-            f"s={_parse.quote(topic)}&region=US&lang=en-US"
-        )
-    query = f"{topic} latest news when:14d"
-    urls.append(
-        "https://news.google.com/rss/search?"
-        f"q={_parse.quote(query)}&hl=en-US&gl=US&ceid=US:en"
-    )
-    headers = {"User-Agent": "Mozilla/5.0 AriaCode/4.1"}
-    for url in urls:
-        try:
-            req = _request.Request(url, headers=headers)
-            with _request.urlopen(req, timeout=8) as resp:
-                text = resp.read().decode("utf-8", errors="replace")
-            items = _rss_items_from_xml(text, limit=limit)
-            if items:
-                return items
-        except Exception:
-            continue
-    return []
-
-
 def _is_known_football_name(name: str) -> bool:
     """Football vertical moved to external service."""
     return False
