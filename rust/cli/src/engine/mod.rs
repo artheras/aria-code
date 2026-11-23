@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod artifacts;
 pub mod cloud;
 pub mod compact;
 pub mod hooks;

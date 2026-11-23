@@ -12,35 +12,16 @@ from ._ui import Panel, print_error, rich_box
 class BrokerCommandsMixin:
     """Mixin providing broker/account/positions/orders commands."""
 
-    async def cmd_broker(self, args: str):
-        """Broker management moved to Arthera backend service."""
+    async def _moved(self, cmd: str):
         if self.context.has_rich:
-            self.context.console.print("[dim]/broker 已迁移至 Arthera 后端服务。[/dim]")
+            self.context.console.print(f"[dim]{cmd} 已迁移至 financial-service / arthera-trading MCP 服务。[/dim]")
 
-    async def _cmd_broker_add(self, broker_type: str = ""):
-        """Broker setup moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/broker add 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_account(self, args: str):
-        """Account summary moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/account 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_positions(self, args: str):
-        """Positions query moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/positions 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_orders(self, args: str):
-        """Orders query moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/orders 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_paper(self, args: str):
-        """Paper trading moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/paper 已迁移至 Arthera 后端服务。[/dim]")
+    async def cmd_broker(self, args: str): await self._moved("/broker")
+    async def _cmd_broker_add(self, broker_type: str = ""): await self._moved("/broker add")
+    async def cmd_account(self, args: str): await self._moved("/account")
+    async def cmd_positions(self, args: str): await self._moved("/positions")
+    async def cmd_orders(self, args: str): await self._moved("/orders")
+    async def cmd_paper(self, args: str): await self._moved("/paper")
 
     async def cmd_trade(self, args: str):
         """两阶段交易: /trade mode | preview SYMBOL buy|sell QTY PRICE | confirm PREVIEW_ID | previews
