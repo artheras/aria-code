@@ -210,6 +210,29 @@
       }
     },
     {
+      "name": "browser_downloads",
+      "description": "List or clear files captured inside ARIA_COMPUTER_DOWNLOAD_DIR during this browser session.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "clear"
+            ]
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
       "name": "browser_click",
       "description": "Click one visible element (by selector or element_id) after user approval.",
       "inputSchema": {

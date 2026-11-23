@@ -119,6 +119,10 @@ docs/assets/*.gif
 go/relay/aria-relay
 go/relay/aria-relay-race
 
+# Local sibling/nested service checkouts
+services/financial-service/
+services/arthera-for-confluence/
+
 # Local submission material and generated media (never part of service source)
 /competition-assets/
 /submission-assets/

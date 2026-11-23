@@ -36,8 +36,8 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: "Model id for the agent, e.g. google/gemini-3.5-flash or a Gemma id from Model Garden"
-        default: "google/gemini-3.5-flash"
+        description: "Model id for the agent, e.g. google/gemini-3.8-flash or a Gemma id from Model Garden"
+        default: "google/gemini-3.8-flash"
         required: false
       repeat:
         description: "Attempts per task. One run is one draw; use 3 for a baseline a tuned model will be compared against"
@@ -62,7 +62,7 @@ jobs:
     timeout-minutes: 360
     env:
       READY: ${{ vars.GCP_PROJECT != '' && vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_EVAL_SERVICE_ACCOUNT != '' }}
-      MODEL: ${{ github.event.inputs.model || 'google/gemini-3.5-flash' }}
+      MODEL: ${{ github.event.inputs.model || 'google/gemini-3.8-flash' }}
       REPEAT: ${{ github.event.inputs.repeat || '1' }}
       RUNTIME: ${{ github.event.inputs.runtime || 'python' }}
       HOLDOUT: ${{ secrets.HOLDOUT_DEPLOY_KEY != '' }}

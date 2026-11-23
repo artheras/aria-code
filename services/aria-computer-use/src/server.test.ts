@@ -172,7 +172,7 @@ test("cross-platform human approval adapters and fail-closed headless", () => {
   assert.equal(approvalBackendLabel("linux", {}), "unavailable (fail-closed deny)");
 });
 
-test("MCP JSON-RPC dispatch lists all 17 tools and executes full workflow", async () => {
+test("MCP JSON-RPC dispatch lists all 18 tools and executes full workflow", async () => {
   const session = new BrowserSession(["https://example.com"], {
     approval: () => true,
     clock: () => 1_000,
@@ -183,7 +183,7 @@ test("MCP JSON-RPC dispatch lists all 17 tools and executes full workflow", asyn
   const listResp = await dispatch(session, { jsonrpc: "2.0", id: 1, method: "tools/list" });
   assert.ok(listResp && typeof listResp.result === "object");
   const listed = (listResp.result as { tools: typeof TOOLS }).tools;
-  assert.equal(listed.length, 17);
+  assert.equal(listed.length, 18);
 
   const capsResp = await dispatch(session, {
     jsonrpc: "2.0",
@@ -194,10 +194,16 @@ test("MCP JSON-RPC dispatch lists all 17 tools and executes full workflow", asyn
   const capsText = ((capsResp!.result as { content: Array<{ text: string }> }).content[0]).text;
   const caps = JSON.parse(capsText);
   assert.equal(caps.engine, "node-typescript-playwright");
-  assert.equal(caps.tools_count, 17);
+  assert.equal(caps.tools_count, 18);
   assert.equal(caps.shadow_dom, true);
   assert.equal(caps.same_origin_iframes, true);
   assert.equal(caps.ax_tree, true);
+  assert.equal(caps.downloads_enabled, false);
+  assert.equal(caps.persistent_profile, false);
+
+  const dl = await session.call("browser_downloads", { action: "list" });
+  assert.equal(dl.downloads_enabled, false);
+  assert.deepEqual(dl.downloads, []);
 
   const obs = await session.call("browser_observe", { mark_elements: true, thought: "inspect" });
   assert.ok(typeof obs.observation_id === "string");
