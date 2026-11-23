@@ -290,20 +290,25 @@ def test_integration_checks_local_image_gen_needs_both_modules(monkeypatch):
     assert checks["integration:local_image_gen"].status == "warn"
 
 
-def test_integration_checks_provider_key_present_reports_ok(monkeypatch):
-    monkeypatch.setattr(doctor, "_provider_key_present", lambda module_name, key_fn: True)
+def test_integration_checks_creative_media_plugin_discovered(monkeypatch):
+    from aria_code.packages.aria_mcp import config as mcp_config
+
+    monkeypatch.setattr(
+        mcp_config,
+        "discover_sibling_ecosystem_servers",
+        lambda: [{"name": "aria-creative-media"}],
+    )
     checks = {c.name: c for c in integration_checks()}
-    assert checks["integration:openai_images"].status == "ok"
-    assert checks["integration:kling"].status == "ok"
-    assert checks["integration:runway"].status == "ok"
-    assert checks["integration:figma"].status == "ok"
+    assert checks["integration:creative_media_plugin"].status == "ok"
 
 
-def test_integration_checks_provider_key_missing_reports_warn_with_setup_hint(monkeypatch):
-    monkeypatch.setattr(doctor, "_provider_key_present", lambda module_name, key_fn: False)
+def test_integration_checks_creative_media_plugin_missing(monkeypatch):
+    from aria_code.packages.aria_mcp import config as mcp_config
+
+    monkeypatch.setattr(mcp_config, "discover_sibling_ecosystem_servers", lambda: [])
     checks = {c.name: c for c in integration_checks()}
-    assert checks["integration:kling"].status == "warn"
-    assert "/apikey set kling" in checks["integration:kling"].suggestion
+    assert checks["integration:creative_media_plugin"].status == "warn"
+    assert "aria-plugins" in checks["integration:creative_media_plugin"].suggestion
 
 
 def test_provider_key_present_handles_tuple_keys(monkeypatch):
@@ -328,29 +333,12 @@ def test_provider_key_present_swallows_import_errors():
     assert doctor._provider_key_present("nonexistent_module_xyz", "_api_key") is False
 
 
-def test_integration_checks_canva_connected(monkeypatch):
-    monkeypatch.setattr(doctor, "_provider_key_present", lambda module_name, key_fn: False)
-    from aria_code.clients import canva_client
-    monkeypatch.setattr(canva_client, "_load_canva_config", lambda: {"access_token": "tok"})
-    checks = {c.name: c for c in integration_checks()}
-    assert checks["integration:canva"].status == "ok"
-
-
-def test_integration_checks_canva_not_connected(monkeypatch):
-    monkeypatch.setattr(doctor, "_provider_key_present", lambda module_name, key_fn: False)
-    from aria_code.clients import canva_client
-    monkeypatch.setattr(canva_client, "_load_canva_config", lambda: {})
-    checks = {c.name: c for c in integration_checks()}
-    assert checks["integration:canva"].status == "warn"
-    assert "/canva connect" in checks["integration:canva"].suggestion
-
-
 def test_integration_checks_included_in_run_doctor(monkeypatch, tmp_path):
     monkeypatch.setenv("ARIA_ARTIFACT_ROOT", str(tmp_path / "artifacts"))
     report = run_doctor({}, cwd=tmp_path)
     names = {c.name for c in report.checks}
     assert "integration:ffmpeg" in names
-    assert "integration:openai_images" in names
+    assert "integration:creative_media_plugin" in names
 
 
 def test_ollama_absence_is_only_a_warning_when_this_install_uses_it(monkeypatch, tmp_path):

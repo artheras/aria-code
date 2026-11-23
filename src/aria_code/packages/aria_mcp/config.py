@@ -62,6 +62,21 @@ def erp_service_server_config(python: Path) -> Dict[str, object]:
             "enabled": True}
 
 
+def creative_media_plugin_server_config(plugin_python_dir: Path) -> Dict[str, object]:
+    """External creative-media MCP plugin from artheras/aria-plugins."""
+    plugin_python_dir = Path(plugin_python_dir).expanduser().resolve()
+    if not plugin_python_dir.is_dir():
+        raise ValueError("Provide a valid directory for aria-plugins creative-media python/")
+    return {
+        "name": "aria-creative-media",
+        "command": str(Path(sys.executable)),
+        "args": ["-m", "aria_creative.mcp_server"],
+        "env": {"PYTHONPATH": str(plugin_python_dir)},
+        "description": "Figma, Canva, OpenAI Images, Kling, and Runway creative MCP tools",
+        "enabled": True,
+    }
+
+
 def discover_sibling_ecosystem_servers(
     workspace: Optional[Path] = None,
 ) -> List[Dict[str, object]]:
@@ -96,6 +111,13 @@ def discover_sibling_ecosystem_servers(
                     break
             if any(str(s.get("command", "")).startswith(str(root / repo_dir)) for s in servers):
                 break
+    for root in roots:
+        creative_py = root / "aria-plugins" / "plugins" / "creative-media" / "python"
+        if (creative_py / "aria_creative" / "mcp_server.py").is_file():
+            if "aria-creative-media" not in seen_names:
+                seen_names.add("aria-creative-media")
+                servers.append(creative_media_plugin_server_config(creative_py))
+            break
     return servers
 
 
