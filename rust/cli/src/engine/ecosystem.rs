@@ -5,7 +5,7 @@
 //! vertical domain logic inside `aria-code` core.
 
 use crate::engine::mcp::{
-    discover_ecosystem_mcp_servers, load_mcp_server_configs, McpServerConfig, McpStdioClient,
+    discover_ecosystem_mcp_servers, load_mcp_server_configs, McpClient, McpServerConfig,
 };
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -14,7 +14,7 @@ fn describe_service(name: &str) -> (&'static str, &'static str) {
     match name {
         "arthera-finance" => (
             "Finance & Quant",
-            "Read-only market data, statements, OHLCV quality audit, portfolio backtest, pre-trade risk checks",
+            "Read-only market data, statements, DCF valuation & sensitivity matrix, SEC due diligence red flags (Beneish M-Score, 10-K/8-K/Form 4/13D), SaaS/semiconductor KPIs, portfolio backtest, pre-trade risk checks",
         ),
         "arthera-trading" => (
             "Trading / Brokers",
@@ -97,7 +97,7 @@ pub fn handle_ecosystem_command(workspace: &Path, arg: &str, zh: bool) -> (Strin
         lines.push("| :--- | :--- | :--- | :--- |".to_owned());
         for srv in &servers {
             let (domain, _) = describe_service(&srv.name);
-            match McpStdioClient::spawn_with_env(&srv.command, &srv.args, &srv.env) {
+            match McpClient::connect(srv) {
                 Ok(mut client) => match client.list_tools() {
                     Ok(tools) => {
                         let ro = tools

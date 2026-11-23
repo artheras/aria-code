@@ -126,6 +126,165 @@ impl Drop for McpStdioClient {
     }
 }
 
+const MCP_HEADER_ENV_PREFIX: &str = "MCP_HEADER:";
+
+pub fn is_remote_http_url(command: &str) -> bool {
+    let trimmed = command.trim();
+    trimmed.starts_with("http://") || trimmed.starts_with("https://")
+}
+
+/// Parse either plain JSON-RPC or Streamable HTTP SSE (`data: {...}`) response body.
+pub fn parse_http_jsonrpc_body(body: &str, expected_id: u64) -> Result<Value, String> {
+    let trimmed = body.trim();
+    if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
+        if let Some(err) = val.get("error") {
+            return Err(format!("MCP HTTP error: {err}"));
+        }
+        return Ok(val.get("result").cloned().unwrap_or(Value::Null));
+    }
+    for line in trimmed.lines() {
+        let Some(payload) = line.strip_prefix("data:").map(str::trim) else {
+            continue;
+        };
+        if payload.is_empty() || payload == "[DONE]" {
+            continue;
+        }
+        if let Ok(val) = serde_json::from_str::<Value>(payload) {
+            if val.get("id").and_then(Value::as_u64) == Some(expected_id)
+                || val.get("result").is_some()
+                || val.get("error").is_some()
+            {
+                if let Some(err) = val.get("error") {
+                    return Err(format!("MCP HTTP SSE error: {err}"));
+                }
+                return Ok(val.get("result").cloned().unwrap_or(Value::Null));
+            }
+        }
+    }
+    Err("Unparseable MCP HTTP response body".into())
+}
+
+/// Native Rust Streamable HTTP MCP JSON-RPC 2.0 client (zero local Python required).
+pub struct McpHttpClient {
+    url: String,
+    headers: HashMap<String, String>,
+    session_id: Option<String>,
+    next_id: AtomicU64,
+}
+
+impl McpHttpClient {
+    pub fn connect(url: &str, headers: &HashMap<String, String>) -> Result<Self, String> {
+        let mut client = Self {
+            url: url.trim().to_owned(),
+            headers: headers.clone(),
+            session_id: None,
+            next_id: AtomicU64::new(1),
+        };
+        client.initialize()?;
+        Ok(client)
+    }
+
+    fn request(&mut self, method: &str, params: Value) -> Result<Value, String> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let msg = format_jsonrpc_request(id, method, params);
+        let payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+        let mut req = ureq::post(&self.url)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json, text/event-stream");
+        if let Some(sid) = &self.session_id {
+            req = req.header("Mcp-Session-Id", sid);
+        }
+        for (k, v) in &self.headers {
+            req = req.header(k, v);
+        }
+        let mut resp = req
+            .send(payload.as_bytes())
+            .map_err(|e| format!("MCP HTTP request failed: {e}"))?;
+        if let Some(sid) = resp
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|h| h.to_str().ok())
+        {
+            self.session_id = Some(sid.to_owned());
+        }
+        let body = resp
+            .body_mut()
+            .read_to_string()
+            .map_err(|e| format!("MCP HTTP read failed: {e}"))?;
+        parse_http_jsonrpc_body(&body, id)
+    }
+
+    fn initialize(&mut self) -> Result<(), String> {
+        let _ = self.request(
+            "initialize",
+            json!({
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": { "name": "aria-native", "version": env!("CARGO_PKG_VERSION") }
+            }),
+        )?;
+        Ok(())
+    }
+
+    pub fn list_tools(&mut self) -> Result<Vec<Value>, String> {
+        let res = self.request("tools/list", json!({}))?;
+        Ok(res
+            .get("tools")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    pub fn call_tool(&mut self, name: &str, arguments: Value) -> Result<Value, String> {
+        self.request(
+            "tools/call",
+            json!({ "name": name, "arguments": arguments }),
+        )
+    }
+}
+
+/// Unified native Rust MCP client supporting both local stdio and remote Streamable HTTP.
+pub enum McpClient {
+    Stdio(McpStdioClient),
+    Http(McpHttpClient),
+}
+
+impl McpClient {
+    pub fn connect(cfg: &McpServerConfig) -> Result<Self, String> {
+        if is_remote_http_url(&cfg.command) {
+            let headers: HashMap<String, String> = cfg
+                .env
+                .iter()
+                .filter_map(|(k, v)| {
+                    k.strip_prefix(MCP_HEADER_ENV_PREFIX)
+                        .map(|name| (name.to_owned(), v.clone()))
+                })
+                .collect();
+            Ok(Self::Http(McpHttpClient::connect(&cfg.command, &headers)?))
+        } else {
+            Ok(Self::Stdio(McpStdioClient::spawn_with_env(
+                &cfg.command,
+                &cfg.args,
+                &cfg.env,
+            )?))
+        }
+    }
+
+    pub fn list_tools(&mut self) -> Result<Vec<Value>, String> {
+        match self {
+            Self::Stdio(c) => c.list_tools(),
+            Self::Http(c) => c.list_tools(),
+        }
+    }
+
+    pub fn call_tool(&mut self, name: &str, arguments: Value) -> Result<Value, String> {
+        match self {
+            Self::Stdio(c) => c.call_tool(name, arguments),
+            Self::Http(c) => c.call_tool(name, arguments),
+        }
+    }
+}
+
 /// Format a JSON-RPC 2.0 request line for MCP callers.
 pub fn format_jsonrpc_request(id: u64, method: &str, params: Value) -> Value {
     json!({
@@ -145,10 +304,35 @@ pub struct McpServerConfig {
 }
 
 fn insert_mcp_entry(name: &str, cfg: &Value, out: &mut HashMap<String, McpServerConfig>) {
+    if name.trim().is_empty() {
+        return;
+    }
+    if let Some(url) = cfg.get("url").and_then(Value::as_str) {
+        if is_remote_http_url(url) {
+            let mut env = HashMap::new();
+            if let Some(headers) = cfg.get("headers").and_then(Value::as_object) {
+                for (k, v) in headers {
+                    if let Some(s) = v.as_str() {
+                        env.insert(format!("{MCP_HEADER_ENV_PREFIX}{k}"), s.to_owned());
+                    }
+                }
+            }
+            out.insert(
+                name.to_owned(),
+                McpServerConfig {
+                    name: name.to_owned(),
+                    command: url.trim().to_owned(),
+                    args: Vec::new(),
+                    env,
+                },
+            );
+            return;
+        }
+    }
     let Some(command) = cfg.get("command").and_then(Value::as_str) else {
         return;
     };
-    if name.trim().is_empty() || command.trim().is_empty() {
+    if command.trim().is_empty() {
         return;
     }
     let args = cfg
@@ -343,33 +527,38 @@ pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> 
     }
 
     // `artheras/financial-service`: read-only finance (`arthera-finance`) and
-    // separate paper/trading server (`arthera-trading`). Prefer the service
-    // venv entrypoint or `python -I -m ...` (isolated mode). Never hardcode
-    // FINANCIAL_SERVICE_NETWORK or FINANCIAL_SERVICE_BROKERS_ENABLED here.
-    let fin_root = parent.join("financial-service");
-    let fin_src = fin_root.join("src");
-    let fin_server_py = fin_src.join("arthera_finance").join("server.py");
-    if let Some(cfg) = build_python_service_config(
-        "arthera-finance",
-        &fin_root,
-        "arthera-financial-service",
-        &fin_src,
-        "arthera_finance.server",
-        &fin_server_py,
-    ) {
-        found.push(cfg);
-    }
-
-    let trading_server_py = fin_src.join("arthera_finance").join("trading_server.py");
-    if let Some(cfg) = build_python_service_config(
-        "arthera-trading",
-        &fin_root,
-        "arthera-trading",
-        &fin_src,
-        "arthera_finance.trading_server",
-        &trading_server_py,
-    ) {
-        found.push(cfg);
+    // separate paper/trading server (`arthera-trading`). Prefer `<workspace>/services/financial-service`
+    // or sibling `../financial-service` using isolated `python -I -m ...` or venv entrypoint.
+    // Never hardcode FINANCIAL_SERVICE_NETWORK or FINANCIAL_SERVICE_BROKERS_ENABLED here.
+    let fin_candidates = [
+        base.join("services").join("financial-service"),
+        parent.join("financial-service"),
+    ];
+    for fin_root in &fin_candidates {
+        let fin_src = fin_root.join("src");
+        let fin_server_py = fin_src.join("arthera_finance").join("server.py");
+        if let Some(cfg) = build_python_service_config(
+            "arthera-finance",
+            fin_root,
+            "arthera-financial-service",
+            &fin_src,
+            "arthera_finance.server",
+            &fin_server_py,
+        ) {
+            found.push(cfg);
+            let trading_server_py = fin_src.join("arthera_finance").join("trading_server.py");
+            if let Some(tcfg) = build_python_service_config(
+                "arthera-trading",
+                fin_root,
+                "arthera-trading",
+                &fin_src,
+                "arthera_finance.trading_server",
+                &trading_server_py,
+            ) {
+                found.push(tcfg);
+            }
+            break;
+        }
     }
 
     // `artheras/healthcare-service`: biomedical literature & evidence over MCP.
@@ -408,19 +597,21 @@ pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> 
         });
     }
 
-    // Isolated browser Computer Use MCP service (`aria-computer-use`).
+    // Isolated browser Computer Use MCP service (`aria-computer-use`),
+    // backed by the first-class Node.js/TypeScript Playwright server.
     // Never hardcode ARIA_COMPUTER_ORIGINS here; the host explicitly authorizes origins.
-    let cu_src = base.join("src");
-    let cu_server = cu_src.join("aria_code").join("computer_use_server.py");
-    if let Some(cfg) = build_python_service_config(
-        "aria-computer-use",
-        &base,
-        "aria-computer-use",
-        &cu_src,
-        "aria_code.computer_use_server",
-        &cu_server,
-    ) {
-        found.push(cfg);
+    let ts_cu_cli = base
+        .join("services")
+        .join("aria-computer-use")
+        .join("dist")
+        .join("cli.js");
+    if ts_cu_cli.is_file() {
+        found.push(McpServerConfig {
+            name: "aria-computer-use".into(),
+            command: "node".into(),
+            args: vec![ts_cu_cli.to_string_lossy().into_owned()],
+            env: HashMap::new(),
+        });
     }
 
     let bots_root = base.join("services").join("aria-bots");
@@ -532,11 +723,11 @@ pub struct McpServerHealth {
     pub error: Option<String>,
 }
 
-/// Probe a single stdio MCP server via `initialize` + `tools/list` and return its health.
+/// Probe a single MCP server (stdio or remote Streamable HTTP) via `initialize` + `tools/list`.
 #[allow(dead_code)]
 pub fn probe_mcp_server(cfg: &McpServerConfig) -> McpServerHealth {
     let started = Instant::now();
-    match McpStdioClient::spawn_with_env(&cfg.command, &cfg.args, &cfg.env) {
+    match McpClient::connect(cfg) {
         Ok(mut client) => match client.list_tools() {
             Ok(tools) => {
                 let mut tool_names = Vec::new();
@@ -623,9 +814,9 @@ fn parse_tool_annotations(tool: &Value) -> McpToolAnnotations {
     }
 }
 
-/// Live registry of external stdio MCP servers discovered from `~/.aria/mcp.json` and `<workspace>/.mcp.json`.
+/// Live registry of external MCP servers (stdio + remote Streamable HTTP) discovered from config.
 pub struct McpRegistry {
-    clients: HashMap<String, McpStdioClient>,
+    clients: HashMap<String, McpClient>,
     routes: HashMap<String, (String, String)>,
     annotations: HashMap<String, McpToolAnnotations>,
     schemas: Vec<Value>,
@@ -646,8 +837,7 @@ impl McpRegistry {
         let mut statuses = Vec::new();
         for cfg in configs {
             let started = Instant::now();
-            let mut client = match McpStdioClient::spawn_with_env(&cfg.command, &cfg.args, &cfg.env)
-            {
+            let mut client = match McpClient::connect(cfg) {
                 Ok(c) => c,
                 Err(err) => {
                     statuses.push(McpServerHealth {
@@ -1005,5 +1195,63 @@ for line in sys.stdin:
             .expect("aria-creative-media should be discovered");
         assert_eq!(creative.args, vec!["-m", "aria_creative.mcp_server"]);
         assert!(creative.env.contains_key("PYTHONPATH"));
+    }
+
+    #[test]
+    fn parses_remote_streamable_http_mcp_config_and_sse_body() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join(".mcp.json"),
+            r#"{
+              "mcpServers": {
+                "arthera-finance-remote": {
+                  "url": "https://finance.arthera.dev/mcp",
+                  "headers": { "Authorization": "Bearer test-token" }
+                }
+              }
+            }"#,
+        )
+        .unwrap();
+        let configs = load_mcp_server_configs(dir.path());
+        let remote = configs
+            .iter()
+            .find(|c| c.name == "arthera-finance-remote")
+            .expect("remote HTTP MCP server should load");
+        assert!(is_remote_http_url(&remote.command));
+        assert_eq!(remote.command, "https://finance.arthera.dev/mcp");
+        assert_eq!(
+            remote
+                .env
+                .get("MCP_HEADER:Authorization")
+                .map(String::as_str),
+            Some("Bearer test-token")
+        );
+
+        let sse = "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[{\"name\":\"financial_dcf_valuation\"}]}}\n\n";
+        let parsed = parse_http_jsonrpc_body(sse, 2).unwrap();
+        assert_eq!(
+            parsed["tools"][0]["name"].as_str(),
+            Some("financial_dcf_valuation")
+        );
+    }
+
+    #[test]
+    fn discovers_financial_service_inside_workspace_services_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path().join("aria-code");
+        let fin_server = ws
+            .join("services")
+            .join("financial-service")
+            .join("src")
+            .join("arthera_finance")
+            .join("server.py");
+        fs::create_dir_all(fin_server.parent().unwrap()).unwrap();
+        fs::write(&fin_server, "# stub\n").unwrap();
+
+        let found = discover_ecosystem_mcp_servers(&ws);
+        assert!(
+            found.iter().any(|c| c.name == "arthera-finance"),
+            "services/financial-service should be auto-discovered"
+        );
     }
 }
