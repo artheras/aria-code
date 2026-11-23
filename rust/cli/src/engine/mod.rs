@@ -7,6 +7,7 @@ pub mod mcp;
 pub mod memory;
 pub mod ollama;
 pub mod permissions;
+pub mod plan;
 pub mod policy;
 pub mod processes;
 pub mod roi;

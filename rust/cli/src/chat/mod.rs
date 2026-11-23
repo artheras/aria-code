@@ -568,6 +568,8 @@ enum NativeRoute {
     Note(String),
     Workflow(String),
     Export(String),
+    Plan(String),
+    ApplyPlan(String),
     Verify(Option<String>),
     WriteMode(Option<bool>),
     OllamaChat,
@@ -673,6 +675,18 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     if text == "/export" || text.starts_with("/export ") {
         let arg = text.strip_prefix("/export").unwrap_or("").trim().to_owned();
         return Some(NativeRoute::Export(arg));
+    }
+    if text == "/plan" || text.starts_with("/plan ") {
+        let arg = text.strip_prefix("/plan").unwrap_or("").trim().to_owned();
+        return Some(NativeRoute::Plan(arg));
+    }
+    if text == "/apply-plan" || text.starts_with("/apply-plan ") {
+        let arg = text
+            .strip_prefix("/apply-plan")
+            .unwrap_or("")
+            .trim()
+            .to_owned();
+        return Some(NativeRoute::ApplyPlan(arg));
     }
     if text == "/diff" || text.starts_with("/diff ") {
         let target = text.strip_prefix("/diff").unwrap_or("").trim();
@@ -968,6 +982,7 @@ fn try_dispatch_native_turn(
                      - `/roi` | `/cost` — 查看 AI ROI 与 Token 效率计分卡\n\
                      - `/memory` | `/todo` | `/note` — 项目记忆、待办清单与 `ARIA.md` 笔记\n\
                      - `/workflow [list|show|run]` | `/export [md|json]` — 原生工作流执行与会话导出\n\
+                     - `/plan [list|add|rm|clear]` | `/apply-plan [--from N]` — 持久化执行计划与策略门控\n\
                      - `/rewind` | `/worktree` | `/write-mode on|off` | `/compact` | `/sessions` — 工作区与会话管理"
                 } else {
                     "**Aria Code Native Commands:**\n\
@@ -983,6 +998,7 @@ fn try_dispatch_native_turn(
                      - `/roi` | `/cost` — View Enterprise AI ROI & Token Efficiency Scorecard\n\
                      - `/memory` | `/todo` | `/note` — Manage project memory, tasks, and `ARIA.md` notes\n\
                      - `/workflow [list|show|run]` | `/export [md|json]` — Run workspace workflows and export transcripts\n\
+                     - `/plan [list|add|rm|clear]` | `/apply-plan [--from N]` — Persistent plan management and gated execution\n\
                      - `/rewind` | `/worktree` | `/write-mode on|off` | `/compact` | `/sessions` — Workspace and session controls"
                 };
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
@@ -1595,6 +1611,19 @@ fn try_dispatch_native_turn(
                         ),
                         Err(e) => (format!("[export error: {e}]"), "failed"),
                     };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Plan(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) = crate::engine::plan::handle_plan_command(&ws_path, &arg, zh);
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::ApplyPlan(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) =
+                    crate::engine::plan::handle_apply_plan_command(&ws_path, &arg, allow_write, zh);
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }
