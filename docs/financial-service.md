@@ -1,11 +1,18 @@
 # Shared Financial Service
 
 The independently installable service lives at
-https://github.com/artheras/financial-service. It exposes ten read-only MCP tools:
+https://github.com/artheras/financial-service. It exposes read-only MCP tools:
 service information, statement analysis, annual SEC facts parsing, risk metrics,
-supplied-data backtests, optional historical market data and broker account queries. It does not import
+supplied-data backtests, deterministic DCF valuation & sensitivity matrices,
+SEC due diligence red-flag screening (Beneish M-Score, governance, Form 4/13D/8-K/10-K monitor),
+vertical industry KPI packs (SaaS & semiconductor), optional historical market data,
+and broker account queries. It does not import
 Aria Code. The finance plugin in artheras/aria-plugins supplies workflow guidance
 and host-specific configuration rather than another copy of the algorithms.
+
+For zero-Python local setups with the pure-Rust `aria-native` frontend, you can also
+run `financial-service` remotely with `--transport streamable-http --host 0.0.0.0 --port 8765`
+and point `.mcp.json` / `~/.arthera/mcp_servers.json` at its `"url"` + `"headers"`.
 
 Install the service into a separate Python 3.11+ environment from its repository.
 Install from source:

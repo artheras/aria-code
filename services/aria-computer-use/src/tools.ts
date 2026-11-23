@@ -22,6 +22,7 @@ const READ_ONLY_TOOLS = new Set([
   "browser_hover",
   "browser_history",
   "browser_tabs",
+  "browser_downloads",
   "browser_export_recording",
 ]);
 
@@ -124,6 +125,13 @@ export const TOOLS: McpToolSchema[] = [
     {
       action: { type: "string", enum: ["list", "switch", "close"] },
       index: { type: "integer" },
+    },
+  ),
+  toolSchema(
+    "browser_downloads",
+    "List or clear files captured inside ARIA_COMPUTER_DOWNLOAD_DIR during this browser session.",
+    {
+      action: { type: "string", enum: ["list", "clear"] },
     },
   ),
   toolSchema(

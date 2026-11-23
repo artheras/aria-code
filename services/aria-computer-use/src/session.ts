@@ -12,6 +12,11 @@ import {
   requestHumanApproval,
   resolveSafeUploadPath,
 } from "./security.js";
+import {
+  buildOverlayScript,
+  CLEAR_OVERLAY_SCRIPT,
+  EXTRACT_ELEMENTS_SCRIPT,
+} from "./observer.js";
 import { TOOLS } from "./tools.js";
 
 export class PermissionDeniedError extends Error {
@@ -125,77 +130,25 @@ const SUPPORTED_KEYS = new Set([
 ]);
 
 const MAX_RECORDING_FRAMES = 40;
+const MAX_DOWNLOAD_RECORDS = 50;
 const TIERED_BUDGET_LIMIT = 20;
 const TIERED_WINDOW_MS = 10 * 60 * 1000;
 
-/**
- * Walks light DOM + open Shadow DOM trees, returning Playwright shadow-piercing
- * selectors (`host >> inner`) for visible interactive elements.
- */
-const EXTRACT_ELEMENTS_SCRIPT = `(() => {
-  const INTERACTIVE = 'a, button, input, textarea, select, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="combobox"], [contenteditable="true"]';
-  const out = [];
-
-  function localSelector(el) {
-    if (el.id) return '#' + CSS.escape(el.id);
-    if (el.getAttribute('data-testid')) {
-      return '[data-testid="' + el.getAttribute('data-testid').replace(/"/g, '\\\\"') + '"]';
-    }
-    if (el.getAttribute('name')) {
-      return el.tagName.toLowerCase() + '[name="' + el.getAttribute('name').replace(/"/g, '\\\\"') + '"]';
-    }
-    const siblings = Array.from(el.parentElement ? el.parentElement.children : []).filter(c => c.tagName === el.tagName);
-    const idx = siblings.indexOf(el) + 1;
-    return el.tagName.toLowerCase() + ':nth-of-type(' + idx + ')';
-  }
-
-  function walk(root, prefix, inShadow) {
-    if (out.length >= 80) return;
-    const all = root.querySelectorAll('*');
-    for (const el of all) {
-      if (out.length >= 80) break;
-      if (el.matches && el.matches(INTERACTIVE)) {
-        const style = window.getComputedStyle(el);
-        if (style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0') {
-          const r = el.getBoundingClientRect();
-          if (r.width >= 2 && r.height >= 2 && r.bottom >= 0 && r.top <= window.innerHeight && r.right >= 0 && r.left <= window.innerWidth) {
-            const seg = localSelector(el);
-            const selector = prefix ? (prefix + ' >> ' + seg) : seg;
-            const label = (
-              el.getAttribute('aria-label') ||
-              el.innerText ||
-              el.getAttribute('placeholder') ||
-              el.getAttribute('title') ||
-              el.value ||
-              ''
-            ).trim().replace(/\\s+/g, ' ').slice(0, 120);
-            out.push({
-              selector,
-              in_shadow_dom: inShadow,
-              tag: el.tagName.toLowerCase(),
-              role: el.getAttribute('role') || el.tagName.toLowerCase(),
-              label,
-              rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
-            });
-          }
-        }
-      }
-      if (el.shadowRoot) {
-        const hostSel = localSelector(el);
-        const nextPrefix = prefix ? (prefix + ' >> ' + hostSel) : hostSel;
-        walk(el.shadowRoot, nextPrefix, true);
-      }
-    }
-  }
-
-  walk(document, '', false);
-  return out;
-})()`;
+export interface DownloadRecord {
+  filename: string;
+  path: string;
+  url: string;
+  size_bytes: number;
+  captured_at: number;
+}
 
 export class BrowserSession {
   readonly origins: ReadonlySet<string>;
   readonly approvalMode: ApprovalMode;
   readonly uploadRoot: string;
+  readonly downloadDir: string | null;
+  readonly persistentProfileDir: string | null;
+  readonly headless: boolean;
   private readonly approval: (summary: string) => boolean;
   private readonly clock: () => number;
 
@@ -203,6 +156,7 @@ export class BrowserSession {
   private pages: PageLike[] = [];
   private context: { close(): Promise<void>; pages(): PageLike[] } | null = null;
   private profileDir: string | null = null;
+  private ephemeralProfile = true;
   private observation: ObservationState | null = null;
   private elementMap = new Map<number, ElementRef>();
   private elementRects = new Map<string, { x: number; y: number; w: number; h: number }>();
@@ -213,6 +167,7 @@ export class BrowserSession {
   private tieredGrants = new Map<string, { remaining: number; expiresAt: number }>();
   readonly consoleErrors: string[] = [];
   readonly failedRequests: string[] = [];
+  readonly downloads: DownloadRecord[] = [];
 
   constructor(
     origins: string[],
@@ -221,6 +176,9 @@ export class BrowserSession {
       clock?: () => number;
       approvalMode?: ApprovalMode;
       uploadRoot?: string;
+      downloadDir?: string | null;
+      profileDir?: string | null;
+      headless?: boolean;
     },
   ) {
     const normalized = new Set<string>();
@@ -233,6 +191,12 @@ export class BrowserSession {
     this.clock = opts?.clock ?? (() => Date.now());
     this.approvalMode = opts?.approvalMode ?? parseApprovalMode(process.env.ARIA_COMPUTER_APPROVAL_MODE);
     this.uploadRoot = opts?.uploadRoot ?? process.env.ARIA_COMPUTER_UPLOAD_DIR ?? process.cwd();
+    const rawDownloadDir = opts?.downloadDir !== undefined ? opts.downloadDir : process.env.ARIA_COMPUTER_DOWNLOAD_DIR;
+    this.downloadDir = rawDownloadDir && rawDownloadDir.trim() ? path.resolve(rawDownloadDir.trim()) : null;
+    const rawProfileDir = opts?.profileDir !== undefined ? opts.profileDir : process.env.ARIA_COMPUTER_PROFILE_DIR;
+    this.persistentProfileDir = rawProfileDir && rawProfileDir.trim() ? path.resolve(rawProfileDir.trim()) : null;
+    const envHeadless = (process.env.ARIA_COMPUTER_HEADLESS ?? "").trim().toLowerCase();
+    this.headless = opts?.headless ?? (envHeadless === "1" || envHeadless === "true");
   }
 
   private assertAllowed(url: string): string {
@@ -301,10 +265,20 @@ export class BrowserSession {
   private async startBrowser(): Promise<void> {
     if (this.page) return;
     const { chromium } = await import("playwright");
-    this.profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "aria-cu-ts-"));
+    if (this.persistentProfileDir) {
+      fs.mkdirSync(this.persistentProfileDir, { recursive: true });
+      this.profileDir = this.persistentProfileDir;
+      this.ephemeralProfile = false;
+    } else {
+      this.profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "aria-cu-ts-"));
+      this.ephemeralProfile = true;
+    }
+    if (this.downloadDir) {
+      fs.mkdirSync(this.downloadDir, { recursive: true });
+    }
     const ctx = await chromium.launchPersistentContext(this.profileDir, {
-      headless: false,
-      acceptDownloads: false,
+      headless: this.headless,
+      acceptDownloads: Boolean(this.downloadDir),
       viewport: { width: 1280, height: 840 },
     });
     this.context = ctx as unknown as { close(): Promise<void>; pages(): PageLike[] };
@@ -328,6 +302,32 @@ export class BrowserSession {
           if (this.failedRequests.length > 50) this.failedRequests.shift();
         }
       });
+      if (this.downloadDir) {
+        const dlDir = this.downloadDir;
+        p.on("download", (dl) => {
+          void (async () => {
+            try {
+              const rawName = path.basename(dl.suggestedFilename() || "download.bin").replace(/[^a-zA-Z0-9._-]/g, "_");
+              let dest = path.join(dlDir, rawName);
+              if (fs.existsSync(dest)) {
+                dest = path.join(dlDir, `${Date.now()}-${rawName}`);
+              }
+              await dl.saveAs(dest);
+              const size = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
+              this.downloads.push({
+                filename: path.basename(dest),
+                path: dest,
+                url: dl.url(),
+                size_bytes: size,
+                captured_at: this.clock(),
+              });
+              if (this.downloads.length > MAX_DOWNLOAD_RECORDS) this.downloads.shift();
+            } catch {
+              // ignore cancelled/failed download saves
+            }
+          })();
+        });
+      }
     };
 
     attachGuards(pg);
@@ -348,7 +348,7 @@ export class BrowserSession {
 
     await ctx.route("**/*", (route) => {
       const req = route.request();
-      if (req.isNavigationRequest() && req.frame() === pg.mainFrame()) {
+      if (req.isNavigationRequest() && req.frame().parentFrame() === null) {
         try {
           this.assertAllowed(req.url());
         } catch {
@@ -379,14 +379,14 @@ export class BrowserSession {
         // ignore close errors
       }
     }
-    if (this.profileDir) {
+    if (this.profileDir && this.ephemeralProfile) {
       try {
         fs.rmSync(this.profileDir, { recursive: true, force: true });
       } catch {
         // ignore cleanup errors
       }
-      this.profileDir = null;
     }
+    this.profileDir = null;
     return { closed: true };
   }
 
@@ -394,34 +394,7 @@ export class BrowserSession {
     if (!this.page || (!markElements && !this.cursorPos && !this.lastThought)) return;
     const mainElements = elements.filter((e) => e.frame_index === 0);
     try {
-      await this.page.evaluate(
-        `(cfg => {
-          const prev = document.getElementById('__aria_cu_overlay__');
-          if (prev) prev.remove();
-          const root = document.createElement('div');
-          root.id = '__aria_cu_overlay__';
-          root.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;font-family:monospace;';
-          if (cfg.markElements) {
-            for (const el of cfg.elements) {
-              if (!el.rect) continue;
-              const color = el.sensitive ? '#dc2626' : '#2563eb';
-              const box = document.createElement('div');
-              box.style.cssText = 'position:fixed;border:2px solid ' + color + ';left:' + el.rect.x + 'px;top:' + el.rect.y + 'px;width:' + el.rect.w + 'px;height:' + el.rect.h + 'px;box-sizing:border-box;';
-              const tag = document.createElement('div');
-              tag.textContent = '#' + el.element_id;
-              tag.style.cssText = 'position:absolute;top:-16px;left:0;background:' + color + ';color:#fff;font-size:11px;padding:1px 4px;border-radius:2px;line-height:14px;';
-              box.appendChild(tag);
-              root.appendChild(box);
-            }
-          }
-          if (cfg.cursorPos) {
-            const dot = document.createElement('div');
-            dot.style.cssText = 'position:fixed;left:' + (cfg.cursorPos[0] - 8) + 'px;top:' + (cfg.cursorPos[1] - 8) + 'px;width:16px;height:16px;border-radius:50%;border:2px solid #10b981;background:rgba(16,185,129,0.25);';
-            root.appendChild(dot);
-          }
-          document.documentElement.appendChild(root);
-        })(${JSON.stringify({ elements: mainElements, markElements, cursorPos: this.cursorPos })})`,
-      );
+      await this.page.evaluate(buildOverlayScript(mainElements, markElements, this.cursorPos));
     } catch {
       // non-fatal on mock/restricted pages
     }
@@ -430,9 +403,7 @@ export class BrowserSession {
   private async clearOverlay(): Promise<void> {
     if (!this.page) return;
     try {
-      await this.page.evaluate(
-        "(() => { const el = document.getElementById('__aria_cu_overlay__'); if (el) el.remove(); })()",
-      );
+      await this.page.evaluate(CLEAR_OVERLAY_SCRIPT);
     } catch {
       // ignore
     }
@@ -696,7 +667,10 @@ export class BrowserSession {
       return {
         engine: "node-typescript-playwright",
         origins: [...this.origins].sort(),
-        isolated_profile: true,
+        isolated_profile: !this.persistentProfileDir,
+        persistent_profile: Boolean(this.persistentProfileDir),
+        headless: this.headless,
+        downloads_enabled: Boolean(this.downloadDir),
         approval: approvalBackendLabel(),
         approval_mode: this.approvalMode,
         desktop_input: false,
@@ -853,6 +827,22 @@ export class BrowserSession {
         return { closed_index: idx, remaining_tabs: this.pages.length };
       }
       throw new ValidationError("action must be one of list, switch, close");
+    }
+    if (name === "browser_downloads") {
+      const action = String(args.action ?? "list").toLowerCase();
+      if (action === "list") {
+        return {
+          downloads_enabled: Boolean(this.downloadDir),
+          download_dir: this.downloadDir,
+          downloads: [...this.downloads],
+        };
+      }
+      if (action === "clear") {
+        const cleared = this.downloads.length;
+        this.downloads.length = 0;
+        return { cleared };
+      }
+      throw new ValidationError("action must be one of list, clear");
     }
     if (name === "browser_upload") {
       await this.assertFresh(args.observation_id);

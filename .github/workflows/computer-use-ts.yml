@@ -25,7 +25,7 @@ jobs:
         with:
           node-version: "22"
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Build & run unit tests
         run: npm test
       - name: Smoke test stdio JSON-RPC handshake
@@ -36,6 +36,24 @@ jobs:
               const fs = require("fs");
               const lines = fs.readFileSync(0, "utf8").trim().split("\n").map(JSON.parse);
               if (lines[0].result.serverInfo.name !== "aria-computer-use") process.exit(1);
-              if (lines[1].result.tools.length < 15) process.exit(1);
+              if (lines[1].result.tools.length < 18) process.exit(1);
               console.log("Verified", lines[1].result.tools.length, "MCP tools");
             '
+  chromium-e2e:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/aria-computer-use
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run real Chromium E2E test
+        env:
+          ARIA_COMPUTER_E2E_REQUIRED: "1"
+        run: npm run build && node --test dist/e2e.test.js
