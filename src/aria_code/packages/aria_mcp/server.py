@@ -907,32 +907,14 @@ async def _call_report_generate(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _call_backtest_run(args: Dict[str, Any]) -> Dict[str, Any]:
-    import asyncio
-    from dataclasses import asdict
-
-    from aria_code.domain.backtest_engine import BacktestEngine, get_strategy, load_bars
-
-    symbol = str(args.get("symbol", "")).strip().upper()
-    if not symbol:
-        return {"success": False, "error": "symbol is required"}
-    strategy_name = str(args.get("strategy") or "sma_cross")
-    days = int(args.get("days", 365) or 365)
-
-    loop = asyncio.get_event_loop()
-
-    def _run():
-        bars = load_bars(symbol, days=days)
-        if not bars:
-            raise ValueError(f"No price history available for {symbol}")
-        strategy = get_strategy(strategy_name)
-        engine = BacktestEngine()
-        return engine.run({symbol: bars}, strategy)
-
-    try:
-        result = await loop.run_in_executor(None, _run)
-    except Exception as exc:
-        return {"success": False, "error": str(exc)}
-    return {"success": True, **asdict(result)}
+    return {
+        "success": False,
+        "error": (
+            "Backtest engine moved to external MCP service arthera-finance "
+            "(artheras/financial-service: financial_backtest / financial_portfolio_backtest). "
+            "Connect via /mcp."
+        ),
+    }
 
 
 _CREATIVE_PLUGIN_MOVED = (

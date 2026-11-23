@@ -15,7 +15,13 @@ import subprocess
 
 import pytest
 
-from aria_code.domain.backtest_engine import Bar, BacktestEngine, get_strategy
+try:
+    from arthera_finance.backtest_engine import Bar, BacktestEngine, get_strategy
+except ImportError:
+    pytest.skip(
+        "arthera_finance.backtest_engine moved to artheras/financial-service; install it to run Go parity oracle",
+        allow_module_level=True,
+    )
 
 
 def cases():
