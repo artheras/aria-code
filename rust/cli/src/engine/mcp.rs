@@ -1220,7 +1220,10 @@ for line in sys.stdin:
         assert!(is_remote_http_url(&remote.command));
         assert_eq!(remote.command, "https://finance.arthera.dev/mcp");
         assert_eq!(
-            remote.env.get("MCP_HEADER:Authorization").map(String::as_str),
+            remote
+                .env
+                .get("MCP_HEADER:Authorization")
+                .map(String::as_str),
             Some("Bearer test-token")
         );
 
