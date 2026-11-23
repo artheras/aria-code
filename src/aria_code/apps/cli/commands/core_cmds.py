@@ -1335,50 +1335,6 @@ class CoreCommandsMixin:
             else:
                 _print_finance_result(tool_name, r)
 
-    async def cmd_risk(self, args: str):
-        """Risk metrics moved to financial-service MCP."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/risk 已迁移至 financial-service MCP（financial_risk_metrics）。[/dim]")
-
-    async def cmd_market(self, args: str):
-        """Market overview moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/market 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_optimize(self, args: str):
-        """Portfolio optimization moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/optimize 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_stress(self, args: str):
-        """Strategy stress test moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/stress 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_factors(self, args: str):
-        """Factor analysis moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/factors 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_factor_lab(self, args: str):
-        """Factor lab moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/factor-lab 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_execution(self, args: str):
-        """Execution algorithms moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/execution 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_stat_arb(self, args: str):
-        """Stat-arb pair testing moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/stat-arb 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_compliance(self, args: str):
-        """Strategy compliance check moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/compliance 已迁移至 Arthera 后端服务。[/dim]")
     async def cmd_search_web(self, args: str):
         """Web search: /web <query>"""
         query = args.strip()
@@ -1525,129 +1481,44 @@ class CoreCommandsMixin:
         if not _HAS_ARIARC:
             self.context.console.print("  [dim]ariarc.py not available[/dim]" if self.context.has_rich else "ariarc not available")
             return
+        arc = reload_ariarc() if "reload" in args.lower() else (self.terminal.ariarc or get_ariarc())
         if "reload" in args.lower():
-            arc = reload_ariarc()
             self.terminal.ariarc = arc
-            if self.context.has_rich:
-                if arc.found:
-                    self.context.console.print(f"  [green]ariarc reloaded: {arc.source_path}[/green]")
-                else:
-                    self.context.console.print("  [yellow]No .ariarc found in current directory tree[/yellow]")
+        if not arc.found:
+            msg = "No .ariarc found in current directory tree (prefer ARIA.md and .aria/settings.json)."
+            self.context.console.print(f"  [dim]{msg}[/dim]" if self.context.has_rich else msg)
             return
-
-        arc = self.terminal.ariarc or get_ariarc()
-        if self.context.has_rich:
-            self.context.console.print()
-            if not arc.found:
-                self.context.console.print("  [dim]No .ariarc found (create .ariarc in your project root)[/dim]")
-                self.context.console.print()
-                _example = """{
-  "project": "My Quant Strategy",
-  "description": "A-share momentum + mean-reversion strategy",
-  "market": "cn",
-  "default_symbols": ["sh600519", "sh601318", "sz000858"],
-  "system_prompt": "Focus on A-share market mechanics and T+1 constraints.",
-  "context_files": ["README.md"],
-  "auto_context": ["strategy/main.py"],
-  "commands": {
-    "/morning-cn": "生成A股早盘简报，重点关注 {default_symbols}"
-  }
-}"""
-                self.context.console.print(f"  [dim]Example .ariarc:[/dim]\n{_example}")
-            else:
-                d = arc.to_dict()
-                self.context.console.print(f"  [bold]Project:[/bold] {arc.project or '(unnamed)'}")
-                self.context.console.print(f"  [bold]Source:[/bold]  [dim]{d['source_path']}[/dim]")
-                self.context.console.print(f"  [bold]Market:[/bold]  {arc.market}")
-                if arc.default_symbols:
-                    self.context.console.print(f"  [bold]Symbols:[/bold] {', '.join(arc.default_symbols)}")
-                if arc.commands:
-                    self.context.console.print(f"  [bold]Commands:[/bold] {', '.join(arc.commands.keys())}")
-                if arc.tools_blacklist:
-                    self.context.console.print(f"  [bold]Blocked tools:[/bold] {', '.join(arc.tools_blacklist)}")
-                if arc.auto_context:
-                    self.context.console.print(f"  [bold]Auto context:[/bold] {', '.join(arc.auto_context)}")
-            self.context.console.print()
-        else:
-            if arc.found:
-                import json as _j
-                print(_j.dumps(arc.to_dict(), indent=2, ensure_ascii=False))
-    async def cmd_signal(self, args: str):
-        """AI trading signal（已迁移至 Arthera 后端 / MCP）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/signal 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_predict(self, args: str):
-        """ML return predictions（已迁移至 Arthera 后端 / MCP）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/predict 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_cloudbt(self, args: str):
-        """Cloud ML backtest（已迁移至 Arthera 后端 / MCP）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/cloudbt 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_insights(self, args: str):
-        """AI market insights（已迁移至 Arthera 后端 / MCP）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/insights 已迁移至 Arthera 后端服务。[/dim]")
+        import json as _j
+        text = _j.dumps(arc.to_dict(), indent=2, ensure_ascii=False)
+        self.context.console.print(text) if self.context.has_rich else print(text)
 
     def cmd_recommend(self, args: str):
         """Recommend local models（已迁移至 /model）."""
         if self.context.has_rich:
             self.context.console.print("[dim]请使用 /model 查看和切换本地/云端模型。[/dim]")
 
-    async def cmd_optimize_port(self, args: str):
-        """Portfolio weight optimisation（已迁移至 Arthera 后端 / arthera-quant MCP）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/optimize-port 已迁移至 Arthera 后端服务。[/dim]")
 
-    async def cmd_ui(self, args: str):
-        """Bloomberg dashboard UI moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/ui 已迁移至 Arthera 后端服务。[/dim]")
+_MIGRATED_ASYNC_CMDS = {
+    "cmd_risk": "/risk 已迁移至 financial-service MCP（financial_risk_metrics）。",
+    "cmd_chart": "/chart 已迁移至 financial-service MCP。",
+    **{
+        f"cmd_{name}": f"/{name.replace('_', '-')} 已迁移至 Arthera 后端 / MCP 服务。"
+        for name in (
+            "market", "optimize", "stress", "factors", "factor_lab", "execution",
+            "stat_arb", "compliance", "signal", "predict", "cloudbt", "insights",
+            "optimize_port", "ui", "dashboard", "tv", "shortterm", "longterm",
+            "indices", "hot", "ta", "orcl", "edgar",
+        )
+    },
+}
 
-    async def cmd_dashboard(self, args: str):
-        """Personal dashboard moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/dashboard 已迁移至 Arthera 后端服务。[/dim]")
 
-    async def cmd_tv(self, args: str):
-        """TradingView bridge moved to Arthera backend service."""
+def _make_migrated_stub(message: str):
+    async def _stub(self, args: str):
         if self.context.has_rich:
-            self.context.console.print("[dim]/tv 已迁移至 Arthera 后端服务。[/dim]")
-    async def cmd_chart(self, args: str):
-        """Stock charts moved to financial-service MCP."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/chart 已迁移至 financial-service MCP。[/dim]")
+            self.context.console.print(f"[dim]{message}[/dim]")
+    return _stub
 
-    async def cmd_shortterm(self, args: str):
-        """A股短线分析（已迁移至 Arthera 后端服务）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/shortterm 已迁移至 Arthera 后端服务。[/dim]")
 
-    async def cmd_longterm(self, args: str):
-        """A股长线分析（已迁移至 Arthera 后端服务）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/longterm 已迁移至 Arthera 后端服务。[/dim]")
-    async def cmd_indices(self, args: str):
-        """全球主要指数实时行情（已迁移至 Arthera 后端 /market）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/indices 已迁移至 Arthera 后端，请使用 /market。[/dim]")
-
-    async def cmd_hot(self, args: str):
-        """热门/活跃股票榜单（已迁移至 Arthera 后端 /market）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/hot 已迁移至 Arthera 后端，请使用 /market。[/dim]")
-    async def cmd_ta(self, args: str):
-        """Technical indicators moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/ta 已迁移至 Arthera 后端服务。[/dim]")
-    async def cmd_orcl(self, args: str):
-        """ORCL vertical analysis moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/orcl 已迁移至 Arthera 后端服务。[/dim]")
-    async def cmd_edgar(self, args: str):
-        """SEC EDGAR 财报查询（已迁移至 Arthera 后端服务）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/edgar 已迁移至 Arthera 后端服务。[/dim]")
+for _cmd_name, _cmd_msg in _MIGRATED_ASYNC_CMDS.items():
+    setattr(CoreCommandsMixin, _cmd_name, _make_migrated_stub(_cmd_msg))
