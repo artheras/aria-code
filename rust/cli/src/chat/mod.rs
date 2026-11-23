@@ -574,6 +574,8 @@ enum NativeRoute {
     Privacy(String),
     Feedback(String),
     Ecosystem(String),
+    Eval(String),
+    Undo,
     Verify(Option<String>),
     WriteMode(Option<bool>),
     OllamaChat,
@@ -723,6 +725,13 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
             .trim()
             .to_owned();
         return Some(NativeRoute::Ecosystem(arg));
+    }
+    if text == "/eval" || text.starts_with("/eval ") {
+        let arg = text.strip_prefix("/eval").unwrap_or("").trim().to_owned();
+        return Some(NativeRoute::Eval(arg));
+    }
+    if text == "/undo" {
+        return Some(NativeRoute::Undo);
     }
     if text == "/diff" || text.starts_with("/diff ") {
         let target = text.strip_prefix("/diff").unwrap_or("").trim();
@@ -885,6 +894,37 @@ fn try_dispatch_native_turn(
         let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
         return true;
     }
+    if matches!(route, NativeRoute::Undo) {
+        let mut removed = 0usize;
+        // Remove the `/undo` user entry itself first if already pushed, then last assistant + user.
+        for role in ["assistant", "user"] {
+            if let Some(pos) = app.entries.iter().rposition(|e| e.role == role) {
+                app.entries.remove(pos);
+                removed += 1;
+            }
+        }
+        let msg = if removed == 0 {
+            if app.zh() {
+                "当前没有可撤销的对话轮次。".to_owned()
+            } else {
+                "Nothing to undo.".to_owned()
+            }
+        } else if app.zh() {
+            format!(
+                "已撤销最近一轮对话（移除 {removed} 条消息，剩余 {} 条）。",
+                app.entries.len()
+            )
+        } else {
+            format!(
+                "Undone last exchange ({removed} entries removed, {} remaining).",
+                app.entries.len()
+            )
+        };
+        let _ = tx.send(json!({"protocol": 1, "type": "turn.started"}));
+        let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": msg}));
+        let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+        return true;
+    }
     if matches!(route, NativeRoute::Compact) {
         let history_snapshot = collect_agent_history(app, "/compact");
         let mut msgs: Vec<Value> = history_snapshot
@@ -1014,12 +1054,12 @@ fn try_dispatch_native_turn(
                      - `/hooks [init]` | `/sandbox` — 管理生命周期 Hook 与 OS 沙箱\n\
                      - `/mcp [connect|connect --uvx|probe]` | `/ecosystem [probe]` — 连接或探测外部垂直 MCP 生态服务\n\
                      - `/skills` | `/init [--force]` — 查看工作区技能或初始化 `ARIA.md`\n\
-                     - `/scan` | `/map` | `/diff` | `/log` | `/review` | `/verify` — 代码检查与验证\n\
+                     - `/scan` | `/map` | `/diff` | `/log` | `/review` | `/verify` | `/eval [smoke|list]` — 代码检查、验证与评测\n\
                      - `/roi` | `/cost` | `/privacy` | `/feedback` — ROI 计分卡、本地隐私与反馈记录\n\
                      - `/memory` | `/todo` | `/note` — 项目记忆、待办清单与 `ARIA.md` 笔记\n\
                      - `/workflow [list|show|run]` | `/export [md|json]` | `/artifacts [stats|prune]` — 工作流、导出与产物管理\n\
                      - `/plan [list|add|rm|clear]` | `/apply-plan [--from N]` — 持久化执行计划与策略门控\n\
-                     - `/rewind` | `/worktree` | `/write-mode on|off` | `/compact` | `/sessions` — 工作区与会话管理"
+                     - `/undo` | `/rewind` | `/worktree` | `/write-mode on|off` | `/compact` | `/sessions` — 工作区与会话管理"
                 } else {
                     "**Aria Code Native Commands:**\n\
                      - `/help` — Show this command reference\n\
@@ -1030,12 +1070,12 @@ fn try_dispatch_native_turn(
                      - `/hooks [init]` | `/sandbox` — Manage lifecycle hooks and OS sandbox\n\
                      - `/mcp [connect|connect --uvx|probe]` | `/ecosystem [probe]` — Connect or probe vertical MCP ecosystem\n\
                      - `/skills` | `/init [--force]` — List workspace skills or initialize `ARIA.md`\n\
-                     - `/scan` | `/map` | `/diff` | `/log` | `/review` | `/verify` — Code inspection and verification\n\
+                     - `/scan` | `/map` | `/diff` | `/log` | `/review` | `/verify` | `/eval [smoke|list]` — Inspection, verification, and evals\n\
                      - `/roi` | `/cost` | `/privacy` | `/feedback` — AI ROI scorecard, local-first privacy, and feedback\n\
                      - `/memory` | `/todo` | `/note` — Manage project memory, tasks, and `ARIA.md` notes\n\
                      - `/workflow [list|show|run]` | `/export [md|json]` | `/artifacts [stats|prune]` — Workflows, transcript export, and artifacts\n\
                      - `/plan [list|add|rm|clear]` | `/apply-plan [--from N]` — Persistent plan management and gated execution\n\
-                     - `/rewind` | `/worktree` | `/write-mode on|off` | `/compact` | `/sessions` — Workspace and session controls"
+                     - `/undo` | `/rewind` | `/worktree` | `/write-mode on|off` | `/compact` | `/sessions` — Workspace and session controls"
                 };
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
@@ -1696,6 +1736,14 @@ fn try_dispatch_native_turn(
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }
+            NativeRoute::Eval(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) =
+                    crate::engine::eval::handle_eval_command(&ws_path, &arg, allow_write, zh);
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Undo => {}
             NativeRoute::Verify(target) => {
                 let ws_path = std::path::PathBuf::from(&workspace);
                 let (text, status) =
