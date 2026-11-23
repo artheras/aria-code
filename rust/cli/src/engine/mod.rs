@@ -14,3 +14,4 @@ pub mod sandbox;
 pub mod skills;
 pub mod subagent;
 pub mod tools;
+pub mod workflow;
