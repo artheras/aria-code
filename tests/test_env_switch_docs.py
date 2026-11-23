@@ -22,7 +22,9 @@ import pathlib
 import re
 import unittest
 
-SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "aria_code"
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+SRC = REPO_ROOT / "src" / "aria_code"
+SERVICES = REPO_ROOT / "services"
 # Tree-wide. Scoping this to a few packages would have missed aria_daemon.py's
 # module docstring, which advertised an ARIA_API_BASE that appears exactly once
 # in the repository — in that line. The backend URL is the `api_url` config
@@ -72,6 +74,10 @@ def _env_names_read(root: pathlib.Path) -> set:
             if (isinstance(node, ast.Constant) and isinstance(node.value, str)
                     and id(node) not in docstrings):
                 read.update(ENV_NAME.findall(node.value))
+    if SERVICES.is_dir():
+        for service_src in sorted(SERVICES.glob("*/src")):
+            for path in sorted(service_src.rglob("*.ts")):
+                read.update(ENV_NAME.findall(path.read_text(encoding="utf-8")))
     return read
 
 
