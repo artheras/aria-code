@@ -97,8 +97,11 @@ def discover_sibling_ecosystem_servers(
     """Auto-discover sibling financial-service, erp-service, and healthcare-service MCP servers."""
     roots: List[Path] = []
     for candidate in (
+        Path(workspace).expanduser().resolve() / "services" if workspace is not None else None,
         Path(workspace).expanduser().resolve().parent if workspace is not None else None,
+        Path.cwd().resolve() / "services",
         Path.cwd().resolve().parent,
+        Path(__file__).resolve().parents[4] / "services",
         Path(__file__).resolve().parents[4].parent,
         Path.home() / "Desktop",
     ):

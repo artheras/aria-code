@@ -104,7 +104,24 @@ async def test_actual_financial_service_through_aria_client():
                        env={"FINANCIAL_SERVICE_NETWORK": "0", "FINANCIAL_SERVICE_BROKERS_ENABLED": "0"}, timeout=15)
     try:
         assert await server.start()
-        assert len(server.tools) == 10
+        names = {t["name"] for t in server.tools}
+        assert len(names) >= 46
+        assert {
+            "financial_dcf_valuation",
+            "financial_due_diligence_red_flags",
+            "financial_sec_filing_monitor",
+            "financial_industry_kpis",
+        }.issubset(names)
+        dcf = await server.call_tool("financial_dcf_valuation", {
+            "base_fcf": 100.0,
+            "growth_rates": [0.12, 0.10, 0.08],
+            "wacc": 0.09,
+            "terminal_growth": 0.025,
+            "diluted_shares": 10.0,
+        })
+        assert dcf["success"] is True and dcf["valuation"]["implied_share_price"] > 0
+        sec_offline = await server.call_tool("financial_sec_filing_monitor", {"symbol": "AAPL"})
+        assert sec_offline["success"] is False and sec_offline["error_code"] == "network_disabled"
         denied = await server.call_tool("financial_broker_account", {"connection_id": "unknown"})
         assert denied["success"] is False and denied["error_code"] == "broker_access_disabled"
         result = await server.call_tool("financial_analyze_statements", {
