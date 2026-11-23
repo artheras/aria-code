@@ -265,6 +265,95 @@ pub fn save_native_turn(
     .map_err(|e| format!("Failed to write session snapshot: {e}"))
 }
 
+/// Export conversation transcript to `.md` or `.json` inside the workspace.
+pub fn export_transcript(
+    workspace: &Path,
+    model: &str,
+    messages: &[(String, String)],
+    arg: &str,
+) -> Result<PathBuf, String> {
+    let parts: Vec<&str> = arg.split_whitespace().collect();
+    let mut format = "md";
+    let mut custom_path: Option<&str> = None;
+    for part in parts {
+        match part.to_ascii_lowercase().as_str() {
+            "md" | "markdown" => format = "md",
+            "json" => format = "json",
+            _ => {
+                if part.ends_with(".json") {
+                    format = "json";
+                } else if part.ends_with(".md") {
+                    format = "md";
+                }
+                custom_path = Some(part);
+            }
+        }
+    }
+
+    let ts = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let target = if let Some(rel) = custom_path {
+        let candidate = PathBuf::from(rel);
+        if candidate.is_absolute()
+            || candidate
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(
+                "Export path must stay inside the workspace (relative path, no '..')".into(),
+            );
+        }
+        workspace.join(candidate)
+    } else {
+        workspace
+            .join(".aria")
+            .join("exports")
+            .join(format!("session-{ts}.{format}"))
+    };
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create export dir: {e}"))?;
+    }
+
+    let body = if format == "json" {
+        let items: Vec<Value> = messages
+            .iter()
+            .map(|(role, content)| json!({"role": role, "content": content}))
+            .collect();
+        serde_json::to_string_pretty(&json!({
+            "exported_at": ts,
+            "workspace": workspace.display().to_string(),
+            "model": model,
+            "message_count": items.len(),
+            "messages": items,
+        }))
+        .map_err(|e| format!("Failed to serialize export JSON: {e}"))?
+    } else {
+        let mut out = vec![
+            "# Aria Session Export".to_owned(),
+            String::new(),
+            format!("- **Model**: `{model}`"),
+            format!("- **Messages**: {}", messages.len()),
+            String::new(),
+        ];
+        for (role, content) in messages {
+            let heading = match role.as_str() {
+                "user" => "## User",
+                "assistant" => "## Assistant",
+                _ => "## System",
+            };
+            out.push(heading.to_owned());
+            out.push(String::new());
+            out.push(content.clone());
+            out.push(String::new());
+        }
+        out.join("\n")
+    };
+    fs::write(&target, body).map_err(|e| format!("Failed to write export file: {e}"))?;
+    Ok(target)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,5 +394,23 @@ mod tests {
         let data = show(dir.path(), "native_1", true).unwrap();
         assert_eq!(data["messages"].as_array().unwrap().len(), 4);
         assert_eq!(data["metadata"]["workspace"], "/tmp/ws");
+    }
+
+    #[test]
+    fn export_transcript_md_json_and_blocks_traversal() {
+        let dir = tempfile::tempdir().unwrap();
+        let msgs = vec![
+            ("user".into(), "hello".into()),
+            ("assistant".into(), "world".into()),
+        ];
+        let md = export_transcript(dir.path(), "qwen2.5:7b", &msgs, "md").unwrap();
+        assert!(md.is_file());
+        assert!(fs::read_to_string(&md).unwrap().contains("## Assistant"));
+
+        let js = export_transcript(dir.path(), "qwen2.5:7b", &msgs, "out.json").unwrap();
+        let parsed: Value = serde_json::from_str(&fs::read_to_string(&js).unwrap()).unwrap();
+        assert_eq!(parsed["message_count"], 2);
+
+        assert!(export_transcript(dir.path(), "qwen2.5:7b", &msgs, "../escape.md").is_err());
     }
 }

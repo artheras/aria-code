@@ -407,114 +407,38 @@ class PortfolioCommandsMixin:
             self.context.console.print("[dim]/portfolio 已迁移至 financial-service MCP。[/dim]")
 
     def cmd_apply_plan(self, args: str):
-        """Execute the pending command plan sequentially."""
+        """Execute pending plan steps sequentially (native Rust CLI also handles /plan and /apply-plan)."""
         plan = list(getattr(self.terminal, "pending_plan", []) or [])
-        arg_tokens = args.split()
-        start_idx = 0
-        if "--from" in arg_tokens:
-            idx = arg_tokens.index("--from")
-            if idx + 1 >= len(arg_tokens):
-                msg = "Usage: /apply-plan --from <step_number>"
-                self.context.console.print(f"[dim]{msg}[/dim]" if self.context.has_rich else msg)
-                return
-            try:
-                start_idx = max(0, int(arg_tokens[idx + 1]) - 1)
-            except ValueError:
-                msg = "Invalid step number for --from"
-                self.context.console.print(f"[red]{msg}[/red]" if self.context.has_rich else msg)
-                return
-
         if not plan:
-            self.context.console.print("[dim]No pending plan. Use /plan first.[/dim]" if self.context.has_rich
-                          else "No pending plan. Use /plan first.")
+            msg = "No pending plan. Use /plan first."
+            self.context.console.print(f"[dim]{msg}[/dim]" if self.context.has_rich else msg)
             return
-        if start_idx > 0:
-            if start_idx >= len(plan):
-                msg = f"--from {start_idx + 1} exceeds available steps ({len(plan)})"
-                self.context.console.print(f"[red]{msg}[/red]" if self.context.has_rich else msg)
-                return
-            plan = plan[start_idx:]
-        if "--resume" in arg_tokens and self.context.has_rich:
-            self.context.console.print(f"[dim]Resuming execution from step 1 of remaining {len(plan)} step(s).[/dim]")
-
+        from aria_code.safety import SafetyService
         policy = self.terminal.config.get("command_policy", "safe")
         results = []
-        failed = None
-        for i, step in enumerate(plan, 1):
-            started_at = time.time()
-            if self.context.has_rich:
-                self.context.console.print(f"[dim]Step {i}/{len(plan)}:[/dim] [bold]{step}[/bold]")
-            else:
-                print(f"Step {i}/{len(plan)}: {step}")
-
-            # Was evaluate_command_policy(step, policy) — which silently
-            # evaluated every step as workspace-write with networking on,
-            # ignoring the session's permission_mode and network_enabled.
-            # Only .risk was read (and risk is mode-independent), so nothing
-            # executed that shouldn't have; the service closes the gap before
-            # anyone reads .allowed here and gets a wrong answer.
-            from aria_code.safety import SafetyService
-            step_decision = SafetyService(self.terminal.config).evaluate_command(step, policy)
-            if step_decision.risk == "high":
-                if not self._confirm_high_risk_command(step_decision.normalized_command, step_decision.risk, policy):
-                    failed = (i, step, "Cancelled by user at high-risk step confirmation")
-                    results.append({
-                        "step": step,
-                        "status": "blocked",
-                        "duration": round(time.time() - started_at, 3),
-                        "exit_code": None,
-                        "error": failed[2],
-                    })
-                    break
-
+        for idx, step in enumerate(plan, 1):
+            decision = SafetyService(self.terminal.config).evaluate_command(step, policy)
+            if decision.risk == "high" and not self._confirm_high_risk_command(
+                decision.normalized_command, decision.risk, policy
+            ):
+                self.terminal.pending_plan = plan[idx - 1:]
+                self.terminal.last_plan_results = results
+                return
             res = _tool_run_command({"command": step, "policy": policy})
-            duration = time.time() - started_at
-            exit_code = res.get("data", {}).get("exit_code", None) if res.get("success") else None
-            status = "completed" if res.get("success") and exit_code == 0 else "failed"
-            results.append({
-                "step": step,
-                "status": status,
-                "duration": round(duration, 3),
-                "exit_code": exit_code,
-                "error": None if status == "completed" else (res.get("error") or f"Command exited {exit_code}"),
-            })
-            if not res.get("success"):
-                failed = (i, step, res.get("error", "Unknown error"))
-                break
-            exit_code = res.get("data", {}).get("exit_code", 0)
-            if exit_code != 0:
-                failed = (i, step, f"Command exited {exit_code}")
-                break
-
+            exit_code = res.get("data", {}).get("exit_code") if res.get("success") else None
+            ok = bool(res.get("success") and exit_code == 0)
+            results.append({"step": step, "status": "completed" if ok else "failed", "exit_code": exit_code})
+            if not ok:
+                self.terminal.pending_plan = plan[idx - 1:]
+                self.terminal.last_plan_results = results
+                err = res.get("error") or f"Command exited {exit_code}"
+                msg = f"Plan failed at step {idx}: {step} ({err})"
+                self.context.console.print(f"[red]{msg}[/red]" if self.context.has_rich else msg)
+                return
         self.terminal.last_plan_results = results
-
-        if failed:
-            idx, step, err = failed
-            self.terminal.pending_plan = plan[idx - 1:]
-            if self.context.has_rich:
-                self.context.console.print(f"[red]Plan failed at step {idx}[/red]: [bold]{step}[/bold]")
-                self.context.console.print(f"[red]{err}[/red]")
-                self.context.console.print("[dim]Recovery hints:[/dim]")
-                if "blocked by policy" in (err or "").lower():
-                    self.context.console.print("  [dim]> /run --dry-run <command> to inspect risk[/dim]")
-                    self.context.console.print("  [dim]> /config set command_policy=balanced (or full) if needed[/dim]")
-                else:
-                    self.context.console.print("  [dim]> Fix code/config, then rerun /apply-plan[/dim]")
-                    self.context.console.print("  [dim]> Use /git diff to inspect changes[/dim]")
-            else:
-                print(f"Plan failed at step {idx}: {step}\n{err}")
-                if "blocked by policy" in (err or "").lower():
-                    print("Recovery: /run --dry-run <command> and /config set command_policy=balanced")
-                else:
-                    print("Recovery: fix issue, then rerun /apply-plan")
-        else:
-            if self.context.has_rich:
-                self.context.console.print(f"[green]Plan completed ({len(plan)} steps)[/green]")
-                for i, row in enumerate(results, 1):
-                    self.context.console.print(f"  [dim]{i}. {row['step']} ({row['duration']}s)[/dim]")
-            else:
-                print(f"Plan completed ({len(plan)} steps)")
-            self.terminal.pending_plan = []
+        self.terminal.pending_plan = []
+        msg = f"Plan completed ({len(plan)} steps)"
+        self.context.console.print(f"[green]{msg}[/green]" if self.context.has_rich else msg)
 
     async def cmd_deep(self, args: str):
         """深度多层研究（已从核心精简包中移除）"""

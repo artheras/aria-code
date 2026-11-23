@@ -213,7 +213,7 @@ pub fn load_mcp_server_configs(workspace: &Path) -> Vec<McpServerConfig> {
         }
     }
     parse_mcp_file(&workspace.join(".mcp.json"), &mut map);
-    if !cfg!(test) && map.is_empty() {
+    if !cfg!(test) {
         for srv in discover_ecosystem_mcp_servers(workspace) {
             map.entry(srv.name.clone()).or_insert(srv);
         }
@@ -385,6 +385,27 @@ pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> 
         &hc_server_py,
     ) {
         found.push(cfg);
+    }
+
+    // `artheras/aria-plugins` creative-media plugin: Figma, Canva, OpenAI Images, Kling, Runway.
+    let creative_py = parent
+        .join("aria-plugins")
+        .join("plugins")
+        .join("creative-media")
+        .join("python");
+    let creative_mcp = creative_py.join("aria_creative").join("mcp_server.py");
+    if creative_mcp.is_file() {
+        let mut env = HashMap::new();
+        env.insert(
+            "PYTHONPATH".into(),
+            creative_py.to_string_lossy().into_owned(),
+        );
+        found.push(McpServerConfig {
+            name: "aria-creative-media".into(),
+            command: "python3".into(),
+            args: vec!["-m".into(), "aria_creative.mcp_server".into()],
+            env,
+        });
     }
 
     let bots_root = base.join("services").join("aria-bots");
@@ -944,5 +965,30 @@ for line in sys.stdin:
         assert!(cfgs.iter().any(|c| c.name == "arthera-finance"));
         assert!(cfgs.iter().any(|c| c.name == "aria-healthcare"));
         assert!(cfgs.iter().any(|c| c.name == "erp-service"));
+    }
+
+    #[test]
+    fn discovers_creative_media_plugin_alongside_sibling_services() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path().join("aria-code");
+        fs::create_dir_all(&ws).unwrap();
+        let creative_mcp = dir
+            .path()
+            .join("aria-plugins")
+            .join("plugins")
+            .join("creative-media")
+            .join("python")
+            .join("aria_creative")
+            .join("mcp_server.py");
+        fs::create_dir_all(creative_mcp.parent().unwrap()).unwrap();
+        fs::write(&creative_mcp, "# stub\n").unwrap();
+
+        let found = discover_ecosystem_mcp_servers(&ws);
+        let creative = found
+            .iter()
+            .find(|c| c.name == "aria-creative-media")
+            .expect("aria-creative-media should be discovered");
+        assert_eq!(creative.args, vec!["-m", "aria_creative.mcp_server"]);
+        assert!(creative.env.contains_key("PYTHONPATH"));
     }
 }

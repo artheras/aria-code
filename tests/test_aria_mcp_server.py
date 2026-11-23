@@ -156,22 +156,12 @@ async def test_generate_submit_rejects_unknown_provider_even_when_confirmed():
 
 
 @pytest.mark.asyncio
-async def test_generate_submit_calls_provider_only_when_confirmed(monkeypatch):
-    from aria_code.clients import kling_video_client
-
-    called = {}
-
-    def fake_submit_video(prompt, **kwargs):
-        called["prompt"] = prompt
-        called["kwargs"] = kwargs
-        return {"success": True, "task_id": "t1", "provider": "kling"}
-
-    monkeypatch.setattr(kling_video_client, "submit_video", fake_submit_video)
+async def test_generate_submit_redirects_to_creative_media_plugin_when_confirmed():
     result = await _call_video_generate_submit(
         {"provider": "kling", "prompt": "a sunset", "confirmed": True, "duration": 5}
     )
-    assert result["success"] is True
-    assert called["prompt"] == "a sunset"
+    assert result["success"] is False
+    assert "aria-creative-media" in result["error"]
 
 
 @pytest.mark.asyncio
@@ -189,21 +179,10 @@ async def test_generate_image_refuses_with_confirmed_false():
 
 
 @pytest.mark.asyncio
-async def test_generate_image_calls_client_only_when_confirmed(monkeypatch):
-    from aria_code.clients import openai_image_client
-
-    called = {}
-
-    def fake_generate_image(prompt, **kwargs):
-        called["prompt"] = prompt
-        called["kwargs"] = kwargs
-        return {"success": True, "path": "/tmp/out.png"}
-
-    monkeypatch.setattr(openai_image_client, "generate_image", fake_generate_image)
+async def test_generate_image_redirects_to_creative_media_plugin_when_confirmed():
     result = await _call_generate_image({"prompt": "a poster", "confirmed": True})
-    assert result["success"] is True
-    assert called["prompt"] == "a poster"
-    assert called["kwargs"]["confirmed"] is True
+    assert result["success"] is False
+    assert "aria-creative-media" in result["error"]
 
 
 @pytest.mark.asyncio
@@ -214,54 +193,10 @@ async def test_edit_image_refuses_without_confirmed():
 
 
 @pytest.mark.asyncio
-async def test_edit_image_calls_client_only_when_confirmed(monkeypatch):
-    from aria_code.clients import openai_image_client
-
-    called = {}
-
-    def fake_edit_image(image_path, prompt, **kwargs):
-        called["image_path"] = image_path
-        called["kwargs"] = kwargs
-        return {"success": True, "path": "/tmp/out.png"}
-
-    monkeypatch.setattr(openai_image_client, "edit_image", fake_edit_image)
+async def test_edit_image_redirects_to_creative_media_plugin_when_confirmed():
     result = await _call_edit_image({"image_path": "/tmp/x.jpg", "prompt": "make it duotone", "confirmed": True})
-    assert result["success"] is True
-    assert called["image_path"] == "/tmp/x.jpg"
-    assert called["kwargs"]["confirmed"] is True
-
-
-@pytest.mark.asyncio
-async def test_edit_image_omits_mask_path_by_default(monkeypatch):
-    from aria_code.clients import openai_image_client
-
-    called = {}
-
-    def fake_edit_image(image_path, prompt, **kwargs):
-        called["kwargs"] = kwargs
-        return {"success": True, "path": "/tmp/out.png"}
-
-    monkeypatch.setattr(openai_image_client, "edit_image", fake_edit_image)
-    await _call_edit_image({"image_path": "/tmp/x.jpg", "prompt": "make it duotone", "confirmed": True})
-    assert called["kwargs"]["mask_path"] is None
-
-
-@pytest.mark.asyncio
-async def test_edit_image_passes_through_mask_path_for_inpainting(monkeypatch):
-    from aria_code.clients import openai_image_client
-
-    called = {}
-
-    def fake_edit_image(image_path, prompt, **kwargs):
-        called["kwargs"] = kwargs
-        return {"success": True, "path": "/tmp/out.png"}
-
-    monkeypatch.setattr(openai_image_client, "edit_image", fake_edit_image)
-    await _call_edit_image({
-        "image_path": "/tmp/x.jpg", "prompt": "fill in the sky", "confirmed": True,
-        "mask_path": "/tmp/mask.png",
-    })
-    assert called["kwargs"]["mask_path"] == "/tmp/mask.png"
+    assert result["success"] is False
+    assert "aria-creative-media" in result["error"]
 
 
 # ── New chart tools: indicator/comparison/allocation ────────────────────────

@@ -377,169 +377,34 @@ class CoreCommandsMixin:
         console.print()
 
     async def cmd_artifacts(self, args: str):
-        from aria_code.ui.render.output import display_path as _display_path
-        from aria_code.apps.cli.helpers import _copy_text_to_clipboard, _open_path_or_url, _reveal_path_in_finder
-        tokens = [part for part in args.split() if part]
-        mode = "list"
-        limit = 20
-        keep = 20
-        dry_run = False
-        selector = "latest"
-        if tokens:
-            head = tokens[0].lower()
-            if head in {"prune", "cleanup", "gc", "purge"}:
-                mode = "prune"
-                for token in tokens[1:]:
-                    if token == "--dry-run":
-                        dry_run = True
-                        continue
-                    try:
-                        keep = int(token)
-                    except Exception:
-                        continue
-            elif head in {"stats", "summary"}:
-                mode = "stats"
-            elif head in {"open", "reveal", "show", "path", "copy-path", "copy"}:
-                mode = "copy-path" if head == "copy" else head
-                selector = tokens[1] if len(tokens) > 1 else "latest"
-            else:
-                try:
-                    limit = int(head)
-                except Exception:
-                    limit = 20
+        """List, summarize, or prune generated artifacts (native Rust CLI also provides /artifacts)."""
         from artifacts import artifact_summary_all, prune_artifacts_all, recent_artifacts_all
 
-        if mode in {"open", "reveal", "show", "path", "copy-path"}:
-            items = recent_artifacts_all(limit=100)
-            selected = None
-            if items:
-                if selector.lower() in {"latest", "last", "newest", "最近", "最新"}:
-                    selected = items[0]
-                elif selector.isdigit() and 1 <= int(selector) <= len(items):
-                    selected = items[int(selector) - 1]
-                else:
-                    needle = selector.lower()
-                    selected = next(
-                        (
-                            item for item in items
-                            if needle in pathlib.Path(str(item.get("path") or "")).name.lower()
-                        ),
-                        None,
-                    )
-            target = str((selected or {}).get("path") or "").strip()
-            if not target:
-                msg = f"未找到产物 {selector!r}。先运行 /artifacts 查看可用编号。"
-                self.context.console.print(f"[yellow]{msg}[/yellow]") if self.context.has_rich else print(msg)
-                return
-
-            ok = True
-            error = ""
-            if mode == "open":
-                ok, error = _open_path_or_url(target)
-                action_text = "已打开"
-            elif mode in {"reveal", "show"}:
-                ok, error = _reveal_path_in_finder(target)
-                action_text = "已在访达中定位"
-            elif mode == "copy-path":
-                ok, error = _copy_text_to_clipboard(target)
-                action_text = "路径已复制"
-            else:
-                action_text = "文件路径"
-            if ok:
-                msg = f"{action_text}：{target}"
-                self.terminal._pending_market_artifact = {
-                    "kind": str((selected or {}).get("kind") or "artifact"),
-                    "path": target,
-                }
-                if self.context.has_rich:
-                    self.context.console.print(f"[green]✓[/green] {msg}")
-                else:
-                    print(msg)
-            else:
-                msg = f"操作失败：{error or target}"
-                if self.context.has_rich:
-                    self.context.console.print(f"[red]✗[/red] {msg}")
-                else:
-                    print(msg)
+        tokens = [part for part in args.split() if part]
+        head = tokens[0].lower() if tokens else "list"
+        if head in {"stats", "summary"}:
+            s = artifact_summary_all()
+            msg = f"Artifacts: {s.get('total', 0)} files ({s.get('total_size_bytes', 0):,} bytes)"
+            self.context.console.print(f"[bold]{msg}[/bold]") if self.context.has_rich else print(msg)
             return
-
-        if mode == "stats":
-            summary = artifact_summary_all()
-            roots = [pathlib.Path(str(r)) for r in summary.get("roots") or []]
-            total = int(summary.get("total") or 0)
-            total_size = int(summary.get("total_size_bytes") or 0)
-            by_kind = summary.get("by_kind") or {}
-            if self.context.has_rich:
-                self.context.console.print("[bold]Artifact inventory[/bold]")
-                for r in roots:
-                    self.context.console.print(f"  [dim]root[/dim]: {_display_path(r, fallback=r.name)}")
-                self.context.console.print(f"  total: [bold]{total}[/bold]  size: [bold]{total_size:,} bytes[/bold]")
-                if by_kind:
-                    for kind, count in by_kind.items():
-                        self.context.console.print(f"  [dim]{kind}[/dim]: {count}")
-            else:
-                print("Artifact inventory")
-                print(f"  total: {total}")
-                print(f"  size: {total_size} bytes")
-                for kind, count in by_kind.items():
-                    print(f"  {kind}: {count}")
+        if head in {"prune", "cleanup", "gc", "purge"}:
+            dry_run = "--dry-run" in tokens
+            keep = next((int(t) for t in tokens[1:] if t.isdigit()), 20)
+            res = prune_artifacts_all(keep=keep, dry_run=dry_run)
+            verb = "Would remove" if dry_run else "Removed"
+            msg = f"{verb} {res.get('removed', 0)} of {res.get('scanned', 0)} artifacts (keep={keep})."
+            self.context.console.print(f"[dim]{msg}[/dim]") if self.context.has_rich else print(msg)
             return
-
-        if mode == "prune":
-            result = prune_artifacts_all(keep=keep, dry_run=dry_run)
-            removed = int(result.get("removed") or 0)
-            scanned = int(result.get("scanned") or 0)
-            action = "Would remove" if dry_run else "Removed"
-            if self.context.has_rich:
-                self.context.console.print("[bold]Artifact prune[/bold]")
-                for r in result.get("roots") or []:
-                    self.context.console.print(f"  [dim]root[/dim]: {_display_path(r, fallback=pathlib.Path(str(r)).name)}")
-                self.context.console.print(f"  keep: [bold]{result.get('keep', keep)}[/bold]  scanned: [bold]{scanned}[/bold]  removed: [bold]{removed}[/bold]")
-                if removed:
-                    for entry in result.get("deleted") or []:
-                        name = pathlib.Path(str(entry.get("path") or entry.get("metadata_path") or "")).name
-                        root_name = pathlib.Path(str(entry.get("root") or "")).name
-                        self.context.console.print(f"  [dim]{action}[/dim] {name} [dim]({root_name})[/dim]")
-            else:
-                print("Artifact prune")
-                print(f"  keep: {result.get('keep', keep)}")
-                print(f"  scanned: {scanned}")
-                print(f"  removed: {removed}")
-                for entry in result.get("deleted") or []:
-                    name = pathlib.Path(str(entry.get("path") or entry.get("metadata_path") or "")).name
-                    root_name = pathlib.Path(str(entry.get("root") or "")).name
-                    print(f"  {action}: {name} ({root_name})")
-            return
-
+        limit = int(head) if head.isdigit() else 20
         items = recent_artifacts_all(limit=limit)
         if not items:
             msg = "No artifacts found"
             self.context.console.print(f"[dim]{msg}[/dim]") if self.context.has_rich else print(msg)
             return
-
-        title = "生成的产物" if str(self.terminal.config.get("ui_lang", "en")).lower().startswith("zh") else "Generated artifacts"
-        if self.context.has_rich:
-            self.context.console.print(f"[bold]{title}[/bold]")
-        else:
-            print(title)
-        for index, item in enumerate(items, start=1):
-            _path = item.get("path") or item.get("metadata_path") or ""
-            _name = pathlib.Path(str(_path)).name if _path else ""
-            _root_name = pathlib.Path(str(item.get("root") or "")).name if item.get("root") else ""
-            _status = str(item.get("status") or "unknown")
-            _icon = "✓" if _status == "complete" else "!" if _status in {"partial", "failed"} else "·"
-            _kind = str(item.get("kind") or "artifact")
-            _topic = str(item.get("topic") or "").strip()
-            _headline = f"#{index}  {_icon} {_kind}" + (f" · {_topic}" if _topic else "")
-            _detail = f"    {_name}" + (f"  ·  {_root_name}" if _root_name else "")
-            if self.context.has_rich:
-                self.context.console.print(f"[bold]{_headline}[/bold]")
-                self.context.console.print(f"[dim]{_detail}[/dim]")
-            else:
-                print(_headline)
-                print(_detail)
-        hint = "操作：/artifacts open 1 · reveal 1 · copy-path 1"
-        self.context.console.print(f"[dim]{hint}[/dim]") if self.context.has_rich else print(hint)
+        for idx, item in enumerate(items, 1):
+            name = pathlib.Path(str(item.get("path") or item.get("metadata_path") or "")).name
+            line = f"#{idx} {item.get('kind', 'artifact')} · {name}"
+            self.context.console.print(f"[dim]{line}[/dim]") if self.context.has_rich else print(line)
     async def _run_in_executor(self, fn, *args):
         import asyncio
         loop = asyncio.get_event_loop()
@@ -1146,105 +1011,41 @@ class CoreCommandsMixin:
             print(f"Feedback {icon}" + (f" — {comment}" if comment else "") +
                   (" (uploaded)" if api_success else " (saved locally)"))
     def cmd_privacy(self, args: str):
-        """Manage local privacy and feedback-sharing settings."""
+        """Manage local privacy and feedback-sharing settings (also native in Rust CLI)."""
         from aria_cli import CONFIG_DIR
-        from aria_code.privacy import FeedbackStore
-        from aria_code.privacy import PrivacySettings
+        from aria_code.privacy import FeedbackStore, PrivacySettings
+        from aria_code.safety import SafetyService
         from aria_code.ui.render.output import display_path as _display_path
+
         parts = args.strip().split(maxsplit=1)
         sub = parts[0].lower() if parts else "status"
         rest = parts[1].strip() if len(parts) > 1 else ""
         store = FeedbackStore(CONFIG_DIR)
-        from aria_code.safety import SafetyService
         settings = SafetyService(self.terminal.config).privacy()
-
-        def _save_settings(new_settings: PrivacySettings):
-            new_settings.apply_to_config(self.terminal.config)
-            self.context.save_config(self.terminal.config)
+        say = (lambda m: self.context.console.print(m)) if self.context.has_rich else print
 
         if sub in {"status", "show"}:
-            shared_state = "ON — feedback may be shared with Arthera" if (
-                settings.data_sharing and settings.feedback_upload
-            ) else "OFF — local-only, nothing leaves this machine"
-            lines = [
-                "Privacy status",
-                f"  sharing: {shared_state}",
-                f"  data_sharing: {settings.data_sharing}",
-                f"  feedback_upload: {settings.feedback_upload}",
-                f"  feedback_records: {store.count()}",
-                f"  local_feedback: {store.feedback_file}",
-                "  default: local-only; no upload unless you run /privacy opt-in",
-                "  full policy: /privacy policy  (or see PRIVACY.md)",
-            ]
-            if self.context.has_rich:
-                self.context.console.print()
-                self.context.console.print("[bold]Privacy[/bold]")
-                for line in lines[1:]:
-                    self.context.console.print(f"[dim]{line}[/dim]")
-            else:
-                print("\n".join(lines))
-            return
-
-        if sub == "policy":
-            url = "https://github.com/artheras/aria-code/blob/main/PRIVACY.md"
-            local = pathlib.Path(__file__).resolve().parent / "PRIVACY.md"
-            lines = [
-                "Aria Code is local-first: by default nothing is collected or uploaded.",
-                "Only `/privacy opt-in` shares feedback (rating + related message) with Arthera.",
-                "Credentials, positions, and financial data always stay on your machine.",
-                f"  full policy: {local if local.exists() else url}",
-                "  manage: /privacy opt-in | opt-out | export [path] | delete",
-            ]
-            if self.context.has_rich:
-                self.context.console.print()
-                self.context.console.print("[bold]Privacy policy[/bold]")
-                for line in lines:
-                    self.context.console.print(f"[dim]{line}[/dim]")
-            else:
-                print("\n".join(lines))
-            return
-
-        if sub in {"opt-in", "on", "enable"}:
-            _save_settings(PrivacySettings(data_sharing=True, feedback_upload=True))
-            if self.context.has_rich:
-                self.context.console.print("[green]Data sharing enabled.[/green]")
-                self.context.console.print("[dim]  You consent to share /feedback records (rating, the related[/dim]")
-                self.context.console.print("[dim]  model message, optional comment, model id, session id, time)[/dim]")
-                self.context.console.print("[dim]  with Arthera to improve the product. Local copies are kept.[/dim]")
-                self.context.console.print("[dim]  Credentials & financial data are never shared. Details: /privacy policy[/dim]")
-                self.context.console.print("[dim]  Withdraw any time: /privacy opt-out[/dim]")
-            else:
-                print("Data sharing enabled. You consent to share /feedback records "
-                      "(rating + related message) with Arthera. Credentials & financial "
-                      "data are never shared. Withdraw: /privacy opt-out. Details: /privacy policy")
-            return
-
-        if sub in {"opt-out", "off", "disable"}:
-            _save_settings(PrivacySettings(data_sharing=False, feedback_upload=False))
-            msg = "Data sharing disabled. Feedback stays local only."
-            self.context.console.print(f"[green]{msg}[/green]" if self.context.has_rich else msg)
-            return
-
-        if sub == "export":
-            dest = rest or None
+            shared = "ON" if (settings.data_sharing and settings.feedback_upload) else "OFF (local-only)"
+            say(f"Privacy: sharing={shared} · records={store.count()} · file={store.feedback_file}")
+        elif sub == "policy":
+            say("Aria Code is local-first: nothing leaves this machine unless you run /privacy opt-in.")
+        elif sub in {"opt-in", "on", "enable"}:
+            PrivacySettings(data_sharing=True, feedback_upload=True).apply_to_config(self.terminal.config)
+            self.context.save_config(self.terminal.config)
+            say("Data sharing enabled. Withdraw anytime with /privacy opt-out.")
+        elif sub in {"opt-out", "off", "disable"}:
+            PrivacySettings(data_sharing=False, feedback_upload=False).apply_to_config(self.terminal.config)
+            self.context.save_config(self.terminal.config)
+            say("Data sharing disabled. Feedback stays local only.")
+        elif sub == "export":
             try:
-                path = store.export_jsonl(dest)
+                say(f"Exported feedback to {_display_path(store.export_jsonl(rest or None))}")
             except Exception as exc:
-                msg = f"Export failed: {exc}"
-                self.context.console.print(f"[red]{msg}[/red]" if self.context.has_rich else msg)
-                return
-            msg = f"Exported feedback to {_display_path(path)}"
-            self.context.console.print(f"[green]{msg}[/green]" if self.context.has_rich else msg)
-            return
-
-        if sub in {"delete", "clear"}:
-            count = store.delete_all()
-            msg = f"Deleted {count} local feedback record(s)."
-            self.context.console.print(f"[green]{msg}[/green]" if self.context.has_rich else msg)
-            return
-
-        msg = "Usage: /privacy [status|policy|opt-in|opt-out|export [path]|delete]"
-        self.context.console.print(f"[dim]{msg}[/dim]" if self.context.has_rich else msg)
+                say(f"Export failed: {exc}")
+        elif sub in {"delete", "clear"}:
+            say(f"Deleted {store.delete_all()} local feedback record(s).")
+        else:
+            say("Usage: /privacy [status|policy|opt-in|opt-out|export [path]|delete]")
     async def _run_tool_cmd(self, tool_name: str, params: dict, label: str = ""):
         """Generic helper: run tool with spinner and formatted output.
 
@@ -1335,50 +1136,6 @@ class CoreCommandsMixin:
             else:
                 _print_finance_result(tool_name, r)
 
-    async def cmd_risk(self, args: str):
-        """Risk metrics moved to financial-service MCP."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/risk 已迁移至 financial-service MCP（financial_risk_metrics）。[/dim]")
-
-    async def cmd_market(self, args: str):
-        """Market overview moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/market 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_optimize(self, args: str):
-        """Portfolio optimization moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/optimize 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_stress(self, args: str):
-        """Strategy stress test moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/stress 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_factors(self, args: str):
-        """Factor analysis moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/factors 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_factor_lab(self, args: str):
-        """Factor lab moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/factor-lab 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_execution(self, args: str):
-        """Execution algorithms moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/execution 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_stat_arb(self, args: str):
-        """Stat-arb pair testing moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/stat-arb 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_compliance(self, args: str):
-        """Strategy compliance check moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/compliance 已迁移至 Arthera 后端服务。[/dim]")
     async def cmd_search_web(self, args: str):
         """Web search: /web <query>"""
         query = args.strip()
@@ -1525,129 +1282,44 @@ class CoreCommandsMixin:
         if not _HAS_ARIARC:
             self.context.console.print("  [dim]ariarc.py not available[/dim]" if self.context.has_rich else "ariarc not available")
             return
+        arc = reload_ariarc() if "reload" in args.lower() else (self.terminal.ariarc or get_ariarc())
         if "reload" in args.lower():
-            arc = reload_ariarc()
             self.terminal.ariarc = arc
-            if self.context.has_rich:
-                if arc.found:
-                    self.context.console.print(f"  [green]ariarc reloaded: {arc.source_path}[/green]")
-                else:
-                    self.context.console.print("  [yellow]No .ariarc found in current directory tree[/yellow]")
+        if not arc.found:
+            msg = "No .ariarc found in current directory tree (prefer ARIA.md and .aria/settings.json)."
+            self.context.console.print(f"  [dim]{msg}[/dim]" if self.context.has_rich else msg)
             return
-
-        arc = self.terminal.ariarc or get_ariarc()
-        if self.context.has_rich:
-            self.context.console.print()
-            if not arc.found:
-                self.context.console.print("  [dim]No .ariarc found (create .ariarc in your project root)[/dim]")
-                self.context.console.print()
-                _example = """{
-  "project": "My Quant Strategy",
-  "description": "A-share momentum + mean-reversion strategy",
-  "market": "cn",
-  "default_symbols": ["sh600519", "sh601318", "sz000858"],
-  "system_prompt": "Focus on A-share market mechanics and T+1 constraints.",
-  "context_files": ["README.md"],
-  "auto_context": ["strategy/main.py"],
-  "commands": {
-    "/morning-cn": "生成A股早盘简报，重点关注 {default_symbols}"
-  }
-}"""
-                self.context.console.print(f"  [dim]Example .ariarc:[/dim]\n{_example}")
-            else:
-                d = arc.to_dict()
-                self.context.console.print(f"  [bold]Project:[/bold] {arc.project or '(unnamed)'}")
-                self.context.console.print(f"  [bold]Source:[/bold]  [dim]{d['source_path']}[/dim]")
-                self.context.console.print(f"  [bold]Market:[/bold]  {arc.market}")
-                if arc.default_symbols:
-                    self.context.console.print(f"  [bold]Symbols:[/bold] {', '.join(arc.default_symbols)}")
-                if arc.commands:
-                    self.context.console.print(f"  [bold]Commands:[/bold] {', '.join(arc.commands.keys())}")
-                if arc.tools_blacklist:
-                    self.context.console.print(f"  [bold]Blocked tools:[/bold] {', '.join(arc.tools_blacklist)}")
-                if arc.auto_context:
-                    self.context.console.print(f"  [bold]Auto context:[/bold] {', '.join(arc.auto_context)}")
-            self.context.console.print()
-        else:
-            if arc.found:
-                import json as _j
-                print(_j.dumps(arc.to_dict(), indent=2, ensure_ascii=False))
-    async def cmd_signal(self, args: str):
-        """AI trading signal（已迁移至 Arthera 后端 / MCP）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/signal 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_predict(self, args: str):
-        """ML return predictions（已迁移至 Arthera 后端 / MCP）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/predict 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_cloudbt(self, args: str):
-        """Cloud ML backtest（已迁移至 Arthera 后端 / MCP）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/cloudbt 已迁移至 Arthera 后端服务。[/dim]")
-
-    async def cmd_insights(self, args: str):
-        """AI market insights（已迁移至 Arthera 后端 / MCP）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/insights 已迁移至 Arthera 后端服务。[/dim]")
+        import json as _j
+        text = _j.dumps(arc.to_dict(), indent=2, ensure_ascii=False)
+        self.context.console.print(text) if self.context.has_rich else print(text)
 
     def cmd_recommend(self, args: str):
         """Recommend local models（已迁移至 /model）."""
         if self.context.has_rich:
             self.context.console.print("[dim]请使用 /model 查看和切换本地/云端模型。[/dim]")
 
-    async def cmd_optimize_port(self, args: str):
-        """Portfolio weight optimisation（已迁移至 Arthera 后端 / arthera-quant MCP）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/optimize-port 已迁移至 Arthera 后端服务。[/dim]")
 
-    async def cmd_ui(self, args: str):
-        """Bloomberg dashboard UI moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/ui 已迁移至 Arthera 后端服务。[/dim]")
+_MIGRATED_ASYNC_CMDS = {
+    "cmd_risk": "/risk 已迁移至 financial-service MCP（financial_risk_metrics）。",
+    "cmd_chart": "/chart 已迁移至 financial-service MCP。",
+    **{
+        f"cmd_{name}": f"/{name.replace('_', '-')} 已迁移至 Arthera 后端 / MCP 服务。"
+        for name in (
+            "market", "optimize", "stress", "factors", "factor_lab", "execution",
+            "stat_arb", "compliance", "signal", "predict", "cloudbt", "insights",
+            "optimize_port", "ui", "dashboard", "tv", "shortterm", "longterm",
+            "indices", "hot", "ta", "orcl", "edgar",
+        )
+    },
+}
 
-    async def cmd_dashboard(self, args: str):
-        """Personal dashboard moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/dashboard 已迁移至 Arthera 后端服务。[/dim]")
 
-    async def cmd_tv(self, args: str):
-        """TradingView bridge moved to Arthera backend service."""
+def _make_migrated_stub(message: str):
+    async def _stub(self, args: str):
         if self.context.has_rich:
-            self.context.console.print("[dim]/tv 已迁移至 Arthera 后端服务。[/dim]")
-    async def cmd_chart(self, args: str):
-        """Stock charts moved to financial-service MCP."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/chart 已迁移至 financial-service MCP。[/dim]")
+            self.context.console.print(f"[dim]{message}[/dim]")
+    return _stub
 
-    async def cmd_shortterm(self, args: str):
-        """A股短线分析（已迁移至 Arthera 后端服务）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/shortterm 已迁移至 Arthera 后端服务。[/dim]")
 
-    async def cmd_longterm(self, args: str):
-        """A股长线分析（已迁移至 Arthera 后端服务）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/longterm 已迁移至 Arthera 后端服务。[/dim]")
-    async def cmd_indices(self, args: str):
-        """全球主要指数实时行情（已迁移至 Arthera 后端 /market）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/indices 已迁移至 Arthera 后端，请使用 /market。[/dim]")
-
-    async def cmd_hot(self, args: str):
-        """热门/活跃股票榜单（已迁移至 Arthera 后端 /market）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/hot 已迁移至 Arthera 后端，请使用 /market。[/dim]")
-    async def cmd_ta(self, args: str):
-        """Technical indicators moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/ta 已迁移至 Arthera 后端服务。[/dim]")
-    async def cmd_orcl(self, args: str):
-        """ORCL vertical analysis moved to Arthera backend service."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/orcl 已迁移至 Arthera 后端服务。[/dim]")
-    async def cmd_edgar(self, args: str):
-        """SEC EDGAR 财报查询（已迁移至 Arthera 后端服务）."""
-        if self.context.has_rich:
-            self.context.console.print("[dim]/edgar 已迁移至 Arthera 后端服务。[/dim]")
+for _cmd_name, _cmd_msg in _MIGRATED_ASYNC_CMDS.items():
+    setattr(CoreCommandsMixin, _cmd_name, _make_migrated_stub(_cmd_msg))

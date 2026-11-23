@@ -179,107 +179,14 @@ class UiCommandsMixin:
             print(f"Image loaded: {payload['label']} ({size_kb} KB) — send your question now")
 
     async def cmd_browser(self, args: str):
-        """Open a URL in a headless browser."""
-        if not _get__HAS_COMPUTER_USE():
-            print_error(self.context, 
-                "computer_use_tools not available.",
-                "Install: pip install playwright mss pyautogui pillow && playwright install chromium",
-            )
-            return
-        from aria_code.tools.computer_use_tools import _tool_browser_navigate, _tool_browser_screenshot
-
-        parts = args.strip().split(maxsplit=1)
-        if not parts:
-            if self.context.has_rich:
-                self.context.console.print("[dim]Usage: /browser <url>  or  /browser screenshot <url>[/dim]")
-            return
-
-        if parts[0].lower() == "screenshot" and len(parts) > 1:
-            url = parts[1].strip()
-            if self.context.has_rich:
-                with self.context.console.status(f"[dim]Screenshotting {self._short_url_label(url)}…[/dim]", spinner="dots"):
-                    result = _tool_browser_screenshot({"url": url})
-            else:
-                result = _tool_browser_screenshot({"url": url})
-            if result.get("success"):
-                d = result["data"]
-                b64 = result.get("_vision_image")
-                if b64:
-                    self.terminal._pending_image = {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/png;base64,{b64}"},
-                    }
-                if self.context.has_rich:
-                    self.context.console.print(_get_Panel()(
-                        f"[green]✓[/green]  [bold]{d.get('title','')[:60]}[/bold]\n"
-                        f"[dim]{self._short_url_label(url)}  ·  {d.get('size_kb', 0)} KB[/dim]\n"
-                        f"[dim]Screenshot queued — ask your question now[/dim]",
-                        border_style="dim", box=_get_rich_box().ROUNDED, padding=(0, 1),
-                    ))
-                else:
-                    print(f"Screenshot ready ({d.get('size_kb', 0)} KB) — send your question")
-            else:
-                print_error(self.context, result.get("error", "Screenshot failed"), "browser screenshot")
-        else:
-            url = parts[0].strip()
-            if self.context.has_rich:
-                with self.context.console.status(f"[dim]Opening {self._short_url_label(url)}…[/dim]", spinner="dots"):
-                    result = _tool_browser_navigate({"url": url})
-            else:
-                result = _tool_browser_navigate({"url": url})
-            if result.get("success"):
-                d = result["data"]
-                title = d.get("title", "")
-                text = d.get("text", "")[:2000]
-                links = d.get("links", [])[:5]
-                engine = d.get("engine", "")
-                if self.context.has_rich:
-                    link_str = "\n".join(f"  {l}" for l in links) if links else "  (none)"
-                    self.context.console.print(_get_Panel()(
-                        f"[bold]{title[:80]}[/bold]  [dim]({engine})[/dim]\n\n"
-                        f"{text}\n\n[dim]Links:[/dim]\n{link_str}",
-                        border_style="dim", box=_get_rich_box().ROUNDED, padding=(0, 1),
-                        title=f"[dim]{self._short_url_label(url)}[/dim]", title_align="left",
-                    ))
-                else:
-                    print(f"Title: {title}\n{text[:500]}")
-            else:
-                print_error(self.context, result.get("error", "Navigation failed"), "browser")
+        """Legacy browser command — delegated to external browser MCP servers."""
+        msg = "Browser automation moved to external MCP plugins (run /mcp to connect)."
+        self.context.console.print(f"[dim]{msg}[/dim]" if self.context.has_rich else msg)
 
     async def cmd_screenshot(self, args: str):
-        if not _get__HAS_COMPUTER_USE():
-            print_error(self.context, 
-                "computer_use_tools not available.",
-                "Install: pip install mss pillow",
-            )
-            return
-        from aria_code.tools.computer_use_tools import _tool_computer_screenshot
-
-        monitor = int(args.strip()) if args.strip().isdigit() else 1
-        if self.context.has_rich:
-            with self.context.console.status("[dim]Capturing screen…[/dim]", spinner="dots"):
-                result = _tool_computer_screenshot({"monitor": monitor})
-        else:
-            result = _tool_computer_screenshot({"monitor": monitor})
-
-        if result.get("success"):
-            d = result["data"]
-            b64 = result.get("_vision_image")
-            if b64:
-                self.terminal._pending_image = {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{b64}"},
-                }
-            if self.context.has_rich:
-                self.context.console.print(_get_Panel()(
-                    f"[green]✓[/green]  [dim]{d['width']}×{d['height']}  ·  {d['size_kb']} KB[/dim]\n"
-                    f"[dim]Screenshot queued — ask your question now[/dim]",
-                    border_style="dim", box=_get_rich_box().ROUNDED, padding=(0, 1),
-                ))
-            else:
-                print(f"Screenshot {d['width']}×{d['height']} ({d['size_kb']} KB) — send your question")
-        else:
-            print_error(self.context, result.get("error", "Screenshot failed"), "screenshot")
+        """Legacy screenshot command — use /vision <path|clipboard> or an MCP plugin."""
+        msg = "Use /vision <image_path|clipboard> or connect a screenshot MCP plugin via /mcp."
+        self.context.console.print(f"[dim]{msg}[/dim]" if self.context.has_rich else msg)
 
     def cmd_input(self, args: str):
         raw = args.strip().lower()

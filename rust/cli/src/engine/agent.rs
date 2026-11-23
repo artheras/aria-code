@@ -133,6 +133,11 @@ fn build_coding_system_prompt(workspace: &Path) -> String {
         prompt.push_str("\n\n");
         prompt.push_str(&mem_section);
     }
+    let eco_section = crate::engine::ecosystem::format_ecosystem_prompt_section(workspace);
+    if !eco_section.is_empty() {
+        prompt.push_str("\n\n");
+        prompt.push_str(&eco_section);
+    }
     let discovered_skills = skills::discover_skills(workspace);
     if !discovered_skills.is_empty() {
         let lines: Vec<String> = discovered_skills

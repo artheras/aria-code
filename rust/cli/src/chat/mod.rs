@@ -566,6 +566,14 @@ enum NativeRoute {
     Memory(String),
     Todo(String),
     Note(String),
+    Workflow(String),
+    Export(String),
+    Plan(String),
+    ApplyPlan(String),
+    Artifacts(String),
+    Privacy(String),
+    Feedback(String),
+    Ecosystem(String),
     Verify(Option<String>),
     WriteMode(Option<bool>),
     OllamaChat,
@@ -659,6 +667,62 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     if text == "/note" || text.starts_with("/note ") {
         let arg = text.strip_prefix("/note").unwrap_or("").trim().to_owned();
         return Some(NativeRoute::Note(arg));
+    }
+    if text == "/workflow" || text.starts_with("/workflow ") {
+        let arg = text
+            .strip_prefix("/workflow")
+            .unwrap_or("")
+            .trim()
+            .to_owned();
+        return Some(NativeRoute::Workflow(arg));
+    }
+    if text == "/export" || text.starts_with("/export ") {
+        let arg = text.strip_prefix("/export").unwrap_or("").trim().to_owned();
+        return Some(NativeRoute::Export(arg));
+    }
+    if text == "/plan" || text.starts_with("/plan ") {
+        let arg = text.strip_prefix("/plan").unwrap_or("").trim().to_owned();
+        return Some(NativeRoute::Plan(arg));
+    }
+    if text == "/apply-plan" || text.starts_with("/apply-plan ") {
+        let arg = text
+            .strip_prefix("/apply-plan")
+            .unwrap_or("")
+            .trim()
+            .to_owned();
+        return Some(NativeRoute::ApplyPlan(arg));
+    }
+    if text == "/artifacts" || text.starts_with("/artifacts ") {
+        let arg = text
+            .strip_prefix("/artifacts")
+            .unwrap_or("")
+            .trim()
+            .to_owned();
+        return Some(NativeRoute::Artifacts(arg));
+    }
+    if text == "/privacy" || text.starts_with("/privacy ") {
+        let arg = text
+            .strip_prefix("/privacy")
+            .unwrap_or("")
+            .trim()
+            .to_owned();
+        return Some(NativeRoute::Privacy(arg));
+    }
+    if text == "/feedback" || text.starts_with("/feedback ") {
+        let arg = text
+            .strip_prefix("/feedback")
+            .unwrap_or("")
+            .trim()
+            .to_owned();
+        return Some(NativeRoute::Feedback(arg));
+    }
+    if text == "/ecosystem" || text.starts_with("/ecosystem ") {
+        let arg = text
+            .strip_prefix("/ecosystem")
+            .unwrap_or("")
+            .trim()
+            .to_owned();
+        return Some(NativeRoute::Ecosystem(arg));
     }
     if text == "/diff" || text.starts_with("/diff ") {
         let target = text.strip_prefix("/diff").unwrap_or("").trim();
@@ -821,6 +885,45 @@ fn try_dispatch_native_turn(
         let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
         return true;
     }
+    if matches!(route, NativeRoute::Compact) {
+        let history_snapshot = collect_agent_history(app, "/compact");
+        let mut msgs: Vec<Value> = history_snapshot
+            .iter()
+            .map(|(role, content)| json!({ "role": role, "content": content }))
+            .collect();
+        let before_tokens = crate::engine::compact::estimate_messages_tokens(&msgs);
+        let before_count = msgs.len();
+        let compacted = crate::engine::compact::compact_messages_if_needed(&mut msgs, 1, 4);
+        let after_tokens = crate::engine::compact::estimate_messages_tokens(&msgs);
+        if compacted {
+            app.entries.clear();
+            for m in &msgs {
+                let role = m["role"].as_str().unwrap_or("assistant").to_owned();
+                let content = m["content"].as_str().unwrap_or("").to_owned();
+                app.entries.push_back(app::Entry {
+                    role,
+                    text: content,
+                    detail: false,
+                    action: None,
+                });
+            }
+            app.scroll = 0;
+        }
+        let text = if compacted {
+            format!(
+                "Context compacted & persisted: {before_count} -> {} messages (~{before_tokens} -> ~{after_tokens} tokens). Auto-compaction also runs automatically at 24,000 tokens.",
+                msgs.len()
+            )
+        } else {
+            format!(
+                "Context is already compact ({before_count} messages, ~{before_tokens} tokens)."
+            )
+        };
+        let _ = tx.send(json!({"protocol": 1, "type": "turn.started"}));
+        let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+        let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+        return true;
+    }
     let allow_write = *allow_write_state;
     cancel.store(false, Ordering::Relaxed);
     let tx = tx.clone();
@@ -909,11 +1012,13 @@ fn try_dispatch_native_turn(
                      - `/health` | `/doctor` — 检查服务与环境健康状态\n\
                      - `/config` | `/permissions [init]` — 查看运行配置与 `.aria/settings.json` 权限规则\n\
                      - `/hooks [init]` | `/sandbox` — 管理生命周期 Hook 与 OS 沙箱\n\
-                     - `/mcp [connect|connect --uvx|probe]` — 连接或探测外部 MCP 服务\n\
+                     - `/mcp [connect|connect --uvx|probe]` | `/ecosystem [probe]` — 连接或探测外部垂直 MCP 生态服务\n\
                      - `/skills` | `/init [--force]` — 查看工作区技能或初始化 `ARIA.md`\n\
                      - `/scan` | `/map` | `/diff` | `/log` | `/review` | `/verify` — 代码检查与验证\n\
-                     - `/roi` | `/cost` — 查看 AI ROI 与 Token 效率计分卡\n\
+                     - `/roi` | `/cost` | `/privacy` | `/feedback` — ROI 计分卡、本地隐私与反馈记录\n\
                      - `/memory` | `/todo` | `/note` — 项目记忆、待办清单与 `ARIA.md` 笔记\n\
+                     - `/workflow [list|show|run]` | `/export [md|json]` | `/artifacts [stats|prune]` — 工作流、导出与产物管理\n\
+                     - `/plan [list|add|rm|clear]` | `/apply-plan [--from N]` — 持久化执行计划与策略门控\n\
                      - `/rewind` | `/worktree` | `/write-mode on|off` | `/compact` | `/sessions` — 工作区与会话管理"
                 } else {
                     "**Aria Code Native Commands:**\n\
@@ -923,11 +1028,13 @@ fn try_dispatch_native_turn(
                      - `/health` | `/doctor` — Check services and workspace diagnostics\n\
                      - `/config` | `/permissions [init]` — Inspect config and `.aria/settings.json` rules\n\
                      - `/hooks [init]` | `/sandbox` — Manage lifecycle hooks and OS sandbox\n\
-                     - `/mcp [connect|connect --uvx|probe]` — Connect or probe external MCP servers\n\
+                     - `/mcp [connect|connect --uvx|probe]` | `/ecosystem [probe]` — Connect or probe vertical MCP ecosystem\n\
                      - `/skills` | `/init [--force]` — List workspace skills or initialize `ARIA.md`\n\
                      - `/scan` | `/map` | `/diff` | `/log` | `/review` | `/verify` — Code inspection and verification\n\
-                     - `/roi` | `/cost` — View Enterprise AI ROI & Token Efficiency Scorecard\n\
+                     - `/roi` | `/cost` | `/privacy` | `/feedback` — AI ROI scorecard, local-first privacy, and feedback\n\
                      - `/memory` | `/todo` | `/note` — Manage project memory, tasks, and `ARIA.md` notes\n\
+                     - `/workflow [list|show|run]` | `/export [md|json]` | `/artifacts [stats|prune]` — Workflows, transcript export, and artifacts\n\
+                     - `/plan [list|add|rm|clear]` | `/apply-plan [--from N]` — Persistent plan management and gated execution\n\
                      - `/rewind` | `/worktree` | `/write-mode on|off` | `/compact` | `/sessions` — Workspace and session controls"
                 };
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
@@ -1479,28 +1586,7 @@ fn try_dispatch_native_turn(
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
             }
-            NativeRoute::Compact => {
-                let mut msgs: Vec<Value> = history
-                    .iter()
-                    .map(|(role, content)| json!({ "role": role, "content": content }))
-                    .collect();
-                let before_tokens = crate::engine::compact::estimate_messages_tokens(&msgs);
-                let before_count = msgs.len();
-                let compacted = crate::engine::compact::compact_messages_if_needed(&mut msgs, 1, 4);
-                let after_tokens = crate::engine::compact::estimate_messages_tokens(&msgs);
-                let text = if compacted {
-                    format!(
-                        "Context compacted: {before_count} -> {} messages (~{before_tokens} -> ~{after_tokens} tokens). Auto-compaction also runs automatically at 24,000 tokens.",
-                        msgs.len()
-                    )
-                } else {
-                    format!(
-                        "Context is already compact ({before_count} messages, ~{before_tokens} tokens)."
-                    )
-                };
-                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
-                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
-            }
+            NativeRoute::Compact => {}
             NativeRoute::Roi => {
                 let ws_path = std::path::PathBuf::from(&workspace);
                 let text = crate::engine::roi::build_roi_scorecard(
@@ -1533,6 +1619,80 @@ fn try_dispatch_native_turn(
                     Ok(path) => (format!("Saved note to `{}`.", path.display()), "ok"),
                     Err(e) => (e, "ok"),
                 };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Workflow(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) = crate::engine::workflow::handle_workflow_command(
+                    &ws_path,
+                    &arg,
+                    allow_write,
+                    zh,
+                );
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Export(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) =
+                    match crate::sessions::export_transcript(&ws_path, &model, &history, &arg) {
+                        Ok(path) => (
+                            format!(
+                                "Exported {} messages to `{}`.",
+                                history.len(),
+                                path.display()
+                            ),
+                            "ok",
+                        ),
+                        Err(e) => (format!("[export error: {e}]"), "failed"),
+                    };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Plan(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) = crate::engine::plan::handle_plan_command(&ws_path, &arg, zh);
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::ApplyPlan(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) =
+                    crate::engine::plan::handle_apply_plan_command(&ws_path, &arg, allow_write, zh);
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Artifacts(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) = crate::engine::artifacts::handle_artifacts_command(
+                    &ws_path,
+                    &arg,
+                    allow_write,
+                    zh,
+                );
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Privacy(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) =
+                    crate::engine::privacy::handle_privacy_command(&ws_path, &arg, zh);
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Feedback(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) = crate::engine::privacy::handle_feedback_command(
+                    &ws_path, &model, &history, &arg,
+                );
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Ecosystem(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) =
+                    crate::engine::ecosystem::handle_ecosystem_command(&ws_path, &arg, zh);
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }
