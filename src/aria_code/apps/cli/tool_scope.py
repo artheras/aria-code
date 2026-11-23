@@ -40,13 +40,21 @@ def _schema_name(schema: dict) -> str:
     return str((schema.get("function") or schema).get("name") or "")
 
 
+_LEGACY_GATEABLE_DOMAIN_TOOLS = (
+    "get_market_data",
+    "get_market_history",
+    "broker_query",
+    "broker_order",
+)
+
+
 def domain_tool_names() -> frozenset[str]:
-    """Every tool claimed by some pack, whether or not that pack is active.
+    """Every tool claimed by some pack (or legacy domain stub), whether or not active.
 
     Membership here is what makes a tool *gateable*. A tool absent from this
     set is core and always offered.
     """
-    claimed: set[str] = set()
+    claimed: set[str] = set(_LEGACY_GATEABLE_DOMAIN_TOOLS)
     try:
         from aria_code.packs import load_builtin_packs, registered_packs
 

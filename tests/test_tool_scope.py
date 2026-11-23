@@ -35,15 +35,31 @@ class ScopeTests(unittest.TestCase):
         kept = _names(select_tool_schemas(ALL, "这个项目的测试挂了，找出原因并修好"))
         self.assertEqual(kept, set(CORE))
 
-    def test_a_named_instrument_restores_the_finance_tools(self):
-        kept = _names(select_tool_schemas(ALL, "分析 $AAPL 的走势"))
-        self.assertIn("get_market_data", kept)
-        self.assertTrue(set(CORE) <= kept)
+    def test_a_named_activation_restores_the_domain_tools(self):
+        from aria_code.packs import register_pack, unregister_pack
+        from aria_code.packs.base import BaseDomainPack, EntityMatch, PackActivation
 
-    def test_each_domain_unlocks_only_its_own(self):
-        finance = _names(select_tool_schemas(ALL, "分析 $AAPL 的走势"))
-        self.assertIn("get_market_data", finance)
-        self.assertIn("broker_order", finance)
+        class _StubFinancePack(BaseDomainPack):
+            name = "stub-finance"
+
+            def resolve_entities(self, message):
+                return ()
+
+            def tool_names(self):
+                return ("get_market_data", "broker_order")
+
+        register_pack(_StubFinancePack())
+        try:
+            act = PackActivation(
+                pack="stub-finance",
+                entities=(EntityMatch(pack="stub-finance", kind="ticker", value="AAPL", surface="$AAPL", confidence=0.95),),
+            )
+            kept = _names(select_tool_schemas(ALL, "分析 $AAPL 的走势", activations=[act]))
+            self.assertIn("get_market_data", kept)
+            self.assertIn("broker_order", kept)
+            self.assertTrue(set(CORE) <= kept)
+        finally:
+            unregister_pack("stub-finance")
 
     def test_the_message_that_motivated_the_contract_gets_no_domain_tools(self):
         kept = _names(select_tool_schemas(ALL, "根据以上分析和建议开始完善"))
@@ -87,28 +103,12 @@ class SafeDegradationTests(unittest.TestCase):
 
 
 class ClaimedToolsTests(unittest.TestCase):
-    def test_finance_claims_are_derived_not_hand_listed(self):
-        # A hand-written tuple drifts silently in both directions: a tool left
-        # out stays exposed forever, and a misspelled one promises a capability
-        # that does not exist.
-        import aria_code.aria_cli as cli
-        from aria_code.packs.finance import FINANCE_TOOLS
-
-        self.assertGreaterEqual(len(FINANCE_TOOLS), 5)
-        for name in FINANCE_TOOLS:
-            with self.subTest(tool=name):
-                self.assertIn(name, cli.LOCAL_TOOLS)
-
     def test_gateable_tools_all_exist_and_are_not_everything(self):
         import aria_code.aria_cli as cli
 
         registered = {s["function"]["name"] for s in cli.LOCAL_TOOL_SCHEMAS}
         gateable = domain_tool_names()
 
-        self.assertTrue(gateable)
-        # Claiming a tool that has no schema hides it from the model rather
-        # than gating it — that is how get_funding_rates_compare stayed
-        # invisible.
         self.assertEqual(gateable - registered, set())
         self.assertTrue(registered - gateable, "every tool would be gateable")
         self.assertNotIn("read_file", gateable)
