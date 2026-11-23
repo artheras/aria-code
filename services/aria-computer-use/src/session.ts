@@ -4,10 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import {
   approvalBackendLabel,
+  type ApprovalMode,
   detectPromptInjection,
   isSensitiveLabel,
   normalizeOrigin,
+  parseApprovalMode,
   requestHumanApproval,
+  resolveSafeUploadPath,
 } from "./security.js";
 import { TOOLS } from "./tools.js";
 
@@ -33,22 +36,29 @@ export interface LocatorLike {
   press(key: string): Promise<void>;
   hover(): Promise<void>;
   selectOption(opt: { value?: string; label?: string }): Promise<unknown>;
+  setInputFiles?(files: string | string[]): Promise<void>;
+  dragTo?(target: LocatorLike): Promise<void>;
+  ariaSnapshot?(): Promise<string>;
   first?: LocatorLike;
   waitFor?(opts: { state: "visible"; timeout: number }): Promise<void>;
 }
 
-export interface PageLike {
+export interface FrameLike {
   url(): string;
+  evaluate<T = unknown>(fn: string | ((arg?: unknown) => T), arg?: unknown): Promise<T>;
+  locator(selector: string): LocatorLike;
+}
+
+export interface PageLike extends FrameLike {
   title(): Promise<string>;
   content(): Promise<string>;
   innerText(selector: string): Promise<string>;
   screenshot(opts?: { type?: "png"; fullPage?: boolean }): Promise<Buffer>;
-  evaluate<T = unknown>(fn: string | ((arg?: unknown) => T), arg?: unknown): Promise<T>;
-  locator(selector: string): LocatorLike;
   goto(url: string, opts?: { waitUntil?: "domcontentloaded"; timeout?: number }): Promise<unknown>;
   goBack(opts?: { waitUntil?: "domcontentloaded"; timeout?: number }): Promise<unknown>;
   goForward(opts?: { waitUntil?: "domcontentloaded"; timeout?: number }): Promise<unknown>;
   reload(opts?: { waitUntil?: "domcontentloaded"; timeout?: number }): Promise<unknown>;
+  frames?(): FrameLike[];
   close?(): Promise<void>;
   isClosed?(): boolean;
 }
@@ -56,11 +66,20 @@ export interface PageLike {
 export interface IndexedElement {
   element_id: number;
   selector: string;
+  frame_index: number;
+  in_shadow_dom: boolean;
   tag: string;
   role: string;
   label: string;
   sensitive: boolean;
   rect?: { x: number; y: number; w: number; h: number };
+}
+
+interface ElementRef {
+  selector: string;
+  frameIndex: number;
+  label: string;
+  sensitive: boolean;
 }
 
 interface ObservationState {
@@ -73,58 +92,110 @@ interface PreparedStep {
   toolName: string;
   target: LocatorLike;
   selector: string;
+  frameIndex: number;
   value: unknown;
   detail: string;
+  sensitive: boolean;
 }
 
-const SUPPORTED_KEYS = new Set(["Enter", "Tab", "Escape", "ArrowUp", "ArrowDown", "Space"]);
-const MAX_RECORDING_FRAMES = 40;
+const SUPPORTED_KEYS = new Set([
+  "Enter",
+  "Tab",
+  "Shift+Tab",
+  "Escape",
+  "Backspace",
+  "Delete",
+  "Home",
+  "End",
+  "PageUp",
+  "PageDown",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "Space",
+  "Control+a",
+  "Control+c",
+  "Control+v",
+  "Control+z",
+  "Meta+a",
+  "Meta+c",
+  "Meta+v",
+  "Meta+z",
+]);
 
+const MAX_RECORDING_FRAMES = 40;
+const TIERED_BUDGET_LIMIT = 20;
+const TIERED_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * Walks light DOM + open Shadow DOM trees, returning Playwright shadow-piercing
+ * selectors (`host >> inner`) for visible interactive elements.
+ */
 const EXTRACT_ELEMENTS_SCRIPT = `(() => {
-  const nodes = Array.from(document.querySelectorAll(
-    'a, button, input, textarea, select, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [contenteditable="true"]'
-  ));
+  const INTERACTIVE = 'a, button, input, textarea, select, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="combobox"], [contenteditable="true"]';
   const out = [];
-  for (const el of nodes) {
-    const style = window.getComputedStyle(el);
-    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
-    const r = el.getBoundingClientRect();
-    if (r.width < 2 || r.height < 2) continue;
-    if (r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > window.innerWidth) continue;
-    let selector = '';
-    if (el.id) {
-      selector = '#' + CSS.escape(el.id);
-    } else if (el.getAttribute('data-testid')) {
-      selector = '[data-testid="' + el.getAttribute('data-testid').replace(/"/g, '\\"') + '"]';
-    } else if (el.getAttribute('name')) {
-      selector = el.tagName.toLowerCase() + '[name="' + el.getAttribute('name').replace(/"/g, '\\"') + '"]';
-    } else {
-      const siblings = Array.from(el.parentElement ? el.parentElement.children : []).filter(c => c.tagName === el.tagName);
-      const idx = siblings.indexOf(el) + 1;
-      selector = el.tagName.toLowerCase() + ':nth-of-type(' + idx + ')';
+
+  function localSelector(el) {
+    if (el.id) return '#' + CSS.escape(el.id);
+    if (el.getAttribute('data-testid')) {
+      return '[data-testid="' + el.getAttribute('data-testid').replace(/"/g, '\\\\"') + '"]';
     }
-    const label = (
-      el.getAttribute('aria-label') ||
-      el.innerText ||
-      el.getAttribute('placeholder') ||
-      el.getAttribute('title') ||
-      el.value ||
-      ''
-    ).trim().replace(/\\s+/g, ' ').slice(0, 120);
-    out.push({
-      selector,
-      tag: el.tagName.toLowerCase(),
-      role: el.getAttribute('role') || el.tagName.toLowerCase(),
-      label,
-      rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
-    });
-    if (out.length >= 80) break;
+    if (el.getAttribute('name')) {
+      return el.tagName.toLowerCase() + '[name="' + el.getAttribute('name').replace(/"/g, '\\\\"') + '"]';
+    }
+    const siblings = Array.from(el.parentElement ? el.parentElement.children : []).filter(c => c.tagName === el.tagName);
+    const idx = siblings.indexOf(el) + 1;
+    return el.tagName.toLowerCase() + ':nth-of-type(' + idx + ')';
   }
+
+  function walk(root, prefix, inShadow) {
+    if (out.length >= 80) return;
+    const all = root.querySelectorAll('*');
+    for (const el of all) {
+      if (out.length >= 80) break;
+      if (el.matches && el.matches(INTERACTIVE)) {
+        const style = window.getComputedStyle(el);
+        if (style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0') {
+          const r = el.getBoundingClientRect();
+          if (r.width >= 2 && r.height >= 2 && r.bottom >= 0 && r.top <= window.innerHeight && r.right >= 0 && r.left <= window.innerWidth) {
+            const seg = localSelector(el);
+            const selector = prefix ? (prefix + ' >> ' + seg) : seg;
+            const label = (
+              el.getAttribute('aria-label') ||
+              el.innerText ||
+              el.getAttribute('placeholder') ||
+              el.getAttribute('title') ||
+              el.value ||
+              ''
+            ).trim().replace(/\\s+/g, ' ').slice(0, 120);
+            out.push({
+              selector,
+              in_shadow_dom: inShadow,
+              tag: el.tagName.toLowerCase(),
+              role: el.getAttribute('role') || el.tagName.toLowerCase(),
+              label,
+              rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
+            });
+          }
+        }
+      }
+      if (el.shadowRoot) {
+        const hostSel = localSelector(el);
+        const nextPrefix = prefix ? (prefix + ' >> ' + hostSel) : hostSel;
+        walk(el.shadowRoot, nextPrefix, true);
+      }
+    }
+  }
+
+  walk(document, '', false);
   return out;
 })()`;
 
 export class BrowserSession {
   readonly origins: ReadonlySet<string>;
+  readonly approvalMode: ApprovalMode;
+  readonly uploadRoot: string;
   private readonly approval: (summary: string) => boolean;
   private readonly clock: () => number;
 
@@ -133,12 +204,13 @@ export class BrowserSession {
   private context: { close(): Promise<void>; pages(): PageLike[] } | null = null;
   private profileDir: string | null = null;
   private observation: ObservationState | null = null;
-  private elementMap = new Map<number, string>();
+  private elementMap = new Map<number, ElementRef>();
   private elementRects = new Map<string, { x: number; y: number; w: number; h: number }>();
   private lastThought = "";
   private cursorPos: [number, number] | null = null;
   private recordingFrames: Buffer[] = [];
   private actionTrail: Array<{ tool: string; selector: string; thought: string; at: number }> = [];
+  private tieredGrants = new Map<string, { remaining: number; expiresAt: number }>();
   readonly consoleErrors: string[] = [];
   readonly failedRequests: string[] = [];
 
@@ -147,6 +219,8 @@ export class BrowserSession {
     opts?: {
       approval?: (summary: string) => boolean;
       clock?: () => number;
+      approvalMode?: ApprovalMode;
+      uploadRoot?: string;
     },
   ) {
     const normalized = new Set<string>();
@@ -157,6 +231,8 @@ export class BrowserSession {
     this.origins = normalized;
     this.approval = opts?.approval ?? ((summary) => requestHumanApproval(summary));
     this.clock = opts?.clock ?? (() => Date.now());
+    this.approvalMode = opts?.approvalMode ?? parseApprovalMode(process.env.ARIA_COMPUTER_APPROVAL_MODE);
+    this.uploadRoot = opts?.uploadRoot ?? process.env.ARIA_COMPUTER_UPLOAD_DIR ?? process.cwd();
   }
 
   private assertAllowed(url: string): string {
@@ -167,6 +243,37 @@ export class BrowserSession {
       );
     }
     return org;
+  }
+
+  private authorizeMutation(siteOrigin: string, prompt: string, forceExplicit: boolean): void {
+    if (this.approvalMode === "tiered" && !forceExplicit) {
+      const grant = this.tieredGrants.get(siteOrigin);
+      if (grant && grant.remaining > 0 && this.clock() <= grant.expiresAt) {
+        grant.remaining -= 1;
+        return;
+      }
+    }
+    if (!this.approval(prompt)) {
+      throw new PermissionDeniedError("User approval was denied or unavailable");
+    }
+    if (this.approvalMode === "tiered" && !forceExplicit) {
+      this.tieredGrants.set(siteOrigin, {
+        remaining: TIERED_BUDGET_LIMIT - 1,
+        expiresAt: this.clock() + TIERED_WINDOW_MS,
+      });
+    }
+  }
+
+  private getFrame(frameIndex: number): FrameLike {
+    if (!this.page) throw new ValidationError("No page is open; call browser_open first");
+    if (frameIndex === 0 || !this.page.frames) return this.page;
+    const all = this.page.frames();
+    const target = all[frameIndex];
+    if (!target) {
+      throw new ValidationError(`Frame index ${frameIndex} is no longer available; call browser_observe again`);
+    }
+    this.assertAllowed(target.url());
+    return target;
   }
 
   private async fingerprint(): Promise<string> {
@@ -260,6 +367,7 @@ export class BrowserSession {
     this.observation = null;
     this.elementMap.clear();
     this.elementRects.clear();
+    this.tieredGrants.clear();
     const ctx = this.context;
     this.context = null;
     this.page = null;
@@ -284,6 +392,7 @@ export class BrowserSession {
 
   private async renderOverlay(elements: IndexedElement[], markElements: boolean): Promise<void> {
     if (!this.page || (!markElements && !this.cursorPos && !this.lastThought)) return;
+    const mainElements = elements.filter((e) => e.frame_index === 0);
     try {
       await this.page.evaluate(
         `(cfg => {
@@ -311,7 +420,7 @@ export class BrowserSession {
             root.appendChild(dot);
           }
           document.documentElement.appendChild(root);
-        })(${JSON.stringify({ elements, markElements, cursorPos: this.cursorPos })})`,
+        })(${JSON.stringify({ elements: mainElements, markElements, cursorPos: this.cursorPos })})`,
       );
     } catch {
       // non-fatal on mock/restricted pages
@@ -329,38 +438,82 @@ export class BrowserSession {
     }
   }
 
-  async observe(markElements = false): Promise<Record<string, unknown>> {
+  async observe(markElements = false, includeAxTree = false): Promise<Record<string, unknown>> {
     if (!this.page) {
       throw new ValidationError("No page is open; call browser_open first");
     }
     this.assertAllowed(this.page.url());
     const fpBefore = await this.fingerprint();
-    const rawElements = (await this.page.evaluate(EXTRACT_ELEMENTS_SCRIPT)) as Array<{
-      selector: string;
-      tag: string;
-      role: string;
-      label: string;
-      rect?: { x: number; y: number; w: number; h: number };
-    }>;
 
     this.elementMap.clear();
     this.elementRects.clear();
     const elements: IndexedElement[] = [];
-    if (Array.isArray(rawElements)) {
-      rawElements.forEach((item, idx) => {
-        const eid = idx + 1;
-        this.elementMap.set(eid, item.selector);
-        if (item.rect) this.elementRects.set(item.selector, item.rect);
+
+    const frames: FrameLike[] = this.page.frames ? this.page.frames() : [this.page];
+    const frameSummaries: Array<{ index: number; url: string }> = [];
+
+    for (let fIdx = 0; fIdx < frames.length && elements.length < 100; fIdx++) {
+      const frame = frames[fIdx];
+      const fUrl = frame.url();
+      if (fIdx > 0) {
+        try {
+          this.assertAllowed(fUrl);
+        } catch {
+          continue; // skip cross-origin third-party iframes
+        }
+      }
+      frameSummaries.push({ index: fIdx, url: fUrl });
+      let rawElements: Array<{
+        selector: string;
+        in_shadow_dom?: boolean;
+        tag: string;
+        role: string;
+        label: string;
+        rect?: { x: number; y: number; w: number; h: number };
+      }> = [];
+      try {
+        const res = await frame.evaluate(EXTRACT_ELEMENTS_SCRIPT);
+        if (Array.isArray(res)) rawElements = res;
+      } catch {
+        continue;
+      }
+      for (const item of rawElements) {
+        if (elements.length >= 100) break;
+        const eid = elements.length + 1;
+        const sensitive = isSensitiveLabel(`${item.label} ${item.selector}`);
+        this.elementMap.set(eid, {
+          selector: item.selector,
+          frameIndex: fIdx,
+          label: item.label,
+          sensitive,
+        });
+        if (item.rect && fIdx === 0) {
+          this.elementRects.set(item.selector, item.rect);
+        }
         elements.push({
           element_id: eid,
           selector: item.selector,
+          frame_index: fIdx,
+          in_shadow_dom: Boolean(item.in_shadow_dom),
           tag: item.tag,
           role: item.role,
           label: item.label,
-          sensitive: isSensitiveLabel(`${item.label} ${item.selector}`),
+          sensitive,
           rect: item.rect,
         });
-      });
+      }
+    }
+
+    let axTree: string | undefined;
+    if (includeAxTree) {
+      try {
+        const bodyLoc = this.page.locator("body");
+        if (bodyLoc.ariaSnapshot) {
+          axTree = (await bodyLoc.ariaSnapshot()).slice(0, 6000);
+        }
+      } catch {
+        axTree = undefined;
+      }
     }
 
     await this.renderOverlay(elements, markElements);
@@ -399,6 +552,7 @@ export class BrowserSession {
       title,
       text: rawText,
       elements,
+      frames: frameSummaries,
       thought: this.lastThought,
       cursor: this.cursorPos,
       recorded_frames: this.recordingFrames.length,
@@ -406,6 +560,7 @@ export class BrowserSession {
       untrusted_content: true,
       _image: pngBytes.toString("base64"),
     };
+    if (axTree) result.ax_tree = axTree;
     const warnings = detectPromptInjection(rawText);
     if (warnings.length > 0) result.injection_warnings = warnings;
     if (this.consoleErrors.length > 0) result.console_errors = this.consoleErrors.slice(-10);
@@ -413,43 +568,61 @@ export class BrowserSession {
     return result;
   }
 
-  private resolveSelector(args: Record<string, unknown>): string {
-    let selector = typeof args.selector === "string" ? args.selector : "";
-    if (!selector && args.element_id !== undefined) {
-      const eid = Number(args.element_id);
-      if (!Number.isInteger(eid)) throw new ValidationError("element_id must be an integer");
-      selector = this.elementMap.get(eid) ?? "";
-      if (!selector) {
-        throw new ValidationError(`Unknown element_id ${eid}; call browser_observe first`);
+  private resolveTargetRef(
+    args: Record<string, unknown>,
+    selectorKey = "selector",
+    elementIdKey = "element_id",
+  ): ElementRef {
+    const rawSel = typeof args[selectorKey] === "string" ? String(args[selectorKey]) : "";
+    const explicitFrame =
+      typeof args.frame_index === "number" && Number.isInteger(args.frame_index) ? args.frame_index : 0;
+
+    if (!rawSel && args[elementIdKey] !== undefined) {
+      const eid = Number(args[elementIdKey]);
+      if (!Number.isInteger(eid)) throw new ValidationError(`${elementIdKey} must be an integer`);
+      const ref = this.elementMap.get(eid);
+      if (!ref) {
+        throw new ValidationError(`Unknown ${elementIdKey} ${eid}; call browser_observe first`);
       }
+      return ref;
     }
-    if (!selector || selector.length > 500) {
-      throw new ValidationError("Provide a selector of 1..500 characters");
+    if (!rawSel || rawSel.length > 500) {
+      throw new ValidationError(`Provide ${selectorKey} of 1..500 characters`);
     }
-    return selector;
+    return {
+      selector: rawSel,
+      frameIndex: explicitFrame,
+      label: rawSel,
+      sensitive: isSensitiveLabel(rawSel),
+    };
   }
 
   private async prepareStep(toolName: string, stepArgs: Record<string, unknown>): Promise<PreparedStep> {
-    if (!this.page) throw new ValidationError("No page is open; call browser_open first");
-    const selector = this.resolveSelector(stepArgs);
-    const target = this.page.locator(selector);
+    const ref = this.resolveTargetRef(stepArgs);
+    const frame = this.getFrame(ref.frameIndex);
+    const target = frame.locator(ref.selector);
     if ((await target.count()) !== 1 || !(await target.isVisible())) {
       throw new ValidationError("Selector must match exactly one visible element");
     }
     let value: unknown = null;
     let detail = "";
+    let extraSensitive = ref.sensitive;
     if (toolName === "browser_fill") {
       if (typeof stepArgs.text !== "string" || stepArgs.text.length > 20_000) {
         throw new ValidationError("text must be a string of at most 20000 characters");
       }
       value = stepArgs.text;
       detail = `Fill ${stepArgs.text.length} characters (text hidden)`;
+      if (/password|passwd|secret|token|card|cvv/i.test(`${ref.selector} ${ref.label}`)) {
+        extraSensitive = true;
+      }
     } else if (toolName === "browser_press") {
       if (typeof stepArgs.key !== "string" || !SUPPORTED_KEYS.has(stepArgs.key)) {
         throw new ValidationError("Unsupported key");
       }
       value = stepArgs.key;
       detail = `Press ${stepArgs.key}`;
+      if (stepArgs.key === "Enter") extraSensitive = true;
     } else if (toolName === "browser_select") {
       const val = stepArgs.value;
       const lbl = stepArgs.label;
@@ -464,8 +637,16 @@ export class BrowserSession {
     } else {
       throw new ValidationError("Unknown tool");
     }
-    const riskTag = isSensitiveLabel(selector) ? " [HIGH RISK]" : "";
-    return { toolName, target, selector, value, detail: `${detail}${riskTag}` };
+    const riskTag = extraSensitive ? " [HIGH RISK]" : "";
+    return {
+      toolName,
+      target,
+      selector: ref.selector,
+      frameIndex: ref.frameIndex,
+      value,
+      detail: `${detail}${riskTag}`,
+      sensitive: extraSensitive,
+    };
   }
 
   private recordAction(toolName: string, selector: string, stepArgs: Record<string, unknown>): void {
@@ -517,8 +698,12 @@ export class BrowserSession {
         origins: [...this.origins].sort(),
         isolated_profile: true,
         approval: approvalBackendLabel(),
+        approval_mode: this.approvalMode,
         desktop_input: false,
         transport: "stdio",
+        shadow_dom: true,
+        same_origin_iframes: true,
+        ax_tree: true,
         virtual_cursor: true,
         screen_recording: true,
         tools_count: TOOLS.length,
@@ -553,14 +738,12 @@ export class BrowserSession {
       if (typeof args.thought === "string" && args.thought.trim()) {
         this.lastThought = args.thought.trim().slice(0, 120);
       }
-      return this.observe(Boolean(args.mark_elements));
+      return this.observe(Boolean(args.mark_elements), Boolean(args.include_ax_tree));
     }
     if (name === "browser_open") {
       const url = typeof args.url === "string" ? args.url : "";
-      this.assertAllowed(url);
-      if (!this.approval(`Open a page in Aria's isolated browser?\n${url}`)) {
-        throw new PermissionDeniedError("User approval was denied or unavailable");
-      }
+      const siteOrigin = this.assertAllowed(url);
+      this.authorizeMutation(siteOrigin, `Open a page in Aria's isolated browser?\n${url}`, true);
       this.observation = null;
       this.consoleErrors.length = 0;
       this.failedRequests.length = 0;
@@ -604,12 +787,12 @@ export class BrowserSession {
     }
     if (name === "browser_hover") {
       await this.assertFresh(args.observation_id);
-      const selector = this.resolveSelector(args);
-      const target = this.page!.locator(selector);
+      const ref = this.resolveTargetRef(args);
+      const target = this.getFrame(ref.frameIndex).locator(ref.selector);
       if ((await target.count()) !== 1 || !(await target.isVisible())) {
         throw new ValidationError("Selector must match exactly one visible element");
       }
-      this.recordAction("browser_hover", selector, args);
+      this.recordAction("browser_hover", ref.selector, args);
       await target.hover();
       return this.observe(Boolean(args.mark_elements));
     }
@@ -671,6 +854,69 @@ export class BrowserSession {
       }
       throw new ValidationError("action must be one of list, switch, close");
     }
+    if (name === "browser_upload") {
+      await this.assertFresh(args.observation_id);
+      const rawPaths = args.file_paths;
+      if (!Array.isArray(rawPaths) || rawPaths.length < 1 || rawPaths.length > 5) {
+        throw new ValidationError("file_paths must be an array of 1..5 file paths");
+      }
+      const safePaths = rawPaths.map((p) => {
+        if (typeof p !== "string" || !p.trim()) {
+          throw new ValidationError("Each upload file path must be a non-empty string");
+        }
+        try {
+          return resolveSafeUploadPath(p.trim(), this.uploadRoot);
+        } catch (err) {
+          throw new ValidationError(err instanceof Error ? err.message : "Invalid upload path");
+        }
+      });
+      const ref = this.resolveTargetRef(args);
+      const target = this.getFrame(ref.frameIndex).locator(ref.selector);
+      if ((await target.count()) !== 1) {
+        throw new ValidationError("Upload selector must match exactly one file input element");
+      }
+      const siteOrigin = normalizeOrigin(this.page!.url());
+      const names = safePaths.map((p) => path.basename(p)).join(", ");
+      this.authorizeMutation(
+        siteOrigin,
+        `Upload file(s): ${names}\nSite: ${siteOrigin}\nTarget: ${ref.selector}\nApprove only if you intend to share these files with this site.`,
+        true, // File uploads ALWAYS require explicit human approval
+      );
+      await this.assertFresh(args.observation_id);
+      const prevFp = this.observation!.fingerprint;
+      const prevUrl = this.page!.url();
+      this.observation = null;
+      this.recordAction("browser_upload", ref.selector, args);
+      if (!target.setInputFiles) {
+        throw new ValidationError("Target element does not support file upload");
+      }
+      await target.setInputFiles(safePaths);
+      return this.finalizeMutation(prevFp, prevUrl);
+    }
+    if (name === "browser_drag") {
+      await this.assertFresh(args.observation_id);
+      const srcRef = this.resolveTargetRef(args, "source_selector", "source_element_id");
+      const dstRef = this.resolveTargetRef(args, "target_selector", "target_element_id");
+      const src = this.getFrame(srcRef.frameIndex).locator(srcRef.selector);
+      const dst = this.getFrame(dstRef.frameIndex).locator(dstRef.selector);
+      if ((await src.count()) !== 1 || !(await src.isVisible()) || (await dst.count()) !== 1 || !(await dst.isVisible())) {
+        throw new ValidationError("Source and target selectors must each match one visible element");
+      }
+      const siteOrigin = normalizeOrigin(this.page!.url());
+      this.authorizeMutation(
+        siteOrigin,
+        `Drag ${srcRef.selector} -> ${dstRef.selector}\nSite: ${siteOrigin}`,
+        srcRef.sensitive || dstRef.sensitive,
+      );
+      await this.assertFresh(args.observation_id);
+      const prevFp = this.observation!.fingerprint;
+      const prevUrl = this.page!.url();
+      this.observation = null;
+      this.recordAction("browser_drag", `${srcRef.selector}->${dstRef.selector}`, args);
+      if (!src.dragTo) throw new ValidationError("Drag operation not supported on target");
+      await src.dragTo(dst);
+      return this.finalizeMutation(prevFp, prevUrl);
+    }
     if (name === "browser_batch") {
       await this.assertFresh(args.observation_id);
       const rawSteps = args.steps;
@@ -679,6 +925,7 @@ export class BrowserSession {
       }
       const prepared: Array<{ step: PreparedStep; raw: Record<string, unknown> }> = [];
       const lines: string[] = [];
+      let anySensitive = false;
       for (let i = 0; i < rawSteps.length; i++) {
         const raw = rawSteps[i];
         if (!raw || typeof raw !== "object") {
@@ -693,13 +940,13 @@ export class BrowserSession {
           select: "browser_select",
         };
         const step = await this.prepareStep(mapped[action] ?? action, obj);
+        if (step.sensitive) anySensitive = true;
         prepared.push({ step, raw: obj });
         lines.push(`${i + 1}. ${step.detail} -> ${step.selector}`);
       }
-      const summary = `Batch (${prepared.length} steps)\nSite: ${normalizeOrigin(this.page!.url())}\n${lines.join("\n")}\nThis may submit or publish content. Approve only after reviewing the page.`;
-      if (!this.approval(summary)) {
-        throw new PermissionDeniedError("User approval was denied or unavailable");
-      }
+      const siteOrigin = normalizeOrigin(this.page!.url());
+      const summary = `Batch (${prepared.length} steps)\nSite: ${siteOrigin}\n${lines.join("\n")}\nThis may submit or publish content. Approve only after reviewing the page.`;
+      this.authorizeMutation(siteOrigin, summary, anySensitive);
       await this.assertFresh(args.observation_id);
       const prevFp = this.observation!.fingerprint;
       const prevUrl = this.page!.url();
@@ -717,10 +964,9 @@ export class BrowserSession {
     }
     await this.assertFresh(args.observation_id);
     const step = await this.prepareStep(name, args);
-    const prompt = `${step.detail}\nSite: ${normalizeOrigin(this.page!.url())}\nTarget: ${step.selector}\nThis may submit or publish content. Approve only after reviewing the page.`;
-    if (!this.approval(prompt)) {
-      throw new PermissionDeniedError("User approval was denied or unavailable");
-    }
+    const siteOrigin = normalizeOrigin(this.page!.url());
+    const prompt = `${step.detail}\nSite: ${siteOrigin}\nTarget: ${step.selector}\nThis may submit or publish content. Approve only after reviewing the page.`;
+    this.authorizeMutation(siteOrigin, prompt, step.sensitive);
     await this.assertFresh(args.observation_id);
     const prevFp = this.observation!.fingerprint;
     const prevUrl = this.page!.url();

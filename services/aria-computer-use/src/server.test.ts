@@ -46,6 +46,17 @@ function makeMockPage(initialUrl = "https://example.com/"): PageLike & {
       calls.push(`select:${opt.value ?? opt.label ?? ""}`);
       currentHtml += `<span>selected</span>`;
     },
+    async setInputFiles(files) {
+      calls.push(`upload:${Array.isArray(files) ? files.length : 1}`);
+      currentHtml += "<span>uploaded</span>";
+    },
+    async dragTo() {
+      calls.push("dragTo");
+      currentHtml += "<span>dragged</span>";
+    },
+    async ariaSnapshot() {
+      return "- button \"Save\"\n- combobox \"Plan\"";
+    },
     async waitFor() {
       calls.push("waitFor");
     },
@@ -171,7 +182,7 @@ test("MCP JSON-RPC dispatch lists all 15 tools and executes full workflow", asyn
   const listResp = await dispatch(session, { jsonrpc: "2.0", id: 1, method: "tools/list" });
   assert.ok(listResp && typeof listResp.result === "object");
   const listed = (listResp.result as { tools: typeof TOOLS }).tools;
-  assert.equal(listed.length, 15);
+  assert.equal(listed.length, 17);
 
   const capsResp = await dispatch(session, {
     jsonrpc: "2.0",
@@ -182,7 +193,10 @@ test("MCP JSON-RPC dispatch lists all 15 tools and executes full workflow", asyn
   const capsText = ((capsResp!.result as { content: Array<{ text: string }> }).content[0]).text;
   const caps = JSON.parse(capsText);
   assert.equal(caps.engine, "node-typescript-playwright");
-  assert.equal(caps.tools_count, 15);
+  assert.equal(caps.tools_count, 17);
+  assert.equal(caps.shadow_dom, true);
+  assert.equal(caps.same_origin_iframes, true);
+  assert.equal(caps.ax_tree, true);
 
   const obs = await session.call("browser_observe", { mark_elements: true, thought: "inspect" });
   assert.ok(typeof obs.observation_id === "string");
@@ -252,4 +266,142 @@ test("stale observation and denied approval are rejected", async () => {
     () => session.call("browser_hover", { observation_id: obs.observation_id, selector: "#save" }),
     /Observation is stale/,
   );
+});
+
+test("Shadow DOM, same-origin iframe piercing, AXTree, upload, drag, and chords", async () => {
+  const uploadDir = fs.mkdtempSync(path.join(os.tmpdir(), "aria-cu-upload-"));
+  const sampleFile = path.join(uploadDir, "invoice.pdf");
+  fs.writeFileSync(sampleFile, "pdf-bytes");
+
+  try {
+    const session = new BrowserSession(["https://example.com"], {
+      approval: () => true,
+      clock: () => 2_000,
+      uploadRoot: uploadDir,
+    });
+    const mainPage = makeMockPage();
+    const frameCalls: string[] = [];
+    const childFrame = {
+      url: () => "https://example.com/embed/form",
+      async evaluate<T = unknown>(): Promise<T> {
+        return [
+          {
+            selector: "x-card >> #inner-btn",
+            in_shadow_dom: true,
+            tag: "button",
+            role: "button",
+            label: "Next step",
+            rect: { x: 4, y: 4, w: 60, h: 24 },
+          },
+        ] as T;
+      },
+      locator(sel: string): LocatorLike {
+        return {
+          async count() { return 1; },
+          async isVisible() { return true; },
+          async click() { frameCalls.push(`frame-click:${sel}`); },
+          async fill() {},
+          async press() {},
+          async hover() {},
+          async selectOption() {},
+        };
+      },
+    };
+    const crossOriginFrame = {
+      url: () => "https://evil-tracker.invalid/ad",
+      async evaluate<T = unknown>(): Promise<T> {
+        throw new Error("should never evaluate cross-origin frame");
+      },
+      locator: mainPage.locator,
+    };
+    mainPage.frames = () => [mainPage, childFrame, crossOriginFrame];
+    session.page = mainPage;
+
+    const obs = await session.call("browser_observe", { include_ax_tree: true });
+    assert.equal(typeof obs.ax_tree, "string");
+    assert.ok(String(obs.ax_tree).includes("Save"));
+    const els = obs.elements as Array<{ element_id: number; frame_index: number; in_shadow_dom: boolean }>;
+    assert.equal(els.length, 3);
+    assert.equal(els[2].frame_index, 1);
+    assert.equal(els[2].in_shadow_dom, true);
+
+    // Click element #3 inside same-origin child iframe + Shadow DOM
+    const clicked = await session.call("browser_click", {
+      observation_id: obs.observation_id,
+      element_id: 3,
+    });
+    assert.deepEqual(frameCalls, ["frame-click:x-card >> #inner-btn"]);
+
+    // Keyboard shortcut chord
+    const pressed = await session.call("browser_press", {
+      observation_id: clicked.observation_id,
+      selector: "#save",
+      key: "Meta+a",
+    });
+    assert.ok(mainPage.calls.includes("press:Meta+a"));
+
+    // Drag & drop
+    const dragged = await session.call("browser_drag", {
+      observation_id: pressed.observation_id,
+      source_element_id: 1,
+      target_element_id: 2,
+    });
+    assert.ok(mainPage.calls.includes("dragTo"));
+
+    // File upload inside uploadDir succeeds; path traversal rejected
+    const uploaded = await session.call("browser_upload", {
+      observation_id: dragged.observation_id,
+      selector: "#save",
+      file_paths: ["invoice.pdf"],
+    });
+    assert.ok(mainPage.calls.includes("upload:1"));
+
+    await assert.rejects(
+      () =>
+        session.call("browser_upload", {
+          observation_id: uploaded.observation_id,
+          selector: "#save",
+          file_paths: ["../etc/passwd"],
+        }),
+      /Upload file/,
+    );
+  } finally {
+    fs.rmSync(uploadDir, { recursive: true, force: true });
+  }
+});
+
+test("tiered approval mode caches low-risk grants but always prompts on sensitive actions", async () => {
+  let promptCount = 0;
+  const session = new BrowserSession(["https://example.com"], {
+    approval: () => {
+      promptCount += 1;
+      return true;
+    },
+    clock: () => 5_000,
+    approvalMode: "tiered",
+  });
+  const mockPage = makeMockPage();
+  session.page = mockPage;
+
+  const obs1 = await session.call("browser_observe", {});
+  // First low-risk click prompts once and opens tiered budget
+  const r1 = await session.call("browser_click", {
+    observation_id: obs1.observation_id,
+    element_id: 1,
+  });
+  assert.equal(promptCount, 1);
+
+  // Second low-risk click on same origin uses cached tiered grant (no extra prompt)
+  const r2 = await session.call("browser_click", {
+    observation_id: r1.observation_id,
+    element_id: 1,
+  });
+  assert.equal(promptCount, 1);
+
+  // Sensitive action ("delete") ALWAYS prompts explicitly even in tiered mode
+  await session.call("browser_click", {
+    observation_id: r2.observation_id,
+    selector: "#delete-account",
+  });
+  assert.equal(promptCount, 2);
 });

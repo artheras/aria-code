@@ -1,4 +1,26 @@
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+
+export type ApprovalMode = "strict" | "tiered";
+
+export function parseApprovalMode(raw?: string): ApprovalMode {
+  return String(raw ?? "").trim().toLowerCase() === "tiered" ? "tiered" : "strict";
+}
+
+export function resolveSafeUploadPath(rawPath: string, allowedRoot: string): string {
+  const root = fs.realpathSync(path.resolve(allowedRoot));
+  const candidate = path.resolve(root, rawPath);
+  if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) {
+    throw new Error(`Upload file does not exist: ${rawPath}`);
+  }
+  const real = fs.realpathSync(candidate);
+  const rel = path.relative(root, real);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw new Error("Upload file must reside inside the authorized upload root");
+  }
+  return real;
+}
 
 const INJECTION_PATTERNS: RegExp[] = [
   /ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions/i,

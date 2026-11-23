@@ -1,0 +1,39 @@
+name: Computer Use (TypeScript MCP)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/aria-computer-use/**"
+      - ".github/workflows/computer-use-ts.yml"
+  pull_request:
+    paths:
+      - "services/aria-computer-use/**"
+      - ".github/workflows/computer-use-ts.yml"
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/aria-computer-use
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build & run unit tests
+        run: npm test
+      - name: Smoke test stdio JSON-RPC handshake
+        run: |
+          printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' \
+            | ARIA_COMPUTER_ORIGINS="https://example.com" node dist/cli.js \
+            | node -e '
+              const fs = require("fs");
+              const lines = fs.readFileSync(0, "utf8").trim().split("\n").map(JSON.parse);
+              if (lines[0].result.serverInfo.name !== "aria-computer-use") process.exit(1);
+              if (lines[1].result.tools.length < 15) process.exit(1);
+              console.log("Verified", lines[1].result.tools.length, "MCP tools");
+            '
