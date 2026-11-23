@@ -377,169 +377,34 @@ class CoreCommandsMixin:
         console.print()
 
     async def cmd_artifacts(self, args: str):
-        from aria_code.ui.render.output import display_path as _display_path
-        from aria_code.apps.cli.helpers import _copy_text_to_clipboard, _open_path_or_url, _reveal_path_in_finder
-        tokens = [part for part in args.split() if part]
-        mode = "list"
-        limit = 20
-        keep = 20
-        dry_run = False
-        selector = "latest"
-        if tokens:
-            head = tokens[0].lower()
-            if head in {"prune", "cleanup", "gc", "purge"}:
-                mode = "prune"
-                for token in tokens[1:]:
-                    if token == "--dry-run":
-                        dry_run = True
-                        continue
-                    try:
-                        keep = int(token)
-                    except Exception:
-                        continue
-            elif head in {"stats", "summary"}:
-                mode = "stats"
-            elif head in {"open", "reveal", "show", "path", "copy-path", "copy"}:
-                mode = "copy-path" if head == "copy" else head
-                selector = tokens[1] if len(tokens) > 1 else "latest"
-            else:
-                try:
-                    limit = int(head)
-                except Exception:
-                    limit = 20
+        """List, summarize, or prune generated artifacts (native Rust CLI also provides /artifacts)."""
         from artifacts import artifact_summary_all, prune_artifacts_all, recent_artifacts_all
 
-        if mode in {"open", "reveal", "show", "path", "copy-path"}:
-            items = recent_artifacts_all(limit=100)
-            selected = None
-            if items:
-                if selector.lower() in {"latest", "last", "newest", "最近", "最新"}:
-                    selected = items[0]
-                elif selector.isdigit() and 1 <= int(selector) <= len(items):
-                    selected = items[int(selector) - 1]
-                else:
-                    needle = selector.lower()
-                    selected = next(
-                        (
-                            item for item in items
-                            if needle in pathlib.Path(str(item.get("path") or "")).name.lower()
-                        ),
-                        None,
-                    )
-            target = str((selected or {}).get("path") or "").strip()
-            if not target:
-                msg = f"未找到产物 {selector!r}。先运行 /artifacts 查看可用编号。"
-                self.context.console.print(f"[yellow]{msg}[/yellow]") if self.context.has_rich else print(msg)
-                return
-
-            ok = True
-            error = ""
-            if mode == "open":
-                ok, error = _open_path_or_url(target)
-                action_text = "已打开"
-            elif mode in {"reveal", "show"}:
-                ok, error = _reveal_path_in_finder(target)
-                action_text = "已在访达中定位"
-            elif mode == "copy-path":
-                ok, error = _copy_text_to_clipboard(target)
-                action_text = "路径已复制"
-            else:
-                action_text = "文件路径"
-            if ok:
-                msg = f"{action_text}：{target}"
-                self.terminal._pending_market_artifact = {
-                    "kind": str((selected or {}).get("kind") or "artifact"),
-                    "path": target,
-                }
-                if self.context.has_rich:
-                    self.context.console.print(f"[green]✓[/green] {msg}")
-                else:
-                    print(msg)
-            else:
-                msg = f"操作失败：{error or target}"
-                if self.context.has_rich:
-                    self.context.console.print(f"[red]✗[/red] {msg}")
-                else:
-                    print(msg)
+        tokens = [part for part in args.split() if part]
+        head = tokens[0].lower() if tokens else "list"
+        if head in {"stats", "summary"}:
+            s = artifact_summary_all()
+            msg = f"Artifacts: {s.get('total', 0)} files ({s.get('total_size_bytes', 0):,} bytes)"
+            self.context.console.print(f"[bold]{msg}[/bold]") if self.context.has_rich else print(msg)
             return
-
-        if mode == "stats":
-            summary = artifact_summary_all()
-            roots = [pathlib.Path(str(r)) for r in summary.get("roots") or []]
-            total = int(summary.get("total") or 0)
-            total_size = int(summary.get("total_size_bytes") or 0)
-            by_kind = summary.get("by_kind") or {}
-            if self.context.has_rich:
-                self.context.console.print("[bold]Artifact inventory[/bold]")
-                for r in roots:
-                    self.context.console.print(f"  [dim]root[/dim]: {_display_path(r, fallback=r.name)}")
-                self.context.console.print(f"  total: [bold]{total}[/bold]  size: [bold]{total_size:,} bytes[/bold]")
-                if by_kind:
-                    for kind, count in by_kind.items():
-                        self.context.console.print(f"  [dim]{kind}[/dim]: {count}")
-            else:
-                print("Artifact inventory")
-                print(f"  total: {total}")
-                print(f"  size: {total_size} bytes")
-                for kind, count in by_kind.items():
-                    print(f"  {kind}: {count}")
+        if head in {"prune", "cleanup", "gc", "purge"}:
+            dry_run = "--dry-run" in tokens
+            keep = next((int(t) for t in tokens[1:] if t.isdigit()), 20)
+            res = prune_artifacts_all(keep=keep, dry_run=dry_run)
+            verb = "Would remove" if dry_run else "Removed"
+            msg = f"{verb} {res.get('removed', 0)} of {res.get('scanned', 0)} artifacts (keep={keep})."
+            self.context.console.print(f"[dim]{msg}[/dim]") if self.context.has_rich else print(msg)
             return
-
-        if mode == "prune":
-            result = prune_artifacts_all(keep=keep, dry_run=dry_run)
-            removed = int(result.get("removed") or 0)
-            scanned = int(result.get("scanned") or 0)
-            action = "Would remove" if dry_run else "Removed"
-            if self.context.has_rich:
-                self.context.console.print("[bold]Artifact prune[/bold]")
-                for r in result.get("roots") or []:
-                    self.context.console.print(f"  [dim]root[/dim]: {_display_path(r, fallback=pathlib.Path(str(r)).name)}")
-                self.context.console.print(f"  keep: [bold]{result.get('keep', keep)}[/bold]  scanned: [bold]{scanned}[/bold]  removed: [bold]{removed}[/bold]")
-                if removed:
-                    for entry in result.get("deleted") or []:
-                        name = pathlib.Path(str(entry.get("path") or entry.get("metadata_path") or "")).name
-                        root_name = pathlib.Path(str(entry.get("root") or "")).name
-                        self.context.console.print(f"  [dim]{action}[/dim] {name} [dim]({root_name})[/dim]")
-            else:
-                print("Artifact prune")
-                print(f"  keep: {result.get('keep', keep)}")
-                print(f"  scanned: {scanned}")
-                print(f"  removed: {removed}")
-                for entry in result.get("deleted") or []:
-                    name = pathlib.Path(str(entry.get("path") or entry.get("metadata_path") or "")).name
-                    root_name = pathlib.Path(str(entry.get("root") or "")).name
-                    print(f"  {action}: {name} ({root_name})")
-            return
-
+        limit = int(head) if head.isdigit() else 20
         items = recent_artifacts_all(limit=limit)
         if not items:
             msg = "No artifacts found"
             self.context.console.print(f"[dim]{msg}[/dim]") if self.context.has_rich else print(msg)
             return
-
-        title = "生成的产物" if str(self.terminal.config.get("ui_lang", "en")).lower().startswith("zh") else "Generated artifacts"
-        if self.context.has_rich:
-            self.context.console.print(f"[bold]{title}[/bold]")
-        else:
-            print(title)
-        for index, item in enumerate(items, start=1):
-            _path = item.get("path") or item.get("metadata_path") or ""
-            _name = pathlib.Path(str(_path)).name if _path else ""
-            _root_name = pathlib.Path(str(item.get("root") or "")).name if item.get("root") else ""
-            _status = str(item.get("status") or "unknown")
-            _icon = "✓" if _status == "complete" else "!" if _status in {"partial", "failed"} else "·"
-            _kind = str(item.get("kind") or "artifact")
-            _topic = str(item.get("topic") or "").strip()
-            _headline = f"#{index}  {_icon} {_kind}" + (f" · {_topic}" if _topic else "")
-            _detail = f"    {_name}" + (f"  ·  {_root_name}" if _root_name else "")
-            if self.context.has_rich:
-                self.context.console.print(f"[bold]{_headline}[/bold]")
-                self.context.console.print(f"[dim]{_detail}[/dim]")
-            else:
-                print(_headline)
-                print(_detail)
-        hint = "操作：/artifacts open 1 · reveal 1 · copy-path 1"
-        self.context.console.print(f"[dim]{hint}[/dim]") if self.context.has_rich else print(hint)
+        for idx, item in enumerate(items, 1):
+            name = pathlib.Path(str(item.get("path") or item.get("metadata_path") or "")).name
+            line = f"#{idx} {item.get('kind', 'artifact')} · {name}"
+            self.context.console.print(f"[dim]{line}[/dim]") if self.context.has_rich else print(line)
     async def _run_in_executor(self, fn, *args):
         import asyncio
         loop = asyncio.get_event_loop()
