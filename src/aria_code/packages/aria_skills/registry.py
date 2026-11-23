@@ -85,20 +85,30 @@ def builtin_skill_specs() -> List[SkillSpec]:
             name="financial-orchestration",
             description=(
                 "Orchestrate artheras/financial-service MCP tools for symbol resolution, "
-                "quotes, fundamentals, technicals, correlation matrices, stat-arb, and portfolio backtests."
+                "quotes, fundamentals, technicals, correlation matrices, stat-arb, portfolio backtests, "
+                "institutional DCF valuation, SEC due diligence red flags, and vertical industry KPI packs."
             ),
             tools=[
                 "arthera-finance/financial_resolve_symbol",
                 "arthera-finance/financial_market_quote",
+                "arthera-finance/financial_quote",
                 "arthera-finance/financial_market_history",
                 "arthera-finance/financial_market_fundamentals",
+                "arthera-finance/financial_fundamentals",
+                "arthera-finance/financial_analyze_statements",
+                "arthera-finance/financial_quality_scores",
                 "arthera-finance/financial_technical_indicators",
+                "arthera-finance/financial_technical_factors",
                 "arthera-finance/financial_correlation_matrix",
                 "arthera-finance/financial_stat_arb",
                 "arthera-finance/financial_portfolio_backtest",
                 "arthera-finance/financial_ohlcv_quality_audit",
                 "arthera-finance/financial_pretrade_risk_check",
                 "arthera-finance/financial_strategy_backtest",
+                "arthera-finance/financial_dcf_valuation",
+                "arthera-finance/financial_due_diligence_red_flags",
+                "arthera-finance/financial_sec_filing_monitor",
+                "arthera-finance/financial_industry_kpis",
             ],
             permissions=[PermissionLevel.READ_ONLY],
         ),

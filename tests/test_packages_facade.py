@@ -57,6 +57,10 @@ def test_builtin_skills_connect_tools_and_agents():
     assert "workspace-coding" in skills
     assert "financial-orchestration" in skills
     assert "arthera-finance/financial_portfolio_backtest" in skills["financial-orchestration"].tools
+    assert "arthera-finance/financial_dcf_valuation" in skills["financial-orchestration"].tools
+    assert "arthera-finance/financial_due_diligence_red_flags" in skills["financial-orchestration"].tools
+    assert "arthera-finance/financial_sec_filing_monitor" in skills["financial-orchestration"].tools
+    assert "arthera-finance/financial_industry_kpis" in skills["financial-orchestration"].tools
     assert "erp-orchestration" in skills
     assert "erp-service/erp.warehouse.analyze" in skills["erp-orchestration"].tools
     assert "healthcare-orchestration" in skills
