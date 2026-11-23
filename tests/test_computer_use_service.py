@@ -125,7 +125,10 @@ def test_mcp_protocol_images_and_notifications(session):
     def msg(method, params=None):
         return dispatch(session, {'jsonrpc':'2.0','id':1,'method':method,'params':params or {}})
     assert msg('initialize')['result']['capabilities'] == {'tools': {}}
-    assert len(msg('tools/list')['result']['tools']) == 7
+    tools = msg('tools/list')['result']['tools']
+    assert len(tools) == 11
+    names = {t['name'] for t in tools}
+    assert {'browser_batch', 'browser_scroll', 'browser_wait', 'browser_export_recording'} <= names
     assert dispatch(session, {'jsonrpc':'2.0','method':'notifications/initialized'}) is None
     result = msg('tools/call', {'name':'browser_observe'})['result']
     assert not result['isError']
@@ -244,7 +247,7 @@ async def test_real_stdio_process_handshake_and_permissions():
                   env={'ARIA_COMPUTER_ORIGINS':''})
     try:
         assert await s.start()
-        assert len(s.tools) == 7
+        assert len(s.tools) == 11
         result = await s.call_tool('browser_capabilities', {})
         assert result['origins'] == []
         assert result['desktop_input'] is False
@@ -374,4 +377,14 @@ def test_virtual_cursor_thought_hud_visual_diff_and_recording_export(session, tm
     rec = session.call('browser_export_recording', {'output_path': str(out_gif)})
     assert rec['frames'] >= 2
     assert out_gif.exists() or out_gif.with_suffix('.png').exists()
+
+
+def test_browser_scroll_and_wait_return_fresh_observations(session):
+    scrolled = session.call('browser_scroll', {'direction': 'down', 'amount': 400})
+    assert 'observation_id' in scrolled
+    with pytest.raises(ValueError):
+        session.call('browser_scroll', {'direction': 'sideways'})
+    waited = session.call('browser_wait', {'wait_ms': 100})
+    assert 'observation_id' in waited
+    assert waited['observation_id'] != scrolled['observation_id']
 

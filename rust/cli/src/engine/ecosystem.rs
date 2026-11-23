@@ -32,6 +32,10 @@ fn describe_service(name: &str) -> (&'static str, &'static str) {
             "Creative & Media",
             "Figma inspection, Canva autofill/assets, OpenAI image generation/edit, Kling & Runway video jobs",
         ),
+        "aria-computer-use" => (
+            "Computer Use / Browser",
+            "Isolated Playwright browser with Set-of-Marks, scroll/wait/batch actions, visual diff, and native approval",
+        ),
         "arthera-quant" => ("Quant Engine", "Arthera QuantEngine analytics bridge"),
         "arthera-commerce" => ("Commerce", "Catalogue order drafts and checkout workflow"),
         _ => ("External MCP", "Configured external MCP server"),

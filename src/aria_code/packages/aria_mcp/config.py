@@ -77,6 +77,20 @@ def creative_media_plugin_server_config(plugin_python_dir: Path) -> Dict[str, ob
     }
 
 
+def computer_use_server_config(python: Path) -> Dict[str, object]:
+    """Isolated local browser Computer Use MCP server (host sets ARIA_COMPUTER_ORIGINS)."""
+    python = Path(python).expanduser()
+    if not python.is_absolute() or not python.is_file():
+        raise ValueError("Provide an absolute path to the aria-code Python interpreter")
+    return {
+        "name": "aria-computer-use",
+        "command": str(python),
+        "args": ["-I", "-m", "aria_code.computer_use_server"],
+        "description": "Isolated browser automation with Set-of-Marks, scroll/wait/batch actions, and native approval",
+        "enabled": True,
+    }
+
+
 def discover_sibling_ecosystem_servers(
     workspace: Optional[Path] = None,
 ) -> List[Dict[str, object]]:

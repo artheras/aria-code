@@ -787,45 +787,21 @@ class CoreCommandsMixin:
     def cmd_apply(self, args: str):
         """Extract code from last AI response and save to file."""
         from aria_code.apps.cli.helpers import _extract_code_block
-        from aria_cli import _SYNTAX_THEME, _tool_write_file
-        from ._ui import Syntax
-        filename = args.strip()
-        last_response = ""
-        for msg in reversed(self.terminal.conversation):
-            if msg["role"] == "assistant":
-                last_response = msg["content"]
-                break
-        if not last_response:
-            self.context.console.print("[dim]No AI response to extract from[/dim]" if self.context.has_rich
-                          else "No response")
-            return
+        from aria_cli import _tool_write_file
 
-        code = _extract_code_block(last_response)
+        say = (lambda m: self.context.console.print(m)) if self.context.has_rich else print
+        last = next((m["content"] for m in reversed(self.terminal.conversation) if m["role"] == "assistant"), "")
+        code = _extract_code_block(last) if last else ""
         if not code:
-            self.context.console.print("[dim]No code block found in last response[/dim]" if self.context.has_rich
-                          else "No code block found")
+            say("No code block found in last response")
             return
-
+        filename = args.strip()
         if not filename:
-            # Show code preview and ask for filename
-            preview = code[:500] + ("..." if len(code) > 500 else "")
-            if self.context.has_rich:
-                self.context.console.print(f"\n[dim]Found code block ({len(code.splitlines())} lines):[/dim]")
-                self.context.console.print(Syntax(preview, "python", theme=_SYNTAX_THEME))
-            else:
-                print(f"\nFound code ({len(code.splitlines())} lines):")
-                print(preview)
-            try:
-                filename = (self.context.console.input("\n[bold]>[/bold] Save to: ") if self.context.has_rich
-                            else input("\nSave to: ")).strip()
-            except (EOFError, KeyboardInterrupt):
-                return
-            if not filename:
-                return
-
-        result = _tool_write_file({"path": filename, "content": code})
-        if not result["success"]:
-            self.context.console.print(f"[red]{result['error']}[/red]" if self.context.has_rich else result["error"])
+            say("Usage: /apply <filename>")
+            return
+        res = _tool_write_file({"path": filename, "content": code})
+        if not res.get("success"):
+            say(res.get("error", "Failed to save file"))
     async def cmd_code(self, args: str):
         """Generate code and optionally save to file. Usage: /code <description> [--save file.py]"""
         from aria_code.apps.cli.helpers import _extract_code_block
