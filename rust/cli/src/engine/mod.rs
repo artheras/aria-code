@@ -4,6 +4,7 @@ pub mod compact;
 pub mod hooks;
 pub mod lsp;
 pub mod mcp;
+pub mod memory;
 pub mod ollama;
 pub mod permissions;
 pub mod policy;

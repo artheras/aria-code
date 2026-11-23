@@ -563,6 +563,9 @@ enum NativeRoute {
     Sandbox,
     Compact,
     Roi,
+    Memory(String),
+    Todo(String),
+    Note(String),
     Verify(Option<String>),
     WriteMode(Option<bool>),
     OllamaChat,
@@ -644,6 +647,18 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     }
     if text == "/roi" || text == "/cost" || text == "/usage" {
         return Some(NativeRoute::Roi);
+    }
+    if text == "/memory" || text.starts_with("/memory ") {
+        let arg = text.strip_prefix("/memory").unwrap_or("").trim().to_owned();
+        return Some(NativeRoute::Memory(arg));
+    }
+    if text == "/todo" || text.starts_with("/todo ") {
+        let arg = text.strip_prefix("/todo").unwrap_or("").trim().to_owned();
+        return Some(NativeRoute::Todo(arg));
+    }
+    if text == "/note" || text.starts_with("/note ") {
+        let arg = text.strip_prefix("/note").unwrap_or("").trim().to_owned();
+        return Some(NativeRoute::Note(arg));
     }
     if text == "/diff" || text.starts_with("/diff ") {
         let target = text.strip_prefix("/diff").unwrap_or("").trim();
@@ -898,6 +913,7 @@ fn try_dispatch_native_turn(
                      - `/skills` | `/init [--force]` — 查看工作区技能或初始化 `ARIA.md`\n\
                      - `/scan` | `/map` | `/diff` | `/log` | `/review` | `/verify` — 代码检查与验证\n\
                      - `/roi` | `/cost` — 查看 AI ROI 与 Token 效率计分卡\n\
+                     - `/memory` | `/todo` | `/note` — 项目记忆、待办清单与 `ARIA.md` 笔记\n\
                      - `/rewind` | `/worktree` | `/write-mode on|off` | `/compact` | `/sessions` — 工作区与会话管理"
                 } else {
                     "**Aria Code Native Commands:**\n\
@@ -911,6 +927,7 @@ fn try_dispatch_native_turn(
                      - `/skills` | `/init [--force]` — List workspace skills or initialize `ARIA.md`\n\
                      - `/scan` | `/map` | `/diff` | `/log` | `/review` | `/verify` — Code inspection and verification\n\
                      - `/roi` | `/cost` — View Enterprise AI ROI & Token Efficiency Scorecard\n\
+                     - `/memory` | `/todo` | `/note` — Manage project memory, tasks, and `ARIA.md` notes\n\
                      - `/rewind` | `/worktree` | `/write-mode on|off` | `/compact` | `/sessions` — Workspace and session controls"
                 };
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
@@ -1496,6 +1513,28 @@ fn try_dispatch_native_turn(
                 );
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+            }
+            NativeRoute::Memory(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) =
+                    crate::engine::memory::handle_memory_command(&ws_path, &arg, zh);
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Todo(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) = crate::engine::memory::handle_todo_command(&ws_path, &arg, zh);
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Note(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) = match crate::engine::memory::append_aria_note(&ws_path, &arg) {
+                    Ok(path) => (format!("Saved note to `{}`.", path.display()), "ok"),
+                    Err(e) => (e, "ok"),
+                };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }
             NativeRoute::Verify(target) => {
                 let ws_path = std::path::PathBuf::from(&workspace);

@@ -317,230 +317,39 @@ class DiagnosticOpsCommandsMixin:
             self.context.console.print(f"[yellow]doctor module unavailable: {exc}[/yellow]" if self.context.has_rich else f"doctor module unavailable: {exc}")
 
     async def cmd_install(self, args: str):
-        """
-        检测并安装缺失的依赖包（环境补全）。
-
-          /install              扫描全部已知依赖，列出缺失并询问是否安装
-          /install <pkg> [pkg]  直接安装指定 Python 包
-          /install --auto       根据最近一次提问的意图检测缺失项
-          /install --required   仅安装"必需"包，跳过可选项
-          /install --plan       只展示安装计划，不安装
-          /install --yes        非交互确认，直接安装选中包
-        """
+        """Show missing optional dependencies or install explicit packages via pip."""
         import shlex as _shlex
         import subprocess as _sp
         import sys as _sys
-        from apps.cli.preflight import (
-            build_full_dependency_report,
-            build_intent_preflight,
-            build_install_plan,
-            package_to_module,
-            select_install_packages,
-        )
+        from apps.cli.preflight import build_full_dependency_report, build_install_plan
 
-        raw = (args or "").strip()
-        tokens = raw.split()
+        tokens = (args or "").strip().split()
         flags = {t for t in tokens if t.startswith("--")}
         explicit_pkgs = [t for t in tokens if not t.startswith("--")]
-
-        # ── Resolve what to install ───────────────────────────────────────────
-        report = None
         if explicit_pkgs:
-            # Direct package install — no detection needed
             pip_packages = explicit_pkgs
-            command_hints: tuple = ()
-            env_hints: tuple = ()
         else:
-            if "--auto" in flags:
-                # Detect from the user's last real question
-                last_msg = ""
-                for m in reversed(self.terminal.conversation):
-                    if m.get("role") == "user" and m.get("content"):
-                        last_msg = m["content"] if isinstance(m["content"], str) else ""
-                        break
-                if not last_msg:
-                    self.context.console.print("[yellow]没有可分析的历史提问，改用全量扫描[/yellow]" if self.context.has_rich
-                                  else "No history; full scan")
-                    report = build_full_dependency_report(include_optional="--required" not in flags)
-                else:
-                    report = build_intent_preflight(last_msg)
-            else:
-                report = build_full_dependency_report(include_optional="--required" not in flags)
-
-            plan = build_install_plan(report)
-            pip_packages = list(plan.pip_packages)
-            command_hints = plan.command_hints
-            env_hints = plan.env_hints
-
-        # ── Nothing missing ───────────────────────────────────────────────────
-        if not pip_packages and not (report and (report.missing_commands or report.missing_env)):
-            self.context.console.print("[green]✓ 环境完整，没有检测到缺失的 Python 包[/green]" if self.context.has_rich
-                          else "All dependencies satisfied")
-            return
-
-        # ── Show findings ─────────────────────────────────────────────────────
-        if self.context.has_rich:
-            self.context.console.print()
-            self.context.console.print("[bold]环境检测结果[/bold]")
-            if pip_packages:
-                self.context.console.print(f"  [yellow]缺少 {len(pip_packages)} 个 Python 包:[/yellow]")
-                for p in pip_packages:
-                    purpose = ""
-                    if report:
-                        for r in report.missing_python:
-                            if r.package == p:
-                                purpose = f"  [dim]— {r.purpose}{'（可选）' if not r.required else ''}[/dim]"
-                                break
-                    self.context.console.print(f"    • [cyan]{p}[/cyan]{purpose}")
-            if command_hints:
-                self.context.console.print("  [yellow]缺少命令行工具:[/yellow]")
-                for h in command_hints:
-                    self.context.console.print(f"    • [dim]{h}[/dim]")
-            if env_hints:
-                self.context.console.print("  [dim]未配置的环境变量（可选，不自动处理）:[/dim]")
-                for h in env_hints:
-                    self.context.console.print(f"    • [dim]{h}[/dim]")
-            self.context.console.print()
-        else:
-            print(f"Missing packages: {', '.join(pip_packages)}")
-            for h in command_hints:
-                print(f"  tool: {h}")
+            report = build_full_dependency_report(include_optional="--required" not in flags)
+            pip_packages = list(build_install_plan(report).pip_packages)
 
         if not pip_packages:
-            if command_hints:
-                self.context.console.print("[dim]命令行工具需手动安装（见上方提示），Aria 不会自动执行系统级安装[/dim]"
-                              if self.context.has_rich else "Install CLI tools manually (see hints above)")
+            msg = "All dependencies satisfied."
+            self.context.console.print(f"[green]{msg}[/green]" if self.context.has_rich else msg)
             return
-
-        # ── Select packages ───────────────────────────────────────────────────
-        if report:
-            if "--plan" in flags:
-                selection = select_install_packages(plan, report, mode="plan")
-            elif "--yes" in flags:
-                _mode = "required" if "--required" in flags else "all"
-                selection = select_install_packages(plan, report, mode=_mode)
-            else:
-                required_pkgs = [
-                    r.package for r in report.missing_python
-                    if r.required and r.package in pip_packages
-                ]
-                optional_pkgs = [
-                    r.package for r in report.missing_python
-                    if not r.required and r.package in pip_packages
-                ]
-                if self.context.has_rich:
-                    self.context.console.print("[bold]选择安装范围[/bold]")
-                    self.context.console.print("  [cyan]all[/cyan]      安装全部缺失 Python 包")
-                    self.context.console.print("  [cyan]required[/cyan]  只安装必需包")
-                    self.context.console.print("  [cyan]optional[/cyan]  只安装可选增强包")
-                    self.context.console.print("  [cyan]custom[/cyan]    手动输入包名或编号")
-                    self.context.console.print("  [cyan]plan[/cyan]      只显示计划，不安装")
-                    self.context.console.print("  [cyan]skip[/cyan]      跳过")
-                    for idx, pkg in enumerate(pip_packages, 1):
-                        kind = "required" if pkg in required_pkgs else "optional"
-                        self.context.console.print(f"    [dim]{idx}.[/dim] {pkg} [dim]({kind})[/dim]")
-                else:
-                    print("Select install scope: all | required | optional | custom | plan | skip")
-                    for idx, pkg in enumerate(pip_packages, 1):
-                        kind = "required" if pkg in required_pkgs else "optional"
-                        print(f"  {idx}. {pkg} ({kind})")
-                default_mode = "required" if required_pkgs and optional_pkgs else "all"
-                try:
-                    choice = self.context.console.input(f"安装范围 [{default_mode}]: ") if self.context.has_rich else input(f"Install scope [{default_mode}]: ")
-                except (EOFError, KeyboardInterrupt):
-                    self.context.console.print("\n[dim]已取消[/dim]" if self.context.has_rich else "Cancelled")
-                    return
-                choice = (choice or default_mode).strip().lower()
-                custom_items: list[str] = []
-                if choice == "custom":
-                    try:
-                        raw_custom = self.context.console.input("输入包名或编号（空格/逗号分隔）: ") if self.context.has_rich else input("Packages or numbers: ")
-                    except (EOFError, KeyboardInterrupt):
-                        self.context.console.print("\n[dim]已取消[/dim]" if self.context.has_rich else "Cancelled")
-                        return
-                    for item in raw_custom.replace(",", " ").split():
-                        if item.isdigit():
-                            idx = int(item)
-                            if 1 <= idx <= len(pip_packages):
-                                custom_items.append(pip_packages[idx - 1])
-                        else:
-                            custom_items.append(item)
-                selection = select_install_packages(
-                    plan, report, mode=choice, custom=custom_items
-                )
-            pip_packages = list(selection.pip_packages)
-            if selection.mode in {"plan", "dry-run", "dry_run"}:
-                self.context.console.print("[dim]已生成安装计划，未执行安装。[/dim]" if self.context.has_rich else "Install plan only; no changes made.")
-                return
-            if not pip_packages:
-                self.context.console.print("[dim]没有选择任何 Python 包，未安装。[/dim]" if self.context.has_rich else "No packages selected.")
-                return
-            if selection.skipped_packages and self.context.has_rich:
-                self.context.console.print(f"[dim]跳过: {', '.join(selection.skipped_packages)}[/dim]")
-        elif "--plan" in flags:
-            self.context.console.print("[dim]显式包安装计划已显示，未执行安装。[/dim]" if self.context.has_rich else "Install plan only; no changes made.")
-            return
-
-        # ── Confirm ───────────────────────────────────────────────────────────
         pip_cmd = [_sys.executable, "-m", "pip", "install", *pip_packages]
         pretty = " ".join(_shlex.quote(c) for c in pip_cmd)
         if "--yes" not in flags:
-            prompt = f"将运行: {pretty}\n确认安装? [y/N]: "
-            try:
-                answer = self.context.console.input(prompt) if self.context.has_rich else input(prompt)
-            except (EOFError, KeyboardInterrupt):
-                self.context.console.print("\n[dim]已取消[/dim]" if self.context.has_rich else "Cancelled")
-                return
-            if answer.strip().lower() not in {"y", "yes"}:
-                self.context.console.print("[dim]已取消，未安装任何包[/dim]" if self.context.has_rich else "Cancelled")
-                return
-        elif self.context.has_rich:
-            self.context.console.print(f"[dim]Auto install: {pretty}[/dim]")
-
-        # ── Install ───────────────────────────────────────────────────────────
-        self.context.console.print(f"\n[dim]⏳ 安装中: {' '.join(pip_packages)}…[/dim]" if self.context.has_rich
-                      else f"Installing {' '.join(pip_packages)}...")
-        try:
-            proc = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: _sp.run(pip_cmd, capture_output=True, text=True, timeout=300),
-            )
-        except Exception as exc:
-            self.context.console.print(f"[red]安装失败: {exc}[/red]" if self.context.has_rich else f"Install failed: {exc}")
+            msg = f"Run `{pretty}` (or pass `/install --yes` to install)."
+            self.context.console.print(f"[dim]{msg}[/dim]" if self.context.has_rich else msg)
             return
-
+        proc = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: _sp.run(pip_cmd, capture_output=True, text=True, timeout=300)
+        )
         if proc.returncode == 0:
-            # Verify each package now imports
-            import importlib as _il
-            _il.invalidate_caches()
-            ok_list, fail_list = [], []
-            for p in pip_packages:
-                mod = package_to_module(p)
-                try:
-                    _il.import_module(mod)
-                    ok_list.append(p)
-                except Exception:
-                    fail_list.append(p)
-            # File parser availability is cached for performance.  Refresh it
-            # now so DOCX/PDF/XLSX tools work in this same Aria session.
-            try:
-                from aria_code.tools.file_analysis_tools import refresh_optional_parsers
-
-                refresh_optional_parsers()
-            except Exception:
-                pass
-            if self.context.has_rich:
-                self.context.console.print(f"  [green]✓ 安装完成: {', '.join(ok_list) or '—'}[/green]")
-                if fail_list:
-                    self.context.console.print(f"  [yellow]⚠ 已安装但当前会话需重启才能加载: {', '.join(fail_list)}[/yellow]")
-                elif ok_list:
-                    self.context.console.print("  [dim]能力已刷新，当前会话可直接使用。[/dim]")
-            else:
-                print(f"Installed: {', '.join(ok_list)}")
+            self.context.console.print(f"[green]Installed: {', '.join(pip_packages)}[/green]" if self.context.has_rich else f"Installed: {', '.join(pip_packages)}")
         else:
-            err_tail = (proc.stderr or proc.stdout or "")[-400:]
-            self.context.console.print(f"[red]pip 安装失败 (code {proc.returncode}):[/red]\n[dim]{err_tail}[/dim]"
-                          if self.context.has_rich else f"pip failed: {err_tail}")
+            err = (proc.stderr or proc.stdout or "")[-300:]
+            self.context.console.print(f"[red]pip failed ({proc.returncode}): {err}[/red]" if self.context.has_rich else f"pip failed: {err}")
 
     async def cmd_datasource(self, args: str):
         """Financial datasources moved to financial-service MCP."""
