@@ -288,6 +288,7 @@ impl ToolLoopGuard {
             self.permissions
                 .evaluate(&call.name, &call.arguments, read_only)
         {
+            crate::engine::roi::record_blocked_action();
             let blocked = json!({
                 "ok": false,
                 "error": reason,
@@ -299,6 +300,7 @@ impl ToolLoopGuard {
             .hooks
             .run_pre_tool(workspace, &call.name, &call.arguments);
         if !pre.allowed {
+            crate::engine::roi::record_blocked_action();
             let blocked = json!({
                 "ok": false,
                 "error": pre.reason.unwrap_or_else(|| "blocked by PreToolUse hook".into()),
@@ -306,12 +308,17 @@ impl ToolLoopGuard {
             on_tool(&call.name, &call.arguments, &blocked);
             return clip_tool_output(&blocked, 16_000);
         }
+        let tool_started = std::time::Instant::now();
         let mut output = self
             .mcp
             .call_tool(&call.name, call.arguments.clone())
             .unwrap_or_else(|| {
                 tools::execute_tool(workspace, &call.name, &call.arguments, allow_write)
             });
+        crate::engine::roi::record_tool_execution(
+            &call.name,
+            tool_started.elapsed().as_millis() as u64,
+        );
         let post_notes = self
             .hooks
             .run_post_tool(workspace, &call.name, &call.arguments, &output);

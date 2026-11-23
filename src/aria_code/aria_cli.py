@@ -1740,10 +1740,6 @@ def _try_handle_multi_market_snapshot(message: str, symbols: list) -> dict:
     return _src_multi_snapshot(message, symbols)
 
 
-def _try_handle_realty_query(message: str) -> dict:
-    return {"success": False, "error": "realty_handlers_not_available"}
-
-
 def _try_handle_market_snapshot_analysis(message: str, history: list = None, *,
                                          evidence_required: bool = False) -> dict:
     """Thin wrapper — real implementation in apps.cli.handlers.market_handlers."""
@@ -1771,15 +1767,6 @@ def _run_deterministic_chain(message: str, *, model_has_tools: bool,
         has_brokers=_HAS_BROKERS,
         get_broker_registry=_get_broker_registry,
     )
-
-
-def _fmt_int(value) -> str:
-    try:
-        return f"{int(float(value)):,}"
-    except Exception:
-        return "N/A"
-
-
 
 
 def _recover_repetition_stopped_text(text: str) -> str:
@@ -2065,45 +2052,6 @@ def _build_tradingview_indicator_readout(snapshot: dict, *, tv_symbol: str = "",
     if tv_symbol:
         lines.append(f"- TradingView 标的：`{tv_symbol}`")
     return "\n".join(lines)
-
-
-
-
-def _generate_chart_sync(symbol: str, period: str = "1y") -> dict:
-    """
-    `/chart` 命令的同步入口：为指定 symbol 生成 HTML 分析图表。
-    A股代码先尝试 tushare/akshare 获取数据，美股走 yfinance。
-    """
-    # 对 A股代码做格式转换（600519 → 600519.SS / 000001 → 000001.SZ）
-    sym_yf = symbol
-    if re.match(r"^\d{6}$", symbol):
-        if symbol.startswith(("6", "9")):
-            sym_yf = symbol + ".SS"
-        else:
-            sym_yf = symbol + ".SZ"
-
-    return _try_handle_stock_chart_analysis_direct(sym_yf, period=period)
-
-
-def _resolve_market_arg_symbol(raw: str) -> str:
-    """Resolve a command argument to a chart/quote-friendly market symbol."""
-    token = str(raw or "").strip().strip(",，")
-    upper = token.upper()
-    if not upper:
-        return ""
-    if _is_blocked_market_symbol_candidate(upper):
-        return ""
-    if re.match(r"^\^[A-Z0-9]{2,12}$", upper):
-        return upper
-    if re.match(r"^[A-Z0-9]{1,12}=F$", upper) or re.match(r"^[A-Z]{6}=X$", upper):
-        return upper
-    if re.match(r"^[A-Z0-9]{1,12}\.[A-Z]{1,4}$", upper):
-        return upper
-    return _extract_market_symbol(token) or _extract_market_symbol(upper) or upper
-
-
-
-
 
 
 def _is_market_artifact_followup(message: str) -> bool:
@@ -2511,20 +2459,6 @@ _STUB_PLACEHOLDER_MARKERS = (
 )
 
 
-def _response_is_stub_placeholder(resp: str) -> bool:
-    """True if resp is the api_url stub backend's canned help/welcome text.
-
-    Shared by the REPL chat loop and run_prompt so both fall back to Ollama
-    instead of showing boilerplate. (Empty/too-short is handled by callers.)
-    """
-    if not resp:
-        return False
-    if any(p in resp for p in _STUB_PLACEHOLDER_MARKERS):
-        return True
-    _markers = ("请提供", "请输入", "示例问题", "支持的查询", "股票代码：")
-    return sum(1 for m in _markers if m in resp) >= 2
-
-
 def _render_answer_block(text: str) -> None:
     """Render the AI's final answer with a ⏺ bullet + hanging indent.
 
@@ -2655,13 +2589,6 @@ def _print_phase(label: str):
     console.print(f"\n  [dim]── {label} {'─' * bar_len}[/dim]")
 
 
-
-
-def _error_hint(error: str, context: str = "") -> str:
-    from ui.render.output import error_hint as _eh
-    return _eh(error, context)
-
-
 def _print_error(msg: str, context: str = ""):
     from ui.render.output import print_error as _pe
     _pe(msg, context, console=console, has_rich=HAS_RICH, rich_box=rich_box)
@@ -2720,15 +2647,6 @@ def _print_verdict_banner(verdict: str, subtitle: str = "", confidence: float = 
     """Thin wrapper — rendering logic lives in ui.render.team.render_verdict_banner."""
     render_verdict_banner(verdict, subtitle, confidence,
                           console=console, has_rich=HAS_RICH, lang=lang)
-
-
-def _print_agent_table(sym: str, results: list, use_full: bool = False) -> None:
-    """Thin wrapper — rendering logic lives in ui.render.team.render_team_table."""
-    import shutil as _shutil
-    rows = build_team_table_rows(results)
-    tw   = getattr(console, "width", None) or _shutil.get_terminal_size().columns
-    render_team_table(sym, rows, use_full,
-                      console=console, terminal_width=tw, has_rich=HAS_RICH)
 
 
 def _team_live_price(data_bundle) -> Optional[float]:
@@ -3907,51 +3825,8 @@ class ArtheraTerminal(_ChatTurn, _Chrome, _HeadlessMixin):
 
     def _record_prediction(self, symbol: str, response_text: str,
                            entry_price: float = 0.0) -> None:
-        """Record an LLM market call for later outcome verification.
-
-        The market is the objective judge — a correct/wrong call becomes a
-        chosen/rejected DPO training signal once verified. Fetches the entry
-        price itself if not given, so call sites stay one-liners. Local-first,
-        honors ARIA_NO_TELEMETRY, never raises.
-        """
-        try:
-            from apps.cli.prediction_feedback import PredictionTracker
-            if not entry_price or entry_price <= 0:
-                try:
-                    import market_data_client as _mdc
-                    q = _mdc.MarketDataClient().quote(symbol)
-                    entry_price = q.get("price") if q.get("success") else 0.0
-                except Exception:
-                    entry_price = 0.0
-            if not entry_price:
-                return
-            PredictionTracker(CONFIG_DIR).record(
-                symbol=symbol, response_text=response_text, entry_price=entry_price,
-                session_id=getattr(self, "session_id", ""),
-                model=self.config.get("model", ""),
-            )
-        except Exception:
-            pass
-
-    def _verify_predictions(self, min_age_hours: float = 24.0) -> dict:
-        """Settle pending predictions against live prices; emit DPO feedback."""
-        try:
-            from apps.cli.prediction_feedback import PredictionTracker
-
-            def _quote(sym: str):
-                try:
-                    import market_data_client as _mdc
-                    q = _mdc.MarketDataClient().quote(sym)
-                    return q.get("price") if q.get("success") else None
-                except Exception:
-                    return None
-
-            return PredictionTracker(CONFIG_DIR).verify_pending(
-                _quote, min_age_hours=min_age_hours,
-                emit_feedback=self._record_feedback,
-            )
-        except Exception:
-            return {"settled": 0, "correct": 0, "wrong": 0}
+        """No-op (prediction accuracy tracking migrated to Arthera backend / financial-service)."""
+        return None
 
     def _bottom_toolbar_plain(self) -> str:
         model_label, cwd, privacy, est_tokens, max_ctx = self._bottom_toolbar_parts()
@@ -4103,15 +3978,6 @@ class ArtheraTerminal(_ChatTurn, _Chrome, _HeadlessMixin):
         """Run the interactive REPL loop."""
         self.print_header()
         await self._startup_health_check()
-
-        # Background: settle pending market calls (>24h) vs live prices so the
-        # prediction track record + DPO signals accrue with zero user effort.
-        try:
-            import threading as _th
-            _th.Thread(target=self._verify_predictions,
-                       kwargs={"min_age_hours": 24.0}, daemon=True).start()
-        except Exception:
-            pass
 
         # ── Start MCP servers (non-blocking background task) ─────────────
         if _HAS_MCP and not self._mcp_started:
