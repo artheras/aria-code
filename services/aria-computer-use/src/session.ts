@@ -409,7 +409,11 @@ export class BrowserSession {
     }
   }
 
-  async observe(markElements = false, includeAxTree = false): Promise<Record<string, unknown>> {
+  async observe(
+    markElements = false,
+    includeAxTree = false,
+    attempt = 0,
+  ): Promise<Record<string, unknown>> {
     if (!this.page) {
       throw new ValidationError("No page is open; call browser_open first");
     }
@@ -514,6 +518,10 @@ export class BrowserSession {
 
     if ((await this.fingerprint()) !== fpBefore) {
       this.observation = null;
+      if (attempt < 1) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        return this.observe(markElements, includeAxTree, attempt + 1);
+      }
       throw new ValidationError("Page changed while observing; call browser_observe again");
     }
 

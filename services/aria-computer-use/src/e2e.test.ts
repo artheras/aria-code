@@ -142,10 +142,13 @@ test("real headless Chromium E2E: Shadow DOM, iframe, upload, tabs, downloads, d
     });
     assert.ok(String(afterShadow.text).includes("shadow-clicked"));
 
-    // Click inside same-origin iframe via element_id
+    // Click inside same-origin iframe via element_id (re-resolved from fresh observation)
+    const freshElements = afterShadow.elements as typeof elements;
+    const freshIframeBtn = freshElements.find((e) => e.frame_index === 1 && e.label.includes("Iframe Go"));
+    assert.ok(freshIframeBtn, "Expected iframe button in post-click observation");
     const afterIframe = await session.call("browser_click", {
       observation_id: afterShadow.observation_id,
-      element_id: iframeBtn.element_id,
+      element_id: freshIframeBtn.element_id,
     });
     assert.ok(typeof afterIframe.observation_id === "string");
 
