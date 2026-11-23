@@ -129,6 +129,10 @@ fn build_coding_system_prompt(workspace: &Path) -> String {
             prompt.push_str(&format!("\n\n[Project Instructions: {fname}]\n{clipped}"));
         }
     }
+    if let Some(mem_section) = crate::engine::memory::format_memory_prompt_section(workspace) {
+        prompt.push_str("\n\n");
+        prompt.push_str(&mem_section);
+    }
     let discovered_skills = skills::discover_skills(workspace);
     if !discovered_skills.is_empty() {
         let lines: Vec<String> = discovered_skills
