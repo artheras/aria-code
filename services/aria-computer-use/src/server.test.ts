@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   approvalBackendLabel,
   detectPromptInjection,
@@ -171,7 +172,7 @@ test("cross-platform human approval adapters and fail-closed headless", () => {
   assert.equal(approvalBackendLabel("linux", {}), "unavailable (fail-closed deny)");
 });
 
-test("MCP JSON-RPC dispatch lists all 15 tools and executes full workflow", async () => {
+test("MCP JSON-RPC dispatch lists all 17 tools and executes full workflow", async () => {
   const session = new BrowserSession(["https://example.com"], {
     approval: () => true,
     clock: () => 1_000,
@@ -404,4 +405,17 @@ test("tiered approval mode caches low-risk grants but always prompts on sensitiv
     selector: "#delete-account",
   });
   assert.equal(promptCount, 2);
+});
+
+test("contracts/computer_use_tools.json matches TypeScript TOOLS catalog", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const contractPath = path.resolve(here, "..", "..", "..", "contracts", "computer_use_tools.json");
+  const raw = JSON.parse(fs.readFileSync(contractPath, "utf8")) as {
+    server: string;
+    engine: string;
+    tools: typeof TOOLS;
+  };
+  assert.equal(raw.server, "aria-computer-use");
+  assert.equal(raw.engine, "node-typescript-playwright");
+  assert.deepEqual(raw.tools, TOOLS);
 });

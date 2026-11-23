@@ -1094,16 +1094,6 @@ except Exception as _exc:
     logger.debug("Artifact tools init error: %s", _exc)
     ARTIFACT_TOOL_SCHEMAS: list = []  # type: ignore[no-redef]
 
-# ── Register computer-use tools (browser automation + desktop control) ──────
-_HAS_COMPUTER_USE = False
-try:
-    from aria_code.tools.computer_use_tools import COMPUTER_USE_TOOLS, COMPUTER_USE_SCHEMAS as _CU_SCHEMAS
-    LOCAL_TOOLS.update(COMPUTER_USE_TOOLS)
-    _HAS_COMPUTER_USE = True
-    logger.info("Registered %d computer-use tools", len(COMPUTER_USE_TOOLS))
-except ImportError:
-    _CU_SCHEMAS = []
-
 # Pre-initialize so finance/plugin registrations can append schemas to it.
 # The bulk static schemas are extended below; this empty list must exist first.
 # Owned by apps/cli/tool_registry.py; filled in place below.
@@ -1195,12 +1185,6 @@ LOCAL_TOOL_SCHEMAS.extend(build_local_tool_schemas(
     todo_schema=_todo_schema(),
     config_dir=CONFIG_DIR,
 ))
-
-# Append computer-use schemas if the module loaded successfully
-if _HAS_COMPUTER_USE:
-    LOCAL_TOOL_SCHEMAS.extend(_CU_SCHEMAS)
-
-
 
 
 # Make spawn_task / task_* and lsp_diagnostics visible to the model.

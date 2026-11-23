@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - "services/aria-computer-use/**"
+      - "contracts/computer_use_tools.json"
       - ".github/workflows/computer-use-ts.yml"
   pull_request:
     paths:
       - "services/aria-computer-use/**"
+      - "contracts/computer_use_tools.json"
       - ".github/workflows/computer-use-ts.yml"
 
 jobs:

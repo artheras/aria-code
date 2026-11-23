@@ -408,9 +408,8 @@ pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> 
         });
     }
 
-    // Isolated browser Computer Use MCP service (`aria-computer-use`).
-    // Prefer the first-class Node.js/TypeScript Playwright server when built;
-    // fall back to Python `aria_code.computer_use_server` otherwise.
+    // Isolated browser Computer Use MCP service (`aria-computer-use`),
+    // backed by the first-class Node.js/TypeScript Playwright server.
     // Never hardcode ARIA_COMPUTER_ORIGINS here; the host explicitly authorizes origins.
     let ts_cu_cli = base
         .join("services")
@@ -424,19 +423,6 @@ pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> 
             args: vec![ts_cu_cli.to_string_lossy().into_owned()],
             env: HashMap::new(),
         });
-    } else {
-        let cu_src = base.join("src");
-        let cu_server = cu_src.join("aria_code").join("computer_use_server.py");
-        if let Some(cfg) = build_python_service_config(
-            "aria-computer-use",
-            &base,
-            "aria-computer-use",
-            &cu_src,
-            "aria_code.computer_use_server",
-            &cu_server,
-        ) {
-            found.push(cfg);
-        }
     }
 
     let bots_root = base.join("services").join("aria-bots");

@@ -77,16 +77,16 @@ def creative_media_plugin_server_config(plugin_python_dir: Path) -> Dict[str, ob
     }
 
 
-def computer_use_server_config(python: Path) -> Dict[str, object]:
-    """Isolated local browser Computer Use MCP server (host sets ARIA_COMPUTER_ORIGINS)."""
-    python = Path(python).expanduser()
-    if not python.is_absolute() or not python.is_file():
-        raise ValueError("Provide an absolute path to the aria-code Python interpreter")
+def computer_use_server_config(server_cli: Path) -> Dict[str, object]:
+    """Isolated Node.js/TypeScript Playwright Computer Use MCP server (host sets ARIA_COMPUTER_ORIGINS)."""
+    cli_path = Path(server_cli).expanduser()
+    if not cli_path.is_absolute() or not cli_path.is_file():
+        raise ValueError("Provide an absolute path to services/aria-computer-use/dist/cli.js")
     return {
         "name": "aria-computer-use",
-        "command": str(python),
-        "args": ["-I", "-m", "aria_code.computer_use_server"],
-        "description": "Isolated browser automation with Set-of-Marks, scroll/wait/batch actions, and native approval",
+        "command": "node",
+        "args": [str(cli_path)],
+        "description": "Isolated TypeScript/Playwright browser automation with Shadow DOM/iframe Set-of-Marks, AXTree, and tiered approval",
         "enabled": True,
     }
 

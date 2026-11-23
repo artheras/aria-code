@@ -220,7 +220,6 @@ all = [
 aria-code = "aria_code.apps.cli.main:main"
 aria = "aria_code.apps.cli.main:main"
 aria-code-mcp = "aria_code.aria_mcp_server:main"
-aria-computer-use = "aria_code.computer_use_server:main"
 
 [project.urls]
 Homepage = "https://github.com/artheras/aria-code"
