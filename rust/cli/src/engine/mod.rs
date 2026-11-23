@@ -3,6 +3,7 @@ pub mod artifacts;
 pub mod cloud;
 pub mod compact;
 pub mod ecosystem;
+pub mod eval;
 pub mod hooks;
 pub mod lsp;
 pub mod mcp;
