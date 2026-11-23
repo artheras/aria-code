@@ -730,7 +730,7 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
         let arg = text.strip_prefix("/eval").unwrap_or("").trim().to_owned();
         return Some(NativeRoute::Eval(arg));
     }
-    if text == "/undo" {
+    if text == "/undo" && is_ollama {
         return Some(NativeRoute::Undo);
     }
     if text == "/diff" || text.starts_with("/diff ") {
