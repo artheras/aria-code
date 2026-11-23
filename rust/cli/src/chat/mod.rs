@@ -571,6 +571,7 @@ enum NativeRoute {
     Plan(String),
     ApplyPlan(String),
     Artifacts(String),
+    Canvas(String),
     Privacy(String),
     Feedback(String),
     Ecosystem(String),
@@ -701,6 +702,10 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
             .trim()
             .to_owned();
         return Some(NativeRoute::Artifacts(arg));
+    }
+    if text == "/canvas" || text.starts_with("/canvas ") {
+        let arg = text.strip_prefix("/canvas").unwrap_or("").trim().to_owned();
+        return Some(NativeRoute::Canvas(arg));
     }
     if text == "/privacy" || text.starts_with("/privacy ") {
         let arg = text
@@ -1711,6 +1716,13 @@ fn try_dispatch_native_turn(
                     allow_write,
                     zh,
                 );
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Canvas(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) =
+                    crate::engine::canvas::handle_canvas_command(&ws_path, &arg, zh);
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }

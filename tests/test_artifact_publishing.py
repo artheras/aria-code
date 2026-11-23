@@ -140,17 +140,16 @@ class ToolRegistrationTests(unittest.TestCase):
 
 
 class CanvasSandboxTests(unittest.TestCase):
-    """The framed artifact must not be able to reach its host."""
+    """The framed artifact in the native Rust Canvas server must not be able to reach its host."""
 
     def _source(self) -> str:
-        from aria_code import preview_server
-
-        return Path(preview_server.__file__).read_text(encoding="utf-8")
+        canvas_rs = Path(__file__).resolve().parents[1] / "rust" / "cli" / "src" / "engine" / "canvas.rs"
+        return canvas_rs.read_text(encoding="utf-8")
 
     def test_the_iframe_is_not_given_back_its_origin(self):
         # allow-scripts together with allow-same-origin is not additive — it
         # cancels the sandbox, and the framed document runs in the host page's
-        # origin, where /state and /events are reachable.
+        # origin, where /api/artifacts is reachable.
         import re
 
         source = self._source()
@@ -162,24 +161,21 @@ class CanvasSandboxTests(unittest.TestCase):
                 self.assertNotIn("allow-same-origin", value)
 
     def test_artifacts_are_served_with_a_content_security_policy(self):
-        from aria_code.preview_server import _ARTIFACT_HEADERS
-
-        policy = _ARTIFACT_HEADERS["Content-Security-Policy"]
-        self.assertIn("default-src 'none'", policy)
-        self.assertIn("form-action 'none'", policy)
-        self.assertIn("base-uri 'none'", policy)
+        source = self._source()
+        self.assertIn("default-src 'none'", source)
+        self.assertIn("form-action 'none'", source)
+        self.assertIn("base-uri 'none'", source)
 
     def test_the_policy_blocks_the_page_from_calling_out(self):
-        # The one that matters: model-generated JS in an artifact must not be
-        # able to POST what it can see to an arbitrary host.
-        from aria_code.preview_server import _ARTIFACT_HEADERS
-
-        self.assertIn("connect-src 'none'", _ARTIFACT_HEADERS["Content-Security-Policy"])
+        self.assertIn("connect-src 'none'", self._source())
 
     def test_fonts_are_the_only_permitted_remote_origin(self):
-        from aria_code.preview_server import _ARTIFACT_HEADERS
+        import re
 
-        policy = _ARTIFACT_HEADERS["Content-Security-Policy"]
+        source = self._source()
+        match = re.search(r'pub const ARTIFACT_CSP: &str = "([^"]+)";', source)
+        self.assertIsNotNone(match, "ARTIFACT_CSP constant not found in canvas.rs")
+        policy = match.group(1)
         remote = {
             token for token in policy.replace(";", " ").split()
             if token.startswith("https://")
@@ -187,15 +183,12 @@ class CanvasSandboxTests(unittest.TestCase):
         self.assertEqual(remote, {"https://fonts.googleapis.com", "https://fonts.gstatic.com"})
 
     def test_responses_are_not_sniffed_or_cached(self):
-        from aria_code.preview_server import _ARTIFACT_HEADERS
-
-        self.assertEqual(_ARTIFACT_HEADERS["X-Content-Type-Options"], "nosniff")
-        self.assertEqual(_ARTIFACT_HEADERS["Cache-Control"], "no-store")
+        source = self._source()
+        self.assertIn('("X-Content-Type-Options", "nosniff")', source)
+        self.assertIn('("Cache-Control", "no-store")', source)
 
     def test_the_server_still_binds_only_to_loopback(self):
-        from aria_code.preview_server import _DEFAULT_HOST
-
-        self.assertEqual(_DEFAULT_HOST, "127.0.0.1")
+        self.assertIn('pub const DEFAULT_HOST: &str = "127.0.0.1";', self._source())
 
 
 if __name__ == "__main__":

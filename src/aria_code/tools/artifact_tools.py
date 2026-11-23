@@ -171,9 +171,8 @@ def tool_publish_artifact(params: Dict[str, Any]) -> Dict[str, Any]:
         })
 
         try:
-            from aria_code import preview_server
-
-            live = preview_server.get_active_session() is not None
+            canvas_discovery = Path.home() / ".arthera" / "canvas.json"
+            live = canvas_discovery.is_file()
         except Exception:
             live = False
 
