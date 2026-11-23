@@ -1,0 +1,31 @@
+{
+  "name": "@artheras/aria-computer-use",
+  "version": "0.1.0",
+  "description": "First-class TypeScript/Playwright Computer Use stdio MCP server for Aria Code",
+  "type": "module",
+  "license": "Apache-2.0",
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "bin": {
+    "aria-computer-use": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/**/*.test.js",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "playwright": "^1.52.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0"
+  }
+}
