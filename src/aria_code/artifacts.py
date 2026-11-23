@@ -292,31 +292,7 @@ def write_artifact_metadata(record: ArtifactRecord, metadata: Dict[str, Any]) ->
         json.dumps(payload, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",
     )
-    _notify_preview_session(record)
     return record.metadata_path
-
-
-def _notify_preview_session(record: ArtifactRecord) -> None:
-    """Best-effort notification to a running /canvas preview session, if
-    any (see preview_server.py). A true no-op in the overwhelmingly common
-    case — no session running, e.g. every headless MCP tool call — must
-    never let a preview-notification failure break artifact writing, hence
-    the blanket except."""
-    try:
-        import asyncio
-
-        # Bare root: tests/test_preview_server.py patches `preview_server`,
-        # and the packaged root is a different module object — importing it
-        # here notified a session nothing was watching.
-        from preview_server import get_active_session, thread_id_for
-
-        session = get_active_session()
-        if session is None:
-            return
-        loop = asyncio.get_running_loop()
-        loop.create_task(session.notify_new_version(thread_id_for(record), record))
-    except Exception:
-        pass
 
 
 def write_artifact_raw_data(record: ArtifactRecord, data: Any) -> Path:

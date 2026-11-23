@@ -1,77 +1,25 @@
-"""CanvasCommandsMixin — /canvas command (live artifact preview server).
-
-Extracted following the same convention as broker_cmds.py/backtest_cmds.py:
-module globals (self.context.has_rich, self.context.console, etc.) are imported lazily inside each
-method body to avoid circular imports at load time.
-"""
+"""CanvasCommandsMixin — `/canvas` stub (migrated to native Rust `rust/cli/src/engine/canvas.rs`)."""
 
 from __future__ import annotations
 
-from ._ui import print_error
-
-
+from pathlib import Path
 import json
-import asyncio
-import datetime
-import time
-import shlex
-import sys
-import os
-from typing import Dict, Any, Optional
-
-
-import json
-import asyncio
-import datetime
-import time
-import shlex
-import sys
-import os
-from typing import Dict, Any, Optional
 
 
 class CanvasCommandsMixin:
-    """Mixin providing the /canvas live-preview-server command.
-
-    Off by default — nothing in preview_server.py runs until this command
-    is explicitly typed. See preview_server.py's module docstring for why
-    this stays opt-in rather than auto-starting.
-    """
+    """Mixin providing the `/canvas` command notice after Rust migration."""
 
     async def cmd_canvas(self, args: str):
-        """实时预览面板: /canvas [stop] —— 启动/停止本地预览服务器，报告和图表生成后会自动在浏览器里实时更新。"""
-
-
-        sub = args.strip().lower()
-        import preview_server
-
-        if sub == "stop":
-            session = preview_server.get_active_session()
-            if session is None:
-                msg = "预览服务器未在运行"
-                self.context.console.print(f"[yellow]{msg}[/yellow]") if self.context.has_rich else print(msg)
-                return
-            await preview_server.stop_session()
-            msg = "✓ 已停止预览服务器"
-            self.context.console.print(f"[green]{msg}[/green]") if self.context.has_rich else print(msg)
-            return
-
-        existing = preview_server.get_active_session()
-        if existing is not None and existing.url:
-            msg = f"预览服务器已在运行: {existing.url}"
-            self.context.console.print(f"[cyan]{msg}[/cyan]") if self.context.has_rich else print(msg)
-            return
-
-        try:
-            session = await preview_server.start_session()
-        except Exception as exc:
-            print_error(self.context, f"预览服务器启动失败: {exc}", "换个端口范围或检查网络配置后重试")
-            return
-
-        preview_server.open_in_browser(session.url)
-        msg = (
-            f"✓ 预览服务器已启动: {session.url}\n"
-            f"之后生成的报告/图表会自动在这个浏览器标签里实时更新，无需手动刷新。\n"
-            f"/canvas stop 可以随时关闭。"
-        )
-        self.context.console.print(f"[green]{msg}[/green]") if self.context.has_rich else print(msg)
+        """实时预览面板: `/canvas` 已迁移至原生 Rust CLI (`aria`) 内置预览服务。"""
+        discovery = Path.home() / ".arthera" / "canvas.json"
+        live_url = None
+        if discovery.is_file():
+            try:
+                live_url = json.loads(discovery.read_text(encoding="utf-8")).get("url")
+            except Exception:
+                live_url = None
+        if live_url:
+            msg = f"原生 Rust Canvas 预览服务器正在运行: {live_url}（在原生 `aria` CLI 中执行 `/canvas stop` 可关闭）"
+        else:
+            msg = "本地 `/canvas` 预览服务已迁移至原生 Rust CLI（`rust/cli/src/engine/canvas.rs`），请在 `aria` 中直接运行 `/canvas [start|status|stop]`。"
+        self.context.console.print(f"[cyan]{msg}[/cyan]") if self.context.has_rich else print(msg)

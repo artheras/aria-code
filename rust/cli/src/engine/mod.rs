@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod artifacts;
+pub mod canvas;
 pub mod cloud;
 pub mod compact;
 pub mod doctor;
