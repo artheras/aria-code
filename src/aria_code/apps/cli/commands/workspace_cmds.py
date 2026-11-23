@@ -892,208 +892,24 @@ class WorkspaceCommandsMixin:
                 self.context.console.print(f"\n[green]{msg}[/green]") if self.context.has_rich else print(f"\n{msg}")
 
     async def cmd_setup(self, args: str):
-        """Guided first-run setup wizard (Open Interpreter style).
-
-        Usage: /setup
-        """
-        import getpass as _gp
-
-        _is_interactive = sys.stdin.isatty()
-
-        if self.context.has_rich:
-            self.context.console.print()
-            self.context.console.print("[bold cyan]━━ Aria Setup Wizard ━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold cyan]")
-            self.context.console.print()
-
-        # ── Step 1: Detect LOCAL backends only (not cloud LLM providers) ───────
-        _LOCAL_BACKENDS_ONLY = {"ollama", "lmstudio", "vllm", "llamacpp", "jan"}
-        try:
-            from aria_code.providers.local_llm_provider import probe_all_backends, BACKEND_DEFAULTS
-            _all_backends = probe_all_backends()
-            # Filter to only true local backends — cloud providers appear in Step 3
-            backends = {k: v for k, v in _all_backends.items() if k in _LOCAL_BACKENDS_ONLY}
-        except ImportError:
-            backends = {}
-
-        self.context.console.print("  [bold]Step 1/4 · 本地 Backend[/bold]") if self.context.has_rich else print("Step 1: Local Backends")
-        ollama_online = backends.get("ollama", False)
-        for name, ok in backends.items():
-            icon  = "✅" if ok else "○"
-            color = "green" if ok else "dim"
-            url   = BACKEND_DEFAULTS.get(name, {}).get("default_url", "") if "BACKEND_DEFAULTS" in dir() else ""
-            if self.context.has_rich:
-                self.context.console.print(f"  {icon} [{color}]{name:12s}[/{color}] [dim]{url}[/dim]")
-            else:
-                print(f"  {'✓' if ok else '✗'} {name:12s} {url}")
-        self.context.console.print() if self.context.has_rich else print()
-
-        # ── Step 2: Pick default Ollama model (if Ollama online) ────────────
-        if ollama_online and _is_interactive:
-            self.context.console.print("  [bold]Step 2/4 · 选择默认本地模型[/bold]") if self.context.has_rich else print("Step 2: Default model")
-            rich_models, _ = detect_ollama_models_rich(
-                self.terminal.config.get("ollama_url", "http://localhost:11434")
-            )
-            if rich_models:
-                model_names = [m["name"] for m in rich_models]
-                current_id  = self.terminal.config.get("model", "")
-                sel_idx     = next((i for i, n in enumerate(model_names) if n == current_id), 0)
-                options     = [(f"  {n}", "") for n in model_names]
-                picked      = _arrow_select(options, sel_idx, "选择默认模型")
-                if picked is not None:
-                    chosen = model_names[picked]
-                    self.terminal.config["model"] = chosen
-                    self.context.save_config(self.terminal.config)
-                    msg = f"✓ 默认模型设为 {chosen}"
-                    self.context.console.print(f"  [green]{msg}[/green]") if self.context.has_rich else print(f"  {msg}")
-            self.context.console.print() if self.context.has_rich else print()
-        else:
-            self.context.console.print("  [dim]Step 2/4 · (Ollama 未运行，跳过模型选择)[/dim]") if self.context.has_rich else print("  Skipping model select (Ollama offline)")
-            self.context.console.print() if self.context.has_rich else print()
-
-        # ── Step 3: Cloud API keys ───────────────────────────────────────────
-        self.context.console.print("  [bold]Step 3/4 · Cloud API Key 配置[/bold]") if self.context.has_rich else print("Step 3: Cloud API Keys")
-        _SETUP_PROVIDERS = [
-            ("deepseek",  "DeepSeek",  "推荐：deepseek-chat，性价比最高"),
-            ("openai",    "OpenAI",    "GPT-4o，o1等"),
-            ("groq",      "Groq",      "免费 llama/mixtral 推理，极速"),
-            ("anthropic", "Anthropic", "Claude 3.5/3.7"),
-        ]
-        for prov, label, desc in _SETUP_PROVIDERS:
-            existing_key = _get_provider_key(prov)
-            if existing_key:
-                masked = existing_key[:6] + "****" + existing_key[-4:]
-                self.context.console.print(f"  🔑 {label:12s} [dim]已配置 ({masked})[/dim]") if self.context.has_rich else print(f"  {label}: 已配置")
-                continue
-            if _is_interactive:
-                self.context.console.print(f"  [cyan]{label}[/cyan] [dim]({desc})[/dim]") if self.context.has_rich else print(f"  {label}: {desc}")
-                try:
-                    key = _gp.getpass(f"  Enter {label} API key (留空跳过): ").strip()
-                except Exception:
-                    key = ""
-                if key:
-                    self.cmd_apikey(f"set {prov} {key}")
-            else:
-                self.context.console.print(f"  ○ {label:12s} [dim]未配置  → /apikey set {prov} <key>[/dim]") if self.context.has_rich else print(f"  {label}: not configured")
-        self.context.console.print() if self.context.has_rich else print()
-
-        # ── Step 3.5: Data Service API keys ──────────────────────────────────
-        self.context.console.print("  [bold]Step 3.5/4 · 市场数据服务 Key（后端离线时使用）[/bold]") if self.context.has_rich else print("Step 3.5: Data Service Keys")
-        _SETUP_DATA = [
-            ("finnhub",      "Finnhub",      "股票实时行情+新闻",     "https://finnhub.io/register"),
-            ("newsapi",      "NewsAPI",       "财经新闻聚合",          "https://newsapi.org/register"),
-            ("brave",        "Brave Search",  "网页搜索",             "https://api.search.brave.com/app/keys"),
-            ("alphavantage", "Alpha Vantage", "股票历史数据",          "https://www.alphavantage.co/support/#api-key"),
-        ]
-        _existing_data = _load_data_keys()
-        for svc, label, desc, signup_url in _SETUP_DATA:
-            existing_key = _existing_data.get(svc, "")
-            if existing_key:
-                masked = existing_key[:6] + "****" + existing_key[-4:]
-                self.context.console.print(f"  🔑 {label:16s} [dim]已配置 ({masked})[/dim]") if self.context.has_rich else print(f"  {label}: configured")
-                continue
-            if _is_interactive:
-                self.context.console.print(f"  [cyan]{label}[/cyan] [dim]({desc})[/dim]") if self.context.has_rich else print(f"  {label}: {desc}")
-                self.context.console.print(f"  [dim]注册：{signup_url}[/dim]") if self.context.has_rich else print(f"  Register: {signup_url}")
-                try:
-                    key = _gp.getpass(f"  Enter {label} API key (留空跳过): ").strip()
-                except Exception:
-                    key = ""
-                if key:
-                    self.cmd_apikey(f"set {svc} {key}")
-            else:
-                if self.context.has_rich:
-                    self.context.console.print(f"  ○ {label:16s} [dim]未配置  → /apikey set {svc} <key>[/dim]")
-                    self.context.console.print(f"    [dim]注册：{signup_url}[/dim]")
-                else:
-                    print(f"  {label}: not configured  → /apikey set {svc} <key>")
-        self.context.console.print() if self.context.has_rich else print()
-
-        # ── Step 3.8: MCP servers ────────────────────────────────────────────
-        sub = args.strip().lower()
-        if sub in ("mcp", "all"):
-            self.context.console.print("  [bold]Step 3.8/4 · MCP 服务器[/bold]") if self.context.has_rich else print("Step 3.8: MCP Servers")
-            _mcp_cfg_path = aria_home() / "mcp_servers.json"
-            if _mcp_cfg_path.exists():
-                try:
-                    import json as _j2
-                    _mcp_data = _j2.loads(_mcp_cfg_path.read_text())
-                    _servers = _mcp_data.get("servers", [])
-                    enabled_srv = [s for s in _servers if s.get("enabled", False)]
-                    disabled_srv = [s for s in _servers if not s.get("enabled", True)]
-                    for s in enabled_srv:
-                        self.context.console.print(f"  ✅ {s['name']:16s} [dim]{s.get('description','')[:50]}[/dim]") if self.context.has_rich else print(f"  ✓ {s['name']}")
-                    for s in disabled_srv:
-                        note = s.get("_setup", "")
-                        self.context.console.print(f"  ○  {s['name']:16s} [dim]{s.get('description','')[:50]}[/dim]") if self.context.has_rich else print(f"  ✗ {s['name']}")
-                        if note:
-                            self.context.console.print(f"     [dim]安装: {note}[/dim]") if self.context.has_rich else print(f"     Setup: {note}")
-                    if disabled_srv:
-                        self.context.console.print() if self.context.has_rich else print()
-                        self.context.console.print("  [dim]安装后编辑 ~/.arthera/mcp_servers.json 将对应项 enabled 改为 true[/dim]") if self.context.has_rich else print("  Edit mcp_servers.json: set enabled=true after installing")
-                except Exception:
-                    pass
-            self.context.console.print() if self.context.has_rich else print()
-
-        # ── Step 4: Messaging channels (Feishu / Telegram) ──────────────────
-        if sub in ("feishu", "telegram", "notify", "all", ""):
-            self.context.console.print("  [bold]Step 4/5 · 消息通知连接[/bold]") if self.context.has_rich else print("Step 4: Messaging")
-            _env_path = pathlib.Path.home() / ".aria" / ".env"
-            _env_vars: dict = {}
-            if _env_path.exists():
-                for _line in _env_path.read_text().splitlines():
-                    if "=" in _line and not _line.startswith("#"):
-                        k, _, v = _line.partition("=")
-                        _env_vars[k.strip()] = v.strip()
-
-            # Feishu status
-            _fs_mode  = _env_vars.get("ARIA_RELAY_MODE", "")
-            _fs_id    = _env_vars.get("ARIA_RELAY_CLIENT_ID", "")
-            _fs_app   = _env_vars.get("FEISHU_APP_ID", "")
-            if _fs_mode == "relay" and _fs_id:
-                _fs_status = f"[green]✓ 中继模式[/green]  ID: {_fs_id[:12]}…"
-            elif _fs_mode == "own_app" and _fs_app:
-                _fs_status = f"[green]✓ 自建应用[/green]  {_fs_app}"
-            else:
-                _fs_status = "[dim]未配置[/dim]  → /setup feishu"
-
-            # Telegram status
-            _tg_token = _env_vars.get("TELEGRAM_BOT_TOKEN", "")
-            _tg_ids   = _env_vars.get("TELEGRAM_ALLOWED_IDS", "")
-            if _tg_token and _tg_token != "your_bot_token_here":
-                _tg_status = f"[green]✓ 已配置[/green]  Chat IDs: {_tg_ids or '(未设置)'}"
-            else:
-                _tg_status = "[dim]未配置[/dim]  → /setup telegram"
-
-            if self.context.has_rich:
-                self.context.console.print(f"  飞书  {_fs_status}")
-                self.context.console.print(f"  Telegram  {_tg_status}")
-            else:
-                print(f"  Feishu: {_fs_mode or 'not configured'}")
-                print(f"  Telegram: {'configured' if _tg_token else 'not configured'}")
-
-            # Sub-command: launch wizard for just this channel
-            if sub in ("feishu", "telegram"):
-                self.context.console.print() if self.context.has_rich else print()
-                if self.context.has_rich:
-                    self.context.console.print("  [yellow]请运行: aria-native setup --provider ... 或 /apikey set[/yellow]")
-                else:
-                    print("  Run: aria-native setup --provider ... or /apikey set")
-                return
-
-            self.context.console.print() if self.context.has_rich else print()
-
-        # ── Step 5: Summary ─────────────────────────────────────────────────
-        self.context.console.print("  [bold]Step 5/5 · 配置完成[/bold]") if self.context.has_rich else print("Step 5: Done")
+        """Show setup status and point to native setup / API key / MCP commands."""
         model = self.terminal.config.get("model", "?")
         provider = self.terminal.config.get("local_provider", "ollama")
-        self.context.console.print(f"  模型: [cyan]{model}[/cyan]  Provider: [cyan]{provider}[/cyan]") if self.context.has_rich else print(f"  Model: {model}  Provider: {provider}")
-        self.context.console.print()  if self.context.has_rich else print()
-        self.context.console.print(
-            "  [dim]提示: /model — 切换模型   /providers — 查看所有 provider\n"
-            "        /setup feishu — 配置飞书   /setup telegram — 配置 Telegram[/dim]"
-        ) if self.context.has_rich else print("  Tip: /model  /providers  /setup feishu  /setup telegram")
-        self.context.console.print("[bold cyan]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/bold cyan]") if self.context.has_rich else print("─" * 50)
-        self.context.console.print() if self.context.has_rich else print()
+        lines = [
+            f"Model: {model} · Provider: {provider}",
+            "Setup commands:",
+            "  aria-native setup --provider <ollama|openai|anthropic|google|deepseek>",
+            "  /apikey set <provider> <key>   — configure cloud LLM API key",
+            "  /mcp connect | /mcp probe      — connect financial-service / erp-service / healthcare-service",
+            "  /providers                     — inspect active local & cloud providers",
+        ]
+        if self.context.has_rich:
+            self.context.console.print()
+            for line in lines:
+                self.context.console.print(f"  [dim]{line}[/dim]")
+            self.context.console.print()
+        else:
+            print("\n".join(lines))
 
     def cmd_memory(self, args: str):
         """Manage persistent memory: project ARIA.md and global user profile.

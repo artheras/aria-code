@@ -52,25 +52,6 @@ def _get_CONFIG_DIR():
     from aria_cli import CONFIG_DIR as val
     return val
 
-import json
-import asyncio
-import datetime
-import time
-import shlex
-import sys
-import os
-from typing import Dict, Any, Optional
-
-
-import json
-import asyncio
-import datetime
-import time
-import shlex
-import sys
-import os
-from typing import Dict, Any, Optional
-
 
 class WorkflowCommandsMixin:
     """Mixin: interactive workflow and edit-review commands."""
@@ -496,36 +477,6 @@ class WorkflowCommandsMixin:
         for index, line in enumerate(summary_lines(workflow, results)):
             style = ("red" if "FAILED" in line else "yellow" if "STOPPED" in line else "green") if index == 0 else "dim"
             self._wf_say(line, style)
-
-    async def cmd_retry(self, args: str):
-        last_user_msg = None
-        for i in range(len(self.terminal.conversation) - 1, -1, -1):
-            if self.terminal.conversation[i]["role"] == "assistant":
-                self.terminal.conversation.pop(i)
-                break
-        for msg in reversed(self.terminal.conversation):
-            if msg["role"] == "user":
-                last_user_msg = msg["content"]
-                break
-        if not last_user_msg:
-            self.context.console.print("[dim]No message to retry[/dim]" if self.context.has_rich else "Nothing to retry")
-            return
-        for i in range(len(self.terminal.conversation) - 1, -1, -1):
-            if self.terminal.conversation[i]["role"] == "user" and self.terminal.conversation[i]["content"] == last_user_msg:
-                self.terminal.conversation.pop(i)
-                break
-        orig_model_key = resolve_model_key(self.terminal.config.get("model", "qwen2.5:7b"))
-        _fallback_model = _get_MODELS().get("qwen-fast") or _get_MODELS().get("qwen7b") or next(iter(_get_MODELS().values()))
-        orig_temp = _get_MODELS().get(orig_model_key, _fallback_model).get("temperature", 0.3)
-        _get_MODELS()[orig_model_key]["temperature"] = min(0.9, orig_temp + 0.3)
-        if self.context.has_rich:
-            self.context.console.print(f"[dim]Retrying with temperature {_get_MODELS()[orig_model_key]['temperature']:.1f}...[/dim]")
-        else:
-            print("Retrying (temp +0.3)...")
-        try:
-            await self.terminal.send_message(last_user_msg)
-        finally:
-            _get_MODELS()[orig_model_key]["temperature"] = orig_temp
 
     def cmd_note(self, args: str):
         text = args.strip()

@@ -36,25 +36,6 @@ def _get__SYNTAX_THEME():
     from aria_cli import _SYNTAX_THEME as val
     return val
 
-import json
-import asyncio
-import datetime
-import time
-import shlex
-import sys
-import os
-from typing import Dict, Any, Optional
-
-
-import json
-import asyncio
-import datetime
-import time
-import shlex
-import sys
-import os
-from typing import Dict, Any, Optional
-
 
 class OpsCommandsMixin:
     """Mixin: operational and workflow helper commands."""
@@ -98,14 +79,7 @@ class OpsCommandsMixin:
                 print(f"Watchlist: {', '.join(watchlist)}")
 
     def cmd_services(self, args: str):
-        """Show CLI service tiers and core workflows."""
-        provider_summary = None
-        try:
-            from packages.aria_services.provider_health import GLOBAL_PROVIDER_HEALTH
-            provider_summary = GLOBAL_PROVIDER_HEALTH.summary()
-        except Exception:
-            provider_summary = None
-
+        """Show runtime boundaries and connected ecosystem MCP services."""
         cfg = getattr(self.terminal, "config", {}) or {}
         auto_compact = bool(cfg.get("auto_compact_context", True))
         try:
@@ -113,101 +87,21 @@ class OpsCommandsMixin:
         except Exception:
             auto_compact_threshold = 78
 
-        def _key_status(provider: str) -> str:
-            try:
-                return "configured" if _get_provider_key(provider) else "not set"
-            except Exception:
-                return "unknown"
-
         runtime_services = [
-            ("LLM runtime", cfg.get("model", "unknown"), "local/Ollama with cloud fallback"),
+            ("LLM runtime", cfg.get("model", "unknown"), "local Ollama / cloud providers"),
             ("Context manager", f"auto compact {'on' if auto_compact else 'off'} @ {auto_compact_threshold}%", "preflight + post-turn guards"),
-            ("Market data", "DataService", "quote/history/fundamentals/TA + provider health"),
-            ("Charts/reports", "artifact services", "HTML/PNG charts, dashboards, Markdown/HTML reports"),
-            ("News/Web", f"finnhub:{_key_status('finnhub')} · newsapi:{_key_status('newsapi')} · brave:{_key_status('brave')}", "news command + web search fallback"),
-            ("Cloud AI/data", f"dashscope:{_key_status('dashscope')} · openai:{_key_status('openai')} · anthropic:{_key_status('anthropic')}", "optional external providers"),
-            ("MCP/tools", f"{len(_get_LOCAL_TOOLS())} local tools", "tool loop with repeat-call guard"),
+            ("MCP/tools", f"{len(_get_LOCAL_TOOLS())} local tools", "arthera-finance · erp-service · aria-healthcare"),
         ]
-
-        service_groups = [
-            (
-                "CORE (Standard)",
-                [
-                    "Code agent with local tools (read/write/edit/search/run)",
-                    "Slash command workflows for quote/analyze/backtest/risk/screen",
-                    "Session save/load/export and interactive history management",
-                    "Model switching + thinking mode controls for response depth",
-                ],
-            ),
-            (
-                "QUANTUM Automation",
-                [
-                    "Agentic multi-step loop (auto read -> analyze -> edit -> execute)",
-                    "Auto-recovery guidance for failed commands and code fixes",
-                    "Strategy generation, backtest reporting, and risk analysis skills",
-                    "Cross-workspace research sync hooks (session + export pipeline)",
-                ],
-            ),
-            (
-                "ENTERPRISE Controls (included in Quantum)",
-                [
-                    "Service health diagnostics (/health) for backend + local model stack",
-                    "Governed command execution with dangerous-command blocking",
-                    "Audit-friendly session logs and reproducible command trails",
-                    "MCP-ready service integration path via external tool endpoints",
-                ],
-            ),
-        ]
-
-        quick_flow = [
-            "/model",
-            "/gen-strategy momentum AAPL",
-            "/backtest momentum AAPL 2024-01-01 2025-01-01",
-            "/risk AAPL",
-            "/export md strategy_report.md",
-        ]
-
         if self.context.has_rich:
             self.context.console.print()
-            self.context.console.print("[bold]CLI Services[/bold] [dim](runtime boundaries + workflow)[/dim]")
-            self.context.console.print()
-            self.context.console.print("  [bold]Runtime Service Map[/bold]")
+            self.context.console.print("[bold]CLI Services[/bold] [dim](runtime harness + MCP ecosystem)[/dim]")
             for name, status, detail in runtime_services:
-                self.context.console.print(f"    [dim]{name:<16}[/dim] [bold]{status}[/bold]  [dim]{detail}[/dim]")
-            if provider_summary is not None:
-                color = "green" if provider_summary.status == "ok" else ("red" if provider_summary.status == "err" else "yellow")
-                self.context.console.print(f"    [dim]{'Provider health':<16}[/dim] [{color}]{provider_summary.status}[/{color}]  [dim]{provider_summary.detail}[/dim]")
-                self.context.console.print(f"    [dim]{'Suggestion':<16}[/dim] [dim]{provider_summary.suggestion}[/dim]")
-            self.context.console.print()
-            for group_name, items in service_groups:
-                self.context.console.print(f"  [bold #C08050]{group_name}[/bold #C08050]")
-                for item in items:
-                    self.context.console.print(f"    [dim]> {item}[/dim]")
-                self.context.console.print()
-
-            self.context.console.print("  [bold]Quick Start Flow[/bold]")
-            for cmd in quick_flow:
-                self.context.console.print(f"    [bold]{cmd}[/bold]")
+                self.context.console.print(f"  [dim]{name:<16}[/dim] [bold]{status}[/bold]  [dim]{detail}[/dim]")
+            self.context.console.print("  [dim]Tip: /mcp status · /roi · /doctor[/dim]")
             self.context.console.print()
         else:
-            print("\nCLI Services (runtime boundaries + workflow)\n")
-            print("  Runtime Service Map")
             for name, status, detail in runtime_services:
-                print(f"    {name:<16} {status}  {detail}")
-            if provider_summary is not None:
-                print(f"    {'Provider health':<16} {provider_summary.status}  {provider_summary.detail}")
-                print(f"    {'Suggestion':<16} {provider_summary.suggestion}")
-            print()
-            for group_name, items in service_groups:
-                print(f"  {group_name}")
-                for item in items:
-                    print(f"    > {item}")
-                print()
-
-            print("  Quick Start Flow")
-            for cmd in quick_flow:
-                print(f"    {cmd}")
-            print()
+                print(f"  {name:<16} {status}  {detail}")
 
     def cmd_plan(self, args: str):
         """Create an executable plan and store it for /apply-plan."""

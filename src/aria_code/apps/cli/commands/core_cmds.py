@@ -1643,17 +1643,6 @@ class CoreCommandsMixin:
         """Technical indicators moved to Arthera backend service."""
         if self.context.has_rich:
             self.context.console.print("[dim]/ta 已迁移至 Arthera 后端服务。[/dim]")
-    def _extract_last_code(self) -> str:
-        """从对话历史中提取最后一段 Python 代码块."""
-        import re
-        for msg in reversed(self.terminal.conversation):
-            content = msg.get("content", "")
-            # Match ```python ... ``` blocks
-            matches = re.findall(r"```(?:python)?\n(.*?)```", content, re.DOTALL)
-            if matches:
-                # Return the longest code block
-                return max(matches, key=len)
-        return ""
     async def cmd_orcl(self, args: str):
         """ORCL vertical analysis moved to Arthera backend service."""
         if self.context.has_rich:

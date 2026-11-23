@@ -299,10 +299,7 @@ from aria_code.apps.cli.commands.session_cmds import SessionCommandsMixin
 from aria_code.apps.cli.session_export import build_session_export_payload  # 同上
 from aria_code.apps.cli.commands.workspace_cmds import WorkspaceCommandsMixin
 from aria_code.apps.cli.commands.model_cmds import ModelCommandsMixin
-from aria_code.apps.cli.commands.market_cmds import (
-    MarketCommandsMixin,
-    _fetch_public_news_fallback,
-)
+from aria_code.apps.cli.commands.market_cmds import MarketCommandsMixin
 from aria_code.apps.cli.commands.portfolio_cmds import PortfolioCommandsMixin
 from aria_code.apps.cli.commands.pdf_export_cmds import PdfExportCommandsMixin
 from aria_code.apps.cli.handlers.market_handlers import (

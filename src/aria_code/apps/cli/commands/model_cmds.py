@@ -1337,166 +1337,12 @@ class ModelCommandsMixin:
             self.context.console.print("[dim]Usage: /apikey [set|list|remove|test] — 或直接 /apikey 进入向导[/dim]") if self.context.has_rich else print("Usage: /apikey [set|list|remove|test]")
 
     async def _cmd_apikey_wizard(self):
-        """交互式 API Key 配置向导：选 provider → 查看指引 → 输入 key → 测试连接。"""
-        import getpass as _getpass
-
-        pjson = _load_providers_json()
-        data_cfg = _load_data_keys()
-
-        def _is_configured(name: str) -> bool:
-            env = _get__PROVIDER_KEY_MAP().get(name) or _get__DATA_KEY_MAP().get(name)
-            if env and os.getenv(env):
-                return True
-            if name in pjson and pjson[name].get("api_key"):
-                return True
-            if name in data_cfg:
-                return True
-            return False
-
-        # ── 分组构建 picker ───────────────────────────────────────────────────
-        _LLM_ORDER = [
-            # 国际
-            "deepseek", "anthropic", "openai", "google", "xai",
-            "groq", "mistral", "cohere", "perplexity", "together",
-            # 国内
-            "siliconflow", "dashscope", "moonshot", "zhipu",
-            "baidu", "bytedance", "minimax", "stepfun", "01ai",
-        ]
-        _DATA_ORDER = ["finnhub", "alphavantage", "twelvedata", "polygon",
-                       "fmp", "newsapi", "coingecko", "tavily", "brave"]
-
-        all_items = []  # (label, desc, key_name | None)
-
-        all_items.append(("─── 🤖 LLM 服务  (对话·分析·推理) ", "", None))
-        for k in _LLM_ORDER:
-            dot = "[green]●[/green]" if _is_configured(k) else "[dim]○[/dim]"
-            desc = _get__PROVIDER_DESC().get(k, "")
-            configured_tag = "  ✓" if _is_configured(k) else ""
-            all_items.append((f"  {k:<14}{configured_tag}", desc, k))
-
-        all_items.append(("─── 📊 数据服务  (行情·财报·新闻) ", "", None))
-        for k in _DATA_ORDER:
-            desc = _get__PROVIDER_DESC().get(k, "")
-            configured_tag = "  ✓" if _is_configured(k) else ""
-            all_items.append((f"  {k:<14}{configured_tag}", desc, k))
-
-        picker_opts = [(label, desc) for label, desc, _ in all_items]
-        sep_indices = {i for i, (_, _, key) in enumerate(all_items) if key is None}
-        key_at = {i: key for i, (_, _, key) in enumerate(all_items) if key}
-
-        # 默认选中第一个真实条目
-        first_real = next(i for i in range(len(all_items)) if i not in sep_indices)
-        selected = first_real
-
-        while True:
-            self.context.console.print() if self.context.has_rich else None
-
-            if self.context.has_rich:
-                from rich.panel import Panel as _Panel
-                from rich import box as _rbox
-                self.context.console.print(_Panel(
-                    "  ↑↓ 上下选择  ·  Enter 确认  ·  ESC/q 退出向导\n"
-                    "  [green]●[/green] 已配置  [dim]○[/dim] 未配置  ✓ 表示 key 已存在",
-                    border_style="dim", box=_rbox.ROUNDED, padding=(0, 2),
-                ))
-
-            idx = _arrow_select(picker_opts, selected=selected, title="选择要配置的 Provider", max_visible=20)
-
-            if idx < 0:
-                self.context.console.print("[dim]已退出向导[/dim]") if self.context.has_rich else print("已退出")
-                return
-
-            if idx in sep_indices:
-                nxt = next((i for i in range(idx + 1, len(all_items)) if i not in sep_indices), first_real)
-                selected = nxt
-                continue
-
-            provider = key_at[idx]
-            selected = idx
-
-            # ── 显示获取指引 ──────────────────────────────────────────────────
-            guide = _get__PROVIDER_GUIDE().get(provider, "")
-            signup = _get__LLM_SIGNUP_URLS().get(provider) or _get__DATA_SIGNUP_URLS().get(provider, "")
-            if self.context.has_rich:
-                from rich.panel import Panel as _Panel
-                from rich import box as _rbox
-                guide_body = guide
-                if signup:
-                    guide_body += f"\n\n[bold cyan]🔗 {signup}[/bold cyan]"
-                current_key = _get_provider_key(provider)
-                if current_key:
-                    masked = current_key[:6] + "****" + current_key[-4:] if len(current_key) > 10 else "****"
-                    guide_body += f"\n\n[green]当前 key: {masked}[/green]  (直接回车保留现有 key)"
-                self.context.console.print()
-                self.context.console.print(_Panel(
-                    guide_body,
-                    title=f"[bold]{provider.upper()}  配置指引[/bold]",
-                    border_style="cyan", box=_rbox.ROUNDED, padding=(0, 2),
-                ))
-            else:
-                print(f"\n=== {provider.upper()} ===")
-                print(guide)
-                if signup:
-                    print(f"注册地址: {signup}")
-
-            # ── 输入 key ──────────────────────────────────────────────────────
-            prompt_str = f"  请输入 {provider} API Key (输入后不显示): "
-            try:
-                raw_key = _getpass.getpass(prompt_str)
-            except (KeyboardInterrupt, EOFError):
-                self.context.console.print("\n[dim]已跳过[/dim]") if self.context.has_rich else print("\n已跳过")
-                continue
-
-            raw_key = raw_key.strip()
-            if not raw_key:
-                # 保留现有 key，直接回到 picker
-                msg = "未输入 key，保留现有配置"
-                self.context.console.print(f"[dim]  {msg}[/dim]") if self.context.has_rich else print(f"  {msg}")
-                continue
-
-            # ── 保存 ──────────────────────────────────────────────────────────
-            if provider in _get__DATA_KEY_MAP():
-                _save_data_key(provider, raw_key)
-                env_var = _get__DATA_KEY_MAP()[provider]
-                os.environ[env_var] = raw_key
-            else:
-                pjson_fresh = _load_providers_json()
-                entry = pjson_fresh.get(provider, {})
-                entry["api_key"] = raw_key
-                if provider in _get__PROVIDER_BASE_URLS():
-                    entry.setdefault("base_url", _get__PROVIDER_BASE_URLS()[provider])
-                pjson_fresh[provider] = entry
-                _save_providers_json(pjson_fresh)
-                env_var = _get__PROVIDER_KEY_MAP().get(provider)
-                if env_var:
-                    os.environ[env_var] = raw_key
-                pjson = pjson_fresh
-
-            masked = raw_key[:6] + "****" + raw_key[-4:] if len(raw_key) > 10 else "****"
-            msg = f"✓ {provider} key 已保存  ({masked})"
-            self.context.console.print(f"[green]  {msg}[/green]") if self.context.has_rich else print(f"  {msg}")
-
-            # ── 连接测试 ──────────────────────────────────────────────────────
-            print("  正在测试连接…", end="", flush=True)
-            import asyncio as _aio
-            loop = _aio.get_event_loop()
-            ok, result_msg = await loop.run_in_executor(None, _test_api_key, provider, raw_key)
-            print("\r", end="")  # 清除"正在测试"那行
-            if self.context.has_rich:
-                color = "green" if ok else "yellow"
-                self.context.console.print(f"  [{color}]{result_msg}[/{color}]")
-            else:
-                print(f"  {result_msg}")
-
-            # ── 继续配置其他 provider？ ───────────────────────────────────────
-            self.context.console.print() if self.context.has_rich else None
-            try:
-                again = input("  继续配置其他 provider? (y/N) › ").strip().lower()
-            except (KeyboardInterrupt, EOFError):
-                again = "n"
-            if again not in ("y", "yes", "是"):
-                self.context.console.print("[dim]  向导已完成。输入 /apikey list 查看所有配置。[/dim]") if self.context.has_rich else print("向导完成")
-                return
+        """Show API key configuration usage (interactive wizard superseded by `/apikey set` and `aria-native setup`)."""
+        msg = "Usage: /apikey set <provider> <key> | /apikey list | /apikey remove <provider> | /apikey test <provider>"
+        if self.context.has_rich:
+            self.context.console.print(f"  [dim]{msg}[/dim]")
+        else:
+            print(msg)
 
     def _providers_init(self, *, force: bool = False):
         """按本机实际环境生成 ~/.aria/providers.yaml。"""
@@ -1652,46 +1498,11 @@ class ModelCommandsMixin:
             else:
                 print(f"\n  Custom: {custom_ep}  model={custom_m}")
 
-        # ── Data service keys section ─────────────────────────────────────────
-        _data_keys = _load_data_keys()
-        _DATA_DISPLAY = [
-            ("finnhub",      "Finnhub",       "股票+新闻"),
-            ("newsapi",      "NewsAPI",        "财经新闻"),
-            ("brave",        "Brave Search",   "网页搜索"),
-            ("alphavantage", "Alpha Vantage",  "历史数据"),
-            ("coingecko",    "CoinGecko Pro",  "加密数据"),
-            ("twelvedata",   "Twelve Data",    "全球行情"),
-        ]
-        if self.context.has_rich:
-            self.context.console.print()
-            self.context.console.print("  [bold]📊 数据服务 API[/bold]  [dim](后端离线时的本地数据源)[/dim]")
-            self.context.console.print()
-        else:
-            print("\n  == Data Service APIs ==")
-        for svc, label, desc in _DATA_DISPLAY:
-            key_val = _data_keys.get(svc, "")
-            if key_val:
-                masked = key_val[:6] + "****" + key_val[-4:] if len(key_val) > 10 else "****"
-                signup = _get__DATA_SIGNUP_URLS().get(svc, "")
-                if self.context.has_rich:
-                    self.context.console.print(f"  🔑 [green]{label:18s}[/green] [dim]{masked}  {desc}[/dim]")
-                else:
-                    print(f"  ✓ {label:18s} {masked}")
-            else:
-                hint   = f"/apikey set {svc} <key>"
-                signup = _get__DATA_SIGNUP_URLS().get(svc, "")
-                if self.context.has_rich:
-                    self.context.console.print(f"  ○ [dim]{label:18s} 未配置  →  {hint}[/dim]")
-                else:
-                    print(f"  ✗ {label:18s} {hint}")
-
         if self.context.has_rich:
             self.context.console.print()
             self.context.console.print("  [dim]配置 LLM Key:   /apikey set deepseek <key>[/dim]")
-            self.context.console.print("  [dim]配置数据 Key:   /apikey set finnhub <key>[/dim]")
             self.context.console.print("  [dim]切换模型:       /model deepseek/deepseek-chat[/dim]")
-            self.context.console.print("  [dim]首次向导:       /setup[/dim]")
-            self.context.console.print("  [dim]自定义端点:     /config set custom_endpoint=http://...[/dim]")
+            self.context.console.print("  [dim]垂直 MCP 服务:  /mcp connect | /mcp probe[/dim]")
             self.context.console.print()
 
     async def cmd_cloud(self, args: str):
