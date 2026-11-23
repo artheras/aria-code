@@ -1011,105 +1011,41 @@ class CoreCommandsMixin:
             print(f"Feedback {icon}" + (f" — {comment}" if comment else "") +
                   (" (uploaded)" if api_success else " (saved locally)"))
     def cmd_privacy(self, args: str):
-        """Manage local privacy and feedback-sharing settings."""
+        """Manage local privacy and feedback-sharing settings (also native in Rust CLI)."""
         from aria_cli import CONFIG_DIR
-        from aria_code.privacy import FeedbackStore
-        from aria_code.privacy import PrivacySettings
+        from aria_code.privacy import FeedbackStore, PrivacySettings
+        from aria_code.safety import SafetyService
         from aria_code.ui.render.output import display_path as _display_path
+
         parts = args.strip().split(maxsplit=1)
         sub = parts[0].lower() if parts else "status"
         rest = parts[1].strip() if len(parts) > 1 else ""
         store = FeedbackStore(CONFIG_DIR)
-        from aria_code.safety import SafetyService
         settings = SafetyService(self.terminal.config).privacy()
-
-        def _save_settings(new_settings: PrivacySettings):
-            new_settings.apply_to_config(self.terminal.config)
-            self.context.save_config(self.terminal.config)
+        say = (lambda m: self.context.console.print(m)) if self.context.has_rich else print
 
         if sub in {"status", "show"}:
-            shared_state = "ON — feedback may be shared with Arthera" if (
-                settings.data_sharing and settings.feedback_upload
-            ) else "OFF — local-only, nothing leaves this machine"
-            lines = [
-                "Privacy status",
-                f"  sharing: {shared_state}",
-                f"  data_sharing: {settings.data_sharing}",
-                f"  feedback_upload: {settings.feedback_upload}",
-                f"  feedback_records: {store.count()}",
-                f"  local_feedback: {store.feedback_file}",
-                "  default: local-only; no upload unless you run /privacy opt-in",
-                "  full policy: /privacy policy  (or see PRIVACY.md)",
-            ]
-            if self.context.has_rich:
-                self.context.console.print()
-                self.context.console.print("[bold]Privacy[/bold]")
-                for line in lines[1:]:
-                    self.context.console.print(f"[dim]{line}[/dim]")
-            else:
-                print("\n".join(lines))
-            return
-
-        if sub == "policy":
-            url = "https://github.com/artheras/aria-code/blob/main/PRIVACY.md"
-            local = pathlib.Path(__file__).resolve().parent / "PRIVACY.md"
-            lines = [
-                "Aria Code is local-first: by default nothing is collected or uploaded.",
-                "Only `/privacy opt-in` shares feedback (rating + related message) with Arthera.",
-                "Credentials, positions, and financial data always stay on your machine.",
-                f"  full policy: {local if local.exists() else url}",
-                "  manage: /privacy opt-in | opt-out | export [path] | delete",
-            ]
-            if self.context.has_rich:
-                self.context.console.print()
-                self.context.console.print("[bold]Privacy policy[/bold]")
-                for line in lines:
-                    self.context.console.print(f"[dim]{line}[/dim]")
-            else:
-                print("\n".join(lines))
-            return
-
-        if sub in {"opt-in", "on", "enable"}:
-            _save_settings(PrivacySettings(data_sharing=True, feedback_upload=True))
-            if self.context.has_rich:
-                self.context.console.print("[green]Data sharing enabled.[/green]")
-                self.context.console.print("[dim]  You consent to share /feedback records (rating, the related[/dim]")
-                self.context.console.print("[dim]  model message, optional comment, model id, session id, time)[/dim]")
-                self.context.console.print("[dim]  with Arthera to improve the product. Local copies are kept.[/dim]")
-                self.context.console.print("[dim]  Credentials & financial data are never shared. Details: /privacy policy[/dim]")
-                self.context.console.print("[dim]  Withdraw any time: /privacy opt-out[/dim]")
-            else:
-                print("Data sharing enabled. You consent to share /feedback records "
-                      "(rating + related message) with Arthera. Credentials & financial "
-                      "data are never shared. Withdraw: /privacy opt-out. Details: /privacy policy")
-            return
-
-        if sub in {"opt-out", "off", "disable"}:
-            _save_settings(PrivacySettings(data_sharing=False, feedback_upload=False))
-            msg = "Data sharing disabled. Feedback stays local only."
-            self.context.console.print(f"[green]{msg}[/green]" if self.context.has_rich else msg)
-            return
-
-        if sub == "export":
-            dest = rest or None
+            shared = "ON" if (settings.data_sharing and settings.feedback_upload) else "OFF (local-only)"
+            say(f"Privacy: sharing={shared} · records={store.count()} · file={store.feedback_file}")
+        elif sub == "policy":
+            say("Aria Code is local-first: nothing leaves this machine unless you run /privacy opt-in.")
+        elif sub in {"opt-in", "on", "enable"}:
+            PrivacySettings(data_sharing=True, feedback_upload=True).apply_to_config(self.terminal.config)
+            self.context.save_config(self.terminal.config)
+            say("Data sharing enabled. Withdraw anytime with /privacy opt-out.")
+        elif sub in {"opt-out", "off", "disable"}:
+            PrivacySettings(data_sharing=False, feedback_upload=False).apply_to_config(self.terminal.config)
+            self.context.save_config(self.terminal.config)
+            say("Data sharing disabled. Feedback stays local only.")
+        elif sub == "export":
             try:
-                path = store.export_jsonl(dest)
+                say(f"Exported feedback to {_display_path(store.export_jsonl(rest or None))}")
             except Exception as exc:
-                msg = f"Export failed: {exc}"
-                self.context.console.print(f"[red]{msg}[/red]" if self.context.has_rich else msg)
-                return
-            msg = f"Exported feedback to {_display_path(path)}"
-            self.context.console.print(f"[green]{msg}[/green]" if self.context.has_rich else msg)
-            return
-
-        if sub in {"delete", "clear"}:
-            count = store.delete_all()
-            msg = f"Deleted {count} local feedback record(s)."
-            self.context.console.print(f"[green]{msg}[/green]" if self.context.has_rich else msg)
-            return
-
-        msg = "Usage: /privacy [status|policy|opt-in|opt-out|export [path]|delete]"
-        self.context.console.print(f"[dim]{msg}[/dim]" if self.context.has_rich else msg)
+                say(f"Export failed: {exc}")
+        elif sub in {"delete", "clear"}:
+            say(f"Deleted {store.delete_all()} local feedback record(s).")
+        else:
+            say("Usage: /privacy [status|policy|opt-in|opt-out|export [path]|delete]")
     async def _run_tool_cmd(self, tool_name: str, params: dict, label: str = ""):
         """Generic helper: run tool with spinner and formatted output.
 
