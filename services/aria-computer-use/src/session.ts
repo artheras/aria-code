@@ -348,12 +348,22 @@ export class BrowserSession {
 
     await ctx.route("**/*", (route) => {
       const req = route.request();
-      if (req.isNavigationRequest() && req.frame().parentFrame() === null) {
+      if (req.isNavigationRequest()) {
+        let isTopFrame = true;
         try {
-          this.assertAllowed(req.url());
+          isTopFrame = req.frame().parentFrame() === null;
         } catch {
-          void route.abort("blockedbyclient");
-          return;
+          // Playwright throws if a target="_blank" popup navigation starts before its Frame exists;
+          // treat top-level popup navigations as top-frame so origin allowlist still applies.
+          isTopFrame = true;
+        }
+        if (isTopFrame) {
+          try {
+            this.assertAllowed(req.url());
+          } catch {
+            void route.abort("blockedbyclient");
+            return;
+          }
         }
       }
       void route.continue();
@@ -409,7 +419,11 @@ export class BrowserSession {
     }
   }
 
-  async observe(markElements = false, includeAxTree = false): Promise<Record<string, unknown>> {
+  async observe(
+    markElements = false,
+    includeAxTree = false,
+    attempt = 0,
+  ): Promise<Record<string, unknown>> {
     if (!this.page) {
       throw new ValidationError("No page is open; call browser_open first");
     }
@@ -514,6 +528,10 @@ export class BrowserSession {
 
     if ((await this.fingerprint()) !== fpBefore) {
       this.observation = null;
+      if (attempt < 1) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        return this.observe(markElements, includeAxTree, attempt + 1);
+      }
       throw new ValidationError("Page changed while observing; call browser_observe again");
     }
 
