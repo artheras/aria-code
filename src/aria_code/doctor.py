@@ -359,32 +359,21 @@ def integration_checks() -> List[DoctorCheck]:
             "pip install 'aria-code[image_gen]' for free local image generation, or use aria.report.generate_image (OpenAI, needs an API key).",
         ))
 
-    key_checks = [
-        ("integration:openai_images", "openai_image_client", "_api_key", "/apikey set openai sk-...", "aria.report.generate_image/edit_image"),
-        ("integration:kling", "kling_video_client", "_keys", "/apikey set kling <access_key>:<secret_key>", "aria.video.generate_submit (provider=kling)"),
-        ("integration:runway", "runway_video_client", "_api_key", "/apikey set runway <key>", "aria.video.generate_submit (provider=runway)"),
-        ("integration:figma", "figma_client", "_token", "/apikey set figma <personal_access_token>", "aria.figma.read_file/comments"),
-    ]
-    for name, module_name, key_fn, setup_hint, gates in key_checks:
-        if _provider_key_present(module_name, key_fn):
-            checks.append(_check(name, "ok", f"key configured — {gates} usable"))
-        else:
-            checks.append(_check(name, "warn", "no API key configured", f"{setup_hint} to use {gates}."))
-
     try:
-        # Read stored config directly rather than calling _access_token(),
-        # which refreshes an expired token over the network — this function
-        # is a local-first, no-mutation health check, not a live probe.
-        from aria_code.clients.canva_client import _load_canva_config
+        from aria_code.packages.aria_mcp.config import discover_sibling_ecosystem_servers
 
-        connected = bool(_load_canva_config().get("access_token"))
-        checks.append(_check(
-            "integration:canva", "ok" if connected else "warn",
-            "connected — aria.report.canva_design/canva_upload_asset usable" if connected else "not connected",
-            "" if connected else "Run /canva connect <client_id> <client_secret> (needs a Canva Connect app + brand template).",
-        ))
-    except Exception as exc:
-        checks.append(_check("integration:canva", "warn", f"could not read config: {exc}", "Run /canva connect <client_id> <client_secret>."))
+        has_creative = any(
+            str(s.get("name", "")) == "aria-creative-media"
+            for s in discover_sibling_ecosystem_servers()
+        )
+    except Exception:
+        has_creative = False
+    checks.append(_check(
+        "integration:creative_media_plugin",
+        "ok" if has_creative else "warn",
+        "discovered external aria-creative-media MCP plugin" if has_creative else "external creative-media plugin not installed",
+        "" if has_creative else "Install artheras/aria-plugins (plugins/creative-media) for Figma, Canva, OpenAI Images, Kling, and Runway.",
+    ))
 
     return checks
 
