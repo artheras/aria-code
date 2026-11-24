@@ -218,16 +218,23 @@ pub fn handle_export_report_command(
     let Some(first) = tokens.first() else {
         return (
             if zh {
-                "用法: `/export-report <input.md> [--pdf|--html]`".to_owned()
+                "用法: `/export-report <input.md> [--pdf|--html|--docx]`".to_owned()
             } else {
-                "Usage: `/export-report <input.md> [--pdf|--html]`".to_owned()
+                "Usage: `/export-report <input.md> [--pdf|--html|--docx]`".to_owned()
             },
             "completed",
         );
     };
     let as_pdf = tokens.contains(&"--pdf");
+    let as_docx = tokens.contains(&"--docx");
     let in_path = Path::new(first);
-    let ext = if as_pdf { "pdf" } else { "html" };
+    let ext = if as_docx {
+        "docx"
+    } else if as_pdf {
+        "pdf"
+    } else {
+        "html"
+    };
     let stem = in_path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -237,7 +244,12 @@ pub fn handle_export_report_command(
         .join("exports")
         .join(format!("{stem}.{ext}"));
 
-    match export_markdown_report(workspace, in_path, &out_path, as_pdf, zh) {
+    let result = if as_docx {
+        export_markdown_docx(workspace, in_path, &out_path)
+    } else {
+        export_markdown_report(workspace, in_path, &out_path, as_pdf, zh)
+    };
+    match result {
         Ok(written) => (
             if zh {
                 format!("✓ 已导出原生报告: `{}`", written.display())
@@ -248,6 +260,191 @@ pub fn handle_export_report_command(
         ),
         Err(err) => (err, "failed"),
     }
+}
+
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+pub fn render_markdown_docx_xml(md: &str) -> String {
+    let mut body = String::new();
+    let mut cur_text = String::new();
+    let mut cur_heading: Option<u8> = None;
+    let mut in_list_item = false;
+    let mut in_para = false;
+
+    let flush_para = |body: &mut String, text: &mut String, style: Option<&str>| {
+        let t = text.trim();
+        if !t.is_empty() {
+            body.push_str("<w:p>");
+            if let Some(st) = style {
+                body.push_str(&format!("<w:pPr><w:pStyle w:val=\"{st}\"/></w:pPr>"));
+            }
+            body.push_str("<w:r><w:t xml:space=\"preserve\">");
+            body.push_str(&xml_escape(t));
+            body.push_str("</w:t></w:r></w:p>");
+        }
+        text.clear();
+    };
+
+    for ev in Parser::new_ext(md, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH) {
+        match ev {
+            Event::Start(Tag::Heading { level, .. }) => {
+                cur_heading = Some(level as u8);
+                cur_text.clear();
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                let lvl = cur_heading.take().unwrap_or(1).clamp(1, 4);
+                let style = format!("Heading{lvl}");
+                flush_para(&mut body, &mut cur_text, Some(&style));
+            }
+            Event::Start(Tag::Item) => {
+                in_list_item = true;
+                cur_text.push_str("• ");
+            }
+            Event::End(TagEnd::Item) => {
+                in_list_item = false;
+                flush_para(&mut body, &mut cur_text, None);
+            }
+            Event::Start(Tag::Paragraph) => {
+                in_para = true;
+            }
+            Event::End(TagEnd::Paragraph) => {
+                in_para = false;
+                if !in_list_item && cur_heading.is_none() {
+                    flush_para(&mut body, &mut cur_text, None);
+                }
+            }
+            Event::Text(t) | Event::Code(t) => {
+                if cur_heading.is_some() || in_list_item || in_para {
+                    cur_text.push_str(&t);
+                }
+            }
+            Event::SoftBreak | Event::HardBreak if !cur_text.is_empty() => {
+                cur_text.push(' ');
+            }
+            _ => {}
+        }
+    }
+    flush_para(&mut body, &mut cur_text, None);
+
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">\
+<w:body>{body}<w:sectPr/></w:body></w:document>"
+    )
+}
+
+fn write_store_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut central = Vec::new();
+
+    for &(name, data) in entries {
+        let name_bytes = name.as_bytes();
+        let mut crc = flate2::Crc::new();
+        crc.update(data);
+        let sum = crc.sum();
+        let size = data.len() as u32;
+        let offset = out.len() as u32;
+
+        // Local file header
+        out.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
+        out.extend_from_slice(&20u16.to_le_bytes()); // version needed
+        out.extend_from_slice(&0u16.to_le_bytes()); // flags
+        out.extend_from_slice(&0u16.to_le_bytes()); // method: STORE
+        out.extend_from_slice(&0u16.to_le_bytes()); // mod time
+        out.extend_from_slice(&0u16.to_le_bytes()); // mod date
+        out.extend_from_slice(&sum.to_le_bytes());
+        out.extend_from_slice(&size.to_le_bytes());
+        out.extend_from_slice(&size.to_le_bytes());
+        out.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes()); // extra len
+        out.extend_from_slice(name_bytes);
+        out.extend_from_slice(data);
+
+        // Central directory header
+        central.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
+        central.extend_from_slice(&20u16.to_le_bytes()); // version made by
+        central.extend_from_slice(&20u16.to_le_bytes()); // version needed
+        central.extend_from_slice(&0u16.to_le_bytes()); // flags
+        central.extend_from_slice(&0u16.to_le_bytes()); // method: STORE
+        central.extend_from_slice(&0u16.to_le_bytes()); // mod time
+        central.extend_from_slice(&0u16.to_le_bytes()); // mod date
+        central.extend_from_slice(&sum.to_le_bytes());
+        central.extend_from_slice(&size.to_le_bytes());
+        central.extend_from_slice(&size.to_le_bytes());
+        central.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+        central.extend_from_slice(&0u16.to_le_bytes()); // extra len
+        central.extend_from_slice(&0u16.to_le_bytes()); // comment len
+        central.extend_from_slice(&0u16.to_le_bytes()); // disk number
+        central.extend_from_slice(&0u16.to_le_bytes()); // internal attrs
+        central.extend_from_slice(&0u32.to_le_bytes()); // external attrs
+        central.extend_from_slice(&offset.to_le_bytes());
+        central.extend_from_slice(name_bytes);
+    }
+
+    let cd_offset = out.len() as u32;
+    let cd_size = central.len() as u32;
+    let count = entries.len() as u16;
+    out.extend_from_slice(&central);
+
+    // End of central directory
+    out.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes()); // disk
+    out.extend_from_slice(&0u16.to_le_bytes()); // cd disk
+    out.extend_from_slice(&count.to_le_bytes());
+    out.extend_from_slice(&count.to_le_bytes());
+    out.extend_from_slice(&cd_size.to_le_bytes());
+    out.extend_from_slice(&cd_offset.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes()); // comment len
+    out
+}
+
+pub fn export_markdown_docx(
+    workspace: &Path,
+    in_path: &Path,
+    out_path: &Path,
+) -> Result<PathBuf, String> {
+    let abs_in = if in_path.is_absolute() {
+        in_path.to_path_buf()
+    } else {
+        workspace.join(in_path)
+    };
+    let md = fs::read_to_string(&abs_in)
+        .map_err(|e| format!("failed to read {}: {e}", abs_in.display()))?;
+    let doc_xml = render_markdown_docx_xml(&md);
+
+    let content_types = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>"#;
+
+    let rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>"#;
+
+    let zip_bytes = write_store_zip(&[
+        ("[Content_Types].xml", content_types.as_bytes()),
+        ("_rels/.rels", rels.as_bytes()),
+        ("word/document.xml", doc_xml.as_bytes()),
+    ]);
+
+    let abs_out = if out_path.is_absolute() {
+        out_path.to_path_buf()
+    } else {
+        workspace.join(out_path)
+    };
+    if let Some(parent) = abs_out.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("failed to create output dir: {e}"))?;
+    }
+    fs::write(&abs_out, zip_bytes)
+        .map_err(|e| format!("failed to write {}: {e}", abs_out.display()))?;
+    Ok(abs_out)
 }
 
 #[cfg(test)]
@@ -276,5 +473,26 @@ mod tests {
             .join("exports")
             .join("summary.html");
         assert!(exported.is_file());
+    }
+
+    #[test]
+    fn exports_valid_docx_archive_from_markdown() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let md = "# Weekly Brief\n\nRevenue rose **18%**.\n\n- Margin expanded\n- Cash positive\n";
+        fs::write(dir.path().join("brief.md"), md).expect("write md");
+
+        let (msg, status) =
+            handle_export_report_command(dir.path(), "brief.md --docx", true, false);
+        assert_eq!(status, "completed");
+        assert!(msg.contains("brief.docx"));
+
+        let bytes = fs::read(dir.path().join(".aria").join("exports").join("brief.docx"))
+            .expect("read docx");
+        assert!(bytes.starts_with(b"PK\x03\x04"));
+        let raw = String::from_utf8_lossy(&bytes);
+        assert!(raw.contains("[Content_Types].xml"));
+        assert!(raw.contains("word/document.xml"));
+        assert!(raw.contains("Weekly Brief"));
+        assert!(raw.contains("Revenue rose 18%."));
     }
 }
