@@ -66,12 +66,8 @@ def main() -> None:
                   "native_config_paths": measure([str(binary), "config", "paths"], args.samples, env),
                   "native_config_show": measure([str(binary), "config", "show"], args.samples, env),
                   "native_session_list": measure([str(binary), "sessions", "list"], args.samples, env),
-                  "python_session_list": measure([sys.executable, "-c", "import json; from aria_code.apps.cli.session_store import SessionManager; print(json.dumps(SessionManager().list_sessions()))"], args.samples, env),
                   "native_cached_update": measure([str(binary), "update", "check", "--current", "0.126.0", "--offline"], args.samples, env),
-                  "python_version": measure([sys.executable, "-c", "from aria_code.apps.cli.main import main; main()", "--version"], args.samples, env),
-                  "delegated_python_version": measure([str(binary), "--python", sys.executable, "run", "--", "--version"], args.samples, env),
-                  "python_tool_bridge": measure([str(binary), "--python", sys.executable, "-C", str(root),
-                                                 "tool", "read_file", '{"path":"rust/Cargo.toml"}'], args.samples, env)}
+                  "python_version": measure([sys.executable, "-c", "from aria_code.apps.cli.main import main; main()", "--version"], args.samples, env)}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=2))
