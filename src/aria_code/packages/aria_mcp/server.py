@@ -1124,48 +1124,56 @@ async def _call_video_generate_status(args: Dict[str, Any]) -> Dict[str, Any]:
     return {"success": False, "error": _CREATIVE_PLUGIN_MOVED}
 
 
-async def _call_report_docx(args: Dict[str, Any]) -> Dict[str, Any]:
+async def _export_via_native(args: Dict[str, Any], ext: str) -> Dict[str, Any]:
     import asyncio
+    import shutil
+    import subprocess
+    import tempfile
+    from pathlib import Path
 
     from aria_code.artifacts import create_user_artifact
-    from aria_code.report_exporters import markdown_to_docx
 
     md = str(args.get("markdown", ""))
     if not md.strip():
         return {"success": False, "error": "markdown is required"}
     title = str(args.get("title") or "report").strip() or "report"
 
-    artifact = create_user_artifact("report", title, title, ".docx")
-    loop = asyncio.get_event_loop()
     try:
-        result_path = await loop.run_in_executor(None, markdown_to_docx, md, artifact.path, title)
-    except Exception as exc:
-        return {"success": False, "error": str(exc)}
-    if not result_path:
-        return {"success": False, "error": "DOCX rendering failed (python-docx not installed?)"}
-    return {"success": True, "path": str(result_path)}
+        from aria_code.runtime.native_index import native_binary
+
+        binary = native_binary()
+    except Exception:
+        binary = None
+    binary = binary or shutil.which("aria-native")
+    if not binary:
+        return {"success": False, "error": f"{ext.lstrip('.').upper()} export requires aria-native"}
+
+    artifact = create_user_artifact("report", title, title, ext)
+
+    def _run() -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_md = Path(tmp_dir) / "report.md"
+            tmp_md.write_text(md, encoding="utf-8")
+            return subprocess.run(
+                [binary, "-C", str(artifact.path.parent), "export", str(tmp_md), str(artifact.path)],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+
+    proc = await asyncio.get_event_loop().run_in_executor(None, _run)
+    if proc.returncode != 0 or not artifact.path.is_file():
+        return {"success": False, "error": (proc.stderr or proc.stdout or "native export failed").strip()}
+    return {"success": True, "path": str(artifact.path)}
+
+
+async def _call_report_docx(args: Dict[str, Any]) -> Dict[str, Any]:
+    return await _export_via_native(args, ".docx")
 
 
 async def _call_report_pptx(args: Dict[str, Any]) -> Dict[str, Any]:
-    import asyncio
-
-    from aria_code.artifacts import create_user_artifact
-    from aria_code.report_exporters import markdown_to_pptx
-
-    md = str(args.get("markdown", ""))
-    if not md.strip():
-        return {"success": False, "error": "markdown is required"}
-    title = str(args.get("title") or "report").strip() or "report"
-
-    artifact = create_user_artifact("report", title, title, ".pptx")
-    loop = asyncio.get_event_loop()
-    try:
-        result_path = await loop.run_in_executor(None, markdown_to_pptx, md, artifact.path, title)
-    except Exception as exc:
-        return {"success": False, "error": str(exc)}
-    if not result_path:
-        return {"success": False, "error": "PPTX rendering failed (python-pptx not installed?)"}
-    return {"success": True, "path": str(result_path)}
+    return await _export_via_native(args, ".pptx")
 
 
 async def _call_estimate_image_cost(args: Dict[str, Any]) -> Dict[str, Any]:
