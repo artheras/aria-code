@@ -568,6 +568,7 @@ enum NativeRoute {
     Note(String),
     Workflow(String),
     Export(String),
+    ExportReport(String),
     Plan(String),
     ApplyPlan(String),
     Artifacts(String),
@@ -687,6 +688,14 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     if text == "/export" || text.starts_with("/export ") {
         let arg = text.strip_prefix("/export").unwrap_or("").trim().to_owned();
         return Some(NativeRoute::Export(arg));
+    }
+    if text == "/export-report" || text.starts_with("/export-report ") {
+        let arg = text
+            .strip_prefix("/export-report")
+            .unwrap_or("")
+            .trim()
+            .to_owned();
+        return Some(NativeRoute::ExportReport(arg));
     }
     if text == "/plan" || text.starts_with("/plan ") {
         let arg = text.strip_prefix("/plan").unwrap_or("").trim().to_owned();
@@ -1717,6 +1726,17 @@ fn try_dispatch_native_turn(
                         ),
                         Err(e) => (format!("[export error: {e}]"), "failed"),
                     };
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::ExportReport(arg) => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                let (text, status) = crate::engine::report::handle_export_report_command(
+                    &ws_path,
+                    &arg,
+                    allow_write,
+                    zh,
+                );
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }
