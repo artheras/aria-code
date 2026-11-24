@@ -219,7 +219,7 @@ _ARCHITECTURE_LAYERS: Tuple[ArchitectureLayer, ...] = (
         target_state="Channels submit structured tasks to gateway/runtime and never call CLI internals directly.",
         current_state="apps/channels now has the channel registry (six channels with direction/capabilities/enable resolution from config+env) and the TradingView adapter: alert payloads become aria.channel_task.v1 structured tasks (passphrase/HMAC verification reused from tradingview_bridge, fail-closed on mismatch, explicit verified/open_mode flags, stable dedup keys, gateway-facing prompt that forbids order placement). The daemon webhook endpoint now refuses open-mode intake from non-loopback clients and runs alert analysis through runtime.gateway.run_turn (tool-less turn; legacy quick summary kept as fallback).",
         status=LayerStatus.PARTIAL,
-        source_paths=("aria_daemon.py", "apps/channels/", "apps/cli/tradingview_bridge.py"),
+        source_paths=("apps/channels/", "apps/cli/tradingview_bridge.py"),
         depends_on=("settings", "runtime", "services", "safety"),
         next_steps=("Consider context-aware disambiguation for MA (Mastercard vs moving-average) in alert prompts; otherwise the channel flow is exercised end-to-end.",),
     ),
