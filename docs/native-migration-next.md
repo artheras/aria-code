@@ -75,6 +75,7 @@ See [native navigation](physical-navigation.md) for boundaries and runnable chec
 
 ## Recent native & client bridge updates (2026-11-24)
 
-- **Native Rust CLI (`rust/cli`)**: added native `/daemon` webhook/trigger engine (`engine/daemon.rs`), `/export-report` Markdown exporter (`engine/report.rs`), native `/canvas`, `/review`, `/login` PKCE OAuth, and external subagent runner.
-- **Editor & Desktop bridges**: updated the VS Code extension (`src/aria_code/apps/vscode`) to call `aria-native exec --jsonl` directly, and connected `Arthera/apps/desktop` (`electron/nativeBridge.ts` + `src/services/nativeBridgeService.ts`) to `aria-native` and `services/aria-computer-use`.
+- **Native Rust CLI (`rust/cli`)**: added native `/daemon` webhook/trigger engine (`engine/daemon.rs`), `/export-report` Markdown exporter (`engine/report.rs`), native `/canvas`, `/review`, `/login` PKCE OAuth, `mcp-serve` stdio JSON-RPC server (`engine/mcp_serve.rs`), and external subagent runner.
+- **Editor & Desktop bridges**: updated the VS Code extension (`src/aria_code/apps/vscode`) to call `aria-native exec --jsonl` directly, routed `aria-code-mcp` (`src/aria_code/aria_mcp_server.py`) to `aria-native mcp-serve`, and connected `Arthera/apps/desktop` (`electron/nativeBridge.ts` + `src/services/nativeBridgeService.ts`) to `aria-native` (streaming JSONL) and `services/aria-computer-use`.
+- **Python cleanup & Dev tooling**: retired `aria_daemon.py`, `aria_feishu_bot.py`, `aria_telegram_bot.py` and their legacy test shims; added `scripts/dev_check.sh` and `scripts/dev_desktop.sh`.
 - **Evals**: defaulted the evals workflow (`evals/`) to Ollama's `deepseek-v3.1:671b-cloud`.
