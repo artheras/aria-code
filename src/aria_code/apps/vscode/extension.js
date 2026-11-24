@@ -2,6 +2,7 @@
 'use strict';
 
 const vscode = require('vscode');
+const { execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -9,11 +10,60 @@ const os = require('os');
 const DEFAULT_API_BASE = 'http://127.0.0.1:8000';
 const HEALTH_POLL_MS = 30_000;
 
-// ── Status bar ──────────────────────────────────────────────────────────────
+// ── Status bar & native CLI bridge ──────────────────────────────────────────
 let statusBarItem;
+let outputChannel;
 let healthTimer;
 let webviewViewRef = null;
 let apiBase = DEFAULT_API_BASE;
+
+function getNativeBinary() {
+  const cfg = vscode.workspace.getConfiguration('ariaCode');
+  const configured = String(cfg.get('nativeBinary', '') || '').trim();
+  return configured || process.env.ARIA_NATIVE_BINARY || 'aria-native';
+}
+
+function getActiveWorkspacePath() {
+  const folders = vscode.workspace.workspaceFolders;
+  if (folders && folders.length > 0) {
+    return folders[0].uri.fsPath;
+  }
+  return os.homedir();
+}
+
+function parseJsonlOutput(stdout) {
+  let answer = '';
+  for (const line of String(stdout || '').split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('{')) continue;
+    try {
+      const ev = JSON.parse(trimmed);
+      if (ev.type === 'answer.delta' && typeof ev.text === 'string') {
+        answer += ev.text;
+      }
+    } catch (_) {}
+  }
+  return answer.trim() || String(stdout || '').trim();
+}
+
+function runNativeCommand(prompt) {
+  const bin = getNativeBinary();
+  const cwd = getActiveWorkspacePath();
+  return new Promise((resolve, reject) => {
+    execFile(
+      bin,
+      ['-C', cwd, 'exec', '--jsonl', prompt],
+      { cwd, timeout: 60_000, maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (err && !stdout) {
+          reject(new Error((stderr || err.message || 'aria-native execution failed').trim()));
+          return;
+        }
+        resolve(parseJsonlOutput(stdout));
+      },
+    );
+  });
+}
 
 function resolveDiscoveredUrl(fileName) {
   try {
@@ -623,13 +673,23 @@ class AriaWebviewProvider {
       localResourceRoots: [this._extensionUri],
     };
     webviewView.webview.html = buildWebviewHtml();
-    webviewView.webview.onDidReceiveMessage(_msg => { /* handle future msg types */ });
+    webviewView.webview.onDidReceiveMessage(async msg => {
+      if (!msg || msg.type !== 'nativeExec' || typeof msg.prompt !== 'string') return;
+      try {
+        const output = await runNativeCommand(msg.prompt);
+        webviewView.webview.postMessage({ type: 'nativeResult', ok: true, output });
+      } catch (err) {
+        webviewView.webview.postMessage({ type: 'nativeResult', ok: false, error: err.message });
+      }
+    });
   }
 }
 
 // ── Activate ─────────────────────────────────────────────────────────────────
 function activate(context) {
   apiBase = getConfiguredApiBase();
+  outputChannel = vscode.window.createOutputChannel('Aria Code (Native)');
+  context.subscriptions.push(outputChannel);
 
   // Status bar
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -700,7 +760,7 @@ function activate(context) {
       } else {
         // Fallback: direct API call → notification
         try {
-          const res = await fetch(API_BASE + '/api/v2/ai/chat', {
+          const res = await fetch(apiBase + '/api/v2/ai/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: 'Analyze this: ' + text.slice(0, 500) }),
@@ -717,12 +777,62 @@ function activate(context) {
       }
     })
   );
+
+  // Command: run native Rust /review in workspace
+  context.subscriptions.push(
+    vscode.commands.registerCommand('aria-code.nativeReview', async () => {
+      try {
+        const result = await runNativeCommand('/review');
+        outputChannel.clear();
+        outputChannel.appendLine(result);
+        outputChannel.show(true);
+      } catch (err) {
+        vscode.window.showErrorMessage('Aria Native Review failed: ' + err.message);
+      }
+    })
+  );
+
+  // Command: run native Rust /doctor in workspace
+  context.subscriptions.push(
+    vscode.commands.registerCommand('aria-code.nativeDoctor', async () => {
+      try {
+        const result = await runNativeCommand('/doctor');
+        outputChannel.clear();
+        outputChannel.appendLine(result);
+        outputChannel.show(true);
+      } catch (err) {
+        vscode.window.showErrorMessage('Aria Native Doctor failed: ' + err.message);
+      }
+    })
+  );
+
+  // Command: open native Rust /canvas preview URL
+  context.subscriptions.push(
+    vscode.commands.registerCommand('aria-code.openCanvas', async () => {
+      let url = resolveDiscoveredUrl('canvas.json');
+      if (!url) {
+        try {
+          await runNativeCommand('/canvas');
+          url = resolveDiscoveredUrl('canvas.json');
+        } catch (err) {
+          vscode.window.showErrorMessage('Aria Canvas failed: ' + err.message);
+          return;
+        }
+      }
+      if (url) {
+        await vscode.env.openExternal(vscode.Uri.parse(url));
+      } else {
+        vscode.window.showInformationMessage('Aria Canvas server requested; check Output channel.');
+      }
+    })
+  );
 }
 
 // ── Deactivate ────────────────────────────────────────────────────────────────
 function deactivate() {
   if (healthTimer) clearInterval(healthTimer);
   if (statusBarItem) statusBarItem.dispose();
+  if (outputChannel) outputChannel.dispose();
 }
 
-module.exports = { activate, deactivate };
+module.exports = { activate, deactivate, parseJsonlOutput };
