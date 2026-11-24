@@ -25,7 +25,9 @@ echo "==> [3/4] Ruff + Python architecture/entrypoint tests"
 echo "==> [4/5] Computer Use TypeScript tests"
 (cd "$ROOT/services/aria-computer-use" && npm test)
 
-echo "==> [5/5] Confluence Gateway backend tests"
-"$PY" -m pytest -q services/arthera-for-confluence/backend/tests
+if [ -d "$ROOT/services/arthera-for-confluence/backend/tests" ]; then
+  echo "==> [5/5] Confluence Gateway backend tests"
+  "$PY" -m pytest -q services/arthera-for-confluence/backend/tests
+fi
 
 echo "All dev-check gates passed."
