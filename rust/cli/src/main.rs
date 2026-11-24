@@ -351,7 +351,7 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
             }
             Some("mcp-serve") => {
                 let mut allow_write = false;
-                while let Some(arg) = args.next() {
+                for arg in args.by_ref() {
                     match arg.to_str() {
                         Some("--allow-write") => allow_write = true,
                         _ => return Err("Usage: mcp-serve [--allow-write]".into()),

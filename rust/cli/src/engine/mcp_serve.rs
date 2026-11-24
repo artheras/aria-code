@@ -57,9 +57,7 @@ pub fn handle_jsonrpc_request(req: &Value, workspace: &Path, allow_write: bool) 
     let params = req.get("params").cloned().unwrap_or_else(|| json!({}));
 
     // Notifications (no id) must not emit a response.
-    let Some(id) = id else {
-        return None;
-    };
+    let id = id?;
 
     let response = match method {
         "initialize" => json!({
@@ -103,7 +101,8 @@ pub fn handle_jsonrpc_request(req: &Value, workspace: &Path, allow_write: bool) 
             } else {
                 let result = tools::execute_tool(workspace, name, &args, allow_write);
                 let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(false);
-                let text = serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
+                let text =
+                    serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
                 json!({
                     "jsonrpc": "2.0",
                     "id": id,
