@@ -158,7 +158,11 @@ impl LoopbackOAuthListener {
                         return Err(format!("OAuth provider returned error: {err}"));
                     }
                     let state = params.get("state").cloned().unwrap_or_default();
-                    let code = params.get("code").cloned().unwrap_or_default();
+                    let code = params
+                        .get("handoff_code")
+                        .or_else(|| params.get("code"))
+                        .cloned()
+                        .unwrap_or_default();
                     if state != expected_state || code.is_empty() {
                         let resp = "HTTP/1.1 400 Bad Request\r\nContent-Length: 13\r\nConnection: close\r\n\r\nInvalid state";
                         let _ = stream.write_all(resp.as_bytes());

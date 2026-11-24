@@ -572,6 +572,9 @@ enum NativeRoute {
     ApplyPlan(String),
     Artifacts(String),
     Canvas(String),
+    Login,
+    Logout,
+    Whoami,
     Privacy(String),
     Feedback(String),
     Ecosystem(String),
@@ -707,6 +710,15 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     if text == "/canvas" || text.starts_with("/canvas ") {
         let arg = text.strip_prefix("/canvas").unwrap_or("").trim().to_owned();
         return Some(NativeRoute::Canvas(arg));
+    }
+    if text == "/login" {
+        return Some(NativeRoute::Login);
+    }
+    if text == "/logout" {
+        return Some(NativeRoute::Logout);
+    }
+    if text == "/whoami" {
+        return Some(NativeRoute::Whoami);
     }
     if text == "/privacy" || text.starts_with("/privacy ") {
         let arg = text
@@ -1731,6 +1743,21 @@ fn try_dispatch_native_turn(
                 let ws_path = std::path::PathBuf::from(&workspace);
                 let (text, status) =
                     crate::engine::canvas::handle_canvas_command(&ws_path, &arg, zh);
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Login => {
+                let (text, status) = crate::engine::auth::handle_login_command(zh);
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Logout => {
+                let (text, status) = crate::engine::auth::handle_logout_command(zh);
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Whoami => {
+                let (text, status) = crate::engine::auth::handle_whoami_command(zh);
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }
