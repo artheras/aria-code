@@ -115,8 +115,8 @@ def list_service_usage_specs() -> tuple[ServiceUsageSpec, ...]:
         ServiceUsageSpec(
             name="tradingview_webhook",
             purpose="TradingView 图表打开、Pine 策略导出、Alert Webhook 接入",
-            cli_entrypoints=("/tv", "aria_daemon.py"),
-            package_sources=("apps/cli/tradingview_bridge.py", "aria_daemon.py"),
+            cli_entrypoints=("/tv", "/daemon"),
+            package_sources=("apps/cli/tradingview_bridge.py",),
             mcp_tools=(),
             next_step="/tv NVDA --pine --txt",
         ),

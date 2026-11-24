@@ -11,6 +11,7 @@ pub mod eval;
 pub mod hooks;
 pub mod lsp;
 pub mod mcp;
+pub mod mcp_serve;
 pub mod memory;
 pub mod oauth_callback;
 pub mod ollama;

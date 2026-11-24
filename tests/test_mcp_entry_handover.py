@@ -60,3 +60,24 @@ def test_the_entry_point_execs_the_go_server_with_its_arguments(tmp_path):
                          env=env, capture_output=True, text=True, timeout=30)
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "go engine: mcp --version"
+
+
+def test_the_entry_point_hands_over_to_rust_mcp_serve_when_selected(tmp_path):
+    native = tmp_path / "aria-native"
+    native.write_text('#!/bin/sh\necho "rust engine: $*"\n')
+    native.chmod(0o755)
+    env = {
+        **os.environ,
+        "ARIA_MCP_ENGINE": "rust",
+        "ARIA_NATIVE_BINARY": str(native),
+        "PYTHONPATH": os.pathsep.join([str(ROOT / "src"), os.environ.get("PYTHONPATH", "")]),
+    }
+    out = subprocess.run(
+        [sys.executable, "-m", "aria_code.aria_mcp_server", "--allow-write"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "rust engine: mcp-serve --allow-write"

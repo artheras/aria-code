@@ -24,7 +24,7 @@ services:
         condition: service_healthy
     networks:
     - aria-net
-    command: python3 -m aria_code.aria_daemon
+    command: aria-native run -- /daemon start
   # The chat bots run from their own image (services/aria-bots), which
   # carries aria-runtime for chat turns and market commands.
   aria-relay-client:

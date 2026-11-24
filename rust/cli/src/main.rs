@@ -35,6 +35,8 @@ Usage:
   aria-native update auto-install --current VERSION
   aria-native update rollback
   aria-native physical [jsonl|agent-jsonl|mcp|serve --listen 127.0.0.1:8765]
+  aria-native mcp-tools PROGRAM [ARGS...]
+  aria-native mcp-serve [--allow-write]
   aria-native index imports|symbols < REQUEST.json
   aria-native completions bash|zsh|fish
   aria-native --version
@@ -121,6 +123,9 @@ enum Mode {
     McpTools {
         program: String,
         args: Vec<String>,
+    },
+    McpServe {
+        allow_write: bool,
     },
     Sessions {
         action: String,
@@ -343,6 +348,16 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                     program,
                     args: rest,
                 };
+            }
+            Some("mcp-serve") => {
+                let mut allow_write = false;
+                for arg in args.by_ref() {
+                    match arg.to_str() {
+                        Some("--allow-write") => allow_write = true,
+                        _ => return Err("Usage: mcp-serve [--allow-write]".into()),
+                    }
+                }
+                break Mode::McpServe { allow_write };
             }
             Some("agent") => {
                 let mut provider = env::var("ARIA_PROVIDER")
@@ -779,6 +794,10 @@ fn run(options: Options) -> Result<i32, String> {
                 "{}",
                 serde_json::to_string_pretty(&tools).unwrap_or_default()
             );
+            Ok(0)
+        }
+        Mode::McpServe { allow_write } => {
+            engine::mcp_serve::serve_stdio(&options.workspace, allow_write)?;
             Ok(0)
         }
         Mode::Agent {

@@ -72,3 +72,9 @@ See [native navigation](physical-navigation.md) for boundaries and runnable chec
 4. Change actual packaging/deployment callers and validate supported platforms.
 5. Only then remove the Python implementation. Report measured latency/memory only
    after controlled same-task measurements; language counts are not performance.
+
+## Recent native & client bridge updates (2026-11-24)
+
+- **Native Rust CLI (`rust/cli`)**: added native `/daemon` webhook/trigger engine (`engine/daemon.rs`), `/export-report` Markdown exporter (`engine/report.rs`), native `/canvas`, `/review`, `/login` PKCE OAuth, and external subagent runner.
+- **Editor & Desktop bridges**: updated the VS Code extension (`src/aria_code/apps/vscode`) to call `aria-native exec --jsonl` directly, and connected `Arthera/apps/desktop` (`electron/nativeBridge.ts` + `src/services/nativeBridgeService.ts`) to `aria-native` and `services/aria-computer-use`.
+- **Evals**: defaulted the evals workflow (`evals/`) to Ollama's `deepseek-v3.1:671b-cloud`.

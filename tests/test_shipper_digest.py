@@ -222,20 +222,3 @@ class TestDigestCommand:
     def test_in_an_unbound_group_it_says_how_to_bind(self, monkeypatch, tmp_path):
         out = self._run(monkeypatch, tmp_path, bound=False)
         assert out["cards"] == [] and "/owner" in out["text"][0]
-
-
-class TestDaemonJob:
-    def test_it_sends_through_feishu_when_the_app_is_configured(self, monkeypatch):
-        import aria_code.aria_daemon as daemon
-        monkeypatch.setenv("FEISHU_APP_ID", "cli_x")
-        monkeypatch.setenv("FEISHU_APP_SECRET", "s")
-        seen = {}
-
-        async def fake_run(store, senders, feeds=None):
-            seen["channels"] = sorted(senders)
-            return []
-
-        with mock.patch("aria_code.apps.channels.digest.run_digests", fake_run), \
-             mock.patch("apps.channels.digest.run_digests", fake_run, create=True):
-            asyncio.run(daemon._run_shipper_digests())
-        assert seen["channels"] == ["feishu"]
