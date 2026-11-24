@@ -189,7 +189,7 @@ class TestDecisions:
 
 # ── Through Feishu ───────────────────────────────────────────────────────────
 
-import aria_code.aria_feishu_bot as bot  # noqa: E402
+import aria_bots.feishu_bot as bot  # noqa: E402
 
 
 @pytest.fixture
