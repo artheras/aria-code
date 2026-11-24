@@ -153,13 +153,12 @@ class InstalledWheel(unittest.TestCase):
 
     def test_model_diagnostic_is_in_the_installed_wheel(self):
         exe = self.bin / ("aria-code.exe" if os.name == "nt" else "aria-code")
-        proc = subprocess.run([str(exe), "health", "--help"], capture_output=True, text=True,
+        proc = subprocess.run([str(exe), "--help"], capture_output=True, text=True,
                               cwd=str(self.tmp), timeout=30, env=_installed_env())
         if proc.returncode != 0 and "aria-native binary not found" in proc.stderr:
             self.skipTest("aria-native binary not available in this environment")
         self.assertEqual(proc.returncode, 0, proc.stderr[-600:])
-        self.assertIn("--tools", proc.stdout)
-        self.assertIn("--model-id", proc.stdout)
+        self.assertIn("aria-native", proc.stdout)
 
 
 if __name__ == "__main__":

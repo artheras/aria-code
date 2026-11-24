@@ -22,7 +22,10 @@ echo "==> [3/4] Ruff + Python architecture/entrypoint tests"
   tests/test_mcp_entry_handover.py \
   tests/test_rust_cli.py
 
-echo "==> [4/4] Computer Use TypeScript tests"
+echo "==> [4/5] Computer Use TypeScript tests"
 (cd "$ROOT/services/aria-computer-use" && npm test)
+
+echo "==> [5/5] Confluence Gateway backend tests"
+"$PY" -m pytest -q services/arthera-for-confluence/backend/tests
 
 echo "All dev-check gates passed."
