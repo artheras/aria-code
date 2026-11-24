@@ -218,17 +218,20 @@ pub fn handle_export_report_command(
     let Some(first) = tokens.first() else {
         return (
             if zh {
-                "用法: `/export-report <input.md> [--pdf|--html|--docx]`".to_owned()
+                "用法: `/export-report <input.md> [--pdf|--html|--docx|--pptx]`".to_owned()
             } else {
-                "Usage: `/export-report <input.md> [--pdf|--html|--docx]`".to_owned()
+                "Usage: `/export-report <input.md> [--pdf|--html|--docx|--pptx]`".to_owned()
             },
             "completed",
         );
     };
     let as_pdf = tokens.contains(&"--pdf");
     let as_docx = tokens.contains(&"--docx");
+    let as_pptx = tokens.contains(&"--pptx");
     let in_path = Path::new(first);
-    let ext = if as_docx {
+    let ext = if as_pptx {
+        "pptx"
+    } else if as_docx {
         "docx"
     } else if as_pdf {
         "pdf"
@@ -244,7 +247,9 @@ pub fn handle_export_report_command(
         .join("exports")
         .join(format!("{stem}.{ext}"));
 
-    let result = if as_docx {
+    let result = if as_pptx {
+        export_markdown_pptx(workspace, in_path, &out_path)
+    } else if as_docx {
         export_markdown_docx(workspace, in_path, &out_path)
     } else {
         export_markdown_report(workspace, in_path, &out_path, as_pdf, zh)
@@ -447,6 +452,181 @@ pub fn export_markdown_docx(
     Ok(abs_out)
 }
 
+fn split_pptx_slides(md: &str) -> Vec<(String, Vec<String>)> {
+    let mut slides: Vec<(String, Vec<String>)> = Vec::new();
+    let mut cur_title = String::from("Report");
+    let mut cur_lines: Vec<String> = Vec::new();
+    let mut cur_text = String::new();
+    let mut in_heading = false;
+    let mut in_item = false;
+    let mut in_para = false;
+
+    for ev in Parser::new_ext(md, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH) {
+        match ev {
+            Event::Start(Tag::Heading { .. }) => {
+                in_heading = true;
+                cur_text.clear();
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                in_heading = false;
+                let heading = cur_text.trim().to_owned();
+                cur_text.clear();
+                if !heading.is_empty() {
+                    if !cur_lines.is_empty() || cur_title != "Report" {
+                        slides.push((cur_title.clone(), std::mem::take(&mut cur_lines)));
+                    }
+                    cur_title = heading;
+                }
+            }
+            Event::Start(Tag::Item) => {
+                in_item = true;
+                cur_text.clear();
+            }
+            Event::End(TagEnd::Item) => {
+                in_item = false;
+                let line = cur_text.trim().to_owned();
+                cur_text.clear();
+                if !line.is_empty() {
+                    cur_lines.push(format!("• {line}"));
+                }
+            }
+            Event::Start(Tag::Paragraph) => {
+                in_para = true;
+            }
+            Event::End(TagEnd::Paragraph) => {
+                in_para = false;
+                if !in_item && !in_heading {
+                    let line = cur_text.trim().to_owned();
+                    cur_text.clear();
+                    if !line.is_empty() {
+                        cur_lines.push(line);
+                    }
+                }
+            }
+            Event::Text(t) | Event::Code(t) => {
+                if in_heading || in_item || in_para {
+                    cur_text.push_str(&t);
+                }
+            }
+            Event::SoftBreak | Event::HardBreak if !cur_text.is_empty() => {
+                cur_text.push(' ');
+            }
+            _ => {}
+        }
+    }
+    if !cur_lines.is_empty() || slides.is_empty() {
+        slides.push((cur_title, cur_lines));
+    }
+    slides
+}
+
+fn render_slide_xml(title: &str, lines: &[String]) -> String {
+    let mut body_paras = String::new();
+    for line in lines {
+        body_paras.push_str(&format!(
+            "<a:p><a:r><a:rPr lang=\"en-US\" sz=\"1800\"/><a:t>{}</a:t></a:r></a:p>",
+            xml_escape(line)
+        ));
+    }
+    if body_paras.is_empty() {
+        body_paras.push_str("<a:p><a:endParaRPr lang=\"en-US\"/></a:p>");
+    }
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+<p:sld xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">\
+<p:cSld><p:spTree>\
+<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>\
+<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"Title\"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>\
+<p:spPr><a:xfrm><a:off x=\"457200\" y=\"274638\"/><a:ext cx=\"8229600\" cy=\"1143000\"/></a:xfrm></p:spPr>\
+<p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=\"en-US\" sz=\"3200\" b=\"1\"/><a:t>{}</a:t></a:r></a:p></p:txBody></p:sp>\
+<p:sp><p:nvSpPr><p:cNvPr id=\"3\" name=\"Content\"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>\
+<p:spPr><a:xfrm><a:off x=\"457200\" y=\"1600200\"/><a:ext cx=\"8229600\" cy=\"4525963\"/></a:xfrm></p:spPr>\
+<p:txBody><a:bodyPr/><a:lstStyle/>{body_paras}</p:txBody></p:sp>\
+</p:spTree></p:cSld></p:sld>",
+        xml_escape(title)
+    )
+}
+
+pub fn export_markdown_pptx(
+    workspace: &Path,
+    in_path: &Path,
+    out_path: &Path,
+) -> Result<PathBuf, String> {
+    let abs_in = if in_path.is_absolute() {
+        in_path.to_path_buf()
+    } else {
+        workspace.join(in_path)
+    };
+    let md = fs::read_to_string(&abs_in)
+        .map_err(|e| format!("failed to read {}: {e}", abs_in.display()))?;
+    let slides = split_pptx_slides(&md);
+
+    let mut overrides = String::from(
+        "  <Override PartName=\"/ppt/presentation.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml\"/>\n",
+    );
+    let mut pres_rels = String::new();
+    let mut sld_id_lst = String::new();
+    let mut slide_files: Vec<(String, Vec<u8>)> = Vec::with_capacity(slides.len());
+
+    for (idx, (title, lines)) in slides.iter().enumerate() {
+        let n = idx + 1;
+        let path = format!("ppt/slides/slide{n}.xml");
+        overrides.push_str(&format!(
+            "  <Override PartName=\"/{path}\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slide+xml\"/>\n"
+        ));
+        pres_rels.push_str(&format!(
+            "  <Relationship Id=\"rId{n}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide\" Target=\"slides/slide{n}.xml\"/>\n"
+        ));
+        sld_id_lst.push_str(&format!("<p:sldId id=\"{}\" r:id=\"rId{n}\"/>", 256 + idx));
+        slide_files.push((path, render_slide_xml(title, lines).into_bytes()));
+    }
+
+    let content_types = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\
+<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">\n\
+  <Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>\n\
+  <Default Extension=\"xml\" ContentType=\"application/xml\"/>\n\
+{overrides}</Types>"
+    );
+    let root_rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
+</Relationships>"#;
+    let pres_xml = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+<p:presentation xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">\
+<p:sldIdLst>{sld_id_lst}</p:sldIdLst><p:sldSz cx=\"9144000\" cy=\"6858000\"/></p:presentation>"
+    );
+    let pres_rels_xml = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\
+<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\n\
+{pres_rels}</Relationships>"
+    );
+
+    let mut entries: Vec<(&str, &[u8])> = vec![
+        ("[Content_Types].xml", content_types.as_bytes()),
+        ("_rels/.rels", root_rels.as_bytes()),
+        ("ppt/presentation.xml", pres_xml.as_bytes()),
+        ("ppt/_rels/presentation.xml.rels", pres_rels_xml.as_bytes()),
+    ];
+    for (path, bytes) in &slide_files {
+        entries.push((path.as_str(), bytes.as_slice()));
+    }
+    let zip_bytes = write_store_zip(&entries);
+
+    let abs_out = if out_path.is_absolute() {
+        out_path.to_path_buf()
+    } else {
+        workspace.join(out_path)
+    };
+    if let Some(parent) = abs_out.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("failed to create output dir: {e}"))?;
+    }
+    fs::write(&abs_out, zip_bytes)
+        .map_err(|e| format!("failed to write {}: {e}", abs_out.display()))?;
+    Ok(abs_out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -494,5 +674,26 @@ mod tests {
         assert!(raw.contains("word/document.xml"));
         assert!(raw.contains("Weekly Brief"));
         assert!(raw.contains("Revenue rose 18%."));
+    }
+
+    #[test]
+    fn exports_valid_pptx_deck_from_markdown() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let md = "# Slide One\n\n- Key metric up\n\n# Slide Two\n\nSummary text.\n";
+        fs::write(dir.path().join("deck.md"), md).expect("write md");
+
+        let (msg, status) = handle_export_report_command(dir.path(), "deck.md --pptx", true, false);
+        assert_eq!(status, "completed");
+        assert!(msg.contains("deck.pptx"));
+
+        let bytes = fs::read(dir.path().join(".aria").join("exports").join("deck.pptx"))
+            .expect("read pptx");
+        assert!(bytes.starts_with(b"PK\x03\x04"));
+        let raw = String::from_utf8_lossy(&bytes);
+        assert!(raw.contains("ppt/presentation.xml"));
+        assert!(raw.contains("ppt/slides/slide1.xml"));
+        assert!(raw.contains("ppt/slides/slide2.xml"));
+        assert!(raw.contains("Slide One"));
+        assert!(raw.contains("Slide Two"));
     }
 }
