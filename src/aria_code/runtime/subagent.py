@@ -379,9 +379,9 @@ async def _run_task(task: SubagentTask) -> None:
                        f"Acceptance criteria: {task.success_criteria or 'Report observable evidence and unresolved blockers.'}\n"
                        f"Declared predicates (not permission grants): {json.dumps(task.checks, ensure_ascii=False)}\n\n{full_prompt}")
         if task.backend != "aria":
-            from external_agent_runner import RUNNERS
-
-            result_text = await RUNNERS[task.backend](full_prompt, cwd=task.workspace or None)
+            raise RuntimeError(
+                f"External backend '{task.backend}' has migrated to native Rust CLI (rust/cli/src/engine/subagent.rs)"
+            )
         else:
             runner_parameters = inspect.signature(_RUNNER).parameters
             if len(runner_parameters) >= 2:

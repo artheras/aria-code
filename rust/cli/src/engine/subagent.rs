@@ -143,6 +143,97 @@ pub fn run_local_subagent(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExternalAgentBackend {
+    Claude,
+    Codex,
+}
+
+impl ExternalAgentBackend {
+    pub fn from_str(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "claude" | "claude-code" => Some(Self::Claude),
+            "codex" => Some(Self::Codex),
+            _ => None,
+        }
+    }
+
+    pub fn binary(self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+        }
+    }
+
+    pub fn args(self, prompt: &str) -> Vec<String> {
+        match self {
+            Self::Claude => vec![
+                "-p".to_owned(),
+                prompt.to_owned(),
+                "--output-format".to_owned(),
+                "json".to_owned(),
+            ],
+            Self::Codex => vec!["exec".to_owned(), prompt.to_owned(), "--json".to_owned()],
+        }
+    }
+}
+
+pub fn extract_json_result(raw: &str, keys: &[&str]) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return "(no output)".to_owned();
+    }
+    if let Ok(Value::Object(map)) = serde_json::from_str::<Value>(trimmed) {
+        for k in keys {
+            if let Some(s) = map
+                .get(*k)
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+            {
+                return s.to_owned();
+            }
+        }
+    }
+    trimmed.to_owned()
+}
+
+/// Delegate a prompt to an external headless coding CLI (`claude -p` or `codex exec`).
+/// Replaces legacy Python `external_agent_runner.py`.
+pub fn run_external_agent(
+    backend: ExternalAgentBackend,
+    prompt: &str,
+    workspace: &Path,
+) -> Result<String, String> {
+    let bin = backend.binary();
+    let args = backend.args(prompt);
+    let out = std::process::Command::new(bin)
+        .args(&args)
+        .current_dir(workspace)
+        .output()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                format!("{bin} CLI not found on PATH. Install it first.")
+            } else {
+                format!("Failed to launch {bin}: {e}")
+            }
+        })?;
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let detail = if stderr.trim().is_empty() {
+            stdout.chars().take(500).collect::<String>()
+        } else {
+            stderr.chars().take(500).collect::<String>()
+        };
+        return Err(format!("{bin} CLI exited {}: {detail}", out.status));
+    }
+    let keys: &[&str] = match backend {
+        ExternalAgentBackend::Claude => &["result", "response"],
+        ExternalAgentBackend::Codex => &["result", "message", "output"],
+    };
+    Ok(extract_json_result(&stdout, keys))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,5 +268,23 @@ mod tests {
         assert_ne!(a, b);
         assert!(a.starts_with("aria-subagent-"));
         assert!(b.starts_with("aria-subagent-"));
+    }
+
+    #[test]
+    fn external_agent_parses_backends_and_json_results() {
+        assert_eq!(
+            ExternalAgentBackend::from_str("claude"),
+            Some(ExternalAgentBackend::Claude)
+        );
+        assert_eq!(
+            ExternalAgentBackend::from_str("codex"),
+            Some(ExternalAgentBackend::Codex)
+        );
+        assert_eq!(ExternalAgentBackend::from_str("unknown"), None);
+        assert_eq!(
+            extract_json_result(r#"{"result":"done"}"#, &["result", "response"]),
+            "done"
+        );
+        assert_eq!(extract_json_result("plain text", &["result"]), "plain text");
     }
 }
