@@ -37,6 +37,8 @@ Usage:
   aria-native physical [jsonl|agent-jsonl|mcp|serve --listen 127.0.0.1:8765]
   aria-native mcp-tools PROGRAM [ARGS...]
   aria-native mcp-serve [--allow-write]
+  aria-native [-C DIR] pack init [DIR] [--name NAME] [--category coding|logistics|finance|custom]
+  aria-native [-C DIR] pack validate|inspect [PATH]
   aria-native [-C DIR] export INPUT.md OUTPUT.(html|pdf|docx|pptx)
   aria-native index imports|symbols < REQUEST.json
   aria-native completions bash|zsh|fish
@@ -78,6 +80,17 @@ enum IndexKind {
     Imports,
     Symbols,
     Changes,
+}
+
+#[derive(Debug)]
+enum PackAction {
+    Init {
+        dir: Option<PathBuf>,
+        name: Option<String>,
+        category: String,
+    },
+    Validate(Option<PathBuf>),
+    Inspect(Option<PathBuf>),
 }
 
 #[derive(Debug)]
@@ -128,6 +141,7 @@ enum Mode {
     McpServe {
         allow_write: bool,
     },
+    Pack(PackAction),
     Export {
         input: PathBuf,
         output: PathBuf,
@@ -363,6 +377,59 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                     }
                 }
                 break Mode::McpServe { allow_write };
+            }
+            Some("pack") => {
+                let sub = utf8(
+                    args.next(),
+                    "Usage: pack init [DIR] [--name NAME] [--category CAT] | pack validate|inspect [PATH]",
+                )?;
+                match sub.as_str() {
+                    "init" => {
+                        let mut dir: Option<PathBuf> = None;
+                        let mut name: Option<String> = None;
+                        let mut category = "custom".to_owned();
+                        while let Some(arg) = args.next() {
+                            match arg.to_str() {
+                                Some("--name") => {
+                                    name = Some(utf8(args.next(), "Missing value after --name")?);
+                                }
+                                Some("--category") => {
+                                    category = utf8(args.next(), "Missing value after --category")?;
+                                }
+                                Some(other) if !other.starts_with('-') && dir.is_none() => {
+                                    dir = Some(PathBuf::from(other));
+                                }
+                                _ => {
+                                    return Err(
+                                        "Usage: pack init [DIR] [--name NAME] [--category coding|logistics|finance|custom]".into(),
+                                    )
+                                }
+                            }
+                        }
+                        break Mode::Pack(PackAction::Init {
+                            dir,
+                            name,
+                            category,
+                        });
+                    }
+                    "validate" => {
+                        let path = args.next().map(PathBuf::from);
+                        if args.next().is_some() {
+                            return Err("Usage: pack validate [PATH]".into());
+                        }
+                        break Mode::Pack(PackAction::Validate(path));
+                    }
+                    "inspect" => {
+                        let path = args.next().map(PathBuf::from);
+                        if args.next().is_some() {
+                            return Err("Usage: pack inspect [PATH]".into());
+                        }
+                        break Mode::Pack(PackAction::Inspect(path));
+                    }
+                    _ => {
+                        return Err("Usage: pack init|validate|inspect ...".into());
+                    }
+                }
             }
             Some("export") => {
                 let input = PathBuf::from(utf8(args.next(), "Usage: export INPUT OUTPUT")?);
@@ -813,6 +880,48 @@ fn run(options: Options) -> Result<i32, String> {
             engine::mcp_serve::serve_stdio(&options.workspace, allow_write)?;
             Ok(0)
         }
+        Mode::Pack(action) => match action {
+            PackAction::Init {
+                dir,
+                name,
+                category,
+            } => {
+                let target = match dir {
+                    Some(p) if p.is_absolute() => p,
+                    Some(p) => options.workspace.join(p),
+                    None => options.workspace.clone(),
+                };
+                let manifest = engine::pack::init_package(&target, name.as_deref(), &category)?;
+                println!("{}", manifest.display());
+                Ok(0)
+            }
+            PackAction::Validate(path) => {
+                let target = match path {
+                    Some(p) if p.is_absolute() => p,
+                    Some(p) => options.workspace.join(p),
+                    None => options.workspace.clone(),
+                };
+                let report = engine::pack::validate_package(&target)?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&report.to_json()).unwrap_or_default()
+                );
+                Ok(if report.valid { 0 } else { 1 })
+            }
+            PackAction::Inspect(path) => {
+                let target = match path {
+                    Some(p) if p.is_absolute() => p,
+                    Some(p) => options.workspace.join(p),
+                    None => options.workspace.clone(),
+                };
+                let (_, manifest) = engine::pack::load_manifest(&target)?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&manifest.to_json()).unwrap_or_default()
+                );
+                Ok(0)
+            }
+        },
         Mode::Export { input, output } => {
             let ext = output
                 .extension()
