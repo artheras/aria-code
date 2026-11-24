@@ -1,0 +1,32 @@
+name: Aria Bots & Logistics MCP
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/aria-bots/**"
+      - "tests/test_shipper_digest.py"
+      - "tests/test_erp_logistics_host.py"
+      - ".github/workflows/aria-bots.yml"
+  pull_request:
+    paths:
+      - "services/aria-bots/**"
+      - "tests/test_shipper_digest.py"
+      - "tests/test_erp_logistics_host.py"
+      - ".github/workflows/aria-bots.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  bots-and-logistics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install aria-bots and pytest
+        run: python -m pip install -e services/aria-bots pytest pytest-timeout
+      - name: Run logistics host isolation and MCP contract tests
+        run: python -m pytest tests/test_erp_logistics_host.py -q --timeout=30

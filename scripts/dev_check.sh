@@ -20,6 +20,7 @@ echo "==> [3/4] Ruff + Python architecture/entrypoint tests"
 "$PY" -m pytest -q \
   tests/test_container_entrypoints.py \
   tests/test_mcp_entry_handover.py \
+  tests/test_erp_logistics_host.py \
   tests/test_rust_cli.py
 
 echo "==> [4/5] Computer Use TypeScript tests"
