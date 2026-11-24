@@ -94,6 +94,89 @@ pub fn save_todos(workspace: &Path, items: &[TodoItem]) -> Result<(), String> {
     fs::write(path, body).map_err(|e| e.to_string())
 }
 
+/// Tokenize text into lowercase ASCII words and individual CJK characters for relevance scoring.
+fn tokenize_terms(text: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut ascii_buf = String::new();
+    for ch in text.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+            ascii_buf.push(ch.to_ascii_lowercase());
+        } else {
+            if !ascii_buf.is_empty() {
+                tokens.push(std::mem::take(&mut ascii_buf));
+            }
+            if !ch.is_whitespace() && !ch.is_ascii_punctuation() {
+                tokens.push(ch.to_lowercase().collect());
+            }
+        }
+    }
+    if !ascii_buf.is_empty() {
+        tokens.push(ascii_buf);
+    }
+    tokens
+}
+
+/// Rank saved project memories against `query` using BM25-style term weighting and phrase bonus.
+pub fn search_memories(workspace: &Path, query: &str, limit: usize) -> Vec<MemoryEntry> {
+    let items = load_memories(workspace);
+    let q_trimmed = query.trim();
+    if items.is_empty() || limit == 0 {
+        return Vec::new();
+    }
+    if q_trimmed.is_empty() {
+        return items.into_iter().take(limit).collect();
+    }
+
+    let q_terms = tokenize_terms(q_trimmed);
+    if q_terms.is_empty() {
+        return Vec::new();
+    }
+    let q_lower = q_trimmed.to_ascii_lowercase();
+    let doc_tokens: Vec<Vec<String>> = items.iter().map(|m| tokenize_terms(&m.text)).collect();
+    let n = items.len() as f64;
+    let avg_dl = (doc_tokens.iter().map(Vec::len).sum::<usize>() as f64 / n).max(1.0);
+    let k1 = 1.5_f64;
+    let b = 0.75_f64;
+
+    let mut scored: Vec<(f64, usize, MemoryEntry)> = items
+        .into_iter()
+        .enumerate()
+        .filter_map(|(idx, entry)| {
+            let tokens = &doc_tokens[idx];
+            let dl = tokens.len() as f64;
+            let mut score = 0.0_f64;
+            for qt in &q_terms {
+                let tf = tokens.iter().filter(|t| *t == qt).count() as f64;
+                if tf == 0.0 {
+                    continue;
+                }
+                let df = doc_tokens
+                    .iter()
+                    .filter(|d| d.iter().any(|t| t == qt))
+                    .count() as f64;
+                let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
+                let denom = tf + k1 * (1.0 - b + b * (dl / avg_dl));
+                score += idf * (tf * (k1 + 1.0)) / denom;
+            }
+            if entry.text.to_ascii_lowercase().contains(&q_lower) {
+                score += 2.0;
+            }
+            if score > 0.0 {
+                Some((score, idx, entry))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    scored.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.cmp(&b.1))
+    });
+    scored.into_iter().take(limit).map(|(_, _, e)| e).collect()
+}
+
 /// Format saved project memories for injection into the native agent system prompt.
 pub fn format_memory_prompt_section(workspace: &Path) -> Option<String> {
     let items = load_memories(workspace);
@@ -182,6 +265,30 @@ pub fn handle_memory_command(workspace: &Path, arg: &str, zh: bool) -> (String, 
             match save_memories(workspace, &items) {
                 Ok(()) => (format!("Removed memory `{idx}`: {}", removed.text), "ok"),
                 Err(e) => (format!("[memory save error: {e}]"), "failed"),
+            }
+        }
+        "search" | "find" => {
+            if rest.is_empty() {
+                return ("Usage: /memory search <query>".to_owned(), "ok");
+            }
+            let hits = search_memories(workspace, rest, 10);
+            if hits.is_empty() {
+                let msg = if zh {
+                    format!("未找到与 `{rest}` 相关的项目记忆。")
+                } else {
+                    format!("No project memories matched `{rest}`.")
+                };
+                (msg, "ok")
+            } else {
+                let mut lines = vec![if zh {
+                    format!("**匹配记忆（{} 条）**", hits.len())
+                } else {
+                    format!("**Matching Memories ({})**", hits.len())
+                }];
+                for item in hits {
+                    lines.push(format!("- {}", item.text));
+                }
+                (lines.join("\n"), "ok")
             }
         }
         "clear" => match save_memories(workspace, &[]) {
@@ -309,6 +416,15 @@ mod tests {
 
         let (list_msg, _) = handle_memory_command(dir.path(), "list", false);
         assert!(list_msg.contains("Prefer Rust over Python"));
+        let _ = handle_memory_command(dir.path(), "add Cargo clippy must pass before push", false);
+        let hits = search_memories(dir.path(), "clippy push", 5);
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].text.contains("Cargo clippy"));
+        let (search_msg, st) = handle_memory_command(dir.path(), "search clippy", false);
+        assert_eq!(st, "ok");
+        assert!(search_msg.contains("Cargo clippy"));
+        let (_, st) = handle_memory_command(dir.path(), "rm 1", false);
+        assert_eq!(st, "ok");
         let (_, st) = handle_memory_command(dir.path(), "rm 0", false);
         assert_eq!(st, "ok");
         assert!(format_memory_prompt_section(dir.path()).is_none());

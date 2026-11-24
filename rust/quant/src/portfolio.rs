@@ -94,6 +94,25 @@ pub fn optimize_risk_parity(cov: &[Vec<f64>]) -> Vec<f64> {
     w
 }
 
+// Ledoit-Wolf-style shrinkage toward scaled identity target: (1 - alpha) * Sigma + alpha * avg_var * I
+#[allow(clippy::needless_range_loop)]
+pub fn shrink_covariance(cov: &[Vec<f64>], alpha: f64) -> Vec<Vec<f64>> {
+    let n = cov.len();
+    if n == 0 {
+        return vec![];
+    }
+    let a = alpha.clamp(0.0, 1.0);
+    let avg_var: f64 = (0..n).map(|i| cov[i][i].max(0.0)).sum::<f64>() / (n as f64);
+    let mut out = vec![vec![0.0; n]; n];
+    for i in 0..n {
+        for j in 0..n {
+            let target = if i == j { avg_var } else { 0.0 };
+            out[i][j] = (1.0 - a) * cov[i][j] + a * target;
+        }
+    }
+    out
+}
+
 // Minimum Variance Portfolio via projected gradient descent on simplex
 #[allow(clippy::needless_range_loop)]
 pub fn optimize_min_variance(cov: &[Vec<f64>]) -> Vec<f64> {
@@ -126,4 +145,19 @@ pub fn optimize_min_variance(cov: &[Vec<f64>]) -> Vec<f64> {
         }
     }
     w
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shrink_covariance_regularizes_singular_matrix() {
+        let singular = vec![vec![0.04, 0.04], vec![0.04, 0.04]];
+        let shrunk = shrink_covariance(&singular, 0.5);
+        assert!((shrunk[0][0] - 0.04).abs() < 1e-12);
+        assert!((shrunk[0][1] - 0.02).abs() < 1e-12);
+        let w = optimize_min_variance(&shrunk);
+        assert!((w.iter().sum::<f64>() - 1.0).abs() < 1e-6);
+    }
 }

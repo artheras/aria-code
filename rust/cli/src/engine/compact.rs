@@ -74,8 +74,8 @@ pub fn compact_messages_if_needed(
         return false;
     }
     let dropped = &messages[start_idx..split_at];
-    let mut bullets = Vec::new();
-    for msg in dropped {
+    let mut candidates: Vec<(usize, u8, String)> = Vec::new();
+    for (idx, msg) in dropped.iter().enumerate() {
         let role = msg.get("role").and_then(Value::as_str).unwrap_or("unknown");
         let content = msg
             .get("content")
@@ -93,25 +93,49 @@ pub fn compact_messages_if_needed(
                     })
                     .collect();
                 if !names.is_empty() {
-                    bullets.push(format!("- [{role}] called tools: {}", names.join(", ")));
-                    if bullets.len() >= 18 {
-                        break;
-                    }
+                    let priority = if names
+                        .iter()
+                        .any(|n| matches!(*n, "write_file" | "edit_file" | "bash" | "run_command"))
+                    {
+                        3
+                    } else {
+                        1
+                    };
+                    candidates.push((
+                        idx,
+                        priority,
+                        format!("- [{role}] called tools: {}", names.join(", ")),
+                    ));
                 }
             }
             continue;
         }
+        let lower = content.to_ascii_lowercase();
+        let priority = if lower.contains("error")
+            || lower.contains("failed")
+            || lower.contains("panic")
+            || lower.contains("exception")
+        {
+            4
+        } else if role == "user" {
+            3
+        } else if role == "assistant" {
+            2
+        } else {
+            1
+        };
         let snippet: String = content.chars().take(180).collect();
         let suffix = if content.chars().count() > 180 {
             "…"
         } else {
             ""
         };
-        bullets.push(format!("- [{role}] {snippet}{suffix}"));
-        if bullets.len() >= 18 {
-            break;
-        }
+        candidates.push((idx, priority, format!("- [{role}] {snippet}{suffix}")));
     }
+    candidates.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    candidates.truncate(18);
+    candidates.sort_by_key(|c| c.0);
+    let bullets: Vec<String> = candidates.into_iter().map(|c| c.2).collect();
     let summary = format!(
         "[Auto-compacted earlier context: {} message(s) collapsed to stay within token budget]\n{}",
         dropped.len(),

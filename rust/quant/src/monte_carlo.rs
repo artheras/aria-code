@@ -69,6 +69,15 @@ impl FastRng {
 }
 
 pub fn simulate_gbm_parallel(cfg: &MonteCarloConfig) -> MonteCarloResult {
+    simulate_gbm_impl(cfg, false)
+}
+
+/// Variance-reduced GBM Monte Carlo using paired antithetic variates (+Z and -Z).
+pub fn simulate_gbm_antithetic(cfg: &MonteCarloConfig) -> MonteCarloResult {
+    simulate_gbm_impl(cfg, true)
+}
+
+fn simulate_gbm_impl(cfg: &MonteCarloConfig, antithetic: bool) -> MonteCarloResult {
     let start = std::time::Instant::now();
     let n_paths = cfg.num_paths.max(100);
     let n_steps = cfg.steps.max(1);
@@ -79,20 +88,42 @@ pub fn simulate_gbm_parallel(cfg: &MonteCarloConfig) -> MonteCarloResult {
 
     let base_seed = cfg.seed.unwrap_or(0x1337_c001_dead_beef);
 
-    // Parallel simulation chunked across available CPU threads
-    let terminal_prices: Vec<f64> = (0..n_paths)
-        .into_par_iter()
-        .map(|idx| {
-            let mut rng =
-                FastRng::new(base_seed.wrapping_add((idx as u64).wrapping_mul(0x9e3779b97f4a7c15)));
-            let mut s = cfg.s0;
-            for _ in 0..n_steps {
-                let z = rng.next_gaussian();
-                s *= (drift + vol_sqrt * z).exp();
-            }
-            s
-        })
-        .collect();
+    let terminal_prices: Vec<f64> = if antithetic {
+        let pairs = n_paths.div_ceil(2);
+        let mut prices: Vec<f64> = (0..pairs)
+            .into_par_iter()
+            .flat_map_iter(|idx| {
+                let mut rng = FastRng::new(
+                    base_seed.wrapping_add((idx as u64).wrapping_mul(0x9e3779b97f4a7c15)),
+                );
+                let mut s_pos = cfg.s0;
+                let mut s_neg = cfg.s0;
+                for _ in 0..n_steps {
+                    let z = rng.next_gaussian();
+                    s_pos *= (drift + vol_sqrt * z).exp();
+                    s_neg *= (drift - vol_sqrt * z).exp();
+                }
+                [s_pos, s_neg]
+            })
+            .collect();
+        prices.truncate(n_paths);
+        prices
+    } else {
+        (0..n_paths)
+            .into_par_iter()
+            .map(|idx| {
+                let mut rng = FastRng::new(
+                    base_seed.wrapping_add((idx as u64).wrapping_mul(0x9e3779b97f4a7c15)),
+                );
+                let mut s = cfg.s0;
+                for _ in 0..n_steps {
+                    let z = rng.next_gaussian();
+                    s *= (drift + vol_sqrt * z).exp();
+                }
+                s
+            })
+            .collect()
+    };
 
     let mut sorted = terminal_prices;
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -146,5 +177,27 @@ pub fn simulate_gbm_parallel(cfg: &MonteCarloConfig) -> MonteCarloResult {
         p75,
         p95,
         elapsed_ms: elapsed,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn antithetic_gbm_matches_expected_forward_mean() {
+        let cfg = MonteCarloConfig {
+            s0: 100.0,
+            r: 0.05,
+            q: 0.01,
+            sigma: 0.2,
+            t: 1.0,
+            steps: 50,
+            num_paths: 4000,
+            seed: Some(42),
+        };
+        let res = simulate_gbm_antithetic(&cfg);
+        let expected = 100.0 * ((0.05 - 0.01) * 1.0_f64).exp();
+        assert!((res.mean_terminal - expected).abs() < 1.5);
     }
 }
