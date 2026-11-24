@@ -18,6 +18,11 @@
           "type": "string",
           "default": "http://127.0.0.1:8000",
           "description": "Aria backend base URL used by the VS Code extension."
+        },
+        "ariaCode.nativeBinary": {
+          "type": "string",
+          "default": "aria-native",
+          "description": "Path or command name for the native Rust Aria CLI binary (`aria-native` or `aria`)."
         }
       }
     },
@@ -30,6 +35,21 @@
       {
         "command": "aria-code.analyzeSelection",
         "title": "Analyze with Aria AI",
+        "category": "Aria"
+      },
+      {
+        "command": "aria-code.nativeReview",
+        "title": "Run Native Code Review (/review)",
+        "category": "Aria"
+      },
+      {
+        "command": "aria-code.nativeDoctor",
+        "title": "Run Native Diagnostics (/doctor)",
+        "category": "Aria"
+      },
+      {
+        "command": "aria-code.openCanvas",
+        "title": "Open Native Canvas Preview (/canvas)",
         "category": "Aria"
       }
     ],
