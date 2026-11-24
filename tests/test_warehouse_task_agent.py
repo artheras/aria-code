@@ -96,12 +96,6 @@ class WarehouseTaskTests(unittest.TestCase):
         names={s.get('function',{}).get('name') for s in aria_cli.LOCAL_TOOL_SCHEMAS}
         self.assertIn('warehouse_task',names)
 
-    def test_existing_mcp_exposes_same_task_agent(self):
-        from aria_code.packages.aria_mcp import server
-        names={t['name'] for t in server.TOOLS}
-        self.assertIn('aria.warehouse.task',names)
-        self.assertIn('aria.warehouse.task',server._HANDLERS)
-
 
 class NativeMCPTests(unittest.TestCase):
     def test_agent_public_api_stays_compatible_and_lazy(self):

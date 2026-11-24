@@ -90,9 +90,7 @@ def main() -> None:
     if rust_bin is not None:
         _exec_handover([rust_bin, "mcp-serve", *sys.argv[1:]])
 
-    from aria_code.packages.aria_mcp.server import main as python_main
-
-    python_main()
+    raise SystemExit("aria-code-mcp requires aria-native or aria-runtime on PATH or in _bin/.")
 
 
 if __name__ == "__main__":
