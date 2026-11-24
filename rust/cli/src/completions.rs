@@ -37,7 +37,7 @@ fn nested(command: &str) -> &'static [&'static str] {
         "index" => &["imports", "symbols", "changes"],
         "physical" => &["jsonl", "agent-jsonl", "mcp", "serve"],
         "mcp-serve" => &["--allow-write"],
-        "pack" => &["init", "validate", "inspect"],
+        "pack" => &["init", "validate", "inspect", "export-docker", "audit"],
         "completions" => &["bash", "zsh", "fish"],
         "chat" | "exec" | "render" => &["--jsonl"],
         _ => &[],
