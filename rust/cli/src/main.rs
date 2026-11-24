@@ -35,6 +35,8 @@ Usage:
   aria-native update auto-install --current VERSION
   aria-native update rollback
   aria-native physical [jsonl|agent-jsonl|mcp|serve --listen 127.0.0.1:8765]
+  aria-native mcp-tools PROGRAM [ARGS...]
+  aria-native mcp-serve [--allow-write]
   aria-native index imports|symbols < REQUEST.json
   aria-native completions bash|zsh|fish
   aria-native --version

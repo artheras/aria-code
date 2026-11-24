@@ -22,11 +22,17 @@ from pathlib import Path
 from typing import Optional
 
 _NAME = "aria-runtime.exe" if sys.platform == "win32" else "aria-runtime"
+_RUST_NAME = "aria-native.exe" if sys.platform == "win32" else "aria-native"
+
+
+def _is_executable(path: Path) -> bool:
+    return path.is_file() and (sys.platform == "win32" or os.access(path, os.X_OK))
 
 
 def go_engine() -> Optional[str]:
     """The aria-runtime to serve MCP with, or None for the Python server."""
-    if os.environ.get("ARIA_MCP_ENGINE", "").strip().lower() == "python":
+    mode = os.environ.get("ARIA_MCP_ENGINE", "").strip().lower()
+    if mode in {"python", "rust"}:
         return None
     configured = os.environ.get("ARIA_RUNTIME", "").strip()
     candidates = []
@@ -38,23 +44,55 @@ def go_engine() -> Optional[str]:
         candidates += [here / _NAME, here.parent / _NAME]
     candidates.append(Path(__file__).resolve().parent / "_bin" / _NAME)
     for candidate in candidates:
-        if candidate.is_file() and (sys.platform == "win32" or os.access(candidate, os.X_OK)):
+        if _is_executable(candidate):
             return str(candidate)
     found = shutil.which("aria-runtime")
     return found
 
 
-def main() -> None:
-    engine = go_engine()
-    if engine is None:
-        from aria_code.packages.aria_mcp.server import main as python_main
+def rust_engine() -> Optional[str]:
+    """The aria-native binary to serve MCP with, or None when unavailable."""
+    mode = os.environ.get("ARIA_MCP_ENGINE", "").strip().lower()
+    if mode in {"python", "go"}:
+        return None
+    configured = os.environ.get("ARIA_NATIVE_BINARY", "").strip()
+    candidates = []
+    if configured and Path(configured).stem == "aria-native":
+        candidates.append(Path(configured))
+    if getattr(sys, "frozen", False):
+        here = Path(sys.executable).resolve().parent
+        candidates += [here / _RUST_NAME, here.parent / _RUST_NAME]
+    candidates.append(Path(__file__).resolve().parent / "_bin" / _RUST_NAME)
+    for candidate in candidates:
+        if _is_executable(candidate):
+            return str(candidate)
+    return shutil.which("aria-native")
 
-        python_main()
-        return
-    args = [engine, "mcp", *sys.argv[1:]]
+
+def _exec_handover(args: list[str]) -> None:
     if os.name != "nt":
-        os.execv(engine, args)
+        os.execv(args[0], args)
     raise SystemExit(subprocess.run(args, check=False).returncode)
+
+
+def main() -> None:
+    mode = os.environ.get("ARIA_MCP_ENGINE", "").strip().lower()
+    if mode == "rust":
+        rust_bin = rust_engine()
+        if rust_bin is not None:
+            _exec_handover([rust_bin, "mcp-serve", *sys.argv[1:]])
+
+    engine = go_engine()
+    if engine is not None:
+        _exec_handover([engine, "mcp", *sys.argv[1:]])
+
+    rust_bin = rust_engine()
+    if rust_bin is not None:
+        _exec_handover([rust_bin, "mcp-serve", *sys.argv[1:]])
+
+    from aria_code.packages.aria_mcp.server import main as python_main
+
+    python_main()
 
 
 if __name__ == "__main__":
