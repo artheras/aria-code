@@ -870,25 +870,7 @@ async def _call_allocation_chart(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _call_report_pdf(args: Dict[str, Any]) -> Dict[str, Any]:
-    import asyncio
-
-    from aria_code.artifacts import create_user_artifact
-    from aria_code.markdown_pdf import markdown_to_pdf
-
-    md = str(args.get("markdown", ""))
-    if not md.strip():
-        return {"success": False, "error": "markdown is required"}
-    title = str(args.get("title") or "report").strip() or "report"
-
-    artifact = create_user_artifact("report", title, title, ".pdf")
-    loop = asyncio.get_event_loop()
-    try:
-        result_path = await loop.run_in_executor(None, markdown_to_pdf, md, artifact.path)
-    except Exception as exc:
-        return {"success": False, "error": str(exc)}
-    if not result_path:
-        return {"success": False, "error": "PDF rendering failed (no HTML→PDF engine available)"}
-    return {"success": True, "path": str(result_path)}
+    return await _export_via_native(args, ".pdf")
 
 
 async def _call_report_generate(args: Dict[str, Any]) -> Dict[str, Any]:
