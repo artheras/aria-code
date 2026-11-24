@@ -572,6 +572,7 @@ enum NativeRoute {
     ApplyPlan(String),
     Artifacts(String),
     Canvas(String),
+    Daemon(String),
     Login,
     Logout,
     Whoami,
@@ -710,6 +711,10 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     if text == "/canvas" || text.starts_with("/canvas ") {
         let arg = text.strip_prefix("/canvas").unwrap_or("").trim().to_owned();
         return Some(NativeRoute::Canvas(arg));
+    }
+    if text == "/daemon" || text.starts_with("/daemon ") {
+        let arg = text.strip_prefix("/daemon").unwrap_or("").trim().to_owned();
+        return Some(NativeRoute::Daemon(arg));
     }
     if text == "/login" {
         return Some(NativeRoute::Login);
@@ -1743,6 +1748,11 @@ fn try_dispatch_native_turn(
                 let ws_path = std::path::PathBuf::from(&workspace);
                 let (text, status) =
                     crate::engine::canvas::handle_canvas_command(&ws_path, &arg, zh);
+                let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+            }
+            NativeRoute::Daemon(arg) => {
+                let (text, status) = crate::engine::daemon::handle_daemon_command(&arg, zh);
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
             }

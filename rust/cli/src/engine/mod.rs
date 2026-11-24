@@ -4,6 +4,7 @@ pub mod auth;
 pub mod canvas;
 pub mod cloud;
 pub mod compact;
+pub mod daemon;
 pub mod doctor;
 pub mod ecosystem;
 pub mod eval;
