@@ -42,7 +42,7 @@ jobs:
         env:
           ARIA_OFFLINE: "1"
         run: |
-          python -m pytest tests/test_optional_finance.py tests/test_explicit_backend_paths.py -q
+          python -m pytest tests/test_wheel_is_installable.py tests/test_mcp_entry_handover.py -q
 
   test:
     name: Test (Python ${{ matrix.python-version }})

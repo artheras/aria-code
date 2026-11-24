@@ -37,5 +37,4 @@ jobs:
           ARIA_OFFLINE: "1"
           FINANCIAL_SERVICE_NETWORK: "0"
         run: |
-          export ARIA_FINANCIAL_TEST_PYTHON="$(python -c 'import sys; print(sys.executable)')"
-          python -m pytest tests/test_financial_service_mcp.py tests/test_mcp_circuit.py -q --timeout=60
+          python -m pytest services/financial-service -q --timeout=60

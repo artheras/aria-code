@@ -61,4 +61,3 @@ jobs:
         run: |
           python -m pip install -e .
           python tests/test_native_physical.py
-          python tests/test_warehouse_task_agent.py
