@@ -15,6 +15,7 @@ const SUBCOMMANDS: &[&str] = &[
     "physical",
     "mcp-tools",
     "mcp-serve",
+    "export",
     "index",
     "completions",
 ];

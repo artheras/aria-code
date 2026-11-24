@@ -37,6 +37,7 @@ Usage:
   aria-native physical [jsonl|agent-jsonl|mcp|serve --listen 127.0.0.1:8765]
   aria-native mcp-tools PROGRAM [ARGS...]
   aria-native mcp-serve [--allow-write]
+  aria-native [-C DIR] export INPUT.md OUTPUT.(html|pdf|docx|pptx)
   aria-native index imports|symbols < REQUEST.json
   aria-native completions bash|zsh|fish
   aria-native --version
@@ -126,6 +127,10 @@ enum Mode {
     },
     McpServe {
         allow_write: bool,
+    },
+    Export {
+        input: PathBuf,
+        output: PathBuf,
     },
     Sessions {
         action: String,
@@ -358,6 +363,14 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                     }
                 }
                 break Mode::McpServe { allow_write };
+            }
+            Some("export") => {
+                let input = PathBuf::from(utf8(args.next(), "Usage: export INPUT OUTPUT")?);
+                let output = PathBuf::from(utf8(args.next(), "Usage: export INPUT OUTPUT")?);
+                if args.next().is_some() {
+                    return Err("Usage: export INPUT OUTPUT".into());
+                }
+                break Mode::Export { input, output };
             }
             Some("agent") => {
                 let mut provider = env::var("ARIA_PROVIDER")
@@ -798,6 +811,40 @@ fn run(options: Options) -> Result<i32, String> {
         }
         Mode::McpServe { allow_write } => {
             engine::mcp_serve::serve_stdio(&options.workspace, allow_write)?;
+            Ok(0)
+        }
+        Mode::Export { input, output } => {
+            let ext = output
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("html")
+                .to_ascii_lowercase();
+            let written = match ext.as_str() {
+                "pptx" => {
+                    engine::report::export_markdown_pptx(&options.workspace, &input, &output)?
+                }
+                "docx" => {
+                    engine::report::export_markdown_docx(&options.workspace, &input, &output)?
+                }
+                "pdf" => engine::report::export_markdown_report(
+                    &options.workspace,
+                    &input,
+                    &output,
+                    true,
+                    false,
+                )?,
+                _ => engine::report::export_markdown_report(
+                    &options.workspace,
+                    &input,
+                    &output,
+                    false,
+                    false,
+                )?,
+            };
+            println!(
+                "{}",
+                json!({ "ok": true, "format": ext, "path": written.display().to_string() })
+            );
             Ok(0)
         }
         Mode::Agent {
