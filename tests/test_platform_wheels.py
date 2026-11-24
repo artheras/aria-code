@@ -140,21 +140,21 @@ def test_static_elf_needs_no_newer_glibc():
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX executable bit")
 def test_native_binary_finds_the_copy_in_a_platform_wheel(tmp_path, monkeypatch):
-    from aria_code.runtime import native_index
+    from aria_code.apps.cli import main as cli_main
 
     package = tmp_path / "aria_code"
-    (package / "runtime").mkdir(parents=True)
+    (package / "apps" / "cli").mkdir(parents=True)
     (package / "_bin").mkdir()
-    fake_module = package / "runtime" / "native_index.py"
+    fake_module = package / "apps" / "cli" / "main.py"
     fake_module.write_text("")
     binary = package / "_bin" / "aria-native"
     binary.write_bytes(b"#!/bin/sh\n")
     monkeypatch.delenv("ARIA_NATIVE_BINARY", raising=False)
-    monkeypatch.setattr(native_index, "__file__", str(fake_module))
-    monkeypatch.setattr(native_index.shutil, "which", lambda name: None)
+    monkeypatch.setattr(cli_main, "__file__", str(fake_module))
+    monkeypatch.setattr(cli_main.shutil, "which", lambda name: None)
     binary.chmod(0o644)
-    assert native_index.native_binary() is None, "a copy that cannot run is not used"
+    assert cli_main.find_native_binary() is None, "a copy that cannot run is not used"
     binary.chmod(0o755)
-    assert native_index.native_binary() == str(binary.resolve())
+    assert cli_main.find_native_binary() == str(binary)
     monkeypatch.setenv("ARIA_NATIVE_BINARY", str(tmp_path / "missing"))
-    assert native_index.native_binary() is None, "an explicit setting still wins"
+    assert cli_main.find_native_binary() is None, "an explicit setting still wins"

@@ -18,7 +18,7 @@ from unittest import mock
 import pytest
 
 from aria_code.apps.channels.conversation import ConversationStore
-from aria_code.apps.channels.digest import build_digest, load_feeds, run_digests
+from aria_bots.channels.digest import build_digest, load_feeds, run_digests
 from aria_bots.erp_logistics import OWNER_SCOPE_ENV
 
 ROOT = Path(__file__).resolve().parents[1]

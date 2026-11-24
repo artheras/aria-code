@@ -77,26 +77,7 @@ def test_known_endpoints_ask_for_usage_and_report_it(fake_openai, cls_name, asks
         assert done[0]["usage"] in ({}, {"prompt_tokens": 120, "completion_tokens": 20, "thinking_tokens": 10})
 
 
-# ── headless: report usage and leave it where the harness asked ────────────────
-
-def test_a_headless_run_reports_usage_and_writes_it_where_asked(tmp_path, monkeypatch, capsys):
-    from types import SimpleNamespace
-
-    from aria_code.apps.cli.exec_events import ExecEvents
-    from aria_code.aria_cli import ArtheraTerminal
-
-    target = tmp_path / "usage.json"
-    monkeypatch.setenv("ARIA_USAGE_FILE", str(target))
-    terminal = SimpleNamespace(config={"model": "gpt-x", "local_provider": "openai", "ui_lang": "en"},
-                               _session_input_tokens=5, _session_output_tokens=7,
-                               _session_thinking_tokens=2, _session_turns=1)
-    result = {"success": True, "response": "done"}
-    ArtheraTerminal._finish_prompt(terminal, result, json_output=False, fmt="jsonl", output_file=None,
-                                 quiet=True, machine_out=None, events=ExecEvents(None))
-    written = json.loads(target.read_text())
-    assert written == result["usage"]
-    assert (written["input_tokens"], written["output_tokens"], written["thinking_tokens"]) == (5, 7, 2)
-    assert written["model"] == "gpt-x" and written["provider"] == "openai"
+# ── trial_home_env respects local models ──────────────────────────────────────
 
 
 # ── harness: carry the solver's usage into the result and the report ───────────

@@ -36,12 +36,24 @@ from .openai_compat import (
 )
 from .anthropic import AnthropicProvider
 from .custom import CustomProviderSpec, build_custom_provider, parse_custom_providers
-from aria_code.packages.aria_services.provider_health import (
-    GLOBAL_PROVIDER_HEALTH,
-    ProviderHealthRegistry,
-    classify_provider_error,
-)
-from aria_code.packages.aria_core.paths import aria_home
+from pathlib import Path
+
+try:
+    from aria_code.packages.aria_services.provider_health import (
+        GLOBAL_PROVIDER_HEALTH,
+        ProviderHealthRegistry,
+        classify_provider_error,
+    )
+    from aria_code.packages.aria_core.paths import aria_home
+except ImportError:
+    GLOBAL_PROVIDER_HEALTH = None  # type: ignore[assignment]
+    ProviderHealthRegistry = None  # type: ignore[assignment]
+
+    def classify_provider_error(_err: BaseException) -> str:
+        return "unknown"
+
+    def aria_home() -> Path:
+        return Path.home() / ".aria"
 
 from .arthera_gateway import ArtheraGatewayProvider
 

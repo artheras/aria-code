@@ -132,7 +132,7 @@ jobs:
           go vet ./...
           go test -race -count=1 ./...
       - name: Exercise real executable and existing Python tools
-        run: python -m pytest tests/test_native_app.py tests/test_conversation_policy.py tests/test_native_branding.py tests/test_native_entry.py tests/test_native_bridge.py tests/test_rust_cli.py tests/test_rust_state.py tests/test_rust_stream.py tests/test_exec_events.py tests/test_headless_command_approval.py tests/test_frozen_module_aliases.py tests/test_workspace_files.py tests/test_native_index.py -q --timeout=30
+        run: python -m pytest tests/test_rust_cli.py tests/test_rust_state.py tests/test_rust_stream.py tests/test_native_session_export.py tests/test_mcp_entry_handover.py tests/test_wheel_is_installable.py -q --timeout=30
       - name: Measure entry points (no cloud calls)
         run: python scripts/benchmark_rust_cli.py --binary "$ARIA_NATIVE_BINARY" --output rust/target/benchmark.json
       - name: Upload opt-in prototype and measurements

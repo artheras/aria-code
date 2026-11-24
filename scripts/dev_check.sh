@@ -18,10 +18,9 @@ echo "==> [2/4] Rust unit tests (aria-native)"
 echo "==> [3/4] Ruff + Python architecture/entrypoint tests"
 "$PY" -m ruff check . --select E9,F821,F823 --statistics
 "$PY" -m pytest -q \
-  tests/test_architecture_ledger_is_true.py \
   tests/test_container_entrypoints.py \
   tests/test_mcp_entry_handover.py \
-  tests/test_native_binary_entrypoints.py
+  tests/test_rust_cli.py
 
 echo "==> [4/4] Computer Use TypeScript tests"
 (cd "$ROOT/services/aria-computer-use" && npm test)

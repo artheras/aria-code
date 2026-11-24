@@ -256,9 +256,7 @@ def trial_home_env(home: Path, *, local: bool = False, provider: str = "",
     import shutil
     import site
 
-    from aria_code.packages.aria_core.paths import aria_home
-
-    source_aria = aria_home()
+    source_aria = Path(os.environ.get("ARIA_HOME") or (Path.home() / ".aria-code"))
     real_home = Path.home()
     shutil.rmtree(home, ignore_errors=True)
     aria = home / ".aria-code"

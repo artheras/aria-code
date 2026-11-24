@@ -25,8 +25,7 @@ PROJECT_ROOT = str(pathlib.Path(__file__).parent.parent.resolve())
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-import aria_cli
-from apps.cli.context import AriaContext
+from aria_code.apps.cli.main import find_native_binary
 
 class EvalResult(BaseModel):
     passed: bool = Field(description="Whether the output satisfies the rubric.")
@@ -101,10 +100,6 @@ async def run_evaluation(case):
     started_at = time.monotonic()
     
     mock_console = MockConsole()
-    
-    # Monkeypatch global console in aria_cli so all commands write to our buffer
-    original_console = getattr(aria_cli, "console", None)
-    aria_cli.console = mock_console
     original_cwd = os.getcwd()
     sandbox_dir = None
 
@@ -112,51 +107,30 @@ async def run_evaluation(case):
         if use_sandbox:
             sandbox_dir = tempfile.TemporaryDirectory(prefix="aria-eval-")
             os.chdir(sandbox_dir.name)
-        # Initialize the real Terminal to use real data & models
-        config = aria_cli.load_config()
-        # Override model if needed, but we'll use user's default (probably Gemini or local)
-        terminal = aria_cli.ArtheraTerminal(config)
-        
-        # Override console contexts
-        terminal.context.console = mock_console
-        
-        commands = aria_cli.SlashCommands(terminal)
-        commands.context = terminal.context
-        
-        # If terminal needs to send message, it uses rich print. 
-        # Our mock console will catch it!
-        
-        if prompt.startswith("/"):
-            parts = prompt.split(" ", 1)
-            cmd = parts[0][1:]
-            args = parts[1] if len(parts) > 1 else ""
-            
-            method_name = f"cmd_{cmd}"
-            if hasattr(commands, method_name):
-                method = getattr(commands, method_name)
-                if inspect.iscoroutinefunction(method):
-                    await method(args)
-                else:
-                    method(args)
-            else:
-                mock_console.print(f"Unknown command: {cmd}")
+        binary = find_native_binary()
+        if not binary:
+            mock_console.print("ERROR: aria-native binary not found")
         else:
-            await terminal.send_message(prompt)
-            
+            proc = subprocess.run(
+                [binary, "-C", os.getcwd(), "exec", prompt],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+            if proc.stdout:
+                mock_console.print(proc.stdout)
+            if proc.stderr:
+                mock_console.print(proc.stderr)
     except Exception as e:
         mock_console.print(f"ERROR: {str(e)}")
     finally:
-        if original_console:
-            aria_cli.console = original_console
+        pass
         if use_sandbox:
             os.chdir(original_cwd)
         
     # Evaluate Output
     full_output = mock_console.get_full_output()
-    # terminal.conversation contains the LLM responses
-    for msg in getattr(terminal, "conversation", []):
-        if msg.get("role") == "assistant" and msg.get("content"):
-            full_output += "\n" + msg["content"]
             
     passed = True
     fail_reasons = []

@@ -1,17 +1,13 @@
-FROM python:3.11-slim
+FROM golang:1.27.3-alpine AS build
 
-WORKDIR /app
-COPY pyproject.toml README.md ./
-COPY src ./src
-RUN pip install --no-cache-dir ".[service]"
+WORKDIR /src
+COPY go/projectreview ./
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/aria-project-review .
 
-RUN useradd --create-home --uid 10001 aria \
-    && mkdir -p /var/lib/aria-code/workspaces \
-    && chown -R aria:aria /var/lib/aria-code /app
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/aria-project-review /aria-project-review
 
-ENV PYTHONUNBUFFERED=1
-ENV ARIA_RUNTIME_SCOPE=remote
-ENV ARIA_CODE_WORKSPACE_ROOT=/var/lib/aria-code/workspaces
-USER aria
+ENV PORT=8787
+ENV ARIA_CODE_WORKSPACE_ROOT=/tmp/aria-code-workspaces
 EXPOSE 8787
-CMD ["uvicorn", "aria_code.project_review_server:app", "--host", "0.0.0.0", "--port", "8787"]
+ENTRYPOINT ["/aria-project-review"]
