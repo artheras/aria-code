@@ -197,7 +197,7 @@ class TestScopeIsEnforcedByTheTools:
 
 # ── Through the Feishu adapter ───────────────────────────────────────────────
 
-import aria_code.aria_feishu_bot as bot  # noqa: E402
+import aria_bots.feishu_bot as bot  # noqa: E402
 
 
 def _feishu(text, *, chat_type="group", open_id="ou_ops", mentions=True, msg_type="text"):

@@ -26,8 +26,8 @@ from unittest import mock
 
 import pytest
 
-import aria_feishu_bot as bot
-from aria_telegram_bot import TelegramBot
+import aria_bots.feishu_bot as bot
+from aria_bots.telegram_bot import TelegramBot
 
 ROOT = Path(__file__).resolve().parents[1]
 

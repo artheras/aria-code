@@ -15,7 +15,7 @@ import json
 
 import pytest
 
-import aria_code.aria_feishu_bot as bot
+import aria_bots.feishu_bot as bot
 from aria_code.clients import aria_relay_client as relay_client
 
 
