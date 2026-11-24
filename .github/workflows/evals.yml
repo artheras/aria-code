@@ -36,8 +36,8 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: "Model id for the agent, e.g. google/gemini-3.8-flash or a Gemma id from Model Garden"
-        default: "google/gemini-3.8-flash"
+        description: "Model id for the agent, e.g. ollama/deepseek-v3.1:671b-cloud (default), ollama/gpt-oss:120b-cloud, or google/gemini-3.8-flash"
+        default: "ollama/deepseek-v3.1:671b-cloud"
         required: false
       repeat:
         description: "Attempts per task. One run is one draw; use 3 for a baseline a tuned model will be compared against"
@@ -61,28 +61,31 @@ jobs:
     # GitHub-hosted job may run; with repeat 3 that is ~150 attempts.
     timeout-minutes: 360
     env:
-      READY: ${{ vars.GCP_PROJECT != '' && vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_EVAL_SERVICE_ACCOUNT != '' }}
-      MODEL: ${{ github.event.inputs.model || 'google/gemini-3.8-flash' }}
+      MODEL: ${{ github.event.inputs.model || vars.EVAL_MODEL || 'ollama/deepseek-v3.1:671b-cloud' }}
+      IS_VERTEX: ${{ startsWith(github.event.inputs.model || vars.EVAL_MODEL || 'ollama/deepseek-v3.1:671b-cloud', 'google/') }}
+      READY: ${{ (startsWith(github.event.inputs.model || vars.EVAL_MODEL || 'ollama/deepseek-v3.1:671b-cloud', 'google/') && vars.GCP_PROJECT != '' && vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_EVAL_SERVICE_ACCOUNT != '') || (!startsWith(github.event.inputs.model || vars.EVAL_MODEL || 'ollama/deepseek-v3.1:671b-cloud', 'google/') && (vars.OLLAMA_HOST != '' || secrets.OLLAMA_API_KEY != '')) }}
       REPEAT: ${{ github.event.inputs.repeat || '1' }}
       RUNTIME: ${{ github.event.inputs.runtime || 'python' }}
       HOLDOUT: ${{ secrets.HOLDOUT_DEPLOY_KEY != '' }}
+      OLLAMA_HOST: ${{ vars.OLLAMA_HOST || 'http://127.0.0.1:11434' }}
+      OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
       GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT }}
       # global: some Gemini 3 models are served only there.
       GOOGLE_CLOUD_LOCATION: global
       GOOGLE_GENAI_USE_VERTEXAI: "true"
       ARIA_OFFLINE: "1"
     steps:
-      - name: Needs Google Cloud access
+      - name: Needs model backend access
         if: env.READY != 'true'
         run: |
-          echo "::notice::Set the GCP_PROJECT, GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_EVAL_SERVICE_ACCOUNT repository variables to run the evals on Vertex AI."
-          echo "Skipped: Google Cloud variables not set." >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::Set OLLAMA_HOST / OLLAMA_API_KEY for Ollama evals (default: ollama/deepseek-v3.1:671b-cloud), or GCP_* variables for Vertex AI."
+          echo "Skipped: No eval backend credentials/host configured." >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/checkout@v4
         if: env.READY == 'true'
 
       - name: Sign in to Google Cloud
-        if: env.READY == 'true'
+        if: env.READY == 'true' && env.IS_VERTEX == 'true'
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -123,17 +126,21 @@ jobs:
       - name: Run the suites
         if: env.READY == 'true'
         run: |
-          python -m aria_code.evals.runner evals/suites/core.yaml --model "$MODEL" --runtime "$RUNTIME" \
+          EXTRA_ARGS=()
+          if [ "$IS_VERTEX" != "true" ]; then
+            EXTRA_ARGS+=(--provider ollama --url "$OLLAMA_HOST")
+          fi
+          python -m aria_code.evals.runner evals/suites/core.yaml --model "$MODEL" --runtime "$RUNTIME" "${EXTRA_ARGS[@]}" \
             --solve-timeout 600 --repeat "$REPEAT" --report evals-core.json --trajectories trajectories || true
-          python -m aria_code.evals.runner evals/suites/operations.yaml --model "$MODEL" --runtime "$RUNTIME" \
+          python -m aria_code.evals.runner evals/suites/operations.yaml --model "$MODEL" --runtime "$RUNTIME" "${EXTRA_ARGS[@]}" \
             --solve-timeout 600 --repeat "$REPEAT" --report evals-operations.json --trajectories trajectories || true
-          python -m aria_code.evals.runner evals/suites/hard.yaml --model "$MODEL" --runtime "$RUNTIME" \
+          python -m aria_code.evals.runner evals/suites/hard.yaml --model "$MODEL" --runtime "$RUNTIME" "${EXTRA_ARGS[@]}" \
             --solve-timeout 600 --repeat "$REPEAT" --report evals-hard.json --trajectories trajectories || true
 
-          python -m aria_code.evals.runner evals/suites/projects.yaml --model "$MODEL" --runtime "$RUNTIME" \
+          python -m aria_code.evals.runner evals/suites/projects.yaml --model "$MODEL" --runtime "$RUNTIME" "${EXTRA_ARGS[@]}" \
             --solve-timeout 600 --repeat "$REPEAT" --report evals-projects.json --trajectories trajectories || true
           # How the agent works, not only whether it ends up right (behavior checks).
-          python -m aria_code.evals.runner evals/suites/behavior.yaml --model "$MODEL" --runtime "$RUNTIME" \
+          python -m aria_code.evals.runner evals/suites/behavior.yaml --model "$MODEL" --runtime "$RUNTIME" "${EXTRA_ARGS[@]}" \
             --solve-timeout 600 --repeat "$REPEAT" --report evals-behavior.json --trajectories trajectories || true
           # The independent reviewer on fixed diffs: false positives and misses.
           python -m aria_code.evals.review_probe evals/review/cases.yaml --model "$MODEL" \

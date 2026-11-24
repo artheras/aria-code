@@ -23,7 +23,6 @@ from aria_code.artifacts import (
     user_projects_dir,
     write_artifact_metadata,
 )
-from data_cleaner import CleanResult
 
 
 def test_artifact_dir_uses_per_user_aria_code_root(monkeypatch, tmp_path: Path):
