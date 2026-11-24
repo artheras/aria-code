@@ -1792,6 +1792,20 @@ fn try_dispatch_native_turn(
             }
             NativeRoute::Review(target) => {
                 let ws_path = std::path::PathBuf::from(&workspace);
+                let arg_str = target.as_deref().unwrap_or("");
+                if arg_str.contains("--json")
+                    || arg_str.contains("--staged")
+                    || arg_str.contains("--base")
+                    || arg_str.contains("--commit")
+                    || !provider.eq_ignore_ascii_case("ollama")
+                {
+                    let (text, status) =
+                        crate::engine::review::handle_review_command(&ws_path, arg_str, zh);
+                    let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
+                    let _ =
+                        tx.send(json!({"protocol": 1, "type": "turn.completed", "status": status}));
+                    return;
+                }
                 let status_out = crate::engine::tools::git_status(&ws_path)
                     .ok()
                     .and_then(|v| v["status"].as_str().map(str::to_owned))

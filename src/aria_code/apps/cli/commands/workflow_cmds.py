@@ -502,79 +502,9 @@ class WorkflowCommandsMixin:
             print(f"Saved to {aria_md.name}")
 
     async def cmd_review(self, args: str):
-        """Review a change with an isolated reviewer: /review [--staged | --base B | --commit SHA | PATH] [--json]."""
-        from aria_code import review_service as rs
-        from aria_code.apps.cli.review_runner import make_model_call
-
-        console = self.context.console if self.context.has_rich else None
-        say = (lambda text, style="": console.print(f"[{style}]{text}[/{style}]" if style else text)) if console \
-            else (lambda text, style="": print(text))
-        lang = "zh" if str(self.terminal.config.get("ui_lang", "en")).lower().startswith("zh") else "en"
-        try:
-            tokens = shlex.split(args)
-            as_json = "--json" in tokens
-            target = rs.target_from_args([t for t in tokens if t != "--json"])
-            inp = rs.collect(target, pathlib.Path.cwd())
-        except (ValueError, rs.ReviewError) as exc:
-            say(str(exc), "red")
-            say("Usage: /review [--staged | --base BRANCH | --commit SHA | PATH] [--json]", "dim")
-            return
-        if not inp.diff.strip():
-            say("No changes to review." if lang == "en" else "没有可审查的改动。", "dim")
-            return
-        say(f"  ↳ {target.describe()} · {len(inp.files)} files · +{inp.added} −{inp.removed}", "dim")
-        if inp.truncated:
-            say(f"  ↳ too large to review whole; not included: {', '.join(inp.omitted_files)}", "yellow")
-        _print_phase("Reviewing")
-        try:
-            result = await rs.run_review(inp, make_model_call(self.terminal.config), lang=lang)
-        except rs.ReviewError as exc:
-            say(str(exc), "red")
-            return
-        if as_json:
-            print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
-        elif console:
-            _print_review(console, result, lang)
+        """Code review has migrated to native Rust (`rust/cli/src/engine/review.rs`)."""
+        msg = "代码审查 `/review` 已迁移至原生 Rust CLI (`rust/cli/src/engine/review.rs`)，请在 `aria` 中直接运行 `/review [--staged | --base BRANCH | --commit SHA | PATH] [--json]`。"
+        if self.context.has_rich:
+            self.context.console.print(f"[cyan]{msg}[/cyan]")
         else:
-            print(rs.render_text(result, lang=lang))
-        # The main conversation remembers the review, so "fix finding 2" works.
-        self.terminal.conversation.append({"role": "user", "content": f"/review {args}".strip()})
-        self.terminal.conversation.append({"role": "assistant", "content": rs.history_note(result)})
-
-
-_PRIORITY_STYLE = {0: "bold red", 1: "red", 2: "yellow", 3: "dim"}
-
-
-def _print_review(console, result, lang: str) -> None:
-    from rich.markup import escape
-
-    from aria_code import review_service as rs
-
-    if not result.structured:
-        console.print(escape(rs.render_text(result, lang=lang)))
-        return
-    t = rs._TEXT["zh" if lang == "zh" else "en"]
-    verdict, style = ((t["unknown"], "dim") if result.correct is None else
-                      (t["correct"], "green") if result.correct else (t["incorrect"], "red"))
-    console.print(f"[bold {style}]{verdict}[/bold {style}] [dim]· {t['confidence']} {result.confidence:.2f}[/dim]")
-    if result.explanation:
-        console.print(escape(result.explanation))
-    if not result.findings:
-        console.print(f"[dim]{t['none']}[/dim]")
-    shown_outside = False
-    for number, f in enumerate(result.findings, 1):
-        if not f.in_change and not shown_outside:
-            console.print(f"[dim]— {t['outside']} —[/dim]")
-            shown_outside = True
-        style = _PRIORITY_STYLE.get(f.priority, "dim")
-        console.print(f"\n[{style}]{number}. {escape('[' + f.label + ']')}[/{style}] [bold]{escape(f.title)}[/bold]  "
-                      f"[dim]{escape(f.location)} · {f.confidence:.2f}[/dim]")
-        # Under the finding's title, wrapped rows included: printed with
-        # three leading spaces, a long explanation fell back to column 0.
-        from aria_code.ui.render.output import print_hanging
-
-        for line in f.body.splitlines():
-            if line.strip():
-                print_hanging(console, "   ", line.strip())
-    if result.omitted_files:
-        console.print(f"\n[yellow]{t['omitted']}: {escape(', '.join(result.omitted_files))}[/yellow]")
+            print(msg)
