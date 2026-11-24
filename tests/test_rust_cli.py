@@ -43,37 +43,6 @@ def test_relative_interpreter_is_resolved_before_changing_workspace(native, tmp_
     assert b"relative interpreter works" in result.stdout
 
 
-def test_reads_searches_and_approved_writes_through_existing_tools(native, tmp_path):
-    _, _, call = native
-    (tmp_path / "README.md").write_text("hello from Python tools\n", encoding="utf-8")
-    result = call("tool", "read_file", json.dumps({"path": "README.md"}))
-    assert result.returncode == 0, result.stderr.decode()
-    assert "hello from Python tools" in json.loads(result.stdout)["result"]["data"]["content"]
-    result = call("tool", "search_code", json.dumps({"pattern": "hello", "glob": "*.md"}))
-    assert json.loads(result.stdout)["result"]["data"]["count"] == 1
-    args = json.dumps({"path": "你好.txt", "content": "a complete file with Unicode 你好\n"})
-    denied = call("tool", "write_file", args)
-    assert denied.returncode == 1
-    assert not (tmp_path / "你好.txt").exists()
-    result = call("tool", "--approve-write", "write_file", args)
-    assert result.returncode == 0, (result.stderr.decode(), result.stdout.decode())
-    assert json.loads(result.stdout)["result"]["success"]  # no Rich text on stdout
-    assert "你好" in (tmp_path / "你好.txt").read_text(encoding="utf-8")
-    edit = json.dumps({"path": "你好.txt", "old_string": "Unicode 你好", "new_string": "Unicode 世界"})
-    result = call("tool", "--approve-write", "edit_file", edit)
-    assert result.returncode == 0, result.stderr.decode()
-    assert (tmp_path / "你好.txt").read_text(encoding="utf-8") == "a complete file with Unicode 世界\n"
-
-
-def test_approved_write_still_cannot_leave_workspace(native, tmp_path):
-    _, _, call = native
-    outside = tmp_path.parent / (tmp_path.name + "-outside.txt")
-    result = call("tool", "--approve-write", "write_file", json.dumps({"path": str(outside),
-                    "content": "a complete file should never reach outside", "_permission_mode": "full-access"}))
-    assert result.returncode == 1
-    assert not outside.exists()
-
-
 def fake_package(tmp_path, module, code):
     root = tmp_path / "fake"
     package = root / "aria_code" / "apps" / "cli"

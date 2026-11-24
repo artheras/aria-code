@@ -2,18 +2,16 @@ name: Financial Service integration
 on:
   pull_request:
     paths:
-      - 'src/aria_code/mcp_client.py'
-      - 'src/aria_code/packages/aria_mcp/**'
-      - 'src/aria_code/apps/cli/commands/core_cmds.py'
-      - 'tests/test_financial_service_mcp.py'
+      - 'src/aria_code/apps/cli/main.py'
+      - 'src/aria_code/aria_mcp_server.py'
+      - 'tests/test_mcp_entry_handover.py'
       - '.github/workflows/financial-service.yml'
   push:
     branches: [main, 'feat/**']
     paths:
-      - 'src/aria_code/mcp_client.py'
-      - 'src/aria_code/packages/aria_mcp/**'
-      - 'src/aria_code/apps/cli/commands/core_cmds.py'
-      - 'tests/test_financial_service_mcp.py'
+      - 'src/aria_code/apps/cli/main.py'
+      - 'src/aria_code/aria_mcp_server.py'
+      - 'tests/test_mcp_entry_handover.py'
       - '.github/workflows/financial-service.yml'
 permissions:
   contents: read
@@ -37,4 +35,5 @@ jobs:
           ARIA_OFFLINE: "1"
           FINANCIAL_SERVICE_NETWORK: "0"
         run: |
-          python -m pytest services/financial-service -q --timeout=60
+          python -c "import arthera_finance.server, arthera_finance.doctor, arthera_finance.trading_server"
+          python -m pytest tests/test_mcp_entry_handover.py -q --timeout=60
