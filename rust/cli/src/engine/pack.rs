@@ -492,6 +492,61 @@ ARIA_LICENSE_KEY=\n{}",
     Ok(dest)
 }
 
+/// Export a validated `aria-agent.json` package into Cursor's `.cursor-plugin/plugin.json`
+/// layout (`<out>/.cursor-plugin/plugin.json` + `<out>/skills/<name>/SKILL.md`).
+pub fn export_cursor_plugin(target: &Path, out_dir: Option<&Path>) -> Result<PathBuf, String> {
+    let report = validate_package(target)?;
+    if !report.valid {
+        return Err(format!(
+            "Refusing to export invalid package `{}`: {}",
+            report.name,
+            report.errors.join("; ")
+        ));
+    }
+    let (pkg_dir, manifest) = load_manifest(target)?;
+    let dest = out_dir
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| pkg_dir.join("dist-cursor"));
+    let plugin_meta_dir = dest.join(".cursor-plugin");
+    let skill_dest_dir = dest.join("skills").join(&manifest.name);
+    fs::create_dir_all(&plugin_meta_dir)
+        .map_err(|e| format!("Failed to create {}: {e}", plugin_meta_dir.display()))?;
+    fs::create_dir_all(&skill_dest_dir)
+        .map_err(|e| format!("Failed to create {}: {e}", skill_dest_dir.display()))?;
+
+    let skill_src = pkg_dir.join(&manifest.entry_skill);
+    let skill_body = fs::read_to_string(&skill_src)
+        .map_err(|e| format!("Failed to read {}: {e}", skill_src.display()))?;
+    fs::write(skill_dest_dir.join("SKILL.md"), skill_body)
+        .map_err(|e| format!("Failed to write SKILL.md: {e}"))?;
+
+    let plugin_json = json!({
+        "name": manifest.name,
+        "version": manifest.version,
+        "displayName": manifest.title,
+        "description": manifest.description,
+        "skills": [format!("skills/{}", manifest.name)],
+        "mcpServers": manifest.mcp_servers,
+        "permissions": {
+            "allowWrite": manifest.permissions.allow_write,
+            "ownerScopeRequired": manifest.permissions.owner_scope_required,
+            "allowedTools": manifest.permissions.allowed_tools,
+        },
+        "x-aria": {
+            "category": manifest.category,
+            "tier": manifest.commercial.tier,
+            "licenseModel": manifest.commercial.license_model,
+            "auditRequired": manifest.commercial.audit_required,
+        }
+    });
+    let rendered = serde_json::to_string_pretty(&plugin_json)
+        .map_err(|e| format!("Failed to serialize plugin.json: {e}"))?;
+    fs::write(plugin_meta_dir.join("plugin.json"), format!("{rendered}\n"))
+        .map_err(|e| format!("Failed to write plugin.json: {e}"))?;
+
+    Ok(dest)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -546,5 +601,22 @@ mod tests {
         assert!(compose.contains("ARIA_AUDIT_LOG=/workspace/.aria/audit.jsonl"));
         let env = fs::read_to_string(out.join(".env.example")).expect("env");
         assert!(env.contains("ARIA_LICENSE_KEY="));
+    }
+
+    #[test]
+    fn export_cursor_plugin_generates_manifest_and_skill() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pkg_dir = dir.path().join("cursor-ready");
+        init_package(&pkg_dir, Some("Cursor Ready"), "coding").expect("init");
+        let out = export_cursor_plugin(&pkg_dir, None).expect("export cursor");
+        let plugin_raw = fs::read_to_string(out.join(".cursor-plugin").join("plugin.json"))
+            .expect("plugin.json");
+        let parsed: Value = serde_json::from_str(&plugin_raw).expect("parse");
+        assert_eq!(parsed["name"], "cursor-ready");
+        assert!(out
+            .join("skills")
+            .join("cursor-ready")
+            .join("SKILL.md")
+            .is_file());
     }
 }

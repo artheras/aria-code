@@ -40,6 +40,7 @@ Usage:
   aria-native [-C DIR] pack init [DIR] [--name NAME] [--category coding|logistics|finance|custom]
   aria-native [-C DIR] pack validate|inspect [PATH]
   aria-native [-C DIR] pack export-docker [PATH] [--out DIR]
+  aria-native [-C DIR] pack export-cursor [PATH] [--out DIR]
   aria-native [-C DIR] pack audit [--limit N]
   aria-native [-C DIR] export INPUT.md OUTPUT.(html|pdf|docx|pptx)
   aria-native index imports|symbols < REQUEST.json
@@ -94,6 +95,10 @@ enum PackAction {
     Validate(Option<PathBuf>),
     Inspect(Option<PathBuf>),
     ExportDocker {
+        path: Option<PathBuf>,
+        out: Option<PathBuf>,
+    },
+    ExportCursor {
         path: Option<PathBuf>,
         out: Option<PathBuf>,
     },
@@ -457,6 +462,29 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                             }
                         }
                         break Mode::Pack(PackAction::ExportDocker { path, out });
+                    }
+                    "export-cursor" => {
+                        let mut path: Option<PathBuf> = None;
+                        let mut out: Option<PathBuf> = None;
+                        while let Some(arg) = args.next() {
+                            match arg.to_str() {
+                                Some("--out") => {
+                                    out = Some(PathBuf::from(utf8(
+                                        args.next(),
+                                        "Missing directory after --out",
+                                    )?));
+                                }
+                                Some(other) if !other.starts_with('-') && path.is_none() => {
+                                    path = Some(PathBuf::from(other));
+                                }
+                                _ => {
+                                    return Err(
+                                        "Usage: pack export-cursor [PATH] [--out DIR]".into()
+                                    )
+                                }
+                            }
+                        }
+                        break Mode::Pack(PackAction::ExportCursor { path, out });
                     }
                     "audit" => {
                         let mut limit = 20_usize;
@@ -996,6 +1024,23 @@ fn run(options: Options) -> Result<i32, String> {
                     }
                 });
                 let dest = engine::pack::export_docker_bundle(&target, out_resolved.as_deref())?;
+                println!("{}", dest.display());
+                Ok(0)
+            }
+            PackAction::ExportCursor { path, out } => {
+                let target = match path {
+                    Some(p) if p.is_absolute() => p,
+                    Some(p) => options.workspace.join(p),
+                    None => options.workspace.clone(),
+                };
+                let out_resolved = out.map(|p| {
+                    if p.is_absolute() {
+                        p
+                    } else {
+                        options.workspace.join(p)
+                    }
+                });
+                let dest = engine::pack::export_cursor_plugin(&target, out_resolved.as_deref())?;
                 println!("{}", dest.display());
                 Ok(0)
             }

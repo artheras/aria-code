@@ -56,6 +56,7 @@ pub struct PermissionPolicy {
     pub mode: PermissionMode,
     pub allow: Vec<String>,
     pub deny: Vec<String>,
+    pub ask: Vec<String>,
 }
 
 impl PermissionPolicy {
@@ -111,10 +112,22 @@ impl PermissionPolicy {
                 }
             }
         }
+        if let Some(arr) = perms
+            .get("ask")
+            .or_else(|| perms.get("requiresApproval"))
+            .and_then(Value::as_array)
+        {
+            for item in arr.iter().filter_map(Value::as_str) {
+                let s = item.trim();
+                if !s.is_empty() && !self.ask.iter().any(|x| x == s) {
+                    self.ask.push(s.to_owned());
+                }
+            }
+        }
     }
 
     /// Evaluate whether `tool_name` with `args` is allowed, denied, or requires confirmation.
-    /// Deny rules always take precedence over allow rules.
+    /// Deny rules take precedence, followed by explicit per-tool `ask` rules, then `allow`.
     #[allow(dead_code)]
     pub fn evaluate(
         &self,
@@ -126,6 +139,13 @@ impl PermissionPolicy {
         for rule in &self.deny {
             if rule_matches(rule, tool_name, specifier) {
                 return PermissionDecision::Deny(format!("Denied by permission rule `{rule}`"));
+            }
+        }
+        for rule in &self.ask {
+            if rule_matches(rule, tool_name, specifier) {
+                return PermissionDecision::Ask(format!(
+                    "Approval required by per-tool rule `{rule}`"
+                ));
             }
         }
         for rule in &self.allow {
@@ -294,6 +314,7 @@ mod tests {
             mode: PermissionMode::ReadOnly,
             allow: vec![],
             deny: vec![],
+            ask: vec![],
         };
         assert_eq!(
             policy.evaluate("read_file", &json!({"path": "README.md"}), true),
@@ -326,5 +347,34 @@ mod tests {
             policy.evaluate("write_file", &json!({"path": ".env.local"}), false),
             PermissionDecision::Deny(_)
         ));
+    }
+
+    #[test]
+    fn ask_rule_forces_confirmation_even_in_full_access() {
+        let mut policy = PermissionPolicy {
+            mode: PermissionMode::FullAccess,
+            ..Default::default()
+        };
+        policy.merge_value(&json!({
+            "permissions": {
+                "ask": ["mcp__erp-service__*", "Bash(git push*)"]
+            }
+        }));
+        assert!(matches!(
+            policy.evaluate("mcp__erp-service__score_carriers", &json!({}), true),
+            PermissionDecision::Ask(_)
+        ));
+        assert!(matches!(
+            policy.evaluate(
+                "run_command",
+                &json!({"command": "git push origin main"}),
+                false
+            ),
+            PermissionDecision::Ask(_)
+        ));
+        assert_eq!(
+            policy.evaluate("run_command", &json!({"command": "git status"}), false),
+            PermissionDecision::Allow
+        );
     }
 }
