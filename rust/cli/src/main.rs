@@ -40,7 +40,8 @@ Usage:
   aria-native [-C DIR] pack init [DIR] [--name NAME] [--category coding|logistics|finance|custom]
   aria-native [-C DIR] pack create [DIR] --idea TEXT [--name NAME] [--category CAT]
   aria-native [-C DIR] pack validate|test|inspect [PATH]
-  aria-native [-C DIR] pack export-docker|export-cursor|promo [PATH] [--out DIR]
+  aria-native [-C DIR] pack export-docker|export-cursor [PATH] [--out DIR]
+  aria-native [-C DIR] pack promo [PATH] [--out DIR] [--brief TEXT]
   aria-native [-C DIR] pack audit [--limit N]
   aria-native [-C DIR] export INPUT.md OUTPUT.(html|pdf|docx|pptx)
   aria-native index imports|symbols < REQUEST.json
@@ -112,6 +113,7 @@ enum PackAction {
     Promo {
         path: Option<PathBuf>,
         out: Option<PathBuf>,
+        brief: Option<String>,
     },
     Audit {
         limit: usize,
@@ -544,6 +546,7 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                     "promo" => {
                         let mut path: Option<PathBuf> = None;
                         let mut out: Option<PathBuf> = None;
+                        let mut brief: Option<String> = None;
                         while let Some(arg) = args.next() {
                             match arg.to_str() {
                                 Some("--out") => {
@@ -552,13 +555,21 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                                         "Missing directory after --out",
                                     )?));
                                 }
+                                Some("--brief") => {
+                                    brief = Some(utf8(args.next(), "Missing text after --brief")?);
+                                }
                                 Some(other) if !other.starts_with('-') && path.is_none() => {
                                     path = Some(PathBuf::from(other));
                                 }
-                                _ => return Err("Usage: pack promo [PATH] [--out DIR]".into()),
+                                _ => {
+                                    return Err(
+                                        "Usage: pack promo [PATH] [--out DIR] [--brief TEXT]"
+                                            .into(),
+                                    )
+                                }
                             }
                         }
-                        break Mode::Pack(PackAction::Promo { path, out });
+                        break Mode::Pack(PackAction::Promo { path, out, brief });
                     }
                     "audit" => {
                         let mut limit = 20_usize;
@@ -1172,7 +1183,7 @@ fn run(options: Options) -> Result<i32, String> {
                 println!("{}", dest.display());
                 Ok(0)
             }
-            PackAction::Promo { path, out } => {
+            PackAction::Promo { path, out, brief } => {
                 let target = match path {
                     Some(p) if p.is_absolute() => p,
                     Some(p) => options.workspace.join(p),
@@ -1185,7 +1196,11 @@ fn run(options: Options) -> Result<i32, String> {
                         options.workspace.join(p)
                     }
                 });
-                let dest = engine::pack::generate_promo_kit(&target, out_resolved.as_deref())?;
+                let dest = engine::pack::generate_promo_kit(
+                    &target,
+                    out_resolved.as_deref(),
+                    brief.as_deref(),
+                )?;
                 println!("{}", dest.display());
                 Ok(0)
             }

@@ -721,9 +721,16 @@ pub fn run_package_evals(target: &Path) -> Result<PackScorecard, String> {
     Ok(scorecard)
 }
 
-/// Generate go-to-market promotional assets (`PROMO.md`, `landing.html`, `social_copy.md`)
-/// from the package manifest and optional `scorecard.json`.
-pub fn generate_promo_kit(target: &Path, out_dir: Option<&Path>) -> Result<PathBuf, String> {
+/// Generate personalized go-to-market promotional assets (`PROMO.md`, `landing.html`,
+/// `social_copy.md`, and `promo_prompt.md`) tailored from:
+/// 1. User-supplied `--brief` / `<pkg_dir>/brand.json`
+/// 2. Agent-learned project & user memories (`.aria/memory.json` via BM25)
+/// 3. Verified `scorecard.json` metrics
+pub fn generate_promo_kit(
+    target: &Path,
+    out_dir: Option<&Path>,
+    user_brief: Option<&str>,
+) -> Result<PathBuf, String> {
     let report = validate_package(target)?;
     if !report.valid {
         return Err(format!(
@@ -737,6 +744,35 @@ pub fn generate_promo_kit(target: &Path, out_dir: Option<&Path>) -> Result<PathB
         .map(Path::to_path_buf)
         .unwrap_or_else(|| pkg_dir.join("dist-promo"));
     fs::create_dir_all(&dest).map_err(|e| format!("Failed to create {}: {e}", dest.display()))?;
+
+    let brand = fs::read_to_string(pkg_dir.join("brand.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .unwrap_or(Value::Null);
+    let brand_name = brand
+        .get("brand_name")
+        .and_then(Value::as_str)
+        .unwrap_or(&manifest.title);
+    let audience = brand
+        .get("audience")
+        .and_then(Value::as_str)
+        .unwrap_or("Enterprise operations & engineering teams");
+    let tone = brand
+        .get("tone")
+        .and_then(Value::as_str)
+        .unwrap_or("Clear, evidence-first, executive-ready");
+    let visual_style = brand
+        .get("visual_style")
+        .and_then(Value::as_str)
+        .unwrap_or("Clean enterprise UI, high-contrast data cards");
+
+    let query = format!(
+        "{} {} {}",
+        manifest.category, manifest.name, manifest.description
+    );
+    let memories = crate::engine::memory::search_memories(&pkg_dir, &query, 5);
+    let memory_lines: Vec<String> = memories.iter().map(|m| format!("- {}", m.text)).collect();
+    let brief_text = user_brief.map(str::trim).filter(|s| !s.is_empty());
 
     let scorecard_summary = fs::read_to_string(pkg_dir.join("scorecard.json"))
         .ok()
@@ -758,9 +794,31 @@ pub fn generate_promo_kit(target: &Path, out_dir: Option<&Path>) -> Result<PathB
         manifest.mcp_servers.join(", ")
     };
 
+    let mut context_block = String::new();
+    if let Some(b) = brief_text {
+        context_block.push_str(&format!("- **User Brief**: {b}\n"));
+    }
+    if !memory_lines.is_empty() {
+        context_block.push_str("- **Learned User Context**:\n");
+        for line in &memory_lines {
+            context_block.push_str(&format!("  {line}\n"));
+        }
+    }
+    if context_block.is_empty() {
+        context_block.push_str(
+            "- *Tip*: Add `brand.json`, pass `--brief`, or save preferences via `/memory add` for deeper personalization.\n",
+        );
+    }
+
     let promo_md = format!(
         "# {} (v{})\n\n\
 > {}\n\n\
+## Audience & Positioning\n\
+- **Brand**: {}\n\
+- **Target Audience**: {}\n\
+- **Tone**: {}\n\
+- **Visual Direction**: {}\n\
+{}\n\
 ## Why Enterprise Teams Buy This Agent\n\
 - **Category**: `{}`\n\
 - **Verified Quality**: {}\n\
@@ -773,6 +831,11 @@ pub fn generate_promo_kit(target: &Path, out_dir: Option<&Path>) -> Result<PathB
         manifest.title,
         manifest.version,
         manifest.description,
+        brand_name,
+        audience,
+        tone,
+        visual_style,
+        context_block,
         manifest.category,
         scorecard_summary,
         manifest.permissions.allow_write,
@@ -780,7 +843,7 @@ pub fn generate_promo_kit(target: &Path, out_dir: Option<&Path>) -> Result<PathB
         manifest.commercial.audit_required,
         mcp_line
     );
-    fs::write(dest.join("PROMO.md"), promo_md)
+    fs::write(dest.join("PROMO.md"), &promo_md)
         .map_err(|e| format!("Failed to write PROMO.md: {e}"))?;
 
     let landing_html = format!(
@@ -790,16 +853,18 @@ pub fn generate_promo_kit(target: &Path, out_dir: Option<&Path>) -> Result<PathB
 <span class=\"badge\">{} · v{}</span>\n\
 <h1>{}</h1>\n\
 <p>{}</p>\n\
+<p><strong>For:</strong> {}</p>\n\
 <h3>Verification & Governance</h3>\n\
 <ul><li>Scorecard: {}</li><li>Audit Logging: {}</li><li>MCP Integrations: {}</li></ul>\n\
 <h3>Quick Deploy</h3>\n\
 <pre>aria-native pack validate .\naria-native pack export-docker .</pre>\n\
 </body>\n</html>\n",
-        manifest.title,
+        brand_name,
         manifest.category,
         manifest.version,
         manifest.title,
         manifest.description,
+        audience,
         scorecard_summary,
         manifest.commercial.audit_required,
         mcp_line
@@ -807,16 +872,48 @@ pub fn generate_promo_kit(target: &Path, out_dir: Option<&Path>) -> Result<PathB
     fs::write(dest.join("landing.html"), landing_html)
         .map_err(|e| format!("Failed to write landing.html: {e}"))?;
 
+    let brief_callout = brief_text
+        .map(|b| format!("\n🎯 Focus: {b}"))
+        .unwrap_or_default();
     let social_copy = format!(
-        "🚀 Just shipped **{}** (`{}` v{}) built on Aria Code!\n\n\
-{}\n\n\
+        "🚀 Just shipped **{}** (`{}` v{}) built on Aria Code for **{}**!\n\n\
+{}{}\n\n\
 ✅ {}\n\
 🔒 Enterprise audit trail & least-privilege permissions built in\n\
 🐳 Deploy privately with `aria-native pack export-docker`\n",
-        manifest.title, manifest.name, manifest.version, manifest.description, scorecard_summary
+        manifest.title,
+        manifest.name,
+        manifest.version,
+        audience,
+        manifest.description,
+        brief_callout,
+        scorecard_summary
     );
     fs::write(dest.join("social_copy.md"), social_copy)
         .map_err(|e| format!("Failed to write social_copy.md: {e}"))?;
+
+    let prompt_pack = format!(
+        "# Personalized Creative & Document Generation Prompt\n\n\
+Use this prompt with `aria-native agent` or your image/PPT/PDF generator so copy, visuals, and deliverables match the user:\n\n\
+- **Product**: {} (`{}` v{})\n\
+- **Brand**: {}\n\
+- **Audience**: {}\n\
+- **Tone**: {}\n\
+- **Visual Style**: {}\n\
+- **Verified Proof**: {}\n\
+{}\n",
+        manifest.title,
+        manifest.name,
+        manifest.version,
+        brand_name,
+        audience,
+        tone,
+        visual_style,
+        scorecard_summary,
+        context_block
+    );
+    fs::write(dest.join("promo_prompt.md"), prompt_pack)
+        .map_err(|e| format!("Failed to write promo_prompt.md: {e}"))?;
 
     Ok(dest)
 }
@@ -911,11 +1008,31 @@ mod tests {
         assert_eq!(card.category, "logistics");
         assert!(pkg_dir.join("scorecard.json").is_file());
 
-        let promo = generate_promo_kit(&pkg_dir, None).expect("promo");
+        fs::write(
+            pkg_dir.join("brand.json"),
+            r#"{"brand_name":"Apex Air","audience":"Freight CFOs","tone":"Executive","visual_style":"Minimalist dark blue"}"#,
+        )
+        .unwrap();
+        crate::engine::memory::save_memories(
+            &pkg_dir,
+            &[crate::engine::memory::MemoryEntry {
+                text: "Freight CFOs prefer concise ROI metrics in air freight audits".into(),
+                scope: "project".into(),
+            }],
+        )
+        .unwrap();
+
+        let promo = generate_promo_kit(&pkg_dir, None, Some("Focus on 48h invoice reconciliation"))
+            .expect("promo");
         assert!(promo.join("PROMO.md").is_file());
         assert!(promo.join("landing.html").is_file());
         assert!(promo.join("social_copy.md").is_file());
+        assert!(promo.join("promo_prompt.md").is_file());
         let html = fs::read_to_string(promo.join("landing.html")).expect("html");
         assert!(html.contains("1/1 checks passed"));
+        assert!(html.contains("Freight CFOs"));
+        let prompt_md = fs::read_to_string(promo.join("promo_prompt.md")).expect("prompt");
+        assert!(prompt_md.contains("48h invoice reconciliation"));
+        assert!(prompt_md.contains("concise ROI metrics"));
     }
 }
