@@ -39,10 +39,13 @@ fn nested(command: &str) -> &'static [&'static str] {
         "mcp-serve" => &["--allow-write"],
         "pack" => &[
             "init",
+            "create",
             "validate",
+            "test",
             "inspect",
             "export-docker",
             "export-cursor",
+            "promo",
             "audit",
         ],
         "completions" => &["bash", "zsh", "fish"],

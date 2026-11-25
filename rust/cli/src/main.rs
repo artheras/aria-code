@@ -38,9 +38,9 @@ Usage:
   aria-native mcp-tools PROGRAM [ARGS...]
   aria-native mcp-serve [--allow-write]
   aria-native [-C DIR] pack init [DIR] [--name NAME] [--category coding|logistics|finance|custom]
-  aria-native [-C DIR] pack validate|inspect [PATH]
-  aria-native [-C DIR] pack export-docker [PATH] [--out DIR]
-  aria-native [-C DIR] pack export-cursor [PATH] [--out DIR]
+  aria-native [-C DIR] pack create [DIR] --idea TEXT [--name NAME] [--category CAT]
+  aria-native [-C DIR] pack validate|test|inspect [PATH]
+  aria-native [-C DIR] pack export-docker|export-cursor|promo [PATH] [--out DIR]
   aria-native [-C DIR] pack audit [--limit N]
   aria-native [-C DIR] export INPUT.md OUTPUT.(html|pdf|docx|pptx)
   aria-native index imports|symbols < REQUEST.json
@@ -92,13 +92,24 @@ enum PackAction {
         name: Option<String>,
         category: String,
     },
+    Create {
+        dir: Option<PathBuf>,
+        idea: String,
+        name: Option<String>,
+        category: Option<String>,
+    },
     Validate(Option<PathBuf>),
+    Test(Option<PathBuf>),
     Inspect(Option<PathBuf>),
     ExportDocker {
         path: Option<PathBuf>,
         out: Option<PathBuf>,
     },
     ExportCursor {
+        path: Option<PathBuf>,
+        out: Option<PathBuf>,
+    },
+    Promo {
         path: Option<PathBuf>,
         out: Option<PathBuf>,
     },
@@ -426,12 +437,56 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                             category,
                         });
                     }
+                    "create" => {
+                        let mut dir: Option<PathBuf> = None;
+                        let mut idea: Option<String> = None;
+                        let mut name: Option<String> = None;
+                        let mut category: Option<String> = None;
+                        while let Some(arg) = args.next() {
+                            match arg.to_str() {
+                                Some("--idea") => {
+                                    idea = Some(utf8(args.next(), "Missing value after --idea")?);
+                                }
+                                Some("--name") => {
+                                    name = Some(utf8(args.next(), "Missing value after --name")?);
+                                }
+                                Some("--category") => {
+                                    category =
+                                        Some(utf8(args.next(), "Missing value after --category")?);
+                                }
+                                Some(other) if !other.starts_with('-') && dir.is_none() => {
+                                    dir = Some(PathBuf::from(other));
+                                }
+                                _ => {
+                                    return Err(
+                                        "Usage: pack create [DIR] --idea TEXT [--name NAME] [--category CAT]".into(),
+                                    )
+                                }
+                            }
+                        }
+                        let idea = idea.ok_or(
+                            "Usage: pack create [DIR] --idea TEXT [--name NAME] [--category CAT]",
+                        )?;
+                        break Mode::Pack(PackAction::Create {
+                            dir,
+                            idea,
+                            name,
+                            category,
+                        });
+                    }
                     "validate" => {
                         let path = args.next().map(PathBuf::from);
                         if args.next().is_some() {
                             return Err("Usage: pack validate [PATH]".into());
                         }
                         break Mode::Pack(PackAction::Validate(path));
+                    }
+                    "test" => {
+                        let path = args.next().map(PathBuf::from);
+                        if args.next().is_some() {
+                            return Err("Usage: pack test [PATH]".into());
+                        }
+                        break Mode::Pack(PackAction::Test(path));
                     }
                     "inspect" => {
                         let path = args.next().map(PathBuf::from);
@@ -485,6 +540,25 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                             }
                         }
                         break Mode::Pack(PackAction::ExportCursor { path, out });
+                    }
+                    "promo" => {
+                        let mut path: Option<PathBuf> = None;
+                        let mut out: Option<PathBuf> = None;
+                        while let Some(arg) = args.next() {
+                            match arg.to_str() {
+                                Some("--out") => {
+                                    out = Some(PathBuf::from(utf8(
+                                        args.next(),
+                                        "Missing directory after --out",
+                                    )?));
+                                }
+                                Some(other) if !other.starts_with('-') && path.is_none() => {
+                                    path = Some(PathBuf::from(other));
+                                }
+                                _ => return Err("Usage: pack promo [PATH] [--out DIR]".into()),
+                            }
+                        }
+                        break Mode::Pack(PackAction::Promo { path, out });
                     }
                     "audit" => {
                         let mut limit = 20_usize;
@@ -972,6 +1046,26 @@ fn run(options: Options) -> Result<i32, String> {
                 println!("{}", manifest.display());
                 Ok(0)
             }
+            PackAction::Create {
+                dir,
+                idea,
+                name,
+                category,
+            } => {
+                let target = match dir {
+                    Some(p) if p.is_absolute() => p,
+                    Some(p) => options.workspace.join(p),
+                    None => options.workspace.clone(),
+                };
+                let manifest = engine::pack::create_from_idea(
+                    &target,
+                    &idea,
+                    name.as_deref(),
+                    category.as_deref(),
+                )?;
+                println!("{}", manifest.display());
+                Ok(0)
+            }
             PackAction::Validate(path) => {
                 let target = match path {
                     Some(p) if p.is_absolute() => p,
@@ -996,6 +1090,40 @@ fn run(options: Options) -> Result<i32, String> {
                     serde_json::to_string_pretty(&report.to_json()).unwrap_or_default()
                 );
                 Ok(if report.valid { 0 } else { 1 })
+            }
+            PackAction::Test(path) => {
+                let target = match path {
+                    Some(p) if p.is_absolute() => p,
+                    Some(p) => options.workspace.join(p),
+                    None => options.workspace.clone(),
+                };
+                let card = engine::pack::run_package_evals(&target)?;
+                let _ = engine::audit::record_audit_event(
+                    &options.workspace,
+                    &engine::audit::AuditEvent {
+                        timestamp_secs: engine::audit::now_unix_secs(),
+                        actor: env::var("USER").unwrap_or_else(|_| "cli".into()),
+                        package: card.package.clone(),
+                        action: "pack.test".into(),
+                        tool: None,
+                        approved: true,
+                        outcome: if card.enterprise_ready {
+                            "enterprise_ready"
+                        } else {
+                            "needs_attention"
+                        }
+                        .into(),
+                    },
+                );
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&card.to_json()).unwrap_or_default()
+                );
+                Ok(if card.valid && card.pass_rate >= card.min_pass_rate {
+                    0
+                } else {
+                    1
+                })
             }
             PackAction::Inspect(path) => {
                 let target = match path {
@@ -1041,6 +1169,23 @@ fn run(options: Options) -> Result<i32, String> {
                     }
                 });
                 let dest = engine::pack::export_cursor_plugin(&target, out_resolved.as_deref())?;
+                println!("{}", dest.display());
+                Ok(0)
+            }
+            PackAction::Promo { path, out } => {
+                let target = match path {
+                    Some(p) if p.is_absolute() => p,
+                    Some(p) => options.workspace.join(p),
+                    None => options.workspace.clone(),
+                };
+                let out_resolved = out.map(|p| {
+                    if p.is_absolute() {
+                        p
+                    } else {
+                        options.workspace.join(p)
+                    }
+                });
+                let dest = engine::pack::generate_promo_kit(&target, out_resolved.as_deref())?;
                 println!("{}", dest.display());
                 Ok(0)
             }
