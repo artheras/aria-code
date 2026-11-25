@@ -816,6 +816,7 @@ fn parse_tool_annotations(tool: &Value) -> McpToolAnnotations {
 
 /// Live registry of external MCP servers (stdio + remote Streamable HTTP) discovered from config.
 pub struct McpRegistry {
+    configs: HashMap<String, McpServerConfig>,
     clients: HashMap<String, McpClient>,
     routes: HashMap<String, (String, String)>,
     annotations: HashMap<String, McpToolAnnotations>,
@@ -830,97 +831,157 @@ impl McpRegistry {
     }
 
     pub fn load_from_configs(configs: &[McpServerConfig]) -> Self {
-        let mut clients = HashMap::new();
-        let mut routes = HashMap::new();
-        let mut annotations = HashMap::new();
-        let mut schemas = Vec::new();
-        let mut statuses = Vec::new();
+        let mut reg = Self {
+            configs: configs
+                .iter()
+                .map(|c| (c.name.clone(), c.clone()))
+                .collect(),
+            clients: HashMap::new(),
+            routes: HashMap::new(),
+            annotations: HashMap::new(),
+            schemas: Vec::new(),
+            statuses: Vec::new(),
+        };
         for cfg in configs {
-            let started = Instant::now();
-            let mut client = match McpClient::connect(cfg) {
-                Ok(c) => c,
-                Err(err) => {
-                    statuses.push(McpServerHealth {
-                        name: cfg.name.clone(),
-                        command: cfg.command.clone(),
-                        connected: false,
-                        tool_count: 0,
-                        read_only_count: 0,
-                        tool_names: Vec::new(),
-                        latency_ms: started.elapsed().as_millis() as u64,
-                        error: Some(err),
-                    });
-                    continue;
-                }
-            };
-            let tools = match client.list_tools() {
-                Ok(t) => t,
-                Err(err) => {
-                    statuses.push(McpServerHealth {
-                        name: cfg.name.clone(),
-                        command: cfg.command.clone(),
-                        connected: false,
-                        tool_count: 0,
-                        read_only_count: 0,
-                        tool_names: Vec::new(),
-                        latency_ms: started.elapsed().as_millis() as u64,
-                        error: Some(err),
-                    });
-                    continue;
-                }
-            };
-            let safe_server = cfg.name.replace(['.', '-', ' '], "_");
-            let mut tool_names = Vec::new();
-            let mut read_only_count = 0usize;
-            for tool in tools {
-                let Some(orig_name) = tool.get("name").and_then(Value::as_str) else {
-                    continue;
-                };
-                tool_names.push(orig_name.to_owned());
-                let safe_tool = orig_name.replace(['.', '-', ' '], "_");
-                let exposed = format!("mcp__{safe_server}__{safe_tool}");
-                let desc = tool
-                    .get("description")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                let params = tool
-                    .get("inputSchema")
-                    .cloned()
-                    .unwrap_or_else(|| json!({"type": "object", "properties": {}}));
-                schemas.push(json!({
-                    "type": "function",
-                    "function": {
-                        "name": exposed,
-                        "description": format!("[MCP:{}] {}", cfg.name, desc),
-                        "parameters": params,
-                    }
-                }));
-                let ann = parse_tool_annotations(&tool);
-                if ann.read_only && !ann.destructive {
-                    read_only_count += 1;
-                }
-                annotations.insert(exposed.clone(), ann);
-                routes.insert(exposed, (cfg.name.clone(), orig_name.to_owned()));
-            }
+            let _ = reg.connect_and_register(cfg);
+        }
+        reg
+    }
+
+    /// Register MCP server configs without spawning subprocesses until first tool call or explicit connect.
+    #[allow(dead_code)]
+    pub fn load_on_demand_from_configs(configs: &[McpServerConfig]) -> Self {
+        let mut statuses = Vec::with_capacity(configs.len());
+        let mut config_map = HashMap::with_capacity(configs.len());
+        for cfg in configs {
+            config_map.insert(cfg.name.clone(), cfg.clone());
             statuses.push(McpServerHealth {
                 name: cfg.name.clone(),
                 command: cfg.command.clone(),
-                connected: true,
-                tool_count: tool_names.len(),
-                read_only_count,
-                tool_names,
-                latency_ms: started.elapsed().as_millis() as u64,
+                connected: false,
+                tool_count: 0,
+                read_only_count: 0,
+                tool_names: Vec::new(),
+                latency_ms: 0,
                 error: None,
             });
-            clients.insert(cfg.name.clone(), client);
         }
         Self {
-            clients,
-            routes,
-            annotations,
-            schemas,
+            configs: config_map,
+            clients: HashMap::new(),
+            routes: HashMap::new(),
+            annotations: HashMap::new(),
+            schemas: Vec::new(),
             statuses,
         }
+    }
+
+    fn connect_and_register(&mut self, cfg: &McpServerConfig) -> Result<(), String> {
+        let started = Instant::now();
+        let mut client = match McpClient::connect(cfg) {
+            Ok(c) => c,
+            Err(err) => {
+                self.upsert_status(McpServerHealth {
+                    name: cfg.name.clone(),
+                    command: cfg.command.clone(),
+                    connected: false,
+                    tool_count: 0,
+                    read_only_count: 0,
+                    tool_names: Vec::new(),
+                    latency_ms: started.elapsed().as_millis() as u64,
+                    error: Some(err.clone()),
+                });
+                return Err(err);
+            }
+        };
+        let tools = match client.list_tools() {
+            Ok(t) => t,
+            Err(err) => {
+                self.upsert_status(McpServerHealth {
+                    name: cfg.name.clone(),
+                    command: cfg.command.clone(),
+                    connected: false,
+                    tool_count: 0,
+                    read_only_count: 0,
+                    tool_names: Vec::new(),
+                    latency_ms: started.elapsed().as_millis() as u64,
+                    error: Some(err.clone()),
+                });
+                return Err(err);
+            }
+        };
+        let safe_server = cfg.name.replace(['.', '-', ' '], "_");
+        let mut tool_names = Vec::new();
+        let mut read_only_count = 0usize;
+        for tool in tools {
+            let Some(orig_name) = tool.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+            tool_names.push(orig_name.to_owned());
+            let safe_tool = orig_name.replace(['.', '-', ' '], "_");
+            let exposed = format!("mcp__{safe_server}__{safe_tool}");
+            let desc = tool
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let params = tool
+                .get("inputSchema")
+                .cloned()
+                .unwrap_or_else(|| json!({"type": "object", "properties": {}}));
+            self.schemas.push(json!({
+                "type": "function",
+                "function": {
+                    "name": exposed,
+                    "description": format!("[MCP:{}] {}", cfg.name, desc),
+                    "parameters": params,
+                }
+            }));
+            let ann = parse_tool_annotations(&tool);
+            if ann.read_only && !ann.destructive {
+                read_only_count += 1;
+            }
+            self.annotations.insert(exposed.clone(), ann);
+            self.routes
+                .insert(exposed, (cfg.name.clone(), orig_name.to_owned()));
+        }
+        self.upsert_status(McpServerHealth {
+            name: cfg.name.clone(),
+            command: cfg.command.clone(),
+            connected: true,
+            tool_count: tool_names.len(),
+            read_only_count,
+            tool_names,
+            latency_ms: started.elapsed().as_millis() as u64,
+            error: None,
+        });
+        self.clients.insert(cfg.name.clone(), client);
+        Ok(())
+    }
+
+    fn upsert_status(&mut self, next: McpServerHealth) {
+        if let Some(existing) = self.statuses.iter_mut().find(|s| s.name == next.name) {
+            *existing = next;
+        } else {
+            self.statuses.push(next);
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn ensure_server_connected(&mut self, server_name: &str) -> Result<(), String> {
+        if self.clients.contains_key(server_name) {
+            return Ok(());
+        }
+        let cfg = self
+            .configs
+            .get(server_name)
+            .cloned()
+            .ok_or_else(|| format!("Unknown MCP server `{server_name}`"))?;
+        self.connect_and_register(&cfg)
+    }
+
+    #[allow(dead_code)]
+    pub fn connected_count(&self) -> usize {
+        self.clients.len()
     }
 
     #[allow(dead_code)]
@@ -946,6 +1007,11 @@ impl McpRegistry {
 
     pub fn call_tool(&mut self, exposed_name: &str, arguments: Value) -> Option<Value> {
         let (server, orig_name) = self.routes.get(exposed_name)?.clone();
+        if !self.clients.contains_key(&server) {
+            if let Err(err) = self.ensure_server_connected(&server) {
+                return Some(json!({ "ok": false, "error": err }));
+            }
+        }
         let client = self.clients.get_mut(&server)?;
         match client.call_tool(&orig_name, arguments) {
             Ok(data) => Some(json!({ "ok": true, "data": data })),
@@ -1253,5 +1319,21 @@ for line in sys.stdin:
             found.iter().any(|c| c.name == "arthera-finance"),
             "services/financial-service should be auto-discovered"
         );
+    }
+
+    #[test]
+    fn on_demand_registry_connects_lazily_when_requested() {
+        let cfg = McpServerConfig {
+            name: "lazy-demo".into(),
+            command: "nonexistent-mcp-bin".into(),
+            args: vec![],
+            env: HashMap::new(),
+        };
+        let mut reg = McpRegistry::load_on_demand_from_configs(&[cfg]);
+        assert_eq!(reg.connected_count(), 0);
+        assert_eq!(reg.statuses().len(), 1);
+        assert!(!reg.statuses()[0].connected);
+        let err = reg.ensure_server_connected("lazy-demo").unwrap_err();
+        assert!(err.contains("Failed to spawn MCP server"));
     }
 }
