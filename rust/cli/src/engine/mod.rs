@@ -10,6 +10,7 @@ pub mod doctor;
 pub mod ecosystem;
 pub mod eval;
 pub mod hooks;
+pub mod license;
 pub mod lsp;
 pub mod mcp;
 pub mod mcp_serve;

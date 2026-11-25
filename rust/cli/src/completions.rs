@@ -46,6 +46,8 @@ fn nested(command: &str) -> &'static [&'static str] {
             "export-docker",
             "export-cursor",
             "promo",
+            "issue-license",
+            "verify-license",
             "audit",
         ],
         "completions" => &["bash", "zsh", "fish"],

@@ -42,6 +42,8 @@ Usage:
   aria-native [-C DIR] pack validate|test|inspect [PATH]
   aria-native [-C DIR] pack export-docker|export-cursor [PATH] [--out DIR]
   aria-native [-C DIR] pack promo [PATH] [--out DIR] [--brief TEXT]
+  aria-native [-C DIR] pack issue-license --customer NAME --package PKG [--seats N] [--days N]
+  aria-native [-C DIR] pack verify-license [--token TOKEN] [--package PKG]
   aria-native [-C DIR] pack audit [--limit N]
   aria-native [-C DIR] export INPUT.md OUTPUT.(html|pdf|docx|pptx)
   aria-native index imports|symbols < REQUEST.json
@@ -114,6 +116,16 @@ enum PackAction {
         path: Option<PathBuf>,
         out: Option<PathBuf>,
         brief: Option<String>,
+    },
+    IssueLicense {
+        customer: String,
+        package: String,
+        seats: u32,
+        days: u64,
+    },
+    VerifyLicense {
+        token: Option<String>,
+        package: Option<String>,
     },
     Audit {
         limit: usize,
@@ -570,6 +582,73 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                             }
                         }
                         break Mode::Pack(PackAction::Promo { path, out, brief });
+                    }
+                    "issue-license" => {
+                        let mut customer: Option<String> = None;
+                        let mut package: Option<String> = None;
+                        let mut seats = 5_u32;
+                        let mut days = 365_u64;
+                        while let Some(arg) = args.next() {
+                            match arg.to_str() {
+                                Some("--customer") => {
+                                    customer =
+                                        Some(utf8(args.next(), "Missing value after --customer")?);
+                                }
+                                Some("--package") => {
+                                    package =
+                                        Some(utf8(args.next(), "Missing value after --package")?);
+                                }
+                                Some("--seats") => {
+                                    let raw = utf8(args.next(), "Missing value after --seats")?;
+                                    seats = raw
+                                        .parse::<u32>()
+                                        .map_err(|_| format!("Invalid --seats: {raw}"))?;
+                                }
+                                Some("--days") => {
+                                    let raw = utf8(args.next(), "Missing value after --days")?;
+                                    days = raw
+                                        .parse::<u64>()
+                                        .map_err(|_| format!("Invalid --days: {raw}"))?;
+                                }
+                                _ => {
+                                    return Err(
+                                        "Usage: pack issue-license --customer NAME --package PKG [--seats N] [--days N]".into(),
+                                    )
+                                }
+                            }
+                        }
+                        let customer = customer.ok_or(
+                            "Usage: pack issue-license --customer NAME --package PKG [--seats N] [--days N]",
+                        )?;
+                        let package = package.ok_or(
+                            "Usage: pack issue-license --customer NAME --package PKG [--seats N] [--days N]",
+                        )?;
+                        break Mode::Pack(PackAction::IssueLicense {
+                            customer,
+                            package,
+                            seats,
+                            days,
+                        });
+                    }
+                    "verify-license" => {
+                        let mut token: Option<String> = None;
+                        let mut package: Option<String> = None;
+                        while let Some(arg) = args.next() {
+                            match arg.to_str() {
+                                Some("--token") => {
+                                    token = Some(utf8(args.next(), "Missing value after --token")?);
+                                }
+                                Some("--package") => {
+                                    package =
+                                        Some(utf8(args.next(), "Missing value after --package")?);
+                                }
+                                _ => return Err(
+                                    "Usage: pack verify-license [--token TOKEN] [--package PKG]"
+                                        .into(),
+                                ),
+                            }
+                        }
+                        break Mode::Pack(PackAction::VerifyLicense { token, package });
                     }
                     "audit" => {
                         let mut limit = 20_usize;
@@ -1202,6 +1281,53 @@ fn run(options: Options) -> Result<i32, String> {
                     brief.as_deref(),
                 )?;
                 println!("{}", dest.display());
+                Ok(0)
+            }
+            PackAction::IssueLicense {
+                customer,
+                package,
+                seats,
+                days,
+            } => {
+                let secret = env::var("ARIA_LICENSE_SECRET")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty())
+                    .ok_or("Set ARIA_LICENSE_SECRET to issue enterprise licenses")?;
+                let expires_at = if days == 0 {
+                    0
+                } else {
+                    engine::audit::now_unix_secs().saturating_add(days.saturating_mul(86_400))
+                };
+                let claims = engine::license::LicenseClaims {
+                    customer,
+                    package,
+                    tier: "enterprise".into(),
+                    seats,
+                    expires_at,
+                };
+                let token = engine::license::issue_license(&claims, &secret)?;
+                println!("{token}");
+                Ok(0)
+            }
+            PackAction::VerifyLicense { token, package } => {
+                let secret = env::var("ARIA_LICENSE_SECRET")
+                    .ok()
+                    .filter(|s| !s.trim().is_empty())
+                    .ok_or("Set ARIA_LICENSE_SECRET to verify enterprise licenses")?;
+                let tok = token
+                    .or_else(|| env::var("ARIA_LICENSE_KEY").ok())
+                    .filter(|s| !s.trim().is_empty())
+                    .ok_or("Provide --token or set ARIA_LICENSE_KEY")?;
+                let claims = engine::license::verify_license(
+                    &tok,
+                    &secret,
+                    package.as_deref(),
+                    engine::audit::now_unix_secs(),
+                )?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&claims.to_json()).unwrap_or_default()
+                );
                 Ok(0)
             }
             PackAction::Audit { limit } => {

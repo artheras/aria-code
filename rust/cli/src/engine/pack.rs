@@ -845,6 +845,18 @@ pub fn generate_promo_kit(
     );
     fs::write(dest.join("PROMO.md"), &promo_md)
         .map_err(|e| format!("Failed to write PROMO.md: {e}"))?;
+    let _ = crate::engine::report::export_markdown_pptx(
+        &dest,
+        Path::new("PROMO.md"),
+        Path::new("pitch.pptx"),
+    );
+    let _ = crate::engine::report::export_markdown_report(
+        &dest,
+        Path::new("PROMO.md"),
+        Path::new("pitch.pdf"),
+        true,
+        false,
+    );
 
     let landing_html = format!(
         "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>{}</title>\n\
@@ -1025,6 +1037,8 @@ mod tests {
         let promo = generate_promo_kit(&pkg_dir, None, Some("Focus on 48h invoice reconciliation"))
             .expect("promo");
         assert!(promo.join("PROMO.md").is_file());
+        assert!(promo.join("pitch.pptx").is_file());
+        assert!(promo.join("pitch.pdf").is_file());
         assert!(promo.join("landing.html").is_file());
         assert!(promo.join("social_copy.md").is_file());
         assert!(promo.join("promo_prompt.md").is_file());
