@@ -1,79 +1,59 @@
 #!/usr/bin/env bash
-# aria-code pre-commit 钩子 —— 只跑"快且今天真的抓到过东西"的检查。
-#
-# 安装：  ln -sf ../../scripts/pre-commit .git/hooks/pre-commit
-# 跳过：  git commit --no-verify
-#
-# 设计原则：**必须快**。慢的钩子会被 --no-verify 绕过，然后就永远没人跑了。
-# 这里全部加起来约 1 秒，跑的是四类"仓库内一切正常、只有装出来才炸"的问题：
-#
-#   1. ruff E9/F821/F823  —— 语法错误与未定义名。2026-08-19 的
-#      `NameError: pathlib` 就是这类：CLI 在所有受支持的 Python 版本上启动
-#      即崩溃，本地 1352 个测试却全绿（开发机是 3.14，注解惰性求值）。
-#   2. 打包清单一致性     —— clients/ domain/ tools/ 曾漏在 include 之外，
-#      导致已发布的 4.3.0 里 24 个 shim 全部 ModuleNotFoundError。
-#   3. 版本号三处一致     —— pyproject / npm / __version__ 分头维护，
-#      漂移会发出两个同名不同内容的包。
-#   4. 无本机绝对路径     —— 公开仓库里写死 /Users/<name>/... 既不能用，
-#      也泄露开发者信息。
-#
-# 这些都不是理论风险，全部在 2026-08-19 当天真实发生过。
+# Fast pre-commit checks aligned with Route A (Rust + Go + Python).
+# Install: ln -sf ../../scripts/pre-commit .git/hooks/pre-commit (or run ./scripts/dev_setup.sh)
 
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 0
 
-# 没有暂存的 Python 改动就直接放行——文档/配置提交不该被拖慢。
-#
-# 先把文件列表存进变量再判断，而不是直接管道给 grep -q：`set -o pipefail`
-# 加上 `grep -q` 命中即退出，会让上游的 git diff 收到 SIGPIPE，整条管道返回
-# 非 0，于是 `if !` 把"有 Python 改动"误判成"没有"，钩子直接放行——检查形同
-# 虚设且完全无声。实测踩到过。
 STAGED="$(git diff --cached --name-only --diff-filter=ACM)"
-case "$STAGED" in
-    *.py|*.py$'\n'*|*pyproject.toml*|*package.json*) ;;
-    *) exit 0 ;;
-esac
+[ -n "$STAGED" ] || exit 0
 
 fail=0
 say() { printf '  %s\n' "$*"; }
 
-# 解释器：优先仓库 venv，回落到 python3
 PY=".venv/bin/python3"
 [ -x "$PY" ] || PY="$(command -v python3 || true)"
-[ -n "$PY" ] || { say "找不到 python3，跳过 pre-commit 检查"; exit 0; }
 
-echo "▸ pre-commit 检查"
+echo "▸ pre-commit checks"
 
-if "$PY" -m ruff --version >/dev/null 2>&1; then
-    if ! "$PY" -m ruff check . --select E9,F821,F823 -q; then
-        say "✗ ruff 发现语法错误或未定义名"
-        fail=1
+if printf '%s\n' "$STAGED" | grep -q '\.rs$'; then
+  if command -v cargo >/dev/null 2>&1; then
+    if (cd rust && cargo fmt --check >/dev/null 2>&1); then
+      say "✓ rustfmt"
     else
-        say "✓ ruff"
+      say "✗ cargo fmt --check failed (run: cd rust && cargo fmt)"
+      fail=1
     fi
-else
-    say "· ruff 未安装，跳过（pip install ruff）"
+  fi
 fi
 
-GUARDS="tests/test_packaging_manifest.py tests/test_version_consistency.py tests/test_no_hardcoded_developer_paths.py tests/test_no_uncommitted_imports.py tests/test_root_module_budget.py"
-EXISTING=""
-for f in $GUARDS; do [ -f "$f" ] && EXISTING="$EXISTING $f"; done
+GO_FILES="$(printf '%s\n' "$STAGED" | grep '\.go$' || true)"
+if [ -n "$GO_FILES" ] && command -v gofmt >/dev/null 2>&1; then
+  UNFMT="$(gofmt -l $GO_FILES)"
+  if [ -z "$UNFMT" ]; then
+    say "✓ gofmt"
+  else
+    say "✗ gofmt needed on: $UNFMT"
+    fail=1
+  fi
+fi
 
-if [ -n "$EXISTING" ] && "$PY" -m pytest --version >/dev/null 2>&1; then
-    if ! "$PY" -m pytest $EXISTING -q -p no:cacheprovider >/tmp/aria-precommit.log 2>&1; then
-        say "✗ 守卫测试失败："
-        tail -15 /tmp/aria-precommit.log | sed 's/^/      /'
-        fail=1
+if printf '%s\n' "$STAGED" | grep -q '\.py$'; then
+  if [ -n "$PY" ] && "$PY" -m ruff --version >/dev/null 2>&1; then
+    if "$PY" -m ruff check . --select E9,F821,F823 -q; then
+      say "✓ ruff"
     else
-        say "✓ 打包清单 / 版本一致性 / 无本机路径"
+      say "✗ ruff found syntax or undefined-name errors"
+      fail=1
     fi
-else
-    say "· pytest 或守卫文件缺失，跳过"
+  else
+    say "· ruff not installed, skipping Python lint"
+  fi
 fi
 
 if [ "$fail" -ne 0 ]; then
-    echo
-    say "提交已阻止。修好后重试，或用 git commit --no-verify 跳过（不建议）。"
-    exit 1
+  echo
+  say "Commit blocked. Fix the issues above or bypass with git commit --no-verify."
+  exit 1
 fi
 exit 0

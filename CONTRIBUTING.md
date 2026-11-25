@@ -12,28 +12,30 @@ cd aria-code
 git switch -c feature/your-change origin/main
 ```
 
-For the native application, install the Go version in `go/runtime/go.mod` and
-the Rust toolchain declared in `rust/Cargo.toml`, then build this checkout:
+For the full multi-language development environment (Rust, Go, Python `.venv`, Node.js, and git pre-commit hook), run:
+
+```bash
+./scripts/dev_setup.sh
+./scripts/dev_check.sh
+```
+
+To build and run the native Rust CLI (`aria-native`) directly:
 
 ```bash
 bash scripts/run_native_dev.sh --help
 ```
 
-For Python compatibility code or Python services, use Python 3.10–3.13 and an
-independent environment (Python 3.12 is a convenient development default):
+For Python tests, evals, or Python services (`services/aria-bots`), use Python 3.10–3.13 inside `.venv`:
 
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
 
-# Editable install. This is what puts `aria-code` on your PATH and what makes
-# the package importable both ways the tree needs; `pip install -r
-# requirements.txt` alone does neither.
+# Editable install so `aria-code` and `aria_code` resolve cleanly.
 pip install -e ".[dev]"
 
-# Offline checks; no provider account or model request is needed.
-python scripts/sync_finance_core.py --check
-python -m pytest tests/test_optional_finance.py tests/test_finance_source_lock.py -q
+# Run the unified multi-language verification gate.
+./scripts/dev_check.sh
 ```
 
 Do not reuse another checkout's virtual environment or copy its ignored local
@@ -55,18 +57,17 @@ aria-code --model qwen2.5-coder:7b -p "hello"
 ## What to Contribute
 
 ### Great first issues
-- Add a new `/slash` command
-- Add a new financial formula to `local_finance_tools.py`
-- Improve a built-in prompt template
-- Add a new data source adapter in `datasources/sources/`
-- Fix a formatting issue in `finance_formulas.py`
-- Write a new test
+- Add a new `/slash` command in `rust/cli/src/chat/`
+- Add a quantitative algorithm or test in `rust/quant/src/`
+- Improve an enterprise agent pack template in `rust/cli/src/engine/pack.rs`
+- Add a browser/MCP tool or E2E test in `services/aria-computer-use/`
+- Write a new Rust, Go, or Python unit test
 
 ### Bigger contributions
-- New LLM provider in `providers/llm/`
-- New specialist agent in `agents/financial/`
-- New quant strategy in `strategy_vault.py`
-- MCP tool improvements
+- Native engine tools, MCP, or permission rules in `rust/cli/src/engine/`
+- Go runtime / relay / projectreview improvements in `go/`
+- Logistics & bot channel integrations in `services/aria-bots/`
+- Evaluation & training pipeline improvements in `src/aria_code/evals/` & `src/aria_code/training/`
 
 ---
 
@@ -97,16 +98,9 @@ mypy src/aria_code --ignore-missing-imports
 ## Running Tests
 
 ```bash
-pytest tests/ -v
-pytest tests/test_aria_cli_core.py -v    # Core tests only
-pytest tests/ -k "not e2e"               # Skip end-to-end (requires running LLM)
-```
-
-`tests/test_terminal_snapshots.py` compares what the terminal shows for key commands (`/help`, `/team`, `/portfolio`, `/compare`, `/peer`, a market snapshot) with the text in `tests/snapshots/`. If you change one of those outputs on purpose, regenerate the snapshots and review the diff like any other change:
-
-```bash
-ARIA_UPDATE_SNAPSHOTS=1 pytest tests/test_terminal_snapshots.py
-git diff tests/snapshots/
+./scripts/dev_check.sh                   # Full Rust + Go + Python + TS verification gate
+pytest tests/ -q                         # Python test suite
+pytest tests/ -k "not slow_packaging"    # Skip wheel build packaging tests
 ```
 
 ---

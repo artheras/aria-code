@@ -11,6 +11,7 @@ import (
 )
 
 func TestProjectInstructionsReachTheModel(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	s := approvalServer(t, config{}, appOptions{})
 	if err := os.WriteFile(filepath.Join(s.scope.workspace, "AGENTS.md"), []byte("Run make check."), 0o644); err != nil {
 		t.Fatal(err)
