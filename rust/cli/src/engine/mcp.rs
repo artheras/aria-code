@@ -303,10 +303,25 @@ pub struct McpServerConfig {
     pub env: HashMap<String, String>,
 }
 
+fn is_on_demand_json(cfg: &Value) -> bool {
+    cfg.get("onDemand").and_then(Value::as_bool) == Some(true)
+        || cfg
+            .get("startup_mode")
+            .and_then(Value::as_str)
+            .is_some_and(|s| s.eq_ignore_ascii_case("on_demand") || s.eq_ignore_ascii_case("lazy"))
+}
+
+fn is_on_demand_cfg(cfg: &McpServerConfig) -> bool {
+    cfg.env
+        .get("ARIA_MCP_ON_DEMAND")
+        .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+}
+
 fn insert_mcp_entry(name: &str, cfg: &Value, out: &mut HashMap<String, McpServerConfig>) {
     if name.trim().is_empty() {
         return;
     }
+    let on_demand = is_on_demand_json(cfg);
     if let Some(url) = cfg.get("url").and_then(Value::as_str) {
         if is_remote_http_url(url) {
             let mut env = HashMap::new();
@@ -316,6 +331,9 @@ fn insert_mcp_entry(name: &str, cfg: &Value, out: &mut HashMap<String, McpServer
                         env.insert(format!("{MCP_HEADER_ENV_PREFIX}{k}"), s.to_owned());
                     }
                 }
+            }
+            if on_demand {
+                env.insert("ARIA_MCP_ON_DEMAND".into(), "1".into());
             }
             out.insert(
                 name.to_owned(),
@@ -345,7 +363,7 @@ fn insert_mcp_entry(name: &str, cfg: &Value, out: &mut HashMap<String, McpServer
                 .collect()
         })
         .unwrap_or_default();
-    let env = cfg
+    let mut env: HashMap<String, String> = cfg
         .get("env")
         .and_then(Value::as_object)
         .map(|m| {
@@ -354,6 +372,9 @@ fn insert_mcp_entry(name: &str, cfg: &Value, out: &mut HashMap<String, McpServer
                 .collect()
         })
         .unwrap_or_default();
+    if on_demand {
+        env.insert("ARIA_MCP_ON_DEMAND".into(), "1".into());
+    }
     out.insert(
         name.to_owned(),
         McpServerConfig {
@@ -618,8 +639,7 @@ pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> 
     let bots_mcp = bots_root
         .join("src")
         .join("aria_bots")
-        .join("logistics")
-        .join("mcp_server.py");
+        .join("erp_logistics.py");
     if bots_mcp.is_file() {
         let mut env = HashMap::new();
         env.insert(
@@ -843,7 +863,20 @@ impl McpRegistry {
             statuses: Vec::new(),
         };
         for cfg in configs {
-            let _ = reg.connect_and_register(cfg);
+            if is_on_demand_cfg(cfg) {
+                reg.upsert_status(McpServerHealth {
+                    name: cfg.name.clone(),
+                    command: cfg.command.clone(),
+                    connected: false,
+                    tool_count: 0,
+                    read_only_count: 0,
+                    tool_names: Vec::new(),
+                    latency_ms: 0,
+                    error: None,
+                });
+            } else {
+                let _ = reg.connect_and_register(cfg);
+            }
         }
         reg
     }
@@ -1335,5 +1368,34 @@ for line in sys.stdin:
         assert!(!reg.statuses()[0].connected);
         let err = reg.ensure_server_connected("lazy-demo").unwrap_err();
         assert!(err.contains("Failed to spawn MCP server"));
+    }
+
+    #[test]
+    fn mcp_json_on_demand_flag_defers_startup_and_discovers_erp_logistics() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path();
+        fs::write(
+            ws.join(".mcp.json"),
+            r#"{"mcpServers":{"deferred":{"command":"nonexistent-mcp","onDemand":true}}}"#,
+        )
+        .unwrap();
+        let cfgs = load_mcp_server_configs(ws);
+        assert_eq!(cfgs.len(), 1);
+        assert!(is_on_demand_cfg(&cfgs[0]));
+        let reg = McpRegistry::load_from_configs(&cfgs);
+        assert_eq!(reg.connected_count(), 0);
+        assert_eq!(reg.statuses().len(), 1);
+        assert!(reg.statuses()[0].error.is_none());
+
+        let logistics_py = ws
+            .join("services")
+            .join("aria-bots")
+            .join("src")
+            .join("aria_bots")
+            .join("erp_logistics.py");
+        fs::create_dir_all(logistics_py.parent().unwrap()).unwrap();
+        fs::write(&logistics_py, "# stub\n").unwrap();
+        let found = discover_ecosystem_mcp_servers(ws);
+        assert!(found.iter().any(|c| c.name == "aria-logistics"));
     }
 }

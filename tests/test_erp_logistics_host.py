@@ -12,6 +12,7 @@ BOTS_SRC = Path(__file__).resolve().parents[1] / "services" / "aria-bots" / "src
 if str(BOTS_SRC) not in sys.path:
     sys.path.insert(0, str(BOTS_SRC))
 
+from aria_bots import engine as bots_engine  # noqa: E402
 from aria_bots import erp_logistics  # noqa: E402
 
 
@@ -63,6 +64,17 @@ class TestErpLogisticsHost(unittest.TestCase):
 
         unknown = erp_logistics.handle({"jsonrpc": "2.0", "id": 4, "method": "nonexistent"}, None)
         self.assertEqual(unknown["error"]["code"], -32601)
+
+    def test_bots_find_engine_falls_back_to_aria_native(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_bin = Path(tmp) / "aria-native"
+            fake_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            fake_bin.chmod(0o755)
+            with mock.patch.dict(os.environ, {"ARIA_RUNTIME": "", "ARIA_NATIVE_BINARY": str(fake_bin)}):
+                with mock.patch("shutil.which", return_value=None):
+                    self.assertEqual(bots_engine.find_engine(), str(fake_bin))
 
 
 if __name__ == "__main__":

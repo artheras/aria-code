@@ -37,13 +37,21 @@ def state_dir() -> Path:
 
 
 def find_engine() -> Optional[str]:
-    """ARIA_RUNTIME when it names an aria-runtime, else aria-runtime on PATH."""
+    """ARIA_RUNTIME when it names an aria-runtime, else aria-runtime or aria-native on PATH."""
     configured = os.environ.get(ENGINE_ENV, "").strip()
     if configured:
         path = Path(configured).expanduser()
         if path.name.removesuffix(".exe").startswith("aria-runtime") and path.is_file() and os.access(path, os.X_OK):
             return str(path)
-    return shutil.which("aria-runtime")
+    runtime = shutil.which("aria-runtime")
+    if runtime:
+        return runtime
+    native_env = os.environ.get("ARIA_NATIVE_BINARY", "").strip()
+    if native_env:
+        npath = Path(native_env).expanduser()
+        if npath.is_file() and os.access(npath, os.X_OK):
+            return str(npath)
+    return shutil.which("aria-native")
 
 
 def mcp_config() -> Path:
