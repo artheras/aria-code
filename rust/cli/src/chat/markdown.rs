@@ -214,6 +214,7 @@ pub fn render(source: &str, palette: Palette, width: u16) -> Vec<Line<'static>> 
     let mut styles = vec![Style::default()];
     let mut lists: Vec<Option<u64>> = Vec::new();
     let mut code = false;
+    let mut in_diff = false;
     let mut table: Option<Vec<Vec<Vec<Span<'static>>>>> = None;
     let mut row = Vec::new();
     let mut cell = Vec::new();
@@ -261,6 +262,8 @@ pub fn render(source: &str, palette: Palette, width: u16) -> Vec<Line<'static>> 
                     CodeBlockKind::Fenced(s) => s.into_string(),
                     _ => String::new(),
                 };
+                in_diff =
+                    language.eq_ignore_ascii_case("diff") || language.eq_ignore_ascii_case("patch");
                 out.push(Line::styled(
                     if language.is_empty() {
                         "── code".into()
@@ -313,7 +316,27 @@ pub fn render(source: &str, palette: Palette, width: u16) -> Vec<Line<'static>> 
             Event::Text(text) | Event::Html(text) | Event::InlineHtml(text) => {
                 if code {
                     for line in text.split_inclusive('\n') {
-                        spans.push(Span::styled(line.trim_end_matches('\n').to_owned(), style));
+                        let clean = line.trim_end_matches('\n');
+                        let line_style = if in_diff {
+                            if clean.starts_with("+++")
+                                || clean.starts_with("---")
+                                || clean.starts_with("diff ")
+                                || clean.starts_with("index ")
+                            {
+                                style.fg(palette.muted)
+                            } else if clean.starts_with("@@") {
+                                style.fg(palette.accent)
+                            } else if clean.starts_with('+') {
+                                style.fg(palette.success)
+                            } else if clean.starts_with('-') {
+                                style.fg(palette.error)
+                            } else {
+                                style.fg(palette.muted)
+                            }
+                        } else {
+                            style
+                        };
+                        spans.push(Span::styled(clean.to_owned(), line_style));
                         if line.ends_with('\n') {
                             flush(&mut out, &mut spans);
                         }
@@ -357,6 +380,7 @@ pub fn render(source: &str, palette: Palette, width: u16) -> Vec<Line<'static>> 
                 flush(&mut out, &mut spans);
                 styles.pop();
                 code = false;
+                in_diff = false;
                 blank(&mut out);
             }
             Event::End(TagEnd::Heading(_)) => {
@@ -514,5 +538,23 @@ mod tests {
         assert!(rendered.contains("动量因子"), "got:\n{rendered}");
         assert!(rendered.contains("• 动量因子"), "got:\n{rendered}");
         assert!(rendered.contains("• 年化波动率"), "got:\n{rendered}");
+    }
+
+    #[test]
+    fn diff_code_block_uses_restrained_semantic_colors() {
+        let p = Palette::for_theme("dark");
+        let lines = render("```diff\n@@ -1,2 +1,2 @@\n-old line\n+new line\n```", p, 80);
+        assert!(lines
+            .iter()
+            .flat_map(|l| &l.spans)
+            .any(|s| s.content == "+new line" && s.style.fg == Some(p.success)));
+        assert!(lines
+            .iter()
+            .flat_map(|l| &l.spans)
+            .any(|s| s.content == "-old line" && s.style.fg == Some(p.error)));
+        assert!(lines
+            .iter()
+            .flat_map(|l| &l.spans)
+            .any(|s| s.content == "@@ -1,2 +1,2 @@" && s.style.fg == Some(p.accent)));
     }
 }
