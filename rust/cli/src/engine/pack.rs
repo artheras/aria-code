@@ -944,18 +944,34 @@ pub fn generate_promo_kit(
     }
 
     let landing_html = format!(
-        "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>{}</title>\n\
-<style>body{{font-family:system-ui,-apple-system,sans-serif;max-width:760px;margin:48px auto;padding:0 20px;line-height:1.6;color:#111}} .badge{{display:inline-block;padding:4px 10px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:13px;font-weight:600}} pre{{background:#f6f8fa;padding:14px;border-radius:8px;overflow:auto}}</style>\n\
-</head>\n<body>\n\
-<span class=\"badge\">{} · v{}</span>\n\
-<h1>{}</h1>\n\
-<p>{}</p>\n\
+        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>{}</title>\n\
+<style>\n\
+:root{{--bg:#ffffff;--fg:#09090b;--muted:#52525b;--card:#fafafa;--border:#e4e4e7;--accent:#4f46e5;--accent-bg:#eef2ff;--code-bg:#18181b;--code-fg:#f4f4f5}}\n\
+@media(prefers-color-scheme:dark){{:root{{--bg:#09090b;--fg:#fafafa;--muted:#a1a1aa;--card:#18181b;--border:#27272a;--accent:#818cf8;--accent-bg:rgba(99,102,241,.14);--code-bg:#111113;--code-fg:#e4e4e7}}}}\n\
+*{{box-sizing:border-box}}body{{font-family:system-ui,-apple-system,Inter,sans-serif;background:var(--bg);color:var(--fg);margin:0;line-height:1.6}}\n\
+.wrap{{max-width:980px;margin:0 auto;padding:48px 24px 72px}}.nav{{display:flex;align-items:center;justify-content:space-between;margin-bottom:44px}}\n\
+.brand{{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}}.badge{{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;background:var(--accent-bg);color:var(--accent);font-size:12px;font-weight:600}}\n\
+h1{{font-size:clamp(30px,5vw,44px);line-height:1.15;letter-spacing:-0.03em;margin:16px 0 14px}}.lead{{font-size:18px;color:var(--muted);max-width:680px;margin:0 0 24px}}\n\
+.cta{{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:40px}}.btn{{display:inline-block;padding:10px 18px;border-radius:8px;font-weight:600;font-size:14px;text-decoration:none}}\n\
+.btn-primary{{background:var(--accent);color:#fff}}.btn-ghost{{border:1px solid var(--border);color:var(--fg)}}\n\
+.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;margin:28px 0 40px}}\n\
+.card{{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px}}.card svg{{width:22px;height:22px;color:var(--accent);margin-bottom:10px}}\n\
+.card h3{{margin:0 0 6px;font-size:15px}}.card p{{margin:0;font-size:13px;color:var(--muted)}}\n\
+pre{{background:var(--code-bg);color:var(--code-fg);padding:18px;border-radius:12px;overflow:auto;font-size:13px;border:1px solid var(--border)}}\n\
+</style>\n</head>\n<body>\n<div class=\"wrap\">\n\
+<header class=\"nav\"><div class=\"brand\"><svg width=\"26\" height=\"26\" viewBox=\"0 0 32 32\" fill=\"none\"><rect x=\"2\" y=\"2\" width=\"28\" height=\"28\" rx=\"7\" stroke=\"currentColor\" stroke-width=\"1.6\"/><path d=\"M16 7.5L8.5 23.5M16 7.5L23.5 23.5M11.4 18.2H20.6\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg><span>{}</span></div><span class=\"badge\">{} · v{}</span></header>\n\
+<h1>{}</h1>\n<p class=\"lead\">{}</p>\n\
 <p><strong>For:</strong> {}</p>\n\
-<h3>Verification & Governance</h3>\n\
-<ul><li>Scorecard: {}</li><li>Audit Logging: {}</li><li>MCP Integrations: {}</li></ul>\n\
-<h3>Quick Deploy</h3>\n\
-<pre>aria-native pack validate .\naria-native pack export-docker .</pre>\n\
-</body>\n</html>\n",
+<div class=\"cta\"><a class=\"btn btn-primary\" href=\"#deploy\">Quick Deploy</a><a class=\"btn btn-ghost\" href=\"#governance\">Governance &amp; Trust</a></div>\n\
+<section id=\"governance\" class=\"grid\">\n\
+<div class=\"card\"><svg viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M12 3.5L19 6.5V11.8C19 16.2 16 19.3 12 20.5C8 19.3 5 16.2 5 11.8V6.5L12 3.5Z\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\"/><path d=\"M9.5 12L11.2 13.7L14.8 10.1\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg><h3>Verified Scorecard</h3><p>{}</p></div>\n\
+<div class=\"card\"><svg viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M4 19.5H20\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"/><path d=\"M7.5 16V12M12 16V7.5M16.5 16V10\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"/></svg><h3>Audit &amp; Metering</h3><p>Audit Logging: {} · Usage Billing Ready</p></div>\n\
+<div class=\"card\"><svg viewBox=\"0 0 24 24\" fill=\"none\"><circle cx=\"6.5\" cy=\"12\" r=\"2.5\" stroke=\"currentColor\" stroke-width=\"1.5\"/><circle cx=\"17.5\" cy=\"7\" r=\"2.5\" stroke=\"currentColor\" stroke-width=\"1.5\"/><circle cx=\"17.5\" cy=\"17\" r=\"2.5\" stroke=\"currentColor\" stroke-width=\"1.5\"/><path d=\"M8.8 10.9L15.2 8.1M8.8 13.1L15.2 15.9\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"/></svg><h3>MCP &amp; Integrations</h3><p>{}</p></div>\n\
+</section>\n\
+<section id=\"deploy\"><h3>Quick Deploy</h3>\n\
+<pre>aria-native pack validate .\naria-native pack export-mcp .\naria-native pack export-docker .\naria-native mcp-serve --http 127.0.0.1:8787</pre></section>\n\
+</div>\n</body>\n</html>\n",
+        brand_name,
         brand_name,
         manifest.category,
         manifest.version,
