@@ -4,6 +4,17 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.170.0] — 2026-11-26
+
+- Fix native CLI mascot/version/theme fields, worker CLI/help routing, and transient MCP 503 retries
+- Merge branch 'feat/next'
+- fix(cli): mention aria-native runtime in product help
+- fix(cli): print product help for --help/-h in apps/cli/main.py
+- fix(cli): handle --aria-worker cli prefix in apps/cli/main.py
+- fix(ci,release): add __main__ entrypoint to cli/main.py and keep mock MCP server alive until connect finishes
+- fix(ci): update release/native build entrypoints from retired aria_cli.py to apps/cli/main.py
+- fix(tui): populate robot mascot, version, and theme on native session.ready
+
 ## [0.169.0] — 2026-11-26
 
 - Commercial agent packs, remote MCP HTTP + skills, xAI/Grok provider, TUI/CLI polish & Windows SQLite fix
