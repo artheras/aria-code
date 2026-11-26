@@ -1325,7 +1325,13 @@ fn run(options: Options) -> Result<i32, String> {
                     }
                 });
                 let dest = engine::pack::export_mcp_bundle(&target, out_resolved.as_deref())?;
-                println!("{}", dest.display());
+                println!("✓ MCP bundle ready: {}", dest.display());
+                println!(
+                    "  • {}  • {}  • {}",
+                    dest.join("mcp.json").display(),
+                    dest.join("package_meta.json").display(),
+                    dest.join("SETUP.md").display(),
+                );
                 Ok(0)
             }
             PackAction::Promo { path, out, brief } => {
@@ -1346,7 +1352,12 @@ fn run(options: Options) -> Result<i32, String> {
                     out_resolved.as_deref(),
                     brief.as_deref(),
                 )?;
-                println!("{}", dest.display());
+                println!("✓ Promo kit ready: {}", dest.display());
+                println!(
+                    "  • Landing: file://{}",
+                    dest.join("landing.html").display()
+                );
+                println!("  • Assets:  PROMO.md · social_copy.md · pitch.pptx");
                 Ok(0)
             }
             PackAction::IssueLicense {
