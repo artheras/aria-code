@@ -74,15 +74,23 @@ impl Robot {
             return Self::compact_cream(theme);
         }
         let body = if theme == "light" {
-            Color::Rgb(232, 223, 213)
+            Color::Rgb(224, 214, 202)
         } else {
             Color::Rgb(244, 235, 228)
         };
         let face = Color::Rgb(14, 14, 14);
         let eye = Color::Rgb(255, 253, 245);
         let orange = Color::Rgb(249, 180, 103);
-        let shadow = Color::Rgb(156, 148, 139);
-        let leg = Color::Rgb(213, 204, 195);
+        let shadow = if theme == "light" {
+            Color::Rgb(128, 120, 112)
+        } else {
+            Color::Rgb(156, 148, 139)
+        };
+        let leg = if theme == "light" {
+            Color::Rgb(196, 186, 176)
+        } else {
+            Color::Rgb(213, 204, 195)
+        };
         let (width, height) = (22, 18);
         let mut pixels = vec![vec![None; width]; height];
         let mut fill = |x: std::ops::Range<usize>, y: std::ops::Range<usize>, color| {
@@ -108,7 +116,7 @@ impl Robot {
             fill(col..col + 2, 17..18, shadow);
         }
         let stripe = 6;
-        let stripe_columns = 3..19;
+        let stripe_columns = 4..18;
         let mut rows = Vec::new();
         for row in (0..height).step_by(2) {
             let mut spans = Vec::new();
@@ -138,7 +146,7 @@ impl Robot {
     /// and an orange dash, an orange stripe, then four gray feet.
     fn compact_cream(theme: &str) -> Self {
         let cream = if theme == "light" {
-            Color::Rgb(230, 221, 208)
+            Color::Rgb(224, 214, 202)
         } else {
             Color::Rgb(244, 235, 228)
         };
@@ -146,17 +154,17 @@ impl Robot {
         let eye = Color::Rgb(255, 253, 245);
         let dash = Color::Rgb(249, 180, 103);
         let gray = if theme == "light" {
-            Color::Rgb(156, 148, 139)
+            Color::Rgb(128, 120, 112)
         } else {
             Color::Rgb(182, 173, 164)
         };
-        // 0 empty, 1 cream, 2 screen, 3 white eye, 4 orange, 5 gray.
+        // 0 empty, 1 cream, 2 screen, 3 white eye, 4 orange ear, 5 gray.
         let pixels: [[u8; 9]; 6] = [
             [0, 1, 1, 1, 1, 1, 1, 1, 0],
             [5, 2, 2, 2, 2, 2, 2, 2, 5],
-            [5, 2, 3, 2, 2, 3, 2, 2, 5],
+            [4, 2, 3, 2, 2, 2, 3, 2, 4],
             [5, 2, 2, 2, 2, 2, 2, 2, 5],
-            [0, 4, 4, 4, 4, 4, 4, 4, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 0],
             [0, 5, 0, 5, 0, 5, 0, 5, 0],
         ];
         let paint = |code: u8| match code {
@@ -195,7 +203,11 @@ mod tests {
             assert_eq!(robot.0.len(), 9);
             assert!(robot.0.iter().all(|row| row.width() == 22));
             let feet = &robot.0[8].spans;
-            let shadow = Some(Color::Rgb(156, 148, 139));
+            let shadow = Some(if theme == "light" {
+                Color::Rgb(128, 120, 112)
+            } else {
+                Color::Rgb(156, 148, 139)
+            });
             let mut groups = 0;
             let mut inside = false;
             for span in feet {
@@ -206,9 +218,9 @@ mod tests {
                 inside = leg;
             }
             assert_eq!(groups, 4);
-            assert_eq!(robot.0[6].spans[3].content, "▁");
+            assert_eq!(robot.0[6].spans[4].content, "▁");
             assert_eq!(
-                robot.0[6].spans[3].style.fg,
+                robot.0[6].spans[4].style.fg,
                 Some(Color::Rgb(249, 180, 103))
             );
             assert_eq!(
@@ -231,17 +243,18 @@ mod tests {
             assert_eq!(robot.0.len(), 3);
             assert!(robot.0.iter().all(|row| row.width() == 9));
             let face = &robot.0[1].spans;
+            assert_eq!(face[0].style.fg, Some(Color::Rgb(249, 180, 103)));
             assert_eq!(face[2].style.fg, eye);
             assert_eq!(face[2].style.bg, screen);
-            assert_eq!(face[5].style.fg, eye);
-            assert_eq!(face[5].style.bg, screen);
+            assert_eq!(face[6].style.fg, eye);
+            assert_eq!(face[6].style.bg, screen);
             let feet = robot.0[2]
                 .spans
                 .iter()
                 .filter(|span| {
                     span.style.bg
                         == Some(if theme == "light" {
-                            Color::Rgb(156, 148, 139)
+                            Color::Rgb(128, 120, 112)
                         } else {
                             Color::Rgb(182, 173, 164)
                         })
