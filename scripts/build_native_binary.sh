@@ -86,7 +86,7 @@ echo "── Running PyInstaller (--onedir) ──"
   $("$VENV_DIR/bin/python" "$PROJECT_ROOT/scripts/pyinstaller_collect_args.py") \
   --collect-all rich \
   --collect-all prompt_toolkit \
-  "$PROJECT_ROOT/src/aria_code/aria_cli.py"
+  "$PROJECT_ROOT/src/aria_code/apps/cli/main.py"
 
 # The Rust project-graph indexer goes inside the CLI build's _internal/, so
 # the signing loop below signs it like every other Mach-O there.
