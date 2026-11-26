@@ -746,10 +746,17 @@ pub fn draw(frame: &mut Frame, app: &App) {
         .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
         .sum();
     let max_cols = usize::from(parts[3].width);
-    let full_hints = format!(
-        " · {}",
+    let details_hint = if app.details {
+        app.tr("F1 help · Ctrl+O hide", "F1 帮助 · Ctrl+O 收起")
+    } else {
         app.tr("F1 help · Ctrl+O details", "F1 帮助 · Ctrl+O 详情")
-    );
+    };
+    let branch_suffix = if !app.home_workspace && !app.branch.is_empty() {
+        format!(" · {}", app.branch)
+    } else {
+        String::new()
+    };
+    let full_hints = format!("{branch_suffix} · {details_hint}");
     let short_hint = format!(" · {}", app.tr("F1 help", "F1 帮助"));
     if used_cols + UnicodeWidthStr::width(full_hints.as_str()) <= max_cols {
         status_line.push(Span::styled(full_hints, Style::new().fg(p.muted)));
@@ -896,7 +903,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
 /// Read-only operations that may be folded into one line when several run in
 /// a row: what was looked at matters less than what was changed.
-const INSPECTIONS: [&str; 7] = [
+const INSPECTIONS: [&str; 8] = [
     "read_file",
     "list_files",
     "glob",
@@ -904,6 +911,7 @@ const INSPECTIONS: [&str; 7] = [
     "find_symbol",
     "repo_map",
     "grep",
+    "sql_query_readonly",
 ];
 
 /// Runs of two or more finished, successful inspections with nothing to report
