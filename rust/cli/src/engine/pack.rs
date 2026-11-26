@@ -547,6 +547,81 @@ pub fn export_cursor_plugin(target: &Path, out_dir: Option<&Path>) -> Result<Pat
     Ok(dest)
 }
 
+/// Export a validated `aria-agent.json` package into a commercial MCP distribution bundle
+/// (`<out>/mcp.json` + `<out>/SETUP.md` + `<out>/package_meta.json`).
+pub fn export_mcp_bundle(target: &Path, out_dir: Option<&Path>) -> Result<PathBuf, String> {
+    let report = validate_package(target)?;
+    if !report.valid {
+        return Err(format!(
+            "Refusing to export invalid package `{}`: {}",
+            report.name,
+            report.errors.join("; ")
+        ));
+    }
+    let (pkg_dir, manifest) = load_manifest(target)?;
+    let dest = out_dir
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| pkg_dir.join("dist-mcp"));
+    fs::create_dir_all(&dest).map_err(|e| format!("Failed to create {}: {e}", dest.display()))?;
+
+    let mcp_json = json!({
+        "mcpServers": {
+            manifest.name.clone(): {
+                "command": "aria-native",
+                "args": ["mcp-serve"],
+                "env": {
+                    "ARIA_LICENSE_KEY": "${ARIA_LICENSE_KEY}",
+                    "ARIA_LICENSE_SECRET": "${ARIA_LICENSE_SECRET}",
+                    "ARIA_LICENSE_PACKAGE": manifest.name,
+                    "ARIA_MCP_ACTOR": "${ARIA_MCP_ACTOR:-mcp-client}"
+                }
+            },
+            format!("{}-http", manifest.name): {
+                "transport": "streamable-http",
+                "url": "http://127.0.0.1:8787/mcp",
+                "headers": {
+                    "Authorization": "Bearer ${ARIA_MCP_BEARER_TOKEN}"
+                }
+            }
+        }
+    });
+    fs::write(
+        dest.join("mcp.json"),
+        serde_json::to_string_pretty(&mcp_json).unwrap_or_default(),
+    )
+    .map_err(|e| format!("Failed to write mcp.json: {e}"))?;
+
+    let meta = json!({
+        "name": manifest.name,
+        "version": manifest.version,
+        "title": manifest.title,
+        "description": manifest.description,
+        "category": manifest.category,
+        "allow_write": manifest.permissions.allow_write,
+        "allowed_tools": manifest.permissions.allowed_tools,
+        "entry_skill": manifest.entry_skill,
+        "commercial": {
+            "tier": manifest.commercial.tier,
+            "license_model": manifest.commercial.license_model,
+            "audit_required": manifest.commercial.audit_required,
+        }
+    });
+    fs::write(
+        dest.join("package_meta.json"),
+        serde_json::to_string_pretty(&meta).unwrap_or_default(),
+    )
+    .map_err(|e| format!("Failed to write package_meta.json: {e}"))?;
+
+    let setup_md = format!(
+        "# {} ({})\n\n{}\n\n## 1. Local Stdio MCP\n```bash\nexport ARIA_LICENSE_KEY=\"<customer-token>\"\nexport ARIA_LICENSE_SECRET=\"<signing-secret>\"\nexport ARIA_LICENSE_PACKAGE=\"{}\"\naria-native -C . mcp-serve\n```\n\n## 2. Remote Streamable HTTP MCP\n```bash\nexport ARIA_MCP_BEARER_TOKEN=\"<bearer-token>\"\naria-native -C . mcp-serve --http 127.0.0.1:8787\n```\n\n## 3. Usage & Audit Metering\n```bash\naria-native -C . pack usage\naria-native -C . pack audit --limit 50\n```\n",
+        manifest.title, manifest.version, manifest.description, manifest.name
+    );
+    fs::write(dest.join("SETUP.md"), setup_md)
+        .map_err(|e| format!("Failed to write SETUP.md: {e}"))?;
+
+    Ok(dest)
+}
+
 fn infer_category_from_idea(idea: &str) -> &'static str {
     let lower = idea.to_ascii_lowercase();
     if lower.contains("freight")
@@ -1058,5 +1133,13 @@ mod tests {
         let prompt_md = fs::read_to_string(promo.join("promo_prompt.md")).expect("prompt");
         assert!(prompt_md.contains("48h invoice reconciliation"));
         assert!(prompt_md.contains("concise ROI metrics"));
+
+        let mcp_out = export_mcp_bundle(&pkg_dir, None).expect("export mcp");
+        assert!(mcp_out.join("mcp.json").is_file());
+        assert!(mcp_out.join("package_meta.json").is_file());
+        assert!(mcp_out.join("SETUP.md").is_file());
+        let mcp_raw = fs::read_to_string(mcp_out.join("mcp.json")).expect("mcp json");
+        assert!(mcp_raw.contains("streamable-http"));
+        assert!(mcp_raw.contains("ARIA_LICENSE_KEY"));
     }
 }

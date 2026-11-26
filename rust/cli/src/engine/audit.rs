@@ -74,6 +74,59 @@ pub fn read_audit_events(workspace: &Path, limit: usize) -> Vec<Value> {
     events
 }
 
+pub fn summarize_audit_usage(workspace: &Path) -> Value {
+    use std::collections::BTreeMap;
+
+    let path = audit_log_path(workspace);
+    let raw = fs::read_to_string(path).unwrap_or_default();
+    let mut total_calls: usize = 0;
+    let mut approved_calls: usize = 0;
+    let mut denied_calls: usize = 0;
+    let mut by_actor: BTreeMap<String, usize> = BTreeMap::new();
+    let mut by_tool: BTreeMap<String, usize> = BTreeMap::new();
+    let mut by_package: BTreeMap<String, usize> = BTreeMap::new();
+
+    for line in raw.lines().filter(|l| !l.trim().is_empty()) {
+        let Ok(evt) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        total_calls += 1;
+        if evt
+            .get("approved")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            approved_calls += 1;
+        } else {
+            denied_calls += 1;
+        }
+        let actor = evt
+            .get("actor")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        *by_actor.entry(actor).or_insert(0) += 1;
+        let pkg = evt
+            .get("package")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        *by_package.entry(pkg).or_insert(0) += 1;
+        if let Some(tool) = evt.get("tool").and_then(Value::as_str) {
+            *by_tool.entry(tool.to_string()).or_insert(0) += 1;
+        }
+    }
+
+    json!({
+        "total_calls": total_calls,
+        "approved_calls": approved_calls,
+        "denied_calls": denied_calls,
+        "by_actor": by_actor,
+        "by_tool": by_tool,
+        "by_package": by_package,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,5 +149,21 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0]["package"], "freight-auditor");
         assert_eq!(events[0]["approved"], true);
+
+        let denied = AuditEvent {
+            timestamp_secs: now_unix_secs(),
+            actor: "grok-bot".into(),
+            package: "freight-auditor".into(),
+            action: "mcp_tools_call".into(),
+            tool: Some("write_file".into()),
+            approved: false,
+            outcome: "denied".into(),
+        };
+        record_audit_event(dir.path(), &denied).expect("record denied");
+        let summary = summarize_audit_usage(dir.path());
+        assert_eq!(summary["total_calls"], 2);
+        assert_eq!(summary["approved_calls"], 1);
+        assert_eq!(summary["denied_calls"], 1);
+        assert_eq!(summary["by_actor"]["grok-bot"], 1);
     }
 }

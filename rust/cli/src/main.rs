@@ -40,11 +40,12 @@ Usage:
   aria-native [-C DIR] pack init [DIR] [--name NAME] [--category coding|logistics|finance|custom]
   aria-native [-C DIR] pack create [DIR] --idea TEXT [--name NAME] [--category CAT]
   aria-native [-C DIR] pack validate|test|inspect [PATH]
-  aria-native [-C DIR] pack export-docker|export-cursor [PATH] [--out DIR]
+  aria-native [-C DIR] pack export-docker|export-cursor|export-mcp [PATH] [--out DIR]
   aria-native [-C DIR] pack promo [PATH] [--out DIR] [--brief TEXT]
   aria-native [-C DIR] pack issue-license --customer NAME --package PKG [--seats N] [--days N]
   aria-native [-C DIR] pack verify-license [--token TOKEN] [--package PKG]
   aria-native [-C DIR] pack audit [--limit N]
+  aria-native [-C DIR] pack usage
   aria-native [-C DIR] export INPUT.md OUTPUT.(html|pdf|docx|pptx)
   aria-native index imports|symbols < REQUEST.json
   aria-native completions bash|zsh|fish
@@ -112,6 +113,10 @@ enum PackAction {
         path: Option<PathBuf>,
         out: Option<PathBuf>,
     },
+    ExportMcp {
+        path: Option<PathBuf>,
+        out: Option<PathBuf>,
+    },
     Promo {
         path: Option<PathBuf>,
         out: Option<PathBuf>,
@@ -130,6 +135,7 @@ enum PackAction {
     Audit {
         limit: usize,
     },
+    Usage,
 }
 
 #[derive(Debug)]
@@ -566,6 +572,25 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                         }
                         break Mode::Pack(PackAction::ExportCursor { path, out });
                     }
+                    "export-mcp" => {
+                        let mut path: Option<PathBuf> = None;
+                        let mut out: Option<PathBuf> = None;
+                        while let Some(arg) = args.next() {
+                            match arg.to_str() {
+                                Some("--out") => {
+                                    out = Some(PathBuf::from(utf8(
+                                        args.next(),
+                                        "Missing directory after --out",
+                                    )?));
+                                }
+                                Some(other) if !other.starts_with('-') && path.is_none() => {
+                                    path = Some(PathBuf::from(other));
+                                }
+                                _ => return Err("Usage: pack export-mcp [PATH] [--out DIR]".into()),
+                            }
+                        }
+                        break Mode::Pack(PackAction::ExportMcp { path, out });
+                    }
                     "promo" => {
                         let mut path: Option<PathBuf> = None;
                         let mut out: Option<PathBuf> = None;
@@ -675,6 +700,12 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                             }
                         }
                         break Mode::Pack(PackAction::Audit { limit });
+                    }
+                    "usage" => {
+                        if args.next().is_some() {
+                            return Err("Usage: pack usage".into());
+                        }
+                        break Mode::Pack(PackAction::Usage);
                     }
                     _ => {
                         return Err(
@@ -1280,6 +1311,23 @@ fn run(options: Options) -> Result<i32, String> {
                 println!("{}", dest.display());
                 Ok(0)
             }
+            PackAction::ExportMcp { path, out } => {
+                let target = match path {
+                    Some(p) if p.is_absolute() => p,
+                    Some(p) => options.workspace.join(p),
+                    None => options.workspace.clone(),
+                };
+                let out_resolved = out.map(|p| {
+                    if p.is_absolute() {
+                        p
+                    } else {
+                        options.workspace.join(p)
+                    }
+                });
+                let dest = engine::pack::export_mcp_bundle(&target, out_resolved.as_deref())?;
+                println!("{}", dest.display());
+                Ok(0)
+            }
             PackAction::Promo { path, out, brief } => {
                 let target = match path {
                     Some(p) if p.is_absolute() => p,
@@ -1353,6 +1401,14 @@ fn run(options: Options) -> Result<i32, String> {
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&events).unwrap_or_default()
+                );
+                Ok(0)
+            }
+            PackAction::Usage => {
+                let summary = engine::audit::summarize_audit_usage(&options.workspace);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&summary).unwrap_or_default()
                 );
                 Ok(0)
             }
