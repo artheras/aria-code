@@ -113,9 +113,13 @@ pub fn run(
             "protocol": 1,
             "type": "session.ready",
             "session_id": "native",
+            "version": env!("ARIA_PRODUCT_VERSION"),
             "model": default_model,
             "provider": "ollama",
             "workspace": ws,
+            "permission": "workspace-write",
+            "ui_theme": "auto",
+            "robot": { "design": "cream-block-v2" },
             "commands": native_commands_json()
         }))?;
         app.status = "Native ready".into();

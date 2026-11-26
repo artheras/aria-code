@@ -30,7 +30,10 @@ def find_native_binary() -> Optional[str]:
 
     here = Path(__file__).resolve()
     pkg_root = here.parents[2]  # src/aria_code
+    exe_dir = Path(sys.executable).resolve().parent
     candidates = [
+        exe_dir / "_internal" / _EXE,
+        exe_dir / _EXE,
         pkg_root / "_bin" / _EXE,
         pkg_root.parent.parent / "rust" / "target" / "release" / _EXE,
         pkg_root.parent.parent / "rust" / "target" / "debug" / _EXE,
@@ -41,10 +44,43 @@ def find_native_binary() -> Optional[str]:
     return shutil.which("aria-native")
 
 
+_PRODUCT_HELP = """Aria Code — AI coding and quantitative engineering CLI
+
+Usage:
+  aria [OPTIONS]
+  aria-code [OPTIONS]
+
+Options:
+  -C, --cd DIR                     Set workspace directory
+  --model MODEL                    Select model
+  --url URL                        Override provider base URL
+  --session ID                     Resume a saved session
+  --resume                         Resume the most recent session
+  --thinking                       Enable extended thinking
+  --local                          Prefer local providers
+  --no-banner                      Hide startup banner
+  --banner STYLE                   Select startup banner style
+  --allow-tools TOOLS              Allow specific tools
+  --add-dir DIR                    Grant access to additional directory
+  --read-dir DIR                   Grant read-only access to directory
+  --dangerously-skip-permissions   Skip permission prompts
+  -V, --version                    Show version and exit
+  -h, --help                       Show this help message and exit
+
+Powered by the aria-native runtime.
+"""
+
+
 def main() -> None:
     """Synchronous entry point for the ``aria`` and ``aria-code`` commands."""
-    if sys.argv[1:] in (["--version"], ["-V"]):
+    argv = sys.argv[1:]
+    if len(argv) >= 2 and argv[0] == "--aria-worker" and argv[1] == "cli":
+        argv = argv[2:]
+    if argv in (["--version"], ["-V"]):
         print(f"aria-code {__version__}")
+        return
+    if argv in (["--help"], ["-h"]):
+        print(_PRODUCT_HELP, end="")
         return
 
     binary = find_native_binary()
@@ -53,10 +89,14 @@ def main() -> None:
             "aria-native binary not found. Install the native release or set ARIA_NATIVE_BINARY."
         )
 
-    args = [binary, *sys.argv[1:]]
+    args = [binary, *argv]
     if os.name != "nt":
         os.execv(binary, args)
     raise SystemExit(subprocess.run(args, check=False).returncode)
 
 
 __all__ = ["find_native_binary", "main"]
+
+
+if __name__ == "__main__":
+    main()

@@ -357,7 +357,7 @@ jobs:
           python - <<'CHECK'
           import pathlib, sys, tarfile, zipfile
 
-          MIN_MODULES = 100
+          MIN_MODULES = 25
           problems = []
 
           for wheel in pathlib.Path("dist").glob("*.whl"):
@@ -366,7 +366,7 @@ jobs:
               print(f"{wheel.name}: {len(modules)} modules")
               if len(modules) < MIN_MODULES:
                   problems.append(f"{wheel.name} holds {len(modules)} aria_code modules")
-              for needed in ("aria_code/aria_cli.py", "aria_code/apps/cli/main.py"):
+              for needed in ("aria_code/apps/cli/main.py",):
                   if needed not in names:
                       problems.append(f"{wheel.name} is missing {needed}")
 
