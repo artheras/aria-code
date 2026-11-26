@@ -66,6 +66,8 @@ Options:
   --dangerously-skip-permissions   Skip permission prompts
   -V, --version                    Show version and exit
   -h, --help                       Show this help message and exit
+
+Powered by the aria-native runtime.
 """
 
 
