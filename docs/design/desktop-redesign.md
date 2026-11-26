@@ -21,7 +21,10 @@
 ## 2. Design Tokens & Iconography
 
 - **Surface Palette**: Neutral Zinc (`#09090B` / `#18181B` dark, `#FFFFFF` / `#FAFAFA` light) with Indigo accent (`#6366F1` / `#4F46E5`).
-- **Iconography**: Strictly 24×24 `1.5px` monoline `stroke="currentColor"` symbols from `assets/icons/aria-icons.svg` (including `icon-mcp-http`, `icon-license-shield`, `icon-audit-usage`, `icon-webhook-bot`).
+- **Programming Language Icons (Official Brand Colors)**:
+  - Always render official recognizable language marks & brand colors (`Python` `#3776AB` / `#FFD43B`, `Go` `#00ADD8`, `Rust` `#DEA584` / `#CE422B`, `TypeScript` `#3178C6`) inside `assets/icons/aria-icons.svg` so developers recognize runtimes instantly.
+- **Aria Service Icons (Redesigned Duotone Semantic Palette)**:
+  - Keep 24×24 `1.5px` geometry from `assets/icons/aria-icons.svg` with distinct silhouettes and subtle semantic tint fills (`Computer Use` `#38BDF8`, `Finance` `#10B981`, `Healthcare` `#F43F5E`, `Spatial 3D` `#A78BFA`, `Bots` `#F59E0B`, `Security Vault` `#818CF8`, `Skills` `#2DD4BF`, `World` `#60A5FA`), plus `icon-mcp-http`, `icon-license-shield`, `icon-audit-usage`, and `icon-webhook-bot`.
 - **Separation of Concerns**:
   - **Terminal (`aria-native`)**: zero heavy graphics; compact `✓` summaries and file paths only.
   - **Desktop & Web**: rich interactive cards, live HTML/artifact preview, license/billing dashboards, and visual brand assets.
