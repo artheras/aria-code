@@ -39,13 +39,14 @@ Usage:
   aria-native mcp-serve [--allow-write] [--http ADDR]
   aria-native [-C DIR] pack init [DIR] [--name NAME] [--category coding|logistics|finance|custom]
   aria-native [-C DIR] pack create [DIR] --idea TEXT [--name NAME] [--category CAT]
-  aria-native [-C DIR] pack validate|test|inspect [PATH]
+  aria-native [-C DIR] pack validate|test [PATH] [--json]
+  aria-native [-C DIR] pack inspect [PATH]
   aria-native [-C DIR] pack export-docker|export-cursor|export-mcp [PATH] [--out DIR]
   aria-native [-C DIR] pack promo [PATH] [--out DIR] [--brief TEXT]
   aria-native [-C DIR] pack issue-license --customer NAME --package PKG [--seats N] [--days N]
   aria-native [-C DIR] pack verify-license [--token TOKEN] [--package PKG]
-  aria-native [-C DIR] pack audit [--limit N]
-  aria-native [-C DIR] pack usage
+  aria-native [-C DIR] pack audit [--limit N] [--json]
+  aria-native [-C DIR] pack usage [--json]
   aria-native [-C DIR] export INPUT.md OUTPUT.(html|pdf|docx|pptx)
   aria-native index imports|symbols < REQUEST.json
   aria-native completions bash|zsh|fish
@@ -102,8 +103,14 @@ enum PackAction {
         name: Option<String>,
         category: Option<String>,
     },
-    Validate(Option<PathBuf>),
-    Test(Option<PathBuf>),
+    Validate {
+        path: Option<PathBuf>,
+        json: bool,
+    },
+    Test {
+        path: Option<PathBuf>,
+        json: bool,
+    },
     Inspect(Option<PathBuf>),
     ExportDocker {
         path: Option<PathBuf>,
@@ -134,8 +141,11 @@ enum PackAction {
     },
     Audit {
         limit: usize,
+        json: bool,
     },
-    Usage,
+    Usage {
+        json: bool,
+    },
 }
 
 #[derive(Debug)]
@@ -505,19 +515,25 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                             category,
                         });
                     }
-                    "validate" => {
-                        let path = args.next().map(PathBuf::from);
-                        if args.next().is_some() {
-                            return Err("Usage: pack validate [PATH]".into());
+                    "validate" | "test" => {
+                        let is_test = sub == "test";
+                        let mut path: Option<PathBuf> = None;
+                        let mut json = false;
+                        for arg in args.by_ref() {
+                            match arg.to_str() {
+                                Some("--json") => json = true,
+                                Some(other) if !other.starts_with('-') && path.is_none() => {
+                                    path = Some(PathBuf::from(other));
+                                }
+                                _ => {
+                                    return Err(format!("Usage: pack {sub} [PATH] [--json]"));
+                                }
+                            }
                         }
-                        break Mode::Pack(PackAction::Validate(path));
-                    }
-                    "test" => {
-                        let path = args.next().map(PathBuf::from);
-                        if args.next().is_some() {
-                            return Err("Usage: pack test [PATH]".into());
+                        if is_test {
+                            break Mode::Pack(PackAction::Test { path, json });
                         }
-                        break Mode::Pack(PackAction::Test(path));
+                        break Mode::Pack(PackAction::Validate { path, json });
                     }
                     "inspect" => {
                         let path = args.next().map(PathBuf::from);
@@ -688,6 +704,7 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                     }
                     "audit" => {
                         let mut limit = 20_usize;
+                        let mut json = false;
                         while let Some(arg) = args.next() {
                             match arg.to_str() {
                                 Some("--limit") => {
@@ -696,16 +713,21 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
                                         .parse::<usize>()
                                         .map_err(|_| format!("Invalid --limit: {raw}"))?;
                                 }
-                                _ => return Err("Usage: pack audit [--limit N]".into()),
+                                Some("--json") => json = true,
+                                _ => return Err("Usage: pack audit [--limit N] [--json]".into()),
                             }
                         }
-                        break Mode::Pack(PackAction::Audit { limit });
+                        break Mode::Pack(PackAction::Audit { limit, json });
                     }
                     "usage" => {
-                        if args.next().is_some() {
-                            return Err("Usage: pack usage".into());
+                        let mut json = false;
+                        for arg in args.by_ref() {
+                            match arg.to_str() {
+                                Some("--json") => json = true,
+                                _ => return Err("Usage: pack usage [--json]".into()),
+                            }
                         }
-                        break Mode::Pack(PackAction::Usage);
+                        break Mode::Pack(PackAction::Usage { json });
                     }
                     _ => {
                         return Err(
@@ -1205,7 +1227,7 @@ fn run(options: Options) -> Result<i32, String> {
                 println!("{}", manifest.display());
                 Ok(0)
             }
-            PackAction::Validate(path) => {
+            PackAction::Validate { path, json } => {
                 let target = match path {
                     Some(p) if p.is_absolute() => p,
                     Some(p) => options.workspace.join(p),
@@ -1224,13 +1246,30 @@ fn run(options: Options) -> Result<i32, String> {
                         outcome: if report.valid { "valid" } else { "invalid" }.into(),
                     },
                 );
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&report.to_json()).unwrap_or_default()
-                );
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&report.to_json()).unwrap_or_default()
+                    );
+                } else {
+                    let mark = if report.valid { "✓" } else { "✗" };
+                    println!(
+                        "{mark} {} · {} ({} error(s), {} warning(s))",
+                        report.name,
+                        if report.valid { "valid" } else { "invalid" },
+                        report.errors.len(),
+                        report.warnings.len(),
+                    );
+                    for err in &report.errors {
+                        println!("  error: {err}");
+                    }
+                    for warn in &report.warnings {
+                        println!("  warn:  {warn}");
+                    }
+                }
                 Ok(if report.valid { 0 } else { 1 })
             }
-            PackAction::Test(path) => {
+            PackAction::Test { path, json } => {
                 let target = match path {
                     Some(p) if p.is_absolute() => p,
                     Some(p) => options.workspace.join(p),
@@ -1254,10 +1293,27 @@ fn run(options: Options) -> Result<i32, String> {
                         .into(),
                     },
                 );
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&card.to_json()).unwrap_or_default()
-                );
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&card.to_json()).unwrap_or_default()
+                    );
+                } else {
+                    let ok = card.valid && card.pass_rate >= card.min_pass_rate;
+                    let mark = if ok { "✓" } else { "✗" };
+                    println!(
+                        "{mark} {} · {}/{} passed ({:.0}%) · {}",
+                        card.package,
+                        card.passed_cases,
+                        card.total_cases,
+                        card.pass_rate * 100.0,
+                        if card.enterprise_ready {
+                            "enterprise_ready"
+                        } else {
+                            "needs_attention"
+                        },
+                    );
+                }
                 Ok(if card.valid && card.pass_rate >= card.min_pass_rate {
                     0
                 } else {
@@ -1407,20 +1463,54 @@ fn run(options: Options) -> Result<i32, String> {
                 );
                 Ok(0)
             }
-            PackAction::Audit { limit } => {
+            PackAction::Audit { limit, json } => {
                 let events = engine::audit::read_audit_events(&options.workspace, limit);
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&events).unwrap_or_default()
-                );
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&events).unwrap_or_default()
+                    );
+                } else if events.is_empty() {
+                    println!("No audit events recorded.");
+                } else {
+                    println!("Recent audit events ({}):", events.len());
+                    for evt in &events {
+                        let mark = if evt
+                            .get("approved")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false)
+                        {
+                            "✓"
+                        } else {
+                            "✗"
+                        };
+                        let actor = evt.get("actor").and_then(|v| v.as_str()).unwrap_or("-");
+                        let action = evt.get("action").and_then(|v| v.as_str()).unwrap_or("-");
+                        let tool = evt.get("tool").and_then(|v| v.as_str()).unwrap_or("-");
+                        let outcome = evt.get("outcome").and_then(|v| v.as_str()).unwrap_or("-");
+                        println!("  {mark} {actor} · {action} ({tool}) -> {outcome}");
+                    }
+                }
                 Ok(0)
             }
-            PackAction::Usage => {
+            PackAction::Usage { json } => {
                 let summary = engine::audit::summarize_audit_usage(&options.workspace);
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&summary).unwrap_or_default()
-                );
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&summary).unwrap_or_default()
+                    );
+                } else {
+                    let total = summary["total_calls"].as_u64().unwrap_or(0);
+                    let approved = summary["approved_calls"].as_u64().unwrap_or(0);
+                    let denied = summary["denied_calls"].as_u64().unwrap_or(0);
+                    println!("Usage · {total} calls ({approved} approved · {denied} denied)");
+                    if let Some(actors) = summary["by_actor"].as_object() {
+                        for (actor, count) in actors {
+                            println!("  • {actor}: {} call(s)", count.as_u64().unwrap_or(0));
+                        }
+                    }
+                }
                 Ok(0)
             }
         },
