@@ -86,9 +86,12 @@ pub fn query_sqlite_readonly(
     let cap = max_rows.clamp(1, MAX_ROWS_CAP);
 
     let py_script = r#"
-import json, sqlite3, sys
+import json, pathlib, sqlite3, sys
 db_path, query, cap = sys.argv[1], sys.argv[2], int(sys.argv[3])
-conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5.0)
+if db_path.startswith("\\\\?\\"):
+    db_path = db_path[4:]
+db_uri = pathlib.Path(db_path).as_uri() + "?mode=ro"
+conn = sqlite3.connect(db_uri, uri=True, timeout=5.0)
 try:
     cur = conn.execute(query)
     cols = [d[0] for d in (cur.description or [])]
