@@ -21,10 +21,10 @@
 ## 2. Design Tokens & Iconography
 
 - **Surface Palette**: Neutral Zinc (`#09090B` / `#18181B` dark, `#FFFFFF` / `#FAFAFA` light) with Indigo accent (`#6366F1` / `#4F46E5`).
-- **Programming Language Icons (Official Brand Colors)**:
-  - Always render official recognizable language marks & brand colors (`Python` `#3776AB` / `#FFD43B`, `Go` `#00ADD8`, `Rust` `#DEA584` / `#CE422B`, `TypeScript` `#3178C6`) inside `assets/icons/aria-icons.svg` so developers recognize runtimes instantly.
-- **Aria Service Icons (Redesigned Duotone Semantic Palette)**:
-  - Keep 24×24 `1.5px` geometry from `assets/icons/aria-icons.svg` with distinct silhouettes and subtle semantic tint fills (`Computer Use` `#38BDF8`, `Finance` `#10B981`, `Healthcare` `#F43F5E`, `Spatial 3D` `#A78BFA`, `Bots` `#F59E0B`, `Security Vault` `#818CF8`, `Skills` `#2DD4BF`, `World` `#60A5FA`), plus `icon-mcp-http`, `icon-license-shield`, `icon-audit-usage`, and `icon-webhook-bot`.
+- **Programming Language & Filetype Icons (Official Brand Colors, Restrained Contrast)**:
+  - Use recognizable official marks & muted brand colors (`Python` `#3776AB`/`#EAB308`, `Go` `#00ADD8`, `Rust` `#C2785C`, `TypeScript` `#2B6CB0`, `Swift/iOS` `#D95D39`, `Markdown` `#94A3B8`, `Plain Text` `#A1A1AA`, `SQLite/SQL` `#818CF8`) from `assets/icons/aria-icons.svg`.
+- **Aria Service Icons (Restrained Matte Neutral Zinc — Zero Neon Highlights)**:
+  - Keep 24×24 `1.5px` geometry with distinct silhouettes in matte zinc (`#D4D4D8` primary stroke, `#71717A`/`#A1A1AA` secondary details, `#27272A` subtle fill — no bright neon glow or loud highlights) across `Computer Use`, `Finance`, `Healthcare`, `Spatial 3D`, `Bots`, `Security`, `Skills`, `Workflows`, `icon-mcp-http`, `icon-license-shield`, `icon-audit-usage`, and `icon-webhook-bot`.
 - **Separation of Concerns**:
   - **Terminal (`aria-native`)**: zero heavy graphics; compact `✓` summaries and file paths only.
   - **Desktop & Web**: rich interactive cards, live HTML/artifact preview, license/billing dashboards, and visual brand assets.
