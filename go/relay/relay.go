@@ -28,6 +28,7 @@ import (
 type config struct {
 	appID, appSecret  string
 	relaySecret       string
+	webhookSecret     string
 	verificationToken string
 	encryptKey        string
 	allowUnverified   bool
@@ -67,6 +68,7 @@ type relay struct {
 	forwarded   map[string]forward         // message_id → client it was forwarded to
 	sendTimes   map[string][]time.Time     // client_id → recent allowed sends
 	seenEvents  map[string]time.Time       // Feishu event id → when it may be forgotten
+	approvals   map[string]approvalRecord  // approval_id → remote bot approval state
 }
 
 func newRelay(cfg config, store Store) *relay {
@@ -79,6 +81,7 @@ func newRelay(cfg config, store Store) *relay {
 		forwarded:   map[string]forward{},
 		sendTimes:   map[string][]time.Time{},
 		seenEvents:  map[string]time.Time{},
+		approvals:   map[string]approvalRecord{},
 	}
 }
 
@@ -89,9 +92,12 @@ func (r *relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		method  string
 		handler http.HandlerFunc
 	}{
-		"/status":       {http.MethodGet, r.status},
-		"/feishu/event": {http.MethodPost, r.feishuEvent},
-		"/ws":           {http.MethodGet, r.websocket},
+		"/status":             {http.MethodGet, r.status},
+		"/feishu/event":       {http.MethodPost, r.feishuEvent},
+		"/ws":                 {http.MethodGet, r.websocket},
+		"/webhook/bot":        {http.MethodPost, r.webhookBot},
+		"/approvals/decision": {http.MethodPost, r.approvalDecision},
+		"/approvals/status":   {http.MethodGet, r.approvalStatus},
 	}[req.URL.Path]
 	switch {
 	case route.handler == nil:

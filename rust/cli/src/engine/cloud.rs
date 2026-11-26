@@ -16,6 +16,7 @@ pub enum CloudProvider {
     Gemini,
     DeepSeek,
     OpenRouter,
+    Xai,
 }
 
 impl CloudProvider {
@@ -27,6 +28,7 @@ impl CloudProvider {
             "google" | "gemini" => Some(Self::Gemini),
             "deepseek" => Some(Self::DeepSeek),
             "openrouter" => Some(Self::OpenRouter),
+            "xai" | "grok" => Some(Self::Xai),
             _ => None,
         }
     }
@@ -39,6 +41,7 @@ impl CloudProvider {
             Self::Gemini => &["GEMINI_API_KEY", "GOOGLE_API_KEY"],
             Self::DeepSeek => &["DEEPSEEK_API_KEY"],
             Self::OpenRouter => &["OPENROUTER_API_KEY"],
+            Self::Xai => &["XAI_API_KEY"],
         }
     }
 
@@ -56,6 +59,7 @@ impl CloudProvider {
             Self::Gemini => "Google Gemini",
             Self::DeepSeek => "DeepSeek",
             Self::OpenRouter => "OpenRouter",
+            Self::Xai => "xAI",
         }
     }
 
@@ -74,6 +78,7 @@ impl CloudProvider {
             Self::Gemini => &["GEMINI_BASE_URL"],
             Self::DeepSeek => &["DEEPSEEK_BASE_URL"],
             Self::OpenRouter => &["OPENROUTER_BASE_URL"],
+            Self::Xai => &["XAI_BASE_URL"],
         }
     }
 
@@ -85,6 +90,7 @@ impl CloudProvider {
             Self::Gemini => "https://generativelanguage.googleapis.com",
             Self::DeepSeek => "https://api.deepseek.com",
             Self::OpenRouter => "https://openrouter.ai/api",
+            Self::Xai => "https://api.x.ai",
         }
     }
 
@@ -99,7 +105,7 @@ impl CloudProvider {
         let model_id = model.split('/').next_back().unwrap_or(model);
         let root = base.trim().trim_end_matches('/');
         match self {
-            Self::Arthera | Self::OpenAI | Self::DeepSeek | Self::OpenRouter => {
+            Self::Arthera | Self::OpenAI | Self::DeepSeek | Self::OpenRouter | Self::Xai => {
                 if root.ends_with("/v1") {
                     format!("{root}/chat/completions")
                 } else {
@@ -239,7 +245,8 @@ pub fn stream_cloud_chat_cancelable(
         CloudProvider::Arthera
         | CloudProvider::OpenAI
         | CloudProvider::DeepSeek
-        | CloudProvider::OpenRouter => {
+        | CloudProvider::OpenRouter
+        | CloudProvider::Xai => {
             let payload = json!({
                 "model": model_id,
                 "stream": true,
@@ -303,7 +310,8 @@ pub fn stream_cloud_chat_cancelable(
             CloudProvider::Arthera
             | CloudProvider::OpenAI
             | CloudProvider::DeepSeek
-            | CloudProvider::OpenRouter => parse_openai_sse_data(data),
+            | CloudProvider::OpenRouter
+            | CloudProvider::Xai => parse_openai_sse_data(data),
             CloudProvider::Anthropic => parse_anthropic_sse_data(data),
             CloudProvider::Gemini => parse_gemini_sse_data(data),
         };
@@ -394,5 +402,11 @@ mod tests {
         assert!(CloudProvider::Gemini
             .endpoint("google/gemini-3.8-flash", "k")
             .contains("gemini-3.8-flash:streamGenerateContent"));
+        assert_eq!(CloudProvider::from_id("xai"), Some(CloudProvider::Xai));
+        assert_eq!(CloudProvider::from_id("grok"), Some(CloudProvider::Xai));
+        assert_eq!(
+            CloudProvider::Xai.endpoint_with_base("https://api.x.ai", "grok-4", "k"),
+            "https://api.x.ai/v1/chat/completions"
+        );
     }
 }

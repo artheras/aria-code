@@ -107,7 +107,25 @@ def environment(owner: Optional[str]) -> dict[str, str]:
     env.pop(OWNER_SCOPE_ENV, None)
     if owner:
         env[OWNER_SCOPE_ENV] = owner
+    env.setdefault("ARIA_MCP_ACTOR", f"aria-bot:{owner}" if owner else "aria-bot")
     return env
+
+
+def record_bot_usage(owner: Optional[str], ok: bool, prompt_bytes: int) -> None:
+    """Append a lightweight per-owner usage record to `<ARIA_BOTS_HOME>/usage.jsonl`."""
+    try:
+        folder = state_dir()
+        folder.mkdir(parents=True, exist_ok=True)
+        record = {
+            "owner": owner or "anonymous",
+            "ok": ok,
+            "prompt_bytes": prompt_bytes,
+            "licensed": bool(os.environ.get("ARIA_LICENSE_KEY", "").strip()),
+        }
+        with (folder / "usage.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
 
 
 def read_answer(stdout: bytes) -> tuple[bool, str]:
@@ -153,7 +171,9 @@ async def run_turn(prompt: str, *, engine: str, owner: Optional[str] = None,
         await proc.wait()
         return f"⏱️ 查询超时（>{int(timeout)}s），请简化问题后重试。"
     ok, answer = read_answer(stdout)
-    if answer and (ok or proc.returncode == 0):
+    succeeded = bool(answer and (ok or proc.returncode == 0))
+    record_bot_usage(owner, succeeded, len(prompt.encode("utf-8")))
+    if succeeded:
         return answer[:3000]
     detail = answer or stderr.decode("utf-8", errors="replace").strip()[-500:] or f"exit {proc.returncode}"
     return f"❌ Aria 引擎未能完成：{detail}"

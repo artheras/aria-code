@@ -36,7 +36,7 @@ Usage:
   aria-native update rollback
   aria-native physical [jsonl|agent-jsonl|mcp|serve --listen 127.0.0.1:8765]
   aria-native mcp-tools PROGRAM [ARGS...]
-  aria-native mcp-serve [--allow-write]
+  aria-native mcp-serve [--allow-write] [--http ADDR]
   aria-native [-C DIR] pack init [DIR] [--name NAME] [--category coding|logistics|finance|custom]
   aria-native [-C DIR] pack create [DIR] --idea TEXT [--name NAME] [--category CAT]
   aria-native [-C DIR] pack validate|test|inspect [PATH]
@@ -179,6 +179,7 @@ enum Mode {
     },
     McpServe {
         allow_write: bool,
+        http_addr: Option<String>,
     },
     Pack(PackAction),
     Export {
@@ -409,13 +410,23 @@ fn parse(args: Vec<OsString>) -> Result<Options, String> {
             }
             Some("mcp-serve") => {
                 let mut allow_write = false;
-                for arg in args.by_ref() {
+                let mut http_addr: Option<String> = None;
+                while let Some(arg) = args.next() {
                     match arg.to_str() {
                         Some("--allow-write") => allow_write = true,
-                        _ => return Err("Usage: mcp-serve [--allow-write]".into()),
+                        Some("--http") => {
+                            http_addr = Some(utf8(
+                                args.next(),
+                                "Usage: mcp-serve [--allow-write] [--http ADDR]",
+                            )?);
+                        }
+                        _ => return Err("Usage: mcp-serve [--allow-write] [--http ADDR]".into()),
                     }
                 }
-                break Mode::McpServe { allow_write };
+                break Mode::McpServe {
+                    allow_write,
+                    http_addr,
+                };
             }
             Some("pack") => {
                 let sub = utf8(
@@ -1117,8 +1128,15 @@ fn run(options: Options) -> Result<i32, String> {
             );
             Ok(0)
         }
-        Mode::McpServe { allow_write } => {
-            engine::mcp_serve::serve_stdio(&options.workspace, allow_write)?;
+        Mode::McpServe {
+            allow_write,
+            http_addr,
+        } => {
+            if let Some(addr) = http_addr {
+                engine::mcp_serve::serve_http(&options.workspace, allow_write, &addr)?;
+            } else {
+                engine::mcp_serve::serve_stdio(&options.workspace, allow_write)?;
+            }
             Ok(0)
         }
         Mode::Pack(action) => match action {
@@ -1684,6 +1702,7 @@ fn run_setup_in_dir(
             "gemini" | "google" => "GEMINI_API_KEY",
             "deepseek" => "DEEPSEEK_API_KEY",
             "openrouter" => "OPENROUTER_API_KEY",
+            "xai" | "grok" => "XAI_API_KEY",
             _ => "ARIA_API_KEY",
         };
         let mut lines: Vec<String> = std::fs::read_to_string(&env_path)

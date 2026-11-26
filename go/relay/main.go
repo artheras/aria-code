@@ -36,6 +36,7 @@ func loadConfig() config {
 		appID:             os.Getenv("FEISHU_APP_ID"),
 		appSecret:         os.Getenv("FEISHU_APP_SECRET"),
 		relaySecret:       os.Getenv("RELAY_SECRET"),
+		webhookSecret:     os.Getenv("ARIA_WEBHOOK_SECRET"),
 		verificationToken: os.Getenv("FEISHU_VERIFICATION_TOKEN"),
 		encryptKey:        os.Getenv("FEISHU_ENCRYPT_KEY"),
 		allowUnverified:   allow == "1" || allow == "true" || allow == "yes" || allow == "on",

@@ -56,9 +56,10 @@ def test_native_mcp_serve_skills_list_and_audit(tmp_path):
 
     requests = "\n".join([
         json.dumps({"jsonrpc": "2.0", "id": 1, "method": "skills/list", "params": {}}),
+        json.dumps({"jsonrpc": "2.0", "id": 2, "method": "skills/get", "params": {"name": "demo-skill"}}),
         json.dumps({
             "jsonrpc": "2.0",
-            "id": 2,
+            "id": 3,
             "method": "tools/call",
             "params": {
                 "name": "sql_query_readonly",
@@ -76,10 +77,11 @@ def test_native_mcp_serve_skills_list_and_audit(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr
     lines = [json.loads(line) for line in proc.stdout.strip().splitlines() if line.strip()]
-    assert [msg["id"] for msg in lines] == [1, 2]
+    assert [msg["id"] for msg in lines] == [1, 2, 3]
     skills = lines[0]["result"]["skills"]
     assert any(s["name"] == "demo-skill" for s in skills)
-    assert lines[1]["result"]["isError"] is True
+    assert "Hello" in lines[1]["result"]["skill"]["content"]
+    assert lines[2]["result"]["isError"] is True
     audit_file = tmp_path / ".aria" / "audit.jsonl"
     assert audit_file.exists()
     assert "sql_query_readonly" in audit_file.read_text()

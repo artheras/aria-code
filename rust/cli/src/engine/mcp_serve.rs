@@ -183,6 +183,50 @@ pub fn handle_jsonrpc_request(req: &Value, workspace: &Path, allow_write: bool) 
                 }
             })
         }
+        "skills/get" => {
+            let name = params
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim();
+            if name.is_empty() {
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32602, "message": "Missing skill name" }
+                })
+            } else if let Some(skill) = skills::discover_skills(workspace)
+                .into_iter()
+                .find(|s| s.name == name)
+            {
+                match std::fs::read_to_string(&skill.path) {
+                    Ok(content) => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "skill": {
+                                "name": skill.name,
+                                "description": skill.description,
+                                "scope": skill.scope,
+                                "path": skill.path.display().to_string(),
+                                "content": content,
+                            }
+                        }
+                    }),
+                    Err(err) => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": -32603, "message": format!("Failed to read skill: {err}") }
+                    }),
+                }
+            } else {
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": { "code": -32602, "message": format!("Skill not found: {name}") }
+                })
+            }
+        }
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let args = params
@@ -278,6 +322,132 @@ pub fn serve_stdio(workspace: &Path, allow_write: bool) -> Result<(), String> {
     let stdin = io::stdin();
     let stdout = io::stdout();
     serve_stdio_with_io(stdin.lock(), stdout.lock(), workspace, allow_write)
+}
+
+pub fn handle_http_request(
+    method: &str,
+    path: &str,
+    auth_header: Option<&str>,
+    body: &str,
+    workspace: &Path,
+    allow_write: bool,
+    expected_bearer: Option<&str>,
+) -> (u16, String) {
+    let clean_path = path.split('?').next().unwrap_or(path);
+    if method == "GET" && clean_path == "/healthz" {
+        return (
+            200,
+            json!({ "ok": true, "server": "aria-native" }).to_string(),
+        );
+    }
+    if clean_path != "/mcp" && clean_path != "/" {
+        return (404, json!({ "error": "Not Found" }).to_string());
+    }
+    if method != "POST" {
+        return (405, json!({ "error": "Method Not Allowed" }).to_string());
+    }
+    if let Some(expected) = expected_bearer.map(str::trim).filter(|s| !s.is_empty()) {
+        let provided = auth_header
+            .and_then(|h| {
+                h.strip_prefix("Bearer ")
+                    .or_else(|| h.strip_prefix("bearer "))
+            })
+            .map(str::trim)
+            .unwrap_or("");
+        if provided != expected {
+            return (401, json!({ "error": "Unauthorized" }).to_string());
+        }
+    }
+    match serde_json::from_str::<Value>(body.trim()) {
+        Ok(req) => match handle_jsonrpc_request(&req, workspace, allow_write) {
+            Some(resp) => (200, resp.to_string()),
+            None => (202, String::new()),
+        },
+        Err(err) => (
+            400,
+            json!({
+                "jsonrpc": "2.0",
+                "id": Value::Null,
+                "error": { "code": -32700, "message": format!("Parse error: {err}") }
+            })
+            .to_string(),
+        ),
+    }
+}
+
+pub fn serve_http(workspace: &Path, allow_write: bool, addr: &str) -> Result<(), String> {
+    use std::io::Read;
+    use std::net::TcpListener;
+
+    let listener =
+        TcpListener::bind(addr).map_err(|e| format!("Failed to bind MCP HTTP {addr}: {e}"))?;
+    let expected_bearer = std::env::var("ARIA_MCP_BEARER_TOKEN").ok();
+    for stream in listener.incoming() {
+        let Ok(mut stream) = stream else { continue };
+        let mut reader = io::BufReader::new(match stream.try_clone() {
+            Ok(s) => s,
+            Err(_) => continue,
+        });
+        let mut request_line = String::new();
+        if reader.read_line(&mut request_line).unwrap_or(0) == 0 {
+            continue;
+        }
+        let mut parts = request_line.split_whitespace();
+        let method = parts.next().unwrap_or("");
+        let path = parts.next().unwrap_or("/");
+        let mut content_length: usize = 0;
+        let mut auth_header: Option<String> = None;
+        loop {
+            let mut line = String::new();
+            if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                break;
+            }
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                break;
+            }
+            if let Some((k, v)) = trimmed.split_once(':') {
+                if k.eq_ignore_ascii_case("content-length") {
+                    content_length = v.trim().parse().unwrap_or(0);
+                } else if k.eq_ignore_ascii_case("authorization") {
+                    auth_header = Some(v.trim().to_string());
+                }
+            }
+        }
+        let mut buf = vec![0u8; content_length.min(4 * 1024 * 1024)];
+        if content_length > 0 && reader.read_exact(&mut buf).is_err() {
+            continue;
+        }
+        let body_str = String::from_utf8_lossy(&buf);
+        let (status, resp_body) = handle_http_request(
+            method,
+            path,
+            auth_header.as_deref(),
+            &body_str,
+            workspace,
+            allow_write,
+            expected_bearer.as_deref(),
+        );
+        let reason = match status {
+            200 => "OK",
+            202 => "Accepted",
+            400 => "Bad Request",
+            401 => "Unauthorized",
+            404 => "Not Found",
+            405 => "Method Not Allowed",
+            _ => "Error",
+        };
+        let header = format!(
+            "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            resp_body.len()
+        );
+        let _ = stream.write_all(header.as_bytes());
+        if !resp_body.is_empty() {
+            let _ = stream.write_all(resp_body.as_bytes());
+        }
+        let _ = stream.flush();
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -403,5 +573,52 @@ mod tests {
             verify_external_license(Some(&token), Some("top-secret"), Some("other-pkg"), 1000)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn mcp_serve_skills_get_and_http_transport() {
+        let dir = tempfile::tempdir().unwrap();
+        let skill_dir = dir.path().join(".aria").join("skills").join("grok-sync");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: grok-sync\ndescription: Sync Grok brief\n---\n\n# Steps\n1. Run\n",
+        )
+        .unwrap();
+
+        let (code, body) =
+            handle_http_request("GET", "/healthz", None, "", dir.path(), false, None);
+        assert_eq!(code, 200);
+        assert!(body.contains("aria-native"));
+
+        let req_body =
+            r#"{"jsonrpc":"2.0","id":7,"method":"skills/get","params":{"name":"grok-sync"}}"#;
+        let (unauth_code, _) = handle_http_request(
+            "POST",
+            "/mcp",
+            None,
+            req_body,
+            dir.path(),
+            false,
+            Some("secret-token"),
+        );
+        assert_eq!(unauth_code, 401);
+
+        let (ok_code, ok_body) = handle_http_request(
+            "POST",
+            "/mcp",
+            Some("Bearer secret-token"),
+            req_body,
+            dir.path(),
+            false,
+            Some("secret-token"),
+        );
+        assert_eq!(ok_code, 200);
+        let resp: Value = serde_json::from_str(&ok_body).unwrap();
+        assert_eq!(resp["result"]["skill"]["name"], "grok-sync");
+        assert!(resp["result"]["skill"]["content"]
+            .as_str()
+            .unwrap()
+            .contains("# Steps"));
     }
 }
