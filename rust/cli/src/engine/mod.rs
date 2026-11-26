@@ -28,6 +28,7 @@ pub mod review;
 pub mod roi;
 pub mod sandbox;
 pub mod skills;
+pub mod sql_readonly;
 pub mod subagent;
 pub mod tools;
 pub mod workflow;

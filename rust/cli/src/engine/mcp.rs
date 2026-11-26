@@ -194,10 +194,39 @@ impl McpHttpClient {
         Ok(client)
     }
 
-    fn request(&mut self, method: &str, params: Value) -> Result<Value, String> {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let msg = format_jsonrpc_request(id, method, params);
-        let payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+    fn refresh_bearer_token(&mut self) -> bool {
+        let Ok(cmd) = std::env::var("ARIA_MCP_TOKEN_CMD") else {
+            return false;
+        };
+        let cmd = cmd.trim();
+        if cmd.is_empty() {
+            return false;
+        }
+        let output = if cfg!(windows) {
+            Command::new("cmd").args(["/C", cmd]).output()
+        } else {
+            Command::new("sh").args(["-c", cmd]).output()
+        };
+        let Ok(out) = output else {
+            return false;
+        };
+        if !out.status.success() {
+            return false;
+        }
+        let token = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        if token.is_empty() {
+            return false;
+        }
+        let header_val = if token.starts_with("Bearer ") {
+            token
+        } else {
+            format!("Bearer {token}")
+        };
+        self.headers.insert("Authorization".into(), header_val);
+        true
+    }
+
+    fn send_once(&mut self, payload: &[u8]) -> Result<(u16, String), String> {
         let mut req = ureq::post(&self.url)
             .header("Content-Type", "application/json")
             .header("Accept", "application/json, text/event-stream");
@@ -207,21 +236,56 @@ impl McpHttpClient {
         for (k, v) in &self.headers {
             req = req.header(k, v);
         }
-        let mut resp = req
-            .send(payload.as_bytes())
-            .map_err(|e| format!("MCP HTTP request failed: {e}"))?;
-        if let Some(sid) = resp
-            .headers()
-            .get("mcp-session-id")
-            .and_then(|h| h.to_str().ok())
-        {
-            self.session_id = Some(sid.to_owned());
+        match req.send(payload) {
+            Ok(mut resp) => {
+                if let Some(sid) = resp
+                    .headers()
+                    .get("mcp-session-id")
+                    .and_then(|h| h.to_str().ok())
+                {
+                    self.session_id = Some(sid.to_owned());
+                }
+                let status = resp.status().as_u16();
+                let body = resp
+                    .body_mut()
+                    .read_to_string()
+                    .map_err(|e| format!("MCP HTTP read failed: {e}"))?;
+                Ok((status, body))
+            }
+            Err(ureq::Error::StatusCode(code)) => Ok((code, String::new())),
+            Err(e) => Err(format!("MCP HTTP request failed: {e}")),
         }
-        let body = resp
-            .body_mut()
-            .read_to_string()
-            .map_err(|e| format!("MCP HTTP read failed: {e}"))?;
-        parse_http_jsonrpc_body(&body, id)
+    }
+
+    fn request(&mut self, method: &str, params: Value) -> Result<Value, String> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let msg = format_jsonrpc_request(id, method, params);
+        let payload = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+        let backoff_ms = [100_u64, 200_u64];
+        let mut refreshed = false;
+
+        for attempt in 0..=backoff_ms.len() {
+            match self.send_once(payload.as_bytes()) {
+                Ok((401, _)) if !refreshed && self.refresh_bearer_token() => {
+                    refreshed = true;
+                    continue;
+                }
+                Ok((code, _)) if code >= 500 && attempt < backoff_ms.len() => {
+                    std::thread::sleep(std::time::Duration::from_millis(backoff_ms[attempt]));
+                    continue;
+                }
+                Ok((code, _)) if code >= 400 => {
+                    return Err(format!("MCP HTTP error status {code}"));
+                }
+                Ok((_, body)) => return parse_http_jsonrpc_body(&body, id),
+                Err(_err) if attempt < backoff_ms.len() => {
+                    std::thread::sleep(std::time::Duration::from_millis(backoff_ms[attempt]));
+                    continue;
+                }
+                Err(err) => return Err(err),
+            }
+        }
+        Err("MCP HTTP request exhausted retries".into())
     }
 
     fn initialize(&mut self) -> Result<(), String> {
@@ -1472,5 +1536,43 @@ for line in sys.stdin:
         fs::write(&logistics_py, "# stub\n").unwrap();
         let found = discover_ecosystem_mcp_servers(ws);
         assert!(found.iter().any(|c| c.name == "aria-logistics"));
+    }
+
+    #[test]
+    fn http_client_retries_transient_503_and_connects() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            for idx in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buf = [0u8; 2048];
+                let _ = stream.read(&mut buf);
+                if idx == 0 {
+                    let resp = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                    let _ = stream.write_all(resp.as_bytes());
+                } else {
+                    let body =
+                        r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05"}}"#;
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = stream.write_all(resp.as_bytes());
+                }
+            }
+        });
+
+        let url = format!("http://{addr}/mcp");
+        let client = McpHttpClient::connect(&url, &HashMap::new());
+        assert!(
+            client.is_ok(),
+            "expected retry to succeed: {:?}",
+            client.err()
+        );
+        let _ = handle.join();
     }
 }
