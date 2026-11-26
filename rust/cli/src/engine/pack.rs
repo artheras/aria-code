@@ -850,13 +850,23 @@ pub fn generate_promo_kit(
         Path::new("PROMO.md"),
         Path::new("pitch.pptx"),
     );
-    let _ = crate::engine::report::export_markdown_report(
+    if crate::engine::report::export_markdown_report(
         &dest,
         Path::new("PROMO.md"),
         Path::new("pitch.pdf"),
         true,
         false,
-    );
+    )
+    .is_err()
+    {
+        let _ = crate::engine::report::export_markdown_report(
+            &dest,
+            Path::new("PROMO.md"),
+            Path::new("pitch.html"),
+            false,
+            false,
+        );
+    }
 
     let landing_html = format!(
         "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>{}</title>\n\
@@ -1038,7 +1048,7 @@ mod tests {
             .expect("promo");
         assert!(promo.join("PROMO.md").is_file());
         assert!(promo.join("pitch.pptx").is_file());
-        assert!(promo.join("pitch.pdf").is_file());
+        assert!(promo.join("pitch.pdf").is_file() || promo.join("pitch.html").is_file());
         assert!(promo.join("landing.html").is_file());
         assert!(promo.join("social_copy.md").is_file());
         assert!(promo.join("promo_prompt.md").is_file());

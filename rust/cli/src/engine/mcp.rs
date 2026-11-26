@@ -111,6 +111,16 @@ impl McpStdioClient {
     }
 
     #[allow(dead_code)]
+    pub fn list_skills(&mut self) -> Result<Vec<Value>, String> {
+        let res = self.request("skills/list", json!({}))?;
+        Ok(res
+            .get("skills")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    #[allow(dead_code)]
     pub fn call_tool(&mut self, name: &str, arguments: Value) -> Result<Value, String> {
         self.request(
             "tools/call",
@@ -235,6 +245,16 @@ impl McpHttpClient {
             .unwrap_or_default())
     }
 
+    #[allow(dead_code)]
+    pub fn list_skills(&mut self) -> Result<Vec<Value>, String> {
+        let res = self.request("skills/list", json!({}))?;
+        Ok(res
+            .get("skills")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default())
+    }
+
     pub fn call_tool(&mut self, name: &str, arguments: Value) -> Result<Value, String> {
         self.request(
             "tools/call",
@@ -274,6 +294,19 @@ impl McpClient {
         match self {
             Self::Stdio(c) => c.list_tools(),
             Self::Http(c) => c.list_tools(),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn list_skills(&mut self) -> Result<Vec<Value>, String> {
+        match self {
+            Self::Stdio(c) => c.list_skills(),
+            Self::Http(c) => Ok(c
+                .request("skills/list", json!({}))?
+                .get("skills")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()),
         }
     }
 
@@ -834,6 +867,15 @@ fn parse_tool_annotations(tool: &Value) -> McpToolAnnotations {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct McpSkillEntry {
+    pub server: String,
+    pub name: String,
+    pub exposed_name: String,
+    pub description: String,
+}
+
 /// Live registry of external MCP servers (stdio + remote Streamable HTTP) discovered from config.
 pub struct McpRegistry {
     configs: HashMap<String, McpServerConfig>,
@@ -1050,6 +1092,39 @@ impl McpRegistry {
             Ok(data) => Some(json!({ "ok": true, "data": data })),
             Err(err) => Some(json!({ "ok": false, "error": err })),
         }
+    }
+
+    /// Collect skills advertised by connected MCP servers using `server:skill` naming.
+    #[allow(dead_code)]
+    pub fn discover_mcp_skills(&mut self) -> Vec<McpSkillEntry> {
+        let mut out = Vec::new();
+        let mut server_names: Vec<String> = self.clients.keys().cloned().collect();
+        server_names.sort();
+        for server in server_names {
+            let Some(client) = self.clients.get_mut(&server) else {
+                continue;
+            };
+            let Ok(skills) = client.list_skills() else {
+                continue;
+            };
+            for sk in skills {
+                let Some(name) = sk.get("name").and_then(Value::as_str) else {
+                    continue;
+                };
+                let desc = sk
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                out.push(McpSkillEntry {
+                    server: server.clone(),
+                    name: name.to_owned(),
+                    exposed_name: format!("{server}:{name}"),
+                    description: desc,
+                });
+            }
+        }
+        out
     }
 }
 

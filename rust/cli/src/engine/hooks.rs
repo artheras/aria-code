@@ -18,6 +18,7 @@ pub enum HookEvent {
     PreToolUse,
     PostToolUse,
     Stop,
+    PreSkillShellCommand,
 }
 
 impl HookEvent {
@@ -26,6 +27,7 @@ impl HookEvent {
             Self::PreToolUse => "PreToolUse",
             Self::PostToolUse => "PostToolUse",
             Self::Stop => "Stop",
+            Self::PreSkillShellCommand => "PreSkillShellCommand",
         }
     }
 
@@ -34,6 +36,7 @@ impl HookEvent {
             "PreToolUse" | "pre_tool_use" => Some(Self::PreToolUse),
             "PostToolUse" | "post_tool_use" => Some(Self::PostToolUse),
             "Stop" | "stop" => Some(Self::Stop),
+            "PreSkillShellCommand" | "pre_skill_shell_command" => Some(Self::PreSkillShellCommand),
             _ => None,
         }
     }
@@ -185,6 +188,31 @@ impl HookRegistry {
             }
         }
         notes
+    }
+
+    /// Run all matching `PreSkillShellCommand` hooks before loading/executing shell snippets
+    /// embedded inside a `SKILL.md` file.
+    pub fn run_pre_skill_shell(
+        &self,
+        workspace: &Path,
+        skill_name: &str,
+        command_text: &str,
+    ) -> HookOutcome {
+        let payload = json!({
+            "event": HookEvent::PreSkillShellCommand.as_str(),
+            "skill": skill_name,
+            "command": command_text,
+            "workspace": workspace.to_string_lossy(),
+        });
+        for rule in &self.rules {
+            if rule.event != HookEvent::PreSkillShellCommand || !rule.matches(skill_name) {
+                continue;
+            }
+            if let Err(reason) = run_shell_hook(workspace, &rule.command, &payload) {
+                return HookOutcome::deny(reason);
+            }
+        }
+        HookOutcome::allow()
     }
 }
 
