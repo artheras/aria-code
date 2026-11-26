@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aria-code"
-version = "0.168.0"
+version = "0.169.0"
 description = "Open-source terminal-first AI coding and task agent with local/cloud runtime"
 readme = "README.md"
 license = { text = "Apache-2.0" }

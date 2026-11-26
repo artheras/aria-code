@@ -4,6 +4,71 @@ All notable changes to Aria Code are documented here.
 
 ---
 
+## [0.169.0] — 2026-11-26
+
+- Commercial agent packs, remote MCP HTTP + skills, xAI/Grok provider, TUI/CLI polish & Windows SQLite fix
+- fix(sql): strip Windows UNC prefix and use pathlib as_uri for sqlite readonly mode
+- feat(tui): center compact mascot eyes, refine amber detail, and sharpen light theme contrast
+- feat(tui): highlight diff/patch code blocks with restrained palette colors
+- feat(tui): show active branch and details toggle hint in status line, fold sql_query_readonly inspections
+- feat(cli): compact terminal summaries with --json opt-in for pack validate/test/audit/usage
+- chore: keep desktop-only icon assets out of aria-code repo
+- feat(ui,icons): remove card/mark borders and embed category & runtime icons in landing output
+- feat(icons): add Swift/Markdown/Text/SQL icons and restrain service icon palette
+- feat(icons): use official brand-colored language icons and redesign Aria service icons
+- feat(cli,docs): polish terminal pack promo/export-mcp summary and add desktop redesign spec
+- feat(ui): upgrade landing.html template and add enterprise monoline icons + aria-mark.svg
+- feat(pack): add pack usage billing summary and pack export-mcp bundle
+- feat: add xAI/Grok provider, MCP HTTP + skills/get, generic bot webhook approvals, and bot metering
+- feat(mcp-serve): expose sql_query_readonly, skills/list, audit logging, and license gate
+- feat(mcp,sql): add Streamable HTTP retry/401 refresh and built-in read-only SQLite connector
+- fix(ci): fallback to pitch.html on Windows without PDF printer, add PreSkillShellCommand hook and MCP skills discovery
+- feat(enterprise): add HMAC-SHA256 license issuance/verification and auto-export pitch.pptx/pdf in pack promo
+- feat(pack): personalize promo kit via --brief, brand.json, and BM25 user memory
+- feat(pack): add creator loop commands (pack create, pack test, pack promo)
+- feat(mcp,bots): fix aria-logistics discovery, wire onDemand MCP startup, and add aria-native fallback
+- chore(dev): add dev_setup.sh, expand dev_check.sh to Rust workspace & Go, update pre-commit and CONTRIBUTING.md
+- feat(mcp): add on-demand MCP server registry lazy connection support
+- feat(pack,permissions): add Cursor plugin export (.cursor-plugin/plugin.json) and per-tool ask approval rules
+- feat(enterprise): add audit trail (.aria/audit.jsonl), pack export-docker, and pack audit
+- feat(pack): add native enterprise agent packager (aria-native pack init|validate|inspect)
+- test(ci): add logistics host isolation tests, aria-bots workflow, and native mcp-serve contract test
+- fix(ci): remove retired python session_store/native_bridge checks from benchmark_rust_cli
+- feat(algorithms): add BM25 memory search, priority compaction, covariance shrinkage, and antithetic MC
+- fix(ci): remove workflow for gitignored confluence repo and guard dev_check
+- fix(ci): update wheel help check for aria-native and add confluence gateway CI
+- fix(ci): resolve remaining wheel, rust-cli, and financial-service CI failures
+- fix(ci): update GitHub workflows to match native Route A cutover
+- refactor(cutover): retire legacy Python CLI/runtime core and switch entrypoints to native Rust (Route A)
+- chore(cleanup): retire Python MCP server packages/aria_mcp/server.py (Batch 95)
+- refactor(mcp): route PDF report export through aria-native export (Batch 94)
+- chore(cleanup): route MCP docx/pptx export to aria-native and retire report_exporters.py (Batch 93)
+- feat(rust-cli): expose aria-native export CLI subcommand for html/pdf/docx/pptx (Batch 92)
+- feat(rust-report): add pure-Rust Markdown-to-PPTX export (/export-report --pptx) (Batch 91)
+- Feat/batch 83 to 88 native rust and cleanup (#420)
+- feat(rust-report): add pure-Rust Markdown-to-DOCX export (/export-report --docx) (Batch 90)
+- fix(ci): update expected runtime shim count after bot shim retirement
+- docs(migration): record Batch 86-89 cleanup and dev tooling
+- chore(cleanup): retire aria_feishu_bot.py and aria_telegram_bot.py shims (Batch 89)
+- chore(dev): add dev_check.sh pre-push gate and dev_desktop.sh full-stack launcher
+- Feat/batch 83 to 88 native rust and cleanup (#419)
+- feat(vscode): bridge VS Code extension directly to native Rust aria-native JSONL engine (Batch 85) (#418)
+- feat(rust-report): add native Rust Markdown-to-HTML/PDF report exporter (/export-report) (Batch 84) (#417)
+- feat(rust-daemon): add native Rust /daemon status inspector and constant-time TradingView webhook server (Batch 83) (#416)
+- chore(evals,cleanup): default evals workflow to Ollama deepseek-v3.1:671b-cloud and retire dead data_cleaner.py (Batch 82) (#415)
+- feat(rust-subagent): migrate external CLI agent runner (claude/codex) to Rust and retire external_agent_runner.py (Batch 81) (#414)
+- feat(rust-auth): add native Rust /login, /logout, and /whoami PKCE OAuth flow (Batch 80) (#413)
+- feat(rust-review): native Rust /review engine & retire Python review_service.py / review_runner.py (Batch 79) (#411)
+- fix(computer-use): guard req.frame() on target=_blank popups and auto-settle retry in observe()
+- feat(rust-canvas): migrate /canvas live artifact preview server to native Rust and retire Python preview_server.py (Batch 77) (#409)
+- fix(ci): keep ticker/code instrument detection after packs/finance retirement and use synthetic pack in prompt test
+- Merge feat/batch-77-retire-packs-finance into main (Batch 77)
+- feat(rust-cli): add native Rust /doctor (--json/--network) and loopback OAuth PKCE callback listener (Batch 78)
+- chore(packs): retire legacy packs/finance and empty domain pack directories (Batch 77)
+- Merge feat/batch-76-workspace-hygiene-and-finance-cleanup into main (Batch 76)
+- chore(finance): retire dead data_analysis_tools and document streamable-http MCP mode (Batch 76)
+- …and 146 more commits
+
 ## [0.168.0] — 2026-11-11
 
 - runtime: robust local model integration (Ollama / vLLM / llama.cpp) with zero-arg tool call tolerance, HTTP 400 stream options fallback, and direct usage reporting
