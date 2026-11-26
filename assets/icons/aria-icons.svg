@@ -118,9 +118,9 @@
     </symbol>
   </defs>
 
-  <!-- Restrained Neutral Zinc Canvas -->
+  <!-- Restrained Borderless Neutral Zinc Canvas -->
   <rect width="920" height="880" fill="#111113"/>
-  <rect x="24" y="24" width="872" height="832" rx="12" fill="#161618" stroke="#27272A" stroke-width="1"/>
+  <rect x="24" y="24" width="872" height="832" rx="12" fill="#161618"/>
 
   <text x="56" y="68" fill="#F4F4F5" font-family="-apple-system, BlinkMacSystemFont, Inter, sans-serif" font-size="18" font-weight="600" letter-spacing="-0.02em">Aria Iconography</text>
   <text x="220" y="68" fill="#71717A" font-family="ui-monospace, SFMono-Regular, monospace" font-size="12">Brand Languages · Restrained Zinc Services</text>
@@ -130,64 +130,56 @@
   <text x="56" y="120" fill="#A1A1AA" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" letter-spacing="0.06em">LANGUAGES &amp; FILETYPES</text>
 
   <g transform="translate(56, 136)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-lang-python" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">Python</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">.py · src/aria_code</text>
   </g>
 
   <g transform="translate(262, 136)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-lang-go" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">Go</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">.go · go/runtime</text>
   </g>
 
   <g transform="translate(468, 136)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-lang-rust" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">Rust</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">.rs · aria-native</text>
   </g>
 
   <g transform="translate(674, 136)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-lang-ts" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">TypeScript</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">.ts · desktop / ui</text>
   </g>
 
   <g transform="translate(56, 264)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-lang-swift" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">Swift / iOS</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">.swift · ios app</text>
   </g>
 
   <g transform="translate(262, 264)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-lang-markdown" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">Markdown</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">.md · SKILL / docs</text>
   </g>
 
   <g transform="translate(468, 264)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-lang-text" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">Plain Text</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">.txt · logs / notes</text>
   </g>
 
   <g transform="translate(674, 264)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-lang-sql" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">SQLite / SQL</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">.sql · .db readonly</text>
@@ -197,96 +189,84 @@
   <text x="56" y="414" fill="#A1A1AA" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11" letter-spacing="0.06em">CORE SERVICES &amp; ENTERPRISE</text>
 
   <g transform="translate(56, 430)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-svc-computer-use" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">Computer Use</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">Browser &amp; Desktop</text>
   </g>
 
   <g transform="translate(262, 430)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-svc-finance" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">Finance &amp; Quant</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">Backtest &amp; SEC</text>
   </g>
 
   <g transform="translate(468, 430)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-svc-healthcare" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">Healthcare</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">PubMed &amp; Trials</text>
   </g>
 
   <g transform="translate(674, 430)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-svc-spatial3d" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">Spatial 3D</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">Realty &amp; Scene</text>
   </g>
 
   <g transform="translate(56, 558)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-svc-bots" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">Channels &amp; Bots</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">Slack · Feishu · TG</text>
   </g>
 
   <g transform="translate(262, 558)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-svc-security" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">Access &amp; Audit</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">Approval &amp; Policy</text>
   </g>
 
   <g transform="translate(468, 558)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-svc-skills" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">Skills &amp; Plugins</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">Extension Catalog</text>
   </g>
 
   <g transform="translate(674, 558)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-svc-world" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">Workflows &amp; State</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">Graph &amp; Traces</text>
   </g>
 
   <g transform="translate(56, 686)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-mcp-http" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">Remote MCP</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">Streamable HTTP</text>
   </g>
 
   <g transform="translate(262, 686)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-license-shield" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">HMAC License</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">Offline Seat Gate</text>
   </g>
 
   <g transform="translate(468, 686)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-audit-usage" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">Usage &amp; Billing</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">Audit Metering</text>
   </g>
 
   <g transform="translate(674, 686)">
-    <rect width="190" height="112" rx="8" fill="#18181B" stroke="#27272A"/>
-    <rect x="20" y="20" width="36" height="36" rx="8" fill="#27272A" fill-opacity="0.5"/>
+    <rect width="190" height="112" rx="8" fill="#18181B"/>
     <use href="#icon-webhook-bot" x="26" y="26" width="24" height="24"/>
     <text x="20" y="78" fill="#F4F4F5" font-family="-apple-system, sans-serif" font-size="13" font-weight="500">Bot Webhook</text>
     <text x="20" y="95" fill="#71717A" font-family="ui-monospace, monospace" font-size="11">Signed Approvals</text>

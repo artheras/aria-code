@@ -943,36 +943,55 @@ pub fn generate_promo_kit(
         );
     }
 
+    let category_icon = match manifest.category.as_str() {
+        "finance" => "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M4 19.5H20\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"/><rect x=\"5.5\" y=\"12.5\" width=\"3\" height=\"4.5\" rx=\"0.7\" stroke=\"currentColor\" stroke-width=\"1.5\"/><rect x=\"10.5\" y=\"9\" width=\"3\" height=\"8\" rx=\"0.7\" stroke=\"currentColor\" stroke-width=\"1.5\"/><rect x=\"15.5\" y=\"5.5\" width=\"3\" height=\"11.5\" rx=\"0.7\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg>",
+        "logistics" => "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M5 6.5C5 5.4 5.9 4.5 7 4.5H17C18.1 4.5 19 5.4 19 6.5V14.2C19 15.3 18.1 16.2 17 16.2H9.8L5.5 19.5V16.2C5.2 15.9 5 15.1 5 14.2V6.5Z\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\"/><circle cx=\"9.5\" cy=\"10.4\" r=\"1\" fill=\"currentColor\"/><circle cx=\"14.5\" cy=\"10.4\" r=\"1\" fill=\"currentColor\"/></svg>",
+        "coding" => "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\"><circle cx=\"12\" cy=\"12\" r=\"7.5\" stroke=\"currentColor\" stroke-width=\"1.5\"/><path d=\"M9.6 15V9H12.7C13.7 9 14.4 9.7 14.4 10.7C14.4 11.7 13.7 12.3 12.7 12.3H9.6M12.3 12.3L14.5 15\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+        _ => "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M12 3.8L14.2 8.8L19.5 9.5L15.6 13.1L16.6 18.4L12 15.8L7.4 18.4L8.4 13.1L4.5 9.5L9.8 8.8L12 3.8Z\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\"/></svg>",
+    };
+    let stack_icons = "<div class=\"stack\" aria-label=\"Supported Runtimes\">\
+<span><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M11.9 2.5C8.2 2.5 8.4 4.1 8.4 4.1V6.6H12.1V7.4H6.6C6.6 7.4 3.5 7.1 3.5 11.7C3.5 16.3 6.2 16.1 6.2 16.1H7.9V13.9C7.9 13.9 7.8 11.1 10.6 11.1H15.2C15.2 11.1 17.6 11.1 17.6 8.7V4.7C17.6 4.7 18 2.5 11.9 2.5Z\" fill=\"#3776AB\"/><path d=\"M12.1 21.5C15.8 21.5 15.6 19.9 15.6 19.9V17.4H11.9V16.6H17.4C17.4 16.6 20.5 16.9 20.5 12.3C20.5 7.7 17.8 7.9 17.8 7.9H16.1V10.1C16.1 10.1 16.2 12.9 13.4 12.9H8.8C8.8 12.9 6.4 12.9 6.4 15.3V19.3C6.4 19.3 6 21.5 12.1 21.5Z\" fill=\"#EAB308\"/></svg>Python</span>\
+<span><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\"><rect x=\"2.5\" y=\"6.5\" width=\"19\" height=\"11\" rx=\"5.5\" fill=\"#0891B2\" fill-opacity=\"0.14\"/><path d=\"M10.5 10.4C9.9 9.8 9.1 9.6 8.3 9.8C7.1 10.1 6.4 11.1 6.5 12.3C6.6 13.5 7.6 14.3 8.9 14.3C10.1 14.3 10.9 13.5 11 12.4H8.8\" stroke=\"#00ADD8\" stroke-width=\"1.6\" stroke-linecap=\"round\"/><circle cx=\"15.3\" cy=\"12\" r=\"2.3\" stroke=\"#00ADD8\" stroke-width=\"1.6\"/></svg>Go</span>\
+<span><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\"><circle cx=\"12\" cy=\"12\" r=\"7.5\" fill=\"#CE422B\" fill-opacity=\"0.12\"/><path d=\"M9.6 15V9H12.7C13.7 9 14.4 9.7 14.4 10.7C14.4 11.7 13.7 12.3 12.7 12.3H9.6M12.3 12.3L14.5 15\" stroke=\"#C2785C\" stroke-width=\"1.6\" stroke-linecap=\"round\"/></svg>Rust</span>\
+<span><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"3.5\" fill=\"#2B6CB0\"/><path d=\"M6.8 11.2H11.6M9.2 11.2V17.2\" stroke=\"#F4F4F5\" stroke-width=\"1.7\" stroke-linecap=\"round\"/></svg>TypeScript</span>\
+<span><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M16.8 14.8C17.8 12.4 17 9.4 14.6 7.4C15.5 9.3 15.4 11.4 14.4 12.9C12.7 11.5 10.6 9.5 8.9 7.8C9.9 9.7 11.2 11.4 12.6 12.9C10.5 11.8 8.3 10.2 6.8 8.6C7.8 10.9 9.8 13.2 12.3 14.6C10.7 15.4 8.5 15.3 6.5 14.3C8.5 16.6 11.8 17.5 14.7 16.3C15.7 15.9 16.4 16.3 17.4 17C17.2 16.1 17 15.4 16.8 14.8Z\" fill=\"#D95D39\"/></svg>Swift</span>\
+<span><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M6.5 15V9L9 12L11.5 9V15M15.8 9V14.8M13.8 12.8L15.8 14.8L17.8 12.8\" stroke=\"#94A3B8\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>Markdown</span>\
+<span><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\"><ellipse cx=\"12\" cy=\"6.5\" rx=\"6.5\" ry=\"2.5\" stroke=\"#818CF8\" stroke-width=\"1.5\"/><path d=\"M5.5 6.5V17.5C5.5 18.9 8.4 20 12 20C15.6 20 18.5 18.9 18.5 17.5V6.5\" stroke=\"#818CF8\" stroke-width=\"1.5\"/></svg>SQL</span>\
+</div>";
+
     let landing_html = format!(
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>{}</title>\n\
 <style>\n\
-:root{{--bg:#ffffff;--fg:#09090b;--muted:#52525b;--card:#fafafa;--border:#e4e4e7;--accent:#4f46e5;--accent-bg:#eef2ff;--code-bg:#18181b;--code-fg:#f4f4f5}}\n\
-@media(prefers-color-scheme:dark){{:root{{--bg:#09090b;--fg:#fafafa;--muted:#a1a1aa;--card:#18181b;--border:#27272a;--accent:#818cf8;--accent-bg:rgba(99,102,241,.14);--code-bg:#111113;--code-fg:#e4e4e7}}}}\n\
+:root{{--bg:#ffffff;--fg:#09090b;--muted:#52525b;--card:#f4f4f5;--accent:#4f46e5;--accent-bg:#eef2ff;--code-bg:#18181b;--code-fg:#f4f4f5}}\n\
+@media(prefers-color-scheme:dark){{:root{{--bg:#09090b;--fg:#fafafa;--muted:#a1a1aa;--card:#141416;--accent:#818cf8;--accent-bg:rgba(99,102,241,.14);--code-bg:#111113;--code-fg:#e4e4e7}}}}\n\
 *{{box-sizing:border-box}}body{{font-family:system-ui,-apple-system,Inter,sans-serif;background:var(--bg);color:var(--fg);margin:0;line-height:1.6}}\n\
 .wrap{{max-width:980px;margin:0 auto;padding:48px 24px 72px}}.nav{{display:flex;align-items:center;justify-content:space-between;margin-bottom:44px}}\n\
 .brand{{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}}.badge{{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;background:var(--accent-bg);color:var(--accent);font-size:12px;font-weight:600}}\n\
 h1{{font-size:clamp(30px,5vw,44px);line-height:1.15;letter-spacing:-0.03em;margin:16px 0 14px}}.lead{{font-size:18px;color:var(--muted);max-width:680px;margin:0 0 24px}}\n\
-.cta{{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:40px}}.btn{{display:inline-block;padding:10px 18px;border-radius:8px;font-weight:600;font-size:14px;text-decoration:none}}\n\
-.btn-primary{{background:var(--accent);color:#fff}}.btn-ghost{{border:1px solid var(--border);color:var(--fg)}}\n\
-.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;margin:28px 0 40px}}\n\
-.card{{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px}}.card svg{{width:22px;height:22px;color:var(--accent);margin-bottom:10px}}\n\
+.cta{{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:36px}}.btn{{display:inline-block;padding:10px 18px;border-radius:8px;font-weight:600;font-size:14px;text-decoration:none}}\n\
+.btn-primary{{background:var(--accent);color:#fff}}.btn-ghost{{background:var(--card);color:var(--fg)}}\n\
+.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;margin:28px 0 36px}}\n\
+.card{{background:var(--card);border-radius:12px;padding:18px}}.card svg{{width:22px;height:22px;color:var(--muted);margin-bottom:10px}}\n\
 .card h3{{margin:0 0 6px;font-size:15px}}.card p{{margin:0;font-size:13px;color:var(--muted)}}\n\
-pre{{background:var(--code-bg);color:var(--code-fg);padding:18px;border-radius:12px;overflow:auto;font-size:13px;border:1px solid var(--border)}}\n\
+.stack{{display:flex;flex-wrap:wrap;gap:14px;margin:24px 0 32px;color:var(--muted);font-size:12px}}.stack span{{display:inline-flex;align-items:center;gap:6px}}\n\
+pre{{background:var(--code-bg);color:var(--code-fg);padding:18px;border-radius:12px;overflow:auto;font-size:13px}}\n\
 </style>\n</head>\n<body>\n<div class=\"wrap\">\n\
-<header class=\"nav\"><div class=\"brand\"><svg width=\"26\" height=\"26\" viewBox=\"0 0 32 32\" fill=\"none\"><rect x=\"2\" y=\"2\" width=\"28\" height=\"28\" rx=\"7\" stroke=\"currentColor\" stroke-width=\"1.6\"/><path d=\"M16 7.5L8.5 23.5M16 7.5L23.5 23.5M11.4 18.2H20.6\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg><span>{}</span></div><span class=\"badge\">{} · v{}</span></header>\n\
+<header class=\"nav\"><div class=\"brand\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 32 32\" fill=\"none\"><path d=\"M16 5.5L7 25.5M16 5.5L25 25.5M10.4 19.2H21.6\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg><span>{}</span></div><span class=\"badge\">{}<span>{} · v{}</span></span></header>\n\
 <h1>{}</h1>\n<p class=\"lead\">{}</p>\n\
 <p><strong>For:</strong> {}</p>\n\
 <div class=\"cta\"><a class=\"btn btn-primary\" href=\"#deploy\">Quick Deploy</a><a class=\"btn btn-ghost\" href=\"#governance\">Governance &amp; Trust</a></div>\n\
 <section id=\"governance\" class=\"grid\">\n\
 <div class=\"card\"><svg viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M12 3.5L19 6.5V11.8C19 16.2 16 19.3 12 20.5C8 19.3 5 16.2 5 11.8V6.5L12 3.5Z\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\"/><path d=\"M9.5 12L11.2 13.7L14.8 10.1\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg><h3>Verified Scorecard</h3><p>{}</p></div>\n\
-<div class=\"card\"><svg viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M4 19.5H20\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"/><path d=\"M7.5 16V12M12 16V7.5M16.5 16V10\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"/></svg><h3>Audit &amp; Metering</h3><p>Audit Logging: {} · Usage Billing Ready</p></div>\n\
+<div class=\"card\"><svg viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M4 19.5H20\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"/><path d=\"M7.5 16V12M12 16V7.5M16.5 16V10\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\"/></svg><h3>Audit &amp; Metering</h3><p>Audit Logging: {} · Usage Billing Ready</p></div>\n\
 <div class=\"card\"><svg viewBox=\"0 0 24 24\" fill=\"none\"><circle cx=\"6.5\" cy=\"12\" r=\"2.5\" stroke=\"currentColor\" stroke-width=\"1.5\"/><circle cx=\"17.5\" cy=\"7\" r=\"2.5\" stroke=\"currentColor\" stroke-width=\"1.5\"/><circle cx=\"17.5\" cy=\"17\" r=\"2.5\" stroke=\"currentColor\" stroke-width=\"1.5\"/><path d=\"M8.8 10.9L15.2 8.1M8.8 13.1L15.2 15.9\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"/></svg><h3>MCP &amp; Integrations</h3><p>{}</p></div>\n\
 </section>\n\
+{}\n\
 <section id=\"deploy\"><h3>Quick Deploy</h3>\n\
 <pre>aria-native pack validate .\naria-native pack export-mcp .\naria-native pack export-docker .\naria-native mcp-serve --http 127.0.0.1:8787</pre></section>\n\
 </div>\n</body>\n</html>\n",
         brand_name,
         brand_name,
+        category_icon,
         manifest.category,
         manifest.version,
         manifest.title,
@@ -980,7 +999,8 @@ pre{{background:var(--code-bg);color:var(--code-fg);padding:18px;border-radius:1
         audience,
         scorecard_summary,
         manifest.commercial.audit_required,
-        mcp_line
+        mcp_line,
+        stack_icons
     );
     fs::write(dest.join("landing.html"), landing_html)
         .map_err(|e| format!("Failed to write landing.html: {e}"))?;
