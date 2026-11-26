@@ -60,3 +60,7 @@ def main() -> None:
 
 
 __all__ = ["find_native_binary", "main"]
+
+
+if __name__ == "__main__":
+    main()

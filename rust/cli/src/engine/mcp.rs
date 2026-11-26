@@ -1542,32 +1542,49 @@ for line in sys.stdin:
     fn http_client_retries_transient_503_and_connects() {
         use std::io::{Read, Write};
         use std::net::TcpListener;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
         let addr = listener.local_addr().unwrap();
+        let done = Arc::new(AtomicBool::new(false));
+        let done_srv = Arc::clone(&done);
         let handle = std::thread::spawn(move || {
-            for idx in 0..2 {
-                let (mut stream, _) = listener.accept().unwrap();
-                let mut buf = [0u8; 2048];
-                let _ = stream.read(&mut buf);
-                if idx == 0 {
-                    let resp = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-                    let _ = stream.write_all(resp.as_bytes());
-                } else {
-                    let body =
-                        r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05"}}"#;
-                    let resp = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                        body.len(),
-                        body
-                    );
-                    let _ = stream.write_all(resp.as_bytes());
+            let mut idx = 0usize;
+            while !done_srv.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let _ = stream.set_nonblocking(false);
+                        let mut buf = [0u8; 2048];
+                        let _ = stream.read(&mut buf);
+                        let resp = if idx == 0 {
+                            "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
+                        } else if idx == 1 {
+                            let body = r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05"}}"#;
+                            format!(
+                                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                                body.len(),
+                                body
+                            )
+                        } else {
+                            "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
+                        };
+                        let _ = stream.write_all(resp.as_bytes());
+                        let _ = stream.flush();
+                        idx += 1;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    Err(_) => break,
                 }
             }
         });
 
         let url = format!("http://{addr}/mcp");
         let client = McpHttpClient::connect(&url, &HashMap::new());
+        done.store(true, Ordering::Relaxed);
         assert!(
             client.is_ok(),
             "expected retry to succeed: {:?}",
