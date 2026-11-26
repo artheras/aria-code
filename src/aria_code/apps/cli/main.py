@@ -44,6 +44,31 @@ def find_native_binary() -> Optional[str]:
     return shutil.which("aria-native")
 
 
+_PRODUCT_HELP = """Aria Code — AI coding and quantitative engineering CLI
+
+Usage:
+  aria [OPTIONS]
+  aria-code [OPTIONS]
+
+Options:
+  -C, --cd DIR                     Set workspace directory
+  --model MODEL                    Select model
+  --url URL                        Override provider base URL
+  --session ID                     Resume a saved session
+  --resume                         Resume the most recent session
+  --thinking                       Enable extended thinking
+  --local                          Prefer local providers
+  --no-banner                      Hide startup banner
+  --banner STYLE                   Select startup banner style
+  --allow-tools TOOLS              Allow specific tools
+  --add-dir DIR                    Grant access to additional directory
+  --read-dir DIR                   Grant read-only access to directory
+  --dangerously-skip-permissions   Skip permission prompts
+  -V, --version                    Show version and exit
+  -h, --help                       Show this help message and exit
+"""
+
+
 def main() -> None:
     """Synchronous entry point for the ``aria`` and ``aria-code`` commands."""
     argv = sys.argv[1:]
@@ -51,6 +76,9 @@ def main() -> None:
         argv = argv[2:]
     if argv in (["--version"], ["-V"]):
         print(f"aria-code {__version__}")
+        return
+    if argv in (["--help"], ["-h"]):
+        print(_PRODUCT_HELP, end="")
         return
 
     binary = find_native_binary()
