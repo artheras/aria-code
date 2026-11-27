@@ -205,6 +205,9 @@ pub struct App {
     pub permission: String,
     pub network: bool,
     pub robot: super::robot::Robot,
+    pub robot_design: bool,
+    pub anim_tick: u64,
+    pub happy_until: Option<Instant>,
     pub commands: Vec<String>,
     /// What each command does, for the list that opens when `/` is typed. Sent
     /// by the runtime as `commands_info`; absent from older runtimes, in which
@@ -513,6 +516,7 @@ impl App {
                 } else if robot["design"] == "cream-block-v2" {
                     robot["theme"] = self.theme.clone().into();
                 }
+                self.robot_design = robot["design"] == "cream-block-v2";
                 self.robot = super::robot::Robot::from_event(&robot);
                 self.commands = v["commands"]
                     .as_array()
@@ -836,6 +840,9 @@ impl App {
                 self.phase.finish();
                 self.approval_context.clear();
                 self.elapsed = self.started.take().map(|start| start.elapsed());
+                if text("status") == "ok" {
+                    self.happy_until = Some(Instant::now() + std::time::Duration::from_millis(900));
+                }
                 let start = self.current_start();
                 for entry in self
                     .entries
@@ -891,6 +898,27 @@ impl App {
             _ => return Err(format!("Unknown application event: {kind}")),
         }
         Ok(())
+    }
+    pub fn mascot_pose(&self) -> super::robot::MascotPose {
+        use super::robot::MascotPose;
+        if self.dialog.is_some() {
+            return MascotPose::Alert;
+        }
+        if self.turn.is_some() {
+            return match self.anim_tick % 6 {
+                0 | 1 => MascotPose::LookLeft,
+                3 | 4 => MascotPose::LookRight,
+                _ => MascotPose::Idle,
+            };
+        }
+        if self.happy_until.is_some_and(|until| Instant::now() < until) {
+            return MascotPose::Happy;
+        }
+        if self.anim_tick % 16 == 15 {
+            MascotPose::Blink
+        } else {
+            MascotPose::Idle
+        }
     }
     pub fn submit(&mut self) -> Option<Value> {
         if self.editor.text().trim().is_empty() {
@@ -1437,7 +1465,7 @@ mod tests {
         go.event(packet(json!({"design": "cream-block-v2"}), ""))
             .unwrap();
         assert_eq!(python.robot.0, go.robot.0);
-        assert_eq!(python.robot.0.len(), 3);
+        assert_eq!(python.robot.0.len(), 4);
         python.event(packet(json!([]), "cream-block-v2")).unwrap();
         assert!(python.robot.0.is_empty());
         go.event(packet(json!([]), "")).unwrap();

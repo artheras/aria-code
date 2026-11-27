@@ -268,8 +268,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
     };
     let mut header_area = parts[0];
     if show_robot {
+        let lines = if app.robot_design {
+            super::robot::Robot::compact_pose(&app.theme, app.mascot_pose()).0
+        } else {
+            robot.0.clone()
+        };
         frame.render_widget(
-            Paragraph::new(robot.0.clone()),
+            Paragraph::new(lines),
             Rect::new(
                 header_area.x,
                 header_area.y,
@@ -284,6 +289,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let mut lines = Vec::new();
     if parts[0].height > 1 {
         lines.push(Line::default());
+    }
+    if app.entries.is_empty() && parts[0].height > 1 && parts[1].height >= 6 {
+        lines.extend(welcome_lines(app, p));
     }
     let (group_start, grouped) = inspection_groups(app);
     for (index, entry) in app.entries.iter().enumerate() {
@@ -1093,6 +1101,56 @@ fn identity_lines(app: &App, p: Palette, width: usize) -> Vec<Line<'static>> {
         ]),
         Line::styled(model, Style::new().fg(p.muted)),
         Line::from(place_line),
+    ]
+}
+
+/// Lightweight startup tips shown above the fold while the conversation is empty.
+fn welcome_lines(app: &App, p: Palette) -> Vec<Line<'static>> {
+    vec![
+        Line::from(vec![
+            Span::styled(
+                app.tr(
+                    "Ready — ask anything, or type ",
+                    "已就绪 — 可直接提问，或输入 ",
+                ),
+                Style::new().bold(),
+            ),
+            Span::styled("/help", Style::new().fg(p.assistant).bold()),
+            Span::styled(
+                app.tr(" for commands.", " 查看全部命令。"),
+                Style::new().bold(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                app.tr("Switch with ", "切换模型 "),
+                Style::new().fg(p.muted),
+            ),
+            Span::styled("/model", Style::new().fg(p.assistant)),
+            Span::styled(
+                app.tr(" · sessions ", " · 恢复会话 "),
+                Style::new().fg(p.muted),
+            ),
+            Span::styled("/resume", Style::new().fg(p.assistant)),
+            Span::styled(
+                app.tr(" · files ", " · 引用文件 "),
+                Style::new().fg(p.muted),
+            ),
+            Span::styled("@file", Style::new().fg(p.assistant)),
+        ]),
+        Line::from(vec![
+            Span::styled(app.tr("Press ", "按 "), Style::new().fg(p.muted)),
+            Span::styled("Ctrl+O", Style::new().fg(p.assistant)),
+            Span::styled(
+                app.tr(" for details · ", " 展开执行细节 · 按 "),
+                Style::new().fg(p.muted),
+            ),
+            Span::styled("F1", Style::new().fg(p.assistant)),
+            Span::styled(
+                app.tr(" for shortcuts", " 查看快捷键"),
+                Style::new().fg(p.muted),
+            ),
+        ]),
     ]
 }
 
@@ -1942,10 +2000,10 @@ mod tests {
             };
             terminal.draw(|f| draw(f, &app)).unwrap();
             let buffer = terminal.backend().buffer();
-            // Nine columns, three rows. The name starts two columns past the mascot.
-            assert_eq!(buffer[(2, 1)].symbol(), "▀");
-            assert_eq!(buffer[(5, 1)].symbol(), "▀");
-            assert_eq!(buffer[(11, 0)].symbol(), "A");
+            // Eleven columns, four rows. The name starts two columns past the mascot.
+            assert_eq!(buffer[(3, 1)].symbol(), "▀");
+            assert_eq!(buffer[(7, 1)].symbol(), "▀");
+            assert_eq!(buffer[(13, 0)].symbol(), "A");
             assert!(display(&terminal).contains("Aria Code"));
         }
     }

@@ -8,6 +8,16 @@ use serde_json::Value;
 
 #[derive(Debug, Default)]
 pub struct Robot(pub Vec<Line<'static>>);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MascotPose {
+    Idle,
+    Blink,
+    LookLeft,
+    LookRight,
+    Happy,
+    Alert,
+}
 fn color(hex: &str) -> Option<Color> {
     let rgb = hex.strip_prefix('#')?;
     if rgb.len() != 6 || !rgb.is_ascii() {
@@ -141,38 +151,69 @@ impl Robot {
         Self(rows)
     }
 
-    /// Three rows by nine columns, the same budget as Claude Code's mascot.
-    /// Half blocks make six pixel rows: cream cap, black screen, a square eye
-    /// and an orange dash, an orange stripe, then four gray feet.
+    /// Four rows by eleven columns: solid theme-teal body with stepped cap,
+    /// 1px side ears, vertical bean eyes (black on light, white on dark), and
+    /// two steady feet.
     fn compact_cream(theme: &str) -> Self {
-        let cream = if theme == "light" {
-            Color::Rgb(224, 214, 202)
+        Self::compact_pose(theme, MascotPose::Idle)
+    }
+
+    /// Render a pose of the compact 4x11 mascot for idle blinking, thinking
+    /// eye-scanning, approval alert, or turn-completed happy feedback.
+    pub fn compact_pose(theme: &str, pose: MascotPose) -> Self {
+        let body = if theme == "light" {
+            Color::Rgb(15, 112, 139)
         } else {
-            Color::Rgb(244, 235, 228)
+            Color::Rgb(91, 192, 216)
         };
-        let screen = Color::Rgb(14, 14, 14);
-        let eye = Color::Rgb(255, 253, 245);
-        let dash = Color::Rgb(249, 180, 103);
-        let gray = if theme == "light" {
-            Color::Rgb(128, 120, 112)
-        } else {
-            Color::Rgb(182, 173, 164)
+        let eye = match (pose, theme == "light") {
+            (MascotPose::Alert, true) => Color::Rgb(245, 158, 11),
+            (MascotPose::Alert, false) => Color::Rgb(249, 180, 103),
+            (_, true) => Color::Rgb(17, 19, 23),
+            (_, false) => Color::Rgb(255, 255, 255),
         };
-        // 0 empty, 1 cream, 2 screen, 3 white eye, 4 orange ear, 5 gray.
-        let pixels: [[u8; 9]; 6] = [
-            [0, 1, 1, 1, 1, 1, 1, 1, 0],
-            [5, 2, 2, 2, 2, 2, 2, 2, 5],
-            [4, 2, 3, 2, 2, 2, 3, 2, 4],
-            [5, 2, 2, 2, 2, 2, 2, 2, 5],
-            [0, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 5, 0, 5, 0, 5, 0, 5, 0],
+        // 0 empty, 1 teal body, 2 bean eye.
+        let mut pixels: [[u8; 11]; 8] = [
+            [0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         ];
+        match pose {
+            MascotPose::Idle | MascotPose::Alert => {
+                for row in [2, 3] {
+                    pixels[row][3] = 2;
+                    pixels[row][7] = 2;
+                }
+            }
+            MascotPose::Blink => {
+                pixels[3][3] = 2;
+                pixels[3][7] = 2;
+            }
+            MascotPose::Happy => {
+                pixels[2][3] = 2;
+                pixels[2][7] = 2;
+            }
+            MascotPose::LookLeft => {
+                for row in [2, 3] {
+                    pixels[row][2] = 2;
+                    pixels[row][6] = 2;
+                }
+            }
+            MascotPose::LookRight => {
+                for row in [2, 3] {
+                    pixels[row][4] = 2;
+                    pixels[row][8] = 2;
+                }
+            }
+        }
         let paint = |code: u8| match code {
-            1 => Some(cream),
-            2 => Some(screen),
-            3 => Some(eye),
-            4 => Some(dash),
-            5 => Some(gray),
+            1 => Some(body),
+            2 => Some(eye),
             _ => None,
         };
         let mut rows = Vec::new();
@@ -228,37 +269,33 @@ mod tests {
                 Some(Color::Rgb(255, 253, 245))
             );
             let mark = Robot::cream(theme, true);
-            assert_eq!(mark.0.len(), 3);
-            assert!(mark.0.iter().all(|row| row.width() == 9));
+            assert_eq!(mark.0.len(), 4);
+            assert!(mark.0.iter().all(|row| row.width() == 11));
         }
     }
     #[test]
-    fn compact_robot_has_a_square_eye_an_orange_dash_and_four_feet() {
-        let eye = Some(Color::Rgb(255, 253, 245));
-        let screen = Some(Color::Rgb(14, 14, 14));
+    fn compact_robot_has_solid_teal_body_bean_eyes_and_two_feet() {
         for theme in ["light", "dark"] {
+            let (body, eye) = if theme == "light" {
+                (Color::Rgb(15, 112, 139), Color::Rgb(17, 19, 23))
+            } else {
+                (Color::Rgb(91, 192, 216), Color::Rgb(255, 255, 255))
+            };
             let robot = Robot::from_event(&serde_json::json!({
                 "design": "cream-block-v2", "theme": theme
             }));
-            assert_eq!(robot.0.len(), 3);
-            assert!(robot.0.iter().all(|row| row.width() == 9));
+            assert_eq!(robot.0.len(), 4);
+            assert!(robot.0.iter().all(|row| row.width() == 11));
             let face = &robot.0[1].spans;
-            assert_eq!(face[0].style.fg, Some(Color::Rgb(249, 180, 103)));
-            assert_eq!(face[2].style.fg, eye);
-            assert_eq!(face[2].style.bg, screen);
-            assert_eq!(face[6].style.fg, eye);
-            assert_eq!(face[6].style.bg, screen);
-            let feet = robot.0[2]
+            assert_eq!(face[0].style.fg, Some(body));
+            assert_eq!(face[3].style.fg, Some(eye));
+            assert_eq!(face[3].style.bg, Some(eye));
+            assert_eq!(face[7].style.fg, Some(eye));
+            assert_eq!(face[7].style.bg, Some(eye));
+            let feet = robot.0[3]
                 .spans
                 .iter()
-                .filter(|span| {
-                    span.style.bg
-                        == Some(if theme == "light" {
-                            Color::Rgb(128, 120, 112)
-                        } else {
-                            Color::Rgb(182, 173, 164)
-                        })
-                })
+                .filter(|span| span.style.fg == Some(body) && span.style.bg.is_none())
                 .count();
             assert_eq!(feet, 4);
         }
