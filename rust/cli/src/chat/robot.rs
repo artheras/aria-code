@@ -178,8 +178,8 @@ impl Robot {
             [0, 1, 1, 1, 1, 1, 1, 1, 0],
             [1, 1, 1, 1, 1, 1, 1, 1, 1],
             [0, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 1, 1, 1, 1, 1, 1, 1, 0],
             [0, 1, 1, 0, 0, 0, 1, 1, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
         ];
         match pose {
             MascotPose::Idle | MascotPose::Alert => {
@@ -294,7 +294,7 @@ mod tests {
             let feet = robot.0[2]
                 .spans
                 .iter()
-                .filter(|span| span.style.bg == Some(body))
+                .filter(|span| span.style.fg == Some(body) && span.style.bg.is_none())
                 .count();
             assert_eq!(feet, 4);
         }

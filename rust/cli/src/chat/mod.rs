@@ -18,7 +18,9 @@ use crossterm::{
         Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEventKind,
     },
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{
+        disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, SetTitle,
+    },
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use serde_json::{json, Value};
@@ -44,6 +46,7 @@ impl Drop for Screen {
             DisableBracketedPaste,
             DisableMouseCapture,
             LeaveAlternateScreen,
+            SetTitle(""),
             crossterm::cursor::Show
         );
     }
@@ -140,6 +143,7 @@ pub fn run(
     let mut native_active = false;
     let native_cancel = Arc::new(AtomicBool::new(false));
     let mut native_picker_models: Vec<(String, String)> = Vec::new();
+    let mut last_title = String::new();
     loop {
         if let Some(ref mut sess) = session {
             for _ in 0..128 {
@@ -246,6 +250,18 @@ pub fn run(
             tick = Instant::now();
         }
         if dirty {
+            let next_title = if app.dialog.is_some() {
+                "! Aria Code · Approval".to_owned()
+            } else if app.turn.is_some() {
+                let frame = mark::BREATH[(app.anim_tick as usize) % mark::BREATH.len()];
+                format!("{frame} Aria Code")
+            } else {
+                format!("{} Aria Code", mark::RESTING)
+            };
+            if next_title != last_title {
+                let _ = execute!(io::stdout(), SetTitle(&next_title));
+                last_title = next_title;
+            }
             terminal
                 .draw(|frame| ui::draw(frame, &app))
                 .map_err(|e| e.to_string())?;
