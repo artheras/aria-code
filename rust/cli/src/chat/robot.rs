@@ -183,30 +183,21 @@ impl Robot {
         ];
         match pose {
             MascotPose::Idle | MascotPose::Alert => {
-                for row in [2, 3] {
-                    pixels[row][2] = 2;
-                    pixels[row][6] = 2;
-                }
-            }
-            MascotPose::Blink => {
-                pixels[3][2] = 2;
-                pixels[3][6] = 2;
-            }
-            MascotPose::Happy => {
                 pixels[2][2] = 2;
                 pixels[2][6] = 2;
             }
+            MascotPose::Blink => {}
+            MascotPose::Happy => {
+                pixels[1][2] = 2;
+                pixels[1][6] = 2;
+            }
             MascotPose::LookLeft => {
-                for row in [2, 3] {
-                    pixels[row][1] = 2;
-                    pixels[row][5] = 2;
-                }
+                pixels[2][1] = 2;
+                pixels[2][5] = 2;
             }
             MascotPose::LookRight => {
-                for row in [2, 3] {
-                    pixels[row][3] = 2;
-                    pixels[row][7] = 2;
-                }
+                pixels[2][3] = 2;
+                pixels[2][7] = 2;
             }
         }
         let paint = |code: u8| match code {
@@ -289,8 +280,10 @@ mod tests {
             assert!(robot.0.iter().all(|row| row.width() == 9));
             let face = &robot.0[1].spans;
             assert_eq!(face[0].style.fg, Some(body));
-            assert_eq!(face[2].style.bg, Some(eye));
-            assert_eq!(face[6].style.bg, Some(eye));
+            assert_eq!(face[2].style.fg, Some(eye));
+            assert_eq!(face[2].style.bg, Some(body));
+            assert_eq!(face[6].style.fg, Some(eye));
+            assert_eq!(face[6].style.bg, Some(body));
             let feet = robot.0[2]
                 .spans
                 .iter()
