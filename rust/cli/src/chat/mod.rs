@@ -830,6 +830,11 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
             return Some(NativeRoute::ModelList(target));
         }
     }
+    let is_slash_command = text.starts_with('/')
+        && !text
+            .split_whitespace()
+            .next()
+            .is_some_and(|tok| tok[1..].contains('/'));
     if !app.model.is_empty() {
         if crate::engine::policy::is_conversation_only_message(text)
             && app.entries.iter().filter(|e| e.role == "user").count() <= 1
@@ -842,7 +847,7 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
                     return Some(NativeRoute::CloudChat(cloud));
                 }
             }
-        } else if !text.starts_with('/')
+        } else if !is_slash_command
             && (app.session == "native"
                 || app.status == "Native ready"
                 || app.status == "已完成"
@@ -3149,7 +3154,8 @@ mod tests {
         app.provider = "ollama".into();
         app.session = "native".into();
         app.ready = true;
-        app.editor.insert("你知道我现在在哪吗");
+        app.editor
+            .insert("/Users/mac/Desktop/financial-service 分析这个文件");
         let submitted = app.submit().unwrap();
         assert_eq!(
             classify_native_route(&app, &submitted),
