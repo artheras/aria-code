@@ -174,7 +174,7 @@ impl Robot {
         };
         // 0 empty, 1 teal body, 2 bean eye.
         let mut pixels: [[u8; 9]; 6] = [
-            [0, 0, 1, 1, 1, 1, 1, 0, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 0],
             [0, 1, 1, 1, 1, 1, 1, 1, 0],
             [1, 1, 1, 1, 1, 1, 1, 1, 1],
             [0, 1, 1, 1, 1, 1, 1, 1, 0],
@@ -223,6 +223,9 @@ impl Robot {
                     (None, None) => Span::raw(" "),
                     (Some(color), None) => Span::styled("▀", Style::new().fg(color)),
                     (None, Some(color)) => Span::styled("▄", Style::new().fg(color)),
+                    (Some(top), Some(bottom)) if top == bottom => {
+                        Span::styled(" ", Style::new().bg(top))
+                    }
                     (Some(top), Some(bottom)) => Span::styled("▀", Style::new().fg(top).bg(bottom)),
                 })
                 .collect();
@@ -286,14 +289,12 @@ mod tests {
             assert!(robot.0.iter().all(|row| row.width() == 9));
             let face = &robot.0[1].spans;
             assert_eq!(face[0].style.fg, Some(body));
-            assert_eq!(face[2].style.fg, Some(eye));
             assert_eq!(face[2].style.bg, Some(eye));
-            assert_eq!(face[6].style.fg, Some(eye));
             assert_eq!(face[6].style.bg, Some(eye));
             let feet = robot.0[2]
                 .spans
                 .iter()
-                .filter(|span| span.style.fg == Some(body) && span.style.bg == Some(body))
+                .filter(|span| span.style.bg == Some(body))
                 .count();
             assert_eq!(feet, 4);
         }
