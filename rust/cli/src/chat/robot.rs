@@ -151,14 +151,14 @@ impl Robot {
         Self(rows)
     }
 
-    /// Four rows by eleven columns: solid theme-teal body with stepped cap,
+    /// Three rows by eleven columns: solid theme-teal body with stepped cap,
     /// 1px side ears, vertical bean eyes (black on light, white on dark), and
-    /// two steady feet.
+    /// two steady feet attached seamlessly on the bottom row.
     fn compact_cream(theme: &str) -> Self {
         Self::compact_pose(theme, MascotPose::Idle)
     }
 
-    /// Render a pose of the compact 4x11 mascot for idle blinking, thinking
+    /// Render a pose of the compact 3x11 mascot for idle blinking, thinking
     /// eye-scanning, approval alert, or turn-completed happy feedback.
     pub fn compact_pose(theme: &str, pose: MascotPose) -> Self {
         let body = if theme == "light" {
@@ -173,15 +173,13 @@ impl Robot {
             (_, false) => Color::Rgb(255, 255, 255),
         };
         // 0 empty, 1 teal body, 2 bean eye.
-        let mut pixels: [[u8; 11]; 8] = [
+        let mut pixels: [[u8; 11]; 6] = [
             [0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0],
             [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
             [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
             [0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         ];
         match pose {
             MascotPose::Idle | MascotPose::Alert => {
@@ -269,7 +267,7 @@ mod tests {
                 Some(Color::Rgb(255, 253, 245))
             );
             let mark = Robot::cream(theme, true);
-            assert_eq!(mark.0.len(), 4);
+            assert_eq!(mark.0.len(), 3);
             assert!(mark.0.iter().all(|row| row.width() == 11));
         }
     }
@@ -284,7 +282,7 @@ mod tests {
             let robot = Robot::from_event(&serde_json::json!({
                 "design": "cream-block-v2", "theme": theme
             }));
-            assert_eq!(robot.0.len(), 4);
+            assert_eq!(robot.0.len(), 3);
             assert!(robot.0.iter().all(|row| row.width() == 11));
             let face = &robot.0[1].spans;
             assert_eq!(face[0].style.fg, Some(body));
@@ -292,10 +290,10 @@ mod tests {
             assert_eq!(face[3].style.bg, Some(eye));
             assert_eq!(face[7].style.fg, Some(eye));
             assert_eq!(face[7].style.bg, Some(eye));
-            let feet = robot.0[3]
+            let feet = robot.0[2]
                 .spans
                 .iter()
-                .filter(|span| span.style.fg == Some(body) && span.style.bg.is_none())
+                .filter(|span| span.style.fg == Some(body) && span.style.bg == Some(body))
                 .count();
             assert_eq!(feet, 4);
         }

@@ -2022,7 +2022,7 @@ mod tests {
             };
             terminal.draw(|f| draw(f, &app)).unwrap();
             let buffer = terminal.backend().buffer();
-            // Eleven columns, four rows. The name starts two columns past the mascot.
+            // Eleven columns, three rows. The name starts two columns past the mascot.
             assert_eq!(buffer[(3, 1)].symbol(), "▀");
             assert_eq!(buffer[(7, 1)].symbol(), "▀");
             assert_eq!(buffer[(13, 0)].symbol(), "A");
