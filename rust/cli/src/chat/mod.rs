@@ -215,6 +215,24 @@ pub fn run(
                 } else if let Some(ref mut sess) = session {
                     sess.send(request)?;
                 } else {
+                    let text = request["text"].as_str().unwrap_or("").trim();
+                    let msg = if text.starts_with('/') {
+                        let cmd = text.split_whitespace().next().unwrap_or(text);
+                        if app.zh() {
+                            format!("未知命令 `{cmd}`，输入 `/help` 查看可用命令。")
+                        } else {
+                            format!(
+                                "Unknown command `{cmd}`. Type `/help` to see available commands."
+                            )
+                        }
+                    } else if app.zh() {
+                        "当前未配置可用模型，请先使用 `/model` 选择或配置模型。".to_owned()
+                    } else {
+                        "No active model configured. Use `/model` to select or configure a model."
+                            .to_owned()
+                    };
+                    let _ =
+                        native_tx.send(json!({"protocol": 1, "type": "answer.delta", "text": msg}));
                     let _ = native_tx
                         .send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
                 }
@@ -1917,7 +1935,11 @@ fn try_dispatch_native_turn(
                 );
                 let mut status = "ok";
                 if !model.is_empty() && provider.eq_ignore_ascii_case("ollama") {
-                    let sys = crate::engine::policy::general_system_prompt("today");
+                    let sys = format!(
+                        "{}\nCurrent workspace path: `{}`.",
+                        crate::engine::policy::general_system_prompt("today"),
+                        workspace
+                    );
                     match crate::engine::ollama::stream_chat_cancelable(
                         &url,
                         &model,
@@ -1947,7 +1969,11 @@ fn try_dispatch_native_turn(
                 } else if !model.is_empty() {
                     if let Some(cloud) = crate::engine::cloud::CloudProvider::from_id(&provider) {
                         if cloud.resolve_api_key().is_some() {
-                            let sys = crate::engine::policy::general_system_prompt("today");
+                            let sys = format!(
+                                "{}\nCurrent workspace path: `{}`.",
+                                crate::engine::policy::general_system_prompt("today"),
+                                workspace
+                            );
                             match crate::engine::cloud::stream_cloud_chat_cancelable(
                                 cloud,
                                 &model,
@@ -2079,7 +2105,11 @@ fn try_dispatch_native_turn(
                         format!("Waiting for {model}…")
                     }
                 }));
-                let sys = crate::engine::policy::general_system_prompt("today");
+                let sys = format!(
+                    "{}\nCurrent workspace path: `{}`.",
+                    crate::engine::policy::general_system_prompt("today"),
+                    workspace
+                );
                 let mut reply = String::new();
                 let res = crate::engine::ollama::stream_chat_cancelable(
                     &url,
@@ -2180,7 +2210,11 @@ fn try_dispatch_native_turn(
                         return;
                     }
                 }
-                let sys = crate::engine::policy::general_system_prompt("today");
+                let sys = format!(
+                    "{}\nCurrent workspace path: `{}`.",
+                    crate::engine::policy::general_system_prompt("today"),
+                    workspace
+                );
                 let res = crate::engine::cloud::stream_cloud_chat_cancelable(
                     cloud,
                     &model,

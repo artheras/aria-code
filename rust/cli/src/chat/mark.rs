@@ -32,12 +32,14 @@ pub const RESTING: &str = "▄";
 pub const BREATH: [&str; 6] = ["▁", "▂", "▄", "▆", "▄", "▂"];
 
 /// The mark at rest, for prefixing a line that is not working.
+#[cfg(test)]
 pub fn resting() -> Span<'static> {
     Span::styled(RESTING, Style::new().fg(TEAL))
 }
 
 /// The mark at `tick`, for a turn in progress. Wraps, so a caller may keep
 /// counting without bounding the frame itself.
+#[cfg(test)]
 pub fn breathing(tick: usize) -> Span<'static> {
     Span::styled(BREATH[tick % BREATH.len()], Style::new().fg(TEAL))
 }
