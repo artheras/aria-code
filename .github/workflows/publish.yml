@@ -293,7 +293,7 @@ jobs:
           BIN="$("$RUNNER_TEMP/wheel/bin/python" -I -c 'import aria_code, pathlib; print(pathlib.Path(aria_code.__file__).parent / "_bin")')"
           test "$("$BIN/aria-runtime" --version)" = "aria-runtime ${TAG#v}"
           test "$("$BIN/aria-native" --entry-protocol)" = "1"
-          "$RUNNER_TEMP/wheel/bin/python" -I -c 'from aria_code.runtime.native_index import native_binary; import sys; sys.exit(0 if native_binary() == sys.argv[1] else 1)' "$BIN/aria-native"
+          "$RUNNER_TEMP/wheel/bin/python" -I -c 'from aria_code.apps.cli.main import find_native_binary; import sys; sys.exit(0 if find_native_binary() == sys.argv[1] else 1)' "$BIN/aria-native"
           python3 - "$BIN/aria-native" "$RUNNER_TEMP/wheel/bin/python" "${TAG#v}" <<'SMOKE'
           import json, os, subprocess, sys, tempfile
           frontend, python, version = sys.argv[1:]
