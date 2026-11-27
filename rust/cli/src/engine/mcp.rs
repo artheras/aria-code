@@ -110,14 +110,50 @@ impl McpStdioClient {
             .unwrap_or_default())
     }
 
-    #[allow(dead_code)]
     pub fn list_skills(&mut self) -> Result<Vec<Value>, String> {
-        let res = self.request("skills/list", json!({}))?;
-        Ok(res
-            .get("skills")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default())
+        let mut merged = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        if let Ok(res) = self.request("skills/list", json!({})) {
+            if let Some(arr) = res.get("skills").and_then(Value::as_array) {
+                for item in arr {
+                    if let Some(name) = item.get("name").and_then(Value::as_str) {
+                        if seen.insert(name.to_owned()) {
+                            merged.push(item.clone());
+                        }
+                    }
+                }
+            }
+        }
+        if let Ok(res) = self.request("prompts/list", json!({})) {
+            if let Some(arr) = res.get("prompts").and_then(Value::as_array) {
+                for item in arr {
+                    if let Some(name) = item.get("name").and_then(Value::as_str) {
+                        if seen.insert(name.to_owned()) {
+                            merged.push(json!({
+                                "name": name,
+                                "description": item.get("description").and_then(Value::as_str).unwrap_or(""),
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(merged)
+    }
+
+    pub fn get_skill(&mut self, name: &str) -> Result<(String, String), String> {
+        if let Ok(res) = self.request("skills/get", json!({ "name": name })) {
+            if let Some(content) = res.get("content").and_then(Value::as_str) {
+                let desc = res
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                return Ok((desc, content.to_owned()));
+            }
+        }
+        let res = self.request("prompts/get", json!({ "name": name }))?;
+        extract_prompt_skill_body(&res)
     }
 
     #[allow(dead_code)]
@@ -141,6 +177,37 @@ const MCP_HEADER_ENV_PREFIX: &str = "MCP_HEADER:";
 pub fn is_remote_http_url(command: &str) -> bool {
     let trimmed = command.trim();
     trimmed.starts_with("http://") || trimmed.starts_with("https://")
+}
+
+/// Extract `(description, text_body)` from a standard MCP `prompts/get` result.
+fn extract_prompt_skill_body(res: &Value) -> Result<(String, String), String> {
+    let desc = res
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    let mut chunks = Vec::new();
+    if let Some(msgs) = res.get("messages").and_then(Value::as_array) {
+        for m in msgs {
+            if let Some(s) = m.get("content").and_then(Value::as_str) {
+                if !s.trim().is_empty() {
+                    chunks.push(s.to_owned());
+                }
+            } else if let Some(s) = m
+                .get("content")
+                .and_then(|c| c.get("text"))
+                .and_then(Value::as_str)
+            {
+                if !s.trim().is_empty() {
+                    chunks.push(s.to_owned());
+                }
+            }
+        }
+    }
+    if chunks.is_empty() {
+        return Err("MCP skill/prompt returned empty content".into());
+    }
+    Ok((desc, chunks.join("\n\n")))
 }
 
 /// Parse either plain JSON-RPC or Streamable HTTP SSE (`data: {...}`) response body.
@@ -297,6 +364,14 @@ impl McpHttpClient {
                 "clientInfo": { "name": "aria-native", "version": env!("CARGO_PKG_VERSION") }
             }),
         )?;
+        let notif = json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+            "params": {}
+        });
+        if let Ok(payload) = serde_json::to_vec(&notif) {
+            let _ = self.send_once(&payload);
+        }
         Ok(())
     }
 
@@ -309,14 +384,50 @@ impl McpHttpClient {
             .unwrap_or_default())
     }
 
-    #[allow(dead_code)]
     pub fn list_skills(&mut self) -> Result<Vec<Value>, String> {
-        let res = self.request("skills/list", json!({}))?;
-        Ok(res
-            .get("skills")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default())
+        let mut merged = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        if let Ok(res) = self.request("skills/list", json!({})) {
+            if let Some(arr) = res.get("skills").and_then(Value::as_array) {
+                for item in arr {
+                    if let Some(name) = item.get("name").and_then(Value::as_str) {
+                        if seen.insert(name.to_owned()) {
+                            merged.push(item.clone());
+                        }
+                    }
+                }
+            }
+        }
+        if let Ok(res) = self.request("prompts/list", json!({})) {
+            if let Some(arr) = res.get("prompts").and_then(Value::as_array) {
+                for item in arr {
+                    if let Some(name) = item.get("name").and_then(Value::as_str) {
+                        if seen.insert(name.to_owned()) {
+                            merged.push(json!({
+                                "name": name,
+                                "description": item.get("description").and_then(Value::as_str).unwrap_or(""),
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(merged)
+    }
+
+    pub fn get_skill(&mut self, name: &str) -> Result<(String, String), String> {
+        if let Ok(res) = self.request("skills/get", json!({ "name": name })) {
+            if let Some(content) = res.get("content").and_then(Value::as_str) {
+                let desc = res
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                return Ok((desc, content.to_owned()));
+            }
+        }
+        let res = self.request("prompts/get", json!({ "name": name }))?;
+        extract_prompt_skill_body(&res)
     }
 
     pub fn call_tool(&mut self, name: &str, arguments: Value) -> Result<Value, String> {
@@ -361,16 +472,17 @@ impl McpClient {
         }
     }
 
-    #[allow(dead_code)]
     pub fn list_skills(&mut self) -> Result<Vec<Value>, String> {
         match self {
             Self::Stdio(c) => c.list_skills(),
-            Self::Http(c) => Ok(c
-                .request("skills/list", json!({}))?
-                .get("skills")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default()),
+            Self::Http(c) => c.list_skills(),
+        }
+    }
+
+    pub fn get_skill(&mut self, name: &str) -> Result<(String, String), String> {
+        match self {
+            Self::Stdio(c) => c.get_skill(name),
+            Self::Http(c) => c.get_skill(name),
         }
     }
 
@@ -1159,7 +1271,6 @@ impl McpRegistry {
     }
 
     /// Collect skills advertised by connected MCP servers using `server:skill` naming.
-    #[allow(dead_code)]
     pub fn discover_mcp_skills(&mut self) -> Vec<McpSkillEntry> {
         let mut out = Vec::new();
         let mut server_names: Vec<String> = self.clients.keys().cloned().collect();
@@ -1189,6 +1300,35 @@ impl McpRegistry {
             }
         }
         out
+    }
+
+    /// Load a remote MCP skill (`server:skill`) by connecting to `server` if needed and fetching its body.
+    pub fn load_mcp_skill(&mut self, spec: &str) -> Result<(McpSkillEntry, String), String> {
+        let (server, skill) = spec
+            .split_once(':')
+            .ok_or_else(|| format!("Invalid MCP skill `{spec}` (expected `server:skill`)"))?;
+        let server = server.trim();
+        let skill = skill.trim();
+        if server.is_empty() || skill.is_empty() {
+            return Err(format!(
+                "Invalid MCP skill `{spec}` (expected `server:skill`)"
+            ));
+        }
+        self.ensure_server_connected(server)?;
+        let client = self
+            .clients
+            .get_mut(server)
+            .ok_or_else(|| format!("MCP server `{server}` is not connected"))?;
+        let (desc, body) = client.get_skill(skill)?;
+        Ok((
+            McpSkillEntry {
+                server: server.to_owned(),
+                name: skill.to_owned(),
+                exposed_name: format!("{server}:{skill}"),
+                description: desc,
+            },
+            body,
+        ))
     }
 }
 

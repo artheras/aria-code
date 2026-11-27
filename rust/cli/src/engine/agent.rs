@@ -590,6 +590,40 @@ pub fn run_native_agent_with_history_streaming_cancelable(
     max_rounds: usize,
     timeout: Duration,
     should_cancel: impl Fn() -> bool,
+    on_tool_start: impl FnMut(&str, &Value),
+    on_tool: impl FnMut(&str, &Value, &Value),
+    on_delta: impl FnMut(&str),
+) -> Result<String, String> {
+    run_native_agent_with_history_streaming_steerable(
+        base_url,
+        model,
+        workspace,
+        history,
+        prompt,
+        allow_write,
+        max_rounds,
+        timeout,
+        should_cancel,
+        Vec::new,
+        on_tool_start,
+        on_tool,
+        on_delta,
+    )
+}
+
+/// Cancelable and mid-turn steerable (`ctx.steer`-style) native agent loop.
+#[allow(clippy::too_many_arguments)]
+pub fn run_native_agent_with_history_streaming_steerable(
+    base_url: &str,
+    model: &str,
+    workspace: &Path,
+    history: &[(String, String)],
+    prompt: &str,
+    allow_write: bool,
+    max_rounds: usize,
+    timeout: Duration,
+    should_cancel: impl Fn() -> bool,
+    mut drain_steer: impl FnMut() -> Vec<String>,
     mut on_tool_start: impl FnMut(&str, &Value),
     mut on_tool: impl FnMut(&str, &Value, &Value),
     mut on_delta: impl FnMut(&str),
@@ -608,6 +642,13 @@ pub fn run_native_agent_with_history_streaming_cancelable(
         if should_cancel() {
             return Err("cancelled".into());
         }
+        let pre_steered = drain_steer();
+        if !pre_steered.is_empty() {
+            messages.push(json!({
+                "role": "user",
+                "content": format!("[Live user steering update]: {}", pre_steered.join("\n"))
+            }));
+        }
         compact::compact_messages_if_needed(&mut messages, 24_000, 8);
         let (content, calls) = stream_ollama_agent_turn_cancelable(
             &agent,
@@ -618,6 +659,17 @@ pub fn run_native_agent_with_history_streaming_cancelable(
             &should_cancel,
             &mut on_delta,
         )?;
+        let post_steered = drain_steer();
+        if !post_steered.is_empty() && calls.is_empty() {
+            if !content.is_empty() {
+                messages.push(json!({ "role": "assistant", "content": content }));
+            }
+            messages.push(json!({
+                "role": "user",
+                "content": format!("[Live user steering update]: {}", post_steered.join("\n"))
+            }));
+            continue;
+        }
         if calls.is_empty() {
             if let Some(nudge) = guard.verify_nudge(workspace) {
                 if !content.is_empty() {
@@ -650,6 +702,12 @@ pub fn run_native_agent_with_history_streaming_cancelable(
             messages.push(json!({
                 "role": "tool",
                 "content": content_str,
+            }));
+        }
+        if !post_steered.is_empty() {
+            messages.push(json!({
+                "role": "user",
+                "content": format!("[Live user steering update]: {}", post_steered.join("\n"))
             }));
         }
     }

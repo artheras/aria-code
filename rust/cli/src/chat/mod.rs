@@ -146,8 +146,13 @@ pub fn run(
     let mut dirty = true;
     let mut tick = Instant::now();
     let (native_tx, native_rx) = mpsc::channel::<Value>();
+    if native_only {
+        spawn_mcp_skill_discovery(workspace.to_path_buf(), native_tx.clone());
+    }
     let mut native_active = false;
     let native_cancel = Arc::new(AtomicBool::new(false));
+    let native_steer: Arc<std::sync::Mutex<std::collections::VecDeque<String>>> =
+        Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
     let mut native_picker_models: Vec<(String, String)> = Vec::new();
     let mut last_title = String::new();
     loop {
@@ -217,6 +222,7 @@ pub fn run(
                     &request,
                     &native_tx,
                     &native_cancel,
+                    &native_steer,
                     &mut native_picker_models,
                     &mut native_allow_write,
                     timeout,
@@ -386,6 +392,16 @@ pub fn run(
                 } else if kind == "turn.cancel" && native_active {
                     native_cancel.store(true, Ordering::Relaxed);
                     deadline = Some(Instant::now() + Duration::from_secs(2));
+                } else if kind == "turn.steer" {
+                    if native_active {
+                        if let Some(msg) = request["text"].as_str() {
+                            if let Ok(mut q) = native_steer.lock() {
+                                q.push_back(msg.to_owned());
+                            }
+                        }
+                    } else if let Some(ref mut sess) = session {
+                        sess.send(request)?;
+                    }
                 } else if kind == "completion.request" && session.is_none() {
                     let draft = request["text"].as_str().unwrap_or("");
                     let candidates = native_file_completions(&app.workspace, draft);
@@ -441,6 +457,7 @@ pub fn run(
                         &request,
                         &native_tx,
                         &native_cancel,
+                        &native_steer,
                         &mut native_picker_models,
                         &mut native_allow_write,
                         timeout,
@@ -486,6 +503,7 @@ fn native_commands_json() -> Value {
         {"name": "/help", "description": "Show help"},
         {"name": "/model", "description": "Choose or list models"},
         {"name": "/resume", "description": "Resume a saved session (/resume [id])"},
+        {"name": "/steer", "description": "Steer an active turn live (/steer <instruction>)"},
         {"name": "/health", "description": "Check configured services"},
         {"name": "/sessions", "description": "List saved sessions"},
         {"name": "/review", "description": "Review uncommitted git changes"},
@@ -497,7 +515,8 @@ fn native_commands_json() -> Value {
         {"name": "/rewind", "description": "Rewind the last file edit"},
         {"name": "/worktree", "description": "Manage isolated git worktrees (list|create|remove)"},
         {"name": "/mcp", "description": "List, connect, or probe ecosystem MCP servers (/mcp [connect [--uvx]|probe])"},
-        {"name": "/skills", "description": "List discovered project and user skills"},
+        {"name": "/skills", "description": "List discovered project, builtin, and MCP server:skill skills"},
+        {"name": "/skill", "description": "Run a local, builtin, or MCP server:skill workflow (/skill <name> [prompt])"},
         {"name": "/init", "description": "Generate ARIA.md for the current project (/init [--force])"},
         {"name": "/doctor", "description": "Run native runtime, provider, MCP, hook, and sandbox diagnostics"},
         {"name": "/config", "description": "Show native runtime configuration (provider, model, sandbox, MCP)"},
@@ -505,6 +524,38 @@ fn native_commands_json() -> Value {
         {"name": "/write-mode", "description": "Toggle workspace write permission (on|off)"},
         {"name": "/new", "description": "Start a new session"}
     ])
+}
+
+fn spawn_mcp_skill_discovery(workspace: std::path::PathBuf, tx: mpsc::Sender<Value>) {
+    if crate::engine::mcp::load_mcp_server_configs(&workspace).is_empty() {
+        return;
+    }
+    thread::spawn(move || {
+        let mut reg = crate::engine::mcp::McpRegistry::load_from_workspace(&workspace);
+        let entries = reg.discover_mcp_skills();
+        if entries.is_empty() {
+            return;
+        }
+        let cmds: Vec<Value> = entries
+            .into_iter()
+            .map(|e| {
+                let desc = if e.description.is_empty() {
+                    format!("[MCP:{}] server skill", e.server)
+                } else {
+                    format!("[MCP] {}", e.description)
+                };
+                json!({
+                    "name": format!("/{}", e.exposed_name),
+                    "description": desc,
+                })
+            })
+            .collect();
+        let _ = tx.send(json!({
+            "protocol": 1,
+            "type": "commands.updated",
+            "commands": cmds,
+        }));
+    });
 }
 
 fn format_mcp_probe_report(
@@ -629,6 +680,7 @@ enum NativeRoute {
     Worktree(String, Option<String>),
     Mcp(String),
     Skills,
+    InvokeSkill { skill: String, args: String },
     Init(bool),
     Doctor(String),
     Config,
@@ -703,6 +755,27 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
     }
     if text == "/skills" {
         return Some(NativeRoute::Skills);
+    }
+    if text == "/skill" || text.starts_with("/skill ") {
+        let rest = text.strip_prefix("/skill").unwrap_or("").trim();
+        if rest.is_empty() {
+            return Some(NativeRoute::Skills);
+        }
+        let mut parts = rest.splitn(2, char::is_whitespace);
+        let skill = parts.next().unwrap_or("").trim().to_owned();
+        let args = parts.next().unwrap_or("").trim().to_owned();
+        return Some(NativeRoute::InvokeSkill { skill, args });
+    }
+    if let Some(first_tok) = text.split_whitespace().next() {
+        if let Some(spec) = first_tok.strip_prefix('/') {
+            if spec.contains(':') && !spec.contains('/') {
+                let args = text[first_tok.len()..].trim().to_owned();
+                return Some(NativeRoute::InvokeSkill {
+                    skill: spec.to_owned(),
+                    args,
+                });
+            }
+        }
     }
     if text == "/init" || text.starts_with("/init ") {
         let force = text
@@ -1099,11 +1172,13 @@ fn collect_agent_history(app: &App, current_prompt: &str) -> Vec<(String, String
     history
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_dispatch_native_turn(
     app: &mut App,
     request: &Value,
     tx: &mpsc::Sender<Value>,
     cancel: &Arc<AtomicBool>,
+    steer: &Arc<std::sync::Mutex<std::collections::VecDeque<String>>>,
     picker_models: &mut Vec<(String, String)>,
     allow_write_state: &mut bool,
     timeout: Duration,
@@ -1112,6 +1187,9 @@ fn try_dispatch_native_turn(
         return false;
     };
     cancel.store(false, Ordering::Relaxed);
+    if let Ok(mut q) = steer.lock() {
+        q.clear();
+    }
     if let NativeRoute::Resume(target) = route {
         let msg = match restore_saved_session(app, target.as_deref()) {
             Ok((id, count)) => {
@@ -1239,6 +1317,7 @@ fn try_dispatch_native_turn(
     cancel.store(false, Ordering::Relaxed);
     let tx = tx.clone();
     let cancel = Arc::clone(cancel);
+    let steer = Arc::clone(steer);
     let url = ollama_base_url();
     let model = app.model.clone();
     let workspace = app.workspace.clone();
@@ -1722,11 +1801,39 @@ fn try_dispatch_native_turn(
             }
             NativeRoute::Skills => {
                 let ws_path = std::path::PathBuf::from(&workspace);
-                let skills = crate::engine::skills::discover_skills(&ws_path);
-                let text = if skills.is_empty() {
+                let mut skills = crate::engine::skills::discover_skills(&ws_path);
+                for (b, _) in crate::engine::skills::builtin_ecosystem_skills() {
+                    if !skills.iter().any(|s| s.name.eq_ignore_ascii_case(&b.name)) {
+                        skills.push(b);
+                    }
+                }
+                let mut mcp_reg = crate::engine::mcp::McpRegistry::load_from_workspace(&ws_path);
+                let mcp_skills = mcp_reg.discover_mcp_skills();
+                if !mcp_skills.is_empty() {
+                    let cmds: Vec<Value> = mcp_skills
+                        .iter()
+                        .map(|e| {
+                            json!({
+                                "name": format!("/{}", e.exposed_name),
+                                "description": if e.description.is_empty() {
+                                    format!("[MCP:{}] server skill", e.server)
+                                } else {
+                                    format!("[MCP] {}", e.description)
+                                }
+                            })
+                        })
+                        .collect();
+                    let _ = tx.send(json!({
+                        "protocol": 1,
+                        "type": "commands.updated",
+                        "commands": cmds
+                    }));
+                }
+                let total = skills.len() + mcp_skills.len();
+                let text = if total == 0 {
                     "No skills found in `.aria/skills/` or `~/.aria/skills/`.".to_owned()
                 } else {
-                    let mut lines = vec![format!("Discovered {} skill(s):", skills.len())];
+                    let mut lines = vec![format!("Discovered {total} skill(s):")];
                     for s in skills {
                         let desc = if s.description.is_empty() {
                             String::new()
@@ -1735,10 +1842,145 @@ fn try_dispatch_native_turn(
                         };
                         lines.push(format!("- `{}` [{}]{}", s.name, s.scope, desc));
                     }
+                    for ms in mcp_skills {
+                        let desc = if ms.description.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" — {}", ms.description)
+                        };
+                        lines.push(format!("- `/{}` [mcp]{}", ms.exposed_name, desc));
+                    }
                     lines.join("\n")
                 };
                 let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": text}));
                 let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+            }
+            NativeRoute::InvokeSkill { skill, args } => {
+                let ws_path = std::path::PathBuf::from(&workspace);
+                match crate::engine::skills::load_skill_content(&ws_path, &skill) {
+                    Err(err) => {
+                        let _ = tx.send(json!({
+                            "protocol": 1,
+                            "type": "answer.delta",
+                            "text": format!("[skill error: {err}]")
+                        }));
+                        let _ = tx.send(json!({
+                            "protocol": 1,
+                            "type": "turn.completed",
+                            "status": "failed"
+                        }));
+                    }
+                    Ok((info, body)) => {
+                        let user_goal = if args.is_empty() {
+                            format!("Apply the `{}` skill workflow.", info.name)
+                        } else {
+                            args
+                        };
+                        let combined_prompt = format!(
+                            "[Active Skill `{}` ({})]\n{}\n\n---\nUser request: {}",
+                            info.name, info.scope, body, user_goal
+                        );
+                        if provider.eq_ignore_ascii_case("ollama") && !model.is_empty() {
+                            let _ = tx.send(json!({
+                                "protocol": 1,
+                                "type": "turn.phase",
+                                "phase": "plan",
+                                "label": format!("Running skill `{}` with {model}…", info.name)
+                            }));
+                            let mut streamed = String::new();
+                            let res =
+                                crate::engine::agent::run_native_agent_with_history_streaming_steerable(
+                                    &url,
+                                    &model,
+                                    &ws_path,
+                                    &history,
+                                    &combined_prompt,
+                                    allow_write,
+                                    6,
+                                    timeout,
+                                    || cancel.load(Ordering::Relaxed),
+                                    || {
+                                        steer
+                                            .lock()
+                                            .map(|mut q| q.drain(..).collect())
+                                            .unwrap_or_default()
+                                    },
+                                    |tool, targs| {
+                                        let _ = tx.send(json!({
+                                            "protocol": 1,
+                                            "type": "tool.started",
+                                            "tool": tool,
+                                            "params": targs
+                                        }));
+                                    },
+                                    |tool, _targs, result| {
+                                        let _ = tx.send(json!({
+                                            "protocol": 1,
+                                            "type": "tool.completed",
+                                            "tool": tool,
+                                            "success": result["ok"].as_bool().unwrap_or(false),
+                                            "output": result.to_string()
+                                        }));
+                                    },
+                                    |delta| {
+                                        streamed.push_str(delta);
+                                        let _ = tx.send(json!({
+                                            "protocol": 1,
+                                            "type": "answer.delta",
+                                            "text": delta
+                                        }));
+                                    },
+                                );
+                            let status = match res {
+                                Ok(answer) => {
+                                    if streamed.is_empty() {
+                                        let _ = tx.send(json!({
+                                            "protocol": 1,
+                                            "type": "answer.delta",
+                                            "text": answer
+                                        }));
+                                    } else if let Some(tail) = answer.strip_prefix(&streamed) {
+                                        if !tail.is_empty() {
+                                            let _ = tx.send(json!({
+                                                "protocol": 1,
+                                                "type": "answer.delta",
+                                                "text": tail
+                                            }));
+                                        }
+                                    }
+                                    persist_native_turn(
+                                        &workspace,
+                                        &model,
+                                        &combined_prompt,
+                                        &answer,
+                                    );
+                                    "ok"
+                                }
+                                Err(e) if e == "cancelled" => "cancelled",
+                                Err(e) => {
+                                    let _ = tx.send(json!({
+                                        "protocol": 1,
+                                        "type": "answer.delta",
+                                        "text": format!("[{e}]")
+                                    }));
+                                    "failed"
+                                }
+                            };
+                            let _ = tx.send(
+                                json!({"protocol": 1, "type": "turn.completed", "status": status}),
+                            );
+                        } else {
+                            let _ = tx.send(json!({
+                                "protocol": 1,
+                                "type": "answer.delta",
+                                "text": format!("Loaded skill `{}` [{}]:\n\n{}", info.name, info.scope, body)
+                            }));
+                            let _ = tx.send(
+                                json!({"protocol": 1, "type": "turn.completed", "status": "ok"}),
+                            );
+                        }
+                    }
+                }
             }
             NativeRoute::Init(force) => {
                 let ws_path = std::path::PathBuf::from(&workspace);
@@ -2230,7 +2472,7 @@ fn try_dispatch_native_turn(
                 }));
                 let ws_path = std::path::PathBuf::from(&workspace);
                 let mut streamed = String::new();
-                let res = crate::engine::agent::run_native_agent_with_history_streaming_cancelable(
+                let res = crate::engine::agent::run_native_agent_with_history_streaming_steerable(
                     &url,
                     &model,
                     &ws_path,
@@ -2240,6 +2482,12 @@ fn try_dispatch_native_turn(
                     6,
                     timeout,
                     || cancel.load(Ordering::Relaxed),
+                    || {
+                        steer
+                            .lock()
+                            .map(|mut q| q.drain(..).collect())
+                            .unwrap_or_default()
+                    },
                     |tool, args| {
                         let _ = tx.send(json!({
                             "protocol": 1,
@@ -3423,6 +3671,58 @@ mod tests {
             ),
             Some(NativeRoute::Resume(Some("sess-1".into())))
         );
+        assert_eq!(
+            classify_native_route(
+                &app,
+                &json!({"type": "turn.submit", "text": "/arthera-finance:ic-memo-due-diligence Analyze AAPL"})
+            ),
+            Some(NativeRoute::InvokeSkill {
+                skill: "arthera-finance:ic-memo-due-diligence".into(),
+                args: "Analyze AAPL".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn mcp_http_skills_and_mid_turn_steer_work() {
+        let mut app = App {
+            ready: true,
+            ..App::default()
+        };
+        app.event(json!({
+            "protocol": 1,
+            "type": "session.ready",
+            "session_id": "native",
+            "model": "qwen2.5:7b",
+            "provider": "ollama",
+            "workspace": "/tmp",
+            "commands": native_commands_json()
+        }))
+        .unwrap();
+        assert!(app.commands.iter().any(|c| c == "/steer"));
+        assert!(app.command_info.contains_key("/steer"));
+
+        app.event(json!({
+            "protocol": 1,
+            "type": "commands.updated",
+            "commands": [
+                {"name": "/aria-healthcare:biomedical-evidence-research", "description": "[MCP] Biomedical SOP"}
+            ]
+        }))
+        .unwrap();
+        assert!(app
+            .commands
+            .iter()
+            .any(|c| c == "/aria-healthcare:biomedical-evidence-research"));
+
+        // Start a turn, then send `/steer ...` mid-turn: emits `turn.steer` immediately rather than queuing.
+        app.editor.insert("initial task");
+        assert!(app.submit().is_some());
+        app.editor.insert("/steer focus on unit tests first");
+        let steer_req = app.submit().expect("steer emits live turn.steer");
+        assert_eq!(steer_req["type"], "turn.steer");
+        assert_eq!(steer_req["text"], "focus on unit tests first");
+        assert!(app.queued.is_empty());
     }
 
     #[test]

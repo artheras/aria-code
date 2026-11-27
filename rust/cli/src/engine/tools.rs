@@ -1715,7 +1715,7 @@ fn execute_read_skill(workspace: &Path, args: &Value) -> Result<Value, String> {
                 all.push(builtin);
             }
         }
-        let list: Vec<Value> = all
+        let mut list: Vec<Value> = all
             .into_iter()
             .map(|s| {
                 json!({
@@ -1726,6 +1726,15 @@ fn execute_read_skill(workspace: &Path, args: &Value) -> Result<Value, String> {
                 })
             })
             .collect();
+        let mut mcp_reg = super::mcp::McpRegistry::load_from_workspace(workspace);
+        for ms in mcp_reg.discover_mcp_skills() {
+            list.push(json!({
+                "name": ms.exposed_name,
+                "description": ms.description,
+                "scope": "mcp",
+                "path": format!("mcp://{}/{}", ms.server, ms.name),
+            }));
+        }
         return Ok(json!({ "skills": list }));
     }
     let (info, content) = super::skills::load_skill_content(workspace, name)?;

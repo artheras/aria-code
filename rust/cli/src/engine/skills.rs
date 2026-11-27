@@ -78,7 +78,6 @@ pub fn extract_skill_shell_commands(body: &str) -> Vec<String> {
 }
 
 /// Validate all embedded shell commands in a skill against `PreSkillShellCommand` hooks.
-#[allow(dead_code)]
 pub fn validate_skill_shell_hooks(
     workspace: &Path,
     skill_name: &str,
@@ -201,11 +200,27 @@ pub fn builtin_ecosystem_skills() -> Vec<(SkillInfo, &'static str)> {
     ]
 }
 
-/// Load a discovered or built-in skill's full `SKILL.md` content by exact name (case-insensitive fallback).
+/// Load a discovered, built-in, or MCP (`server:skill`) skill's full `SKILL.md` content
+/// and enforce `PreSkillShellCommand` hooks on any embedded shell blocks.
 pub fn load_skill_content(workspace: &Path, name: &str) -> Result<(SkillInfo, String), String> {
     let target = name.trim();
     if target.is_empty() {
         return Err("Skill name is required".into());
+    }
+    if target.contains(':') {
+        let mut reg = crate::engine::mcp::McpRegistry::load_from_workspace(workspace);
+        let (entry, raw) = reg.load_mcp_skill(target)?;
+        let clipped: String = raw.chars().take(16_000).collect();
+        validate_skill_shell_hooks(workspace, &entry.exposed_name, &clipped)?;
+        return Ok((
+            SkillInfo {
+                name: entry.exposed_name.clone(),
+                description: entry.description,
+                path: PathBuf::from(format!("mcp://{}/{}", entry.server, entry.name)),
+                scope: "mcp",
+            },
+            clipped,
+        ));
     }
     let skills = discover_skills(workspace);
     if let Some(found) = skills
@@ -217,10 +232,12 @@ pub fn load_skill_content(workspace: &Path, name: &str) -> Result<(SkillInfo, St
         let raw = fs::read_to_string(&found.path)
             .map_err(|e| format!("Failed to read `{}`: {e}", found.path.display()))?;
         let clipped: String = raw.chars().take(16_000).collect();
+        validate_skill_shell_hooks(workspace, &found.name, &clipped)?;
         return Ok((found, clipped));
     }
     for (info, body) in builtin_ecosystem_skills() {
         if info.name.eq_ignore_ascii_case(target) {
+            validate_skill_shell_hooks(workspace, &info.name, body)?;
             return Ok((info, body.to_owned()));
         }
     }

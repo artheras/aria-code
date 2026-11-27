@@ -484,6 +484,33 @@ impl App {
                     self.popup_index = 0;
                 }
             }
+            "commands.updated" => {
+                if let Some(items) = v["commands"].as_array() {
+                    for item in items.iter().take(500) {
+                        let Some(name) = item
+                            .as_str()
+                            .map(safe)
+                            .or_else(|| item["name"].as_str().map(safe))
+                        else {
+                            continue;
+                        };
+                        if !self.commands.iter().any(|c| c == &name) {
+                            self.commands.push(name.clone());
+                        }
+                        if let Some(desc) = item["description"].as_str() {
+                            let detail: String = safe(desc)
+                                .chars()
+                                .filter(|c| !c.is_control())
+                                .take(160)
+                                .collect();
+                            if !self.command_order.iter().any(|c| c == &name) {
+                                self.command_order.push(name.clone());
+                            }
+                            self.command_info.insert(name, detail);
+                        }
+                    }
+                }
+            }
             "update.available" => {
                 self.update_notice = safe(text("text"))
                     .chars()
@@ -518,12 +545,15 @@ impl App {
                 }
                 self.robot_design = robot["design"] == "cream-block-v2";
                 self.robot = super::robot::Robot::from_event(&robot);
-                self.commands = v["commands"]
-                    .as_array()
-                    .ok_or("Missing command list")?
+                let raw_commands = v["commands"].as_array().ok_or("Missing command list")?;
+                self.commands = raw_commands
                     .iter()
                     .take(1000)
-                    .filter_map(|s| s.as_str().map(safe))
+                    .filter_map(|s| {
+                        s.as_str()
+                            .map(safe)
+                            .or_else(|| s["name"].as_str().map(safe))
+                    })
                     .collect();
                 for command in ["/new", "/resume", "/help-native", "/copy"] {
                     if !self.commands.iter().any(|c| c == command) {
@@ -532,19 +562,18 @@ impl App {
                 }
                 self.command_info.clear();
                 self.command_order.clear();
-                if let Some(items) = v["commands_info"].as_array() {
-                    for item in items.iter().take(1000) {
-                        let Some(name) = item["name"].as_str().map(safe) else {
-                            continue;
-                        };
-                        let detail: String = safe(item["description"].as_str().unwrap_or(""))
-                            .chars()
-                            .filter(|c| !c.is_control())
-                            .take(160)
-                            .collect();
-                        self.command_order.push(name.clone());
-                        self.command_info.insert(name, detail);
-                    }
+                let info_source = v["commands_info"].as_array().unwrap_or(raw_commands);
+                for item in info_source.iter().take(1000) {
+                    let Some(name) = item["name"].as_str().map(safe) else {
+                        continue;
+                    };
+                    let detail: String = safe(item["description"].as_str().unwrap_or(""))
+                        .chars()
+                        .filter(|c| !c.is_control())
+                        .take(160)
+                        .collect();
+                    self.command_order.push(name.clone());
+                    self.command_info.insert(name, detail);
                 }
                 let history_reset = v["history_reset"].as_bool().unwrap_or(false);
                 if kind == "session.ready" || changed_session || history_reset {
@@ -929,6 +958,22 @@ impl App {
         // Code both queue it and send it when the turn completes.
         if self.ready && self.turn.is_some() {
             let text = self.editor.take();
+            if let Some(steer_msg) = text
+                .trim()
+                .strip_prefix("/steer")
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                let steer_msg = steer_msg.to_owned();
+                self.add("user", &format!("[steer] {steer_msg}"), false);
+                self.scroll = 0;
+                return Some(json!({
+                    "type": "turn.steer",
+                    "protocol": 1,
+                    "turn_id": self.turn,
+                    "text": steer_msg
+                }));
+            }
             self.queued.push_back(text);
             self.scroll = 0;
             return None;
