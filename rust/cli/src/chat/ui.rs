@@ -1133,7 +1133,6 @@ fn welcome_lines(app: &App, p: Palette) -> Vec<Line<'static>> {
             ),
             Span::styled("@file", Style::new().fg(p.assistant)),
         ]),
-        Line::default(),
         Line::from(vec![
             Span::styled(app.tr("Press ", "按 "), Style::new().fg(p.muted)),
             Span::styled("Ctrl+O", Style::new().fg(p.assistant)),
@@ -1996,10 +1995,10 @@ mod tests {
             };
             terminal.draw(|f| draw(f, &app)).unwrap();
             let buffer = terminal.backend().buffer();
-            // Thirteen columns, four rows. The name starts two columns past the mascot.
-            assert_eq!(buffer[(4, 1)].symbol(), "▀");
-            assert_eq!(buffer[(8, 1)].symbol(), "▀");
-            assert_eq!(buffer[(15, 0)].symbol(), "A");
+            // Eleven columns, four rows. The name starts two columns past the mascot.
+            assert_eq!(buffer[(3, 1)].symbol(), "▀");
+            assert_eq!(buffer[(7, 1)].symbol(), "▀");
+            assert_eq!(buffer[(13, 0)].symbol(), "A");
             assert!(display(&terminal).contains("Aria Code"));
         }
     }

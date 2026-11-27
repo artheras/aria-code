@@ -141,9 +141,9 @@ impl Robot {
         Self(rows)
     }
 
-    /// Four rows by thirteen columns: solid theme-teal body with stepped cap,
-    /// side ears, asymmetric wink eyes (black on light, white on dark), and
-    /// four short stubby feet.
+    /// Four rows by eleven columns: solid theme-teal body with stepped cap,
+    /// 1px side ears, vertical bean eyes (black on light, white on dark), and
+    /// two steady feet.
     fn compact_cream(theme: &str) -> Self {
         let body = if theme == "light" {
             Color::Rgb(15, 112, 139)
@@ -155,16 +155,16 @@ impl Robot {
         } else {
             Color::Rgb(255, 255, 255)
         };
-        // 0 empty, 1 teal body, 2 eye.
-        let pixels: [[u8; 13]; 8] = [
-            [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0],
-            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 2, 1, 1, 1, 2, 2, 1, 1, 1],
-            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        // 0 empty, 1 teal body, 2 bean eye.
+        let pixels: [[u8; 11]; 8] = [
+            [0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1],
+            [0, 1, 1, 2, 1, 1, 1, 2, 1, 1, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         ];
         let paint = |code: u8| match code {
             1 => Some(body),
@@ -225,11 +225,11 @@ mod tests {
             );
             let mark = Robot::cream(theme, true);
             assert_eq!(mark.0.len(), 4);
-            assert!(mark.0.iter().all(|row| row.width() == 13));
+            assert!(mark.0.iter().all(|row| row.width() == 11));
         }
     }
     #[test]
-    fn compact_robot_has_solid_teal_body_theme_eyes_and_four_feet() {
+    fn compact_robot_has_solid_teal_body_bean_eyes_and_two_feet() {
         for theme in ["light", "dark"] {
             let (body, eye) = if theme == "light" {
                 (Color::Rgb(15, 112, 139), Color::Rgb(17, 19, 23))
@@ -240,15 +240,13 @@ mod tests {
                 "design": "cream-block-v2", "theme": theme
             }));
             assert_eq!(robot.0.len(), 4);
-            assert!(robot.0.iter().all(|row| row.width() == 13));
+            assert!(robot.0.iter().all(|row| row.width() == 11));
             let face = &robot.0[1].spans;
             assert_eq!(face[0].style.fg, Some(body));
-            assert_eq!(face[4].style.fg, Some(body));
-            assert_eq!(face[4].style.bg, Some(eye));
-            assert_eq!(face[8].style.fg, Some(body));
-            assert_eq!(face[8].style.bg, Some(eye));
-            assert_eq!(face[9].style.fg, Some(body));
-            assert_eq!(face[9].style.bg, Some(eye));
+            assert_eq!(face[3].style.fg, Some(eye));
+            assert_eq!(face[3].style.bg, Some(eye));
+            assert_eq!(face[7].style.fg, Some(eye));
+            assert_eq!(face[7].style.bg, Some(eye));
             let feet = robot.0[3]
                 .spans
                 .iter()
