@@ -8,6 +8,16 @@ use serde_json::Value;
 
 #[derive(Debug, Default)]
 pub struct Robot(pub Vec<Line<'static>>);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MascotPose {
+    Idle,
+    Blink,
+    LookLeft,
+    LookRight,
+    Happy,
+    Alert,
+}
 fn color(hex: &str) -> Option<Color> {
     let rgb = hex.strip_prefix('#')?;
     if rgb.len() != 6 || !rgb.is_ascii() {
@@ -145,27 +155,62 @@ impl Robot {
     /// 1px side ears, vertical bean eyes (black on light, white on dark), and
     /// two steady feet.
     fn compact_cream(theme: &str) -> Self {
+        Self::compact_pose(theme, MascotPose::Idle)
+    }
+
+    /// Render a pose of the compact 4x11 mascot for idle blinking, thinking
+    /// eye-scanning, approval alert, or turn-completed happy feedback.
+    pub fn compact_pose(theme: &str, pose: MascotPose) -> Self {
         let body = if theme == "light" {
             Color::Rgb(15, 112, 139)
         } else {
             Color::Rgb(91, 192, 216)
         };
-        let eye = if theme == "light" {
-            Color::Rgb(17, 19, 23)
-        } else {
-            Color::Rgb(255, 255, 255)
+        let eye = match (pose, theme == "light") {
+            (MascotPose::Alert, true) => Color::Rgb(245, 158, 11),
+            (MascotPose::Alert, false) => Color::Rgb(249, 180, 103),
+            (_, true) => Color::Rgb(17, 19, 23),
+            (_, false) => Color::Rgb(255, 255, 255),
         };
         // 0 empty, 1 teal body, 2 bean eye.
-        let pixels: [[u8; 11]; 8] = [
+        let mut pixels: [[u8; 11]; 8] = [
             [0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0],
             [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-            [1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1],
-            [0, 1, 1, 2, 1, 1, 1, 2, 1, 1, 0],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
             [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
             [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
             [0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0],
             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         ];
+        match pose {
+            MascotPose::Idle | MascotPose::Alert => {
+                for row in [2, 3] {
+                    pixels[row][3] = 2;
+                    pixels[row][7] = 2;
+                }
+            }
+            MascotPose::Blink => {
+                pixels[3][3] = 2;
+                pixels[3][7] = 2;
+            }
+            MascotPose::Happy => {
+                pixels[2][3] = 2;
+                pixels[2][7] = 2;
+            }
+            MascotPose::LookLeft => {
+                for row in [2, 3] {
+                    pixels[row][2] = 2;
+                    pixels[row][6] = 2;
+                }
+            }
+            MascotPose::LookRight => {
+                for row in [2, 3] {
+                    pixels[row][4] = 2;
+                    pixels[row][8] = 2;
+                }
+            }
+        }
         let paint = |code: u8| match code {
             1 => Some(body),
             2 => Some(eye),

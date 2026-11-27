@@ -268,8 +268,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
     };
     let mut header_area = parts[0];
     if show_robot {
+        let lines = if app.robot_design {
+            super::robot::Robot::compact_pose(&app.theme, app.mascot_pose()).0
+        } else {
+            robot.0.clone()
+        };
         frame.render_widget(
-            Paragraph::new(robot.0.clone()),
+            Paragraph::new(lines),
             Rect::new(
                 header_area.x,
                 header_area.y,

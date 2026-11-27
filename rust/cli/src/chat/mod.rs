@@ -176,9 +176,14 @@ pub fn run(
         }
         for _ in 0..128 {
             match native_rx.try_recv() {
-                Ok(value) => {
+                Ok(mut value) => {
                     dirty = true;
                     let kind = value["type"].as_str().unwrap_or("").to_owned();
+                    if value["turn_id"].is_null() {
+                        if let Some(turn_id) = app.turn.as_deref() {
+                            value["turn_id"] = Value::String(turn_id.to_owned());
+                        }
+                    }
                     app.event(value)?;
                     if kind == "turn.completed" {
                         native_active = false;
@@ -215,8 +220,11 @@ pub fn run(
                 }
             }
         }
-        if app.turn.is_some() && tick.elapsed() >= Duration::from_secs(1) {
-            dirty = true;
+        if tick.elapsed() >= Duration::from_millis(250) {
+            app.anim_tick = app.anim_tick.wrapping_add(1);
+            if app.turn.is_some() || app.robot_design {
+                dirty = true;
+            }
             tick = Instant::now();
         }
         if dirty {
