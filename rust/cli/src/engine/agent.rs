@@ -456,14 +456,30 @@ pub fn run_native_agent(
 }
 
 /// Stream a single Ollama `/api/chat` agent turn, forwarding text deltas live as NDJSON chunks arrive.
+#[cfg(test)]
 fn stream_ollama_agent_turn(
     agent: &ureq::Agent,
     url: &str,
     model: &str,
     messages: &[Value],
     schemas: &Value,
+    on_delta: impl FnMut(&str),
+) -> Result<(String, Vec<ToolCall>), String> {
+    stream_ollama_agent_turn_cancelable(agent, url, model, messages, schemas, || false, on_delta)
+}
+
+fn stream_ollama_agent_turn_cancelable(
+    agent: &ureq::Agent,
+    url: &str,
+    model: &str,
+    messages: &[Value],
+    schemas: &Value,
+    should_cancel: impl Fn() -> bool,
     mut on_delta: impl FnMut(&str),
 ) -> Result<(String, Vec<ToolCall>), String> {
+    if should_cancel() {
+        return Err("cancelled".into());
+    }
     let payload = json!({
         "model": model,
         "stream": true,
@@ -480,6 +496,9 @@ fn stream_ollama_agent_turn(
     let mut calls = Vec::new();
     let mut saw_chunk = false;
     for line in reader.lines() {
+        if should_cancel() {
+            return Err("cancelled".into());
+        }
         let line = line.map_err(|e| format!("Read stream failed: {e}"))?;
         if let Some((delta, chunk_calls, done)) = parse_ollama_stream_line(&line) {
             saw_chunk = true;
@@ -539,6 +558,38 @@ pub fn run_native_agent_with_history_streaming(
     allow_write: bool,
     max_rounds: usize,
     timeout: Duration,
+    on_tool_start: impl FnMut(&str, &Value),
+    on_tool: impl FnMut(&str, &Value, &Value),
+    on_delta: impl FnMut(&str),
+) -> Result<String, String> {
+    run_native_agent_with_history_streaming_cancelable(
+        base_url,
+        model,
+        workspace,
+        history,
+        prompt,
+        allow_write,
+        max_rounds,
+        timeout,
+        || false,
+        on_tool_start,
+        on_tool,
+        on_delta,
+    )
+}
+
+/// Cancelable variant of [`run_native_agent_with_history_streaming`].
+#[allow(clippy::too_many_arguments)]
+pub fn run_native_agent_with_history_streaming_cancelable(
+    base_url: &str,
+    model: &str,
+    workspace: &Path,
+    history: &[(String, String)],
+    prompt: &str,
+    allow_write: bool,
+    max_rounds: usize,
+    timeout: Duration,
+    should_cancel: impl Fn() -> bool,
     mut on_tool_start: impl FnMut(&str, &Value),
     mut on_tool: impl FnMut(&str, &Value, &Value),
     mut on_delta: impl FnMut(&str),
@@ -554,9 +605,19 @@ pub fn run_native_agent_with_history_streaming(
         .new_agent();
 
     for _ in 0..max_rounds.clamp(1, 16) {
+        if should_cancel() {
+            return Err("cancelled".into());
+        }
         compact::compact_messages_if_needed(&mut messages, 24_000, 8);
-        let (content, calls) =
-            stream_ollama_agent_turn(&agent, &url, model, &messages, &schemas, &mut on_delta)?;
+        let (content, calls) = stream_ollama_agent_turn_cancelable(
+            &agent,
+            &url,
+            model,
+            &messages,
+            &schemas,
+            &should_cancel,
+            &mut on_delta,
+        )?;
         if calls.is_empty() {
             if let Some(nudge) = guard.verify_nudge(workspace) {
                 if !content.is_empty() {
@@ -576,6 +637,9 @@ pub fn run_native_agent_with_history_streaming(
             })).collect::<Vec<_>>()
         }));
         for call in calls {
+            if should_cancel() {
+                return Err("cancelled".into());
+            }
             let content_str = guard.execute_with_start(
                 workspace,
                 &call,

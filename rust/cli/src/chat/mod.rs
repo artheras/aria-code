@@ -101,6 +101,8 @@ pub fn run(
         ..App::default()
     };
     if native_only {
+        let (add_dirs, read_dirs, startup_resume) = parse_native_cli_extras(args);
+        crate::engine::tools::set_extra_dirs(add_dirs, read_dirs);
         let ws = workspace
             .canonicalize()
             .unwrap_or_else(|_| workspace.to_path_buf())
@@ -123,8 +125,12 @@ pub fn run(
             "permission": "workspace-write",
             "ui_theme": "auto",
             "robot": { "design": "cream-block-v2" },
+            "reference_completion": true,
             "commands": native_commands_json()
         }))?;
+        if let Some(resume_target) = startup_resume {
+            let _ = restore_saved_session(&mut app, resume_target.as_deref());
+        }
         app.status = "Native ready".into();
     }
     let mut native_allow_write = std::env::var("ARIA_ALLOW_WRITE")
@@ -380,6 +386,16 @@ pub fn run(
                 } else if kind == "turn.cancel" && native_active {
                     native_cancel.store(true, Ordering::Relaxed);
                     deadline = Some(Instant::now() + Duration::from_secs(2));
+                } else if kind == "completion.request" && session.is_none() {
+                    let draft = request["text"].as_str().unwrap_or("");
+                    let candidates = native_file_completions(&app.workspace, draft);
+                    let _ = native_tx.send(json!({
+                        "protocol": 1,
+                        "type": "completion.result",
+                        "session_id": app.session,
+                        "text": draft,
+                        "candidates": candidates
+                    }));
                 } else {
                     deadline = Some(
                         Instant::now()
@@ -391,14 +407,24 @@ pub fn run(
                     );
                     if kind == "session.new" && session.is_none() {
                         app.entries.clear();
+                        app.scroll = 0;
                         app.turn = None;
                         let _ = native_tx.send(json!({
                             "protocol": 1,
                             "type": "session.ready",
                             "session_id": "native",
+                            "version": env!("ARIA_PRODUCT_VERSION"),
                             "model": app.model,
                             "provider": app.provider,
                             "workspace": app.workspace,
+                            "permission": if native_allow_write {
+                                "full-access"
+                            } else {
+                                "workspace-write"
+                            },
+                            "ui_theme": app.theme,
+                            "robot": { "design": "cream-block-v2" },
+                            "reference_completion": true,
                             "commands": native_commands_json()
                         }));
                         deadline = None;
@@ -459,6 +485,7 @@ fn native_commands_json() -> Value {
     json!([
         {"name": "/help", "description": "Show help"},
         {"name": "/model", "description": "Choose or list models"},
+        {"name": "/resume", "description": "Resume a saved session (/resume [id])"},
         {"name": "/health", "description": "Check configured services"},
         {"name": "/sessions", "description": "List saved sessions"},
         {"name": "/review", "description": "Review uncommitted git changes"},
@@ -592,6 +619,7 @@ enum NativeRoute {
     Health,
     ModelList(Option<String>),
     Sessions(Option<String>),
+    Resume(Option<String>),
     Review(Option<String>),
     Diff(Option<String>),
     Log(usize),
@@ -841,6 +869,12 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
         };
         return Some(NativeRoute::WriteMode(mode));
     }
+    if text == "/resume" || text.starts_with("/resume ") {
+        let target = text.strip_prefix("/resume").unwrap_or("").trim();
+        return Some(NativeRoute::Resume(
+            (!target.is_empty()).then(|| target.to_owned()),
+        ));
+    }
     if text == "/sessions" || text.starts_with("/sessions ") {
         let query = text.strip_prefix("/sessions").unwrap_or("").trim();
         return Some(NativeRoute::Sessions(
@@ -910,6 +944,133 @@ fn sessions_root() -> Option<std::path::PathBuf> {
     )
 }
 
+type NativeCliExtras = (
+    Vec<std::path::PathBuf>,
+    Vec<std::path::PathBuf>,
+    Option<Option<String>>,
+);
+
+fn parse_native_cli_extras(args: &[OsString]) -> NativeCliExtras {
+    let mut add_dirs = Vec::new();
+    let mut read_dirs = Vec::new();
+    let mut resume: Option<Option<String>> = None;
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        match arg.to_str() {
+            Some("--add-dir") => {
+                if let Some(dir) = iter.next() {
+                    add_dirs.push(std::path::PathBuf::from(dir));
+                }
+            }
+            Some("--read-dir") => {
+                if let Some(dir) = iter.next() {
+                    read_dirs.push(std::path::PathBuf::from(dir));
+                }
+            }
+            Some("--resume-last") => {
+                resume = Some(None);
+            }
+            Some("--resume") => {
+                if let Some(id) = iter.next().and_then(|s| s.to_str()) {
+                    resume = Some(Some(id.to_owned()));
+                }
+            }
+            _ => {}
+        }
+    }
+    (add_dirs, read_dirs, resume)
+}
+
+fn restore_saved_session(
+    app: &mut App,
+    requested_id: Option<&str>,
+) -> Result<(String, usize), String> {
+    let root = sessions_root().ok_or("Sessions directory unavailable")?;
+    let id = match requested_id {
+        Some(explicit) => explicit.to_owned(),
+        None => {
+            let listed = crate::sessions::list(&root, 1, None)?;
+            listed["sessions"]
+                .as_array()
+                .and_then(|rows| rows.first())
+                .and_then(|r| r["id"].as_str())
+                .map(str::to_owned)
+                .ok_or_else(|| "No saved sessions found".to_owned())?
+        }
+    };
+    let data = crate::sessions::show(&root, &id, false)?;
+    let messages = data["messages"]
+        .as_array()
+        .ok_or("Saved session has no messages")?;
+    app.entries.clear();
+    app.scroll = 0;
+    let mut restored = 0usize;
+    for item in messages {
+        let role = item["role"].as_str().unwrap_or("");
+        if role != "user" && role != "assistant" {
+            continue;
+        }
+        let text = match &item["content"] {
+            Value::String(s) => s.clone(),
+            Value::Array(blocks) => blocks
+                .iter()
+                .filter_map(|b| b.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            _ => String::new(),
+        };
+        if !text.trim().is_empty() {
+            app.add(role, &text, false);
+            restored += 1;
+        }
+    }
+    Ok((id, restored))
+}
+
+fn native_file_completions(workspace: &str, draft: &str) -> Vec<String> {
+    let Some(at) = draft.rfind('@') else {
+        return Vec::new();
+    };
+    let before_ok = at == 0 || draft[..at].ends_with(char::is_whitespace);
+    let rest = &draft[at + 1..];
+    if !before_ok || rest.contains('\n') {
+        return Vec::new();
+    }
+    let query = rest
+        .trim_start_matches("file:")
+        .trim_matches('"')
+        .to_lowercase();
+    let prefix = &draft[..at];
+    let Ok(files) = crate::engine::tools::list_files(Path::new(workspace), ".", 400) else {
+        return Vec::new();
+    };
+    let mut matches: Vec<(bool, String)> = files
+        .into_iter()
+        .filter_map(|rel| {
+            let lower = rel.to_lowercase();
+            let base = lower.rsplit('/').next().unwrap_or(&lower);
+            if query.is_empty() || lower.contains(&query) {
+                let starts = lower.starts_with(&query) || base.starts_with(&query);
+                Some((!starts, rel))
+            } else {
+                None
+            }
+        })
+        .collect();
+    matches.sort();
+    matches
+        .into_iter()
+        .take(20)
+        .map(|(_, rel)| {
+            if rel.contains(char::is_whitespace) {
+                format!("{prefix}@\"{rel}\" ")
+            } else {
+                format!("{prefix}@{rel} ")
+            }
+        })
+        .collect()
+}
+
 fn persist_native_turn(workspace: &str, model: &str, prompt: &str, answer: &str) {
     if prompt.trim().is_empty() || answer.trim().is_empty() {
         return;
@@ -950,6 +1111,29 @@ fn try_dispatch_native_turn(
     let Some(route) = classify_native_route(app, request) else {
         return false;
     };
+    cancel.store(false, Ordering::Relaxed);
+    if let NativeRoute::Resume(target) = route {
+        let msg = match restore_saved_session(app, target.as_deref()) {
+            Ok((id, count)) => {
+                if app.zh() {
+                    format!("已恢复会话 `{id}`（共 {count} 条历史消息）。")
+                } else {
+                    format!("Resumed session `{id}` ({count} messages).")
+                }
+            }
+            Err(err) => {
+                if app.zh() {
+                    format!("无法恢复会话：{err}")
+                } else {
+                    format!("Could not resume session: {err}")
+                }
+            }
+        };
+        let _ = tx.send(json!({"protocol": 1, "type": "turn.started"}));
+        let _ = tx.send(json!({"protocol": 1, "type": "answer.delta", "text": msg}));
+        let _ = tx.send(json!({"protocol": 1, "type": "turn.completed", "status": "ok"}));
+        return true;
+    }
     if let NativeRoute::WriteMode(requested) = route {
         let next = requested.unwrap_or(!*allow_write_state);
         *allow_write_state = next;
@@ -1129,12 +1313,13 @@ fn try_dispatch_native_turn(
     thread::spawn(move || {
         let _ = tx.send(json!({"protocol": 1, "type": "turn.started"}));
         match route {
-            NativeRoute::Clear => {}
+            NativeRoute::Clear | NativeRoute::Resume(_) => {}
             NativeRoute::Help => {
                 let text = if zh {
                     "**Aria Code 原生命令：**\n\
                      - `/help` — 查看命令帮助\n\
                      - `/clear` | `/new` — 清空当前对话并开启新会话\n\
+                     - `/resume [id]` — 恢复最近或指定的历史会话\n\
                      - `/model [模型名]` — 列出或切换模型\n\
                      - `/health` | `/doctor` — 检查服务与环境健康状态\n\
                      - `/config` | `/permissions [init]` — 查看运行配置与 `.aria/settings.json` 权限规则\n\
@@ -2045,7 +2230,7 @@ fn try_dispatch_native_turn(
                 }));
                 let ws_path = std::path::PathBuf::from(&workspace);
                 let mut streamed = String::new();
-                let res = crate::engine::agent::run_native_agent_with_history_streaming(
+                let res = crate::engine::agent::run_native_agent_with_history_streaming_cancelable(
                     &url,
                     &model,
                     &ws_path,
@@ -2054,6 +2239,7 @@ fn try_dispatch_native_turn(
                     allow_write,
                     6,
                     timeout,
+                    || cancel.load(Ordering::Relaxed),
                     |tool, args| {
                         let _ = tx.send(json!({
                             "protocol": 1,
@@ -2100,6 +2286,7 @@ fn try_dispatch_native_turn(
                         persist_native_turn(&workspace, &model, &prompt, &answer);
                         "ok"
                     }
+                    Err(e) if e == "cancelled" => "cancelled",
                     Err(e) => {
                         let _ = tx.send(json!({
                             "protocol": 1,
@@ -3225,6 +3412,41 @@ mod tests {
             classify_native_route(&app, &submitted),
             Some(NativeRoute::OllamaAgent)
         );
+        assert_eq!(
+            classify_native_route(&app, &json!({"type": "turn.submit", "text": "/resume"})),
+            Some(NativeRoute::Resume(None))
+        );
+        assert_eq!(
+            classify_native_route(
+                &app,
+                &json!({"type": "turn.submit", "text": "/resume sess-1"})
+            ),
+            Some(NativeRoute::Resume(Some("sess-1".into())))
+        );
+    }
+
+    #[test]
+    fn native_file_completions_and_cli_extras_work() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("README.md"), "# hi").unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/main.rs"), "fn main() {}").unwrap();
+
+        let ws = dir.path().to_string_lossy();
+        let cands = native_file_completions(&ws, "check @ma");
+        assert!(cands.iter().any(|c| c == "check @src/main.rs "));
+
+        let args = vec![
+            OsString::from("--add-dir"),
+            OsString::from("/tmp/rw"),
+            OsString::from("--read-dir"),
+            OsString::from("/tmp/ro"),
+            OsString::from("--resume-last"),
+        ];
+        let (rw, ro, resume) = parse_native_cli_extras(&args);
+        assert_eq!(rw.len(), 1);
+        assert_eq!(ro.len(), 1);
+        assert_eq!(resume, Some(None));
     }
 
     #[test]

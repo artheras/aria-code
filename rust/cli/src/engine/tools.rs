@@ -6,7 +6,42 @@ use std::{
     io::Read,
     path::{Component, Path, PathBuf},
     process::Command,
+    sync::{OnceLock, RwLock},
 };
+
+type ExtraDirs = (Vec<PathBuf>, Vec<PathBuf>);
+static EXTRA_DIRS: OnceLock<RwLock<ExtraDirs>> = OnceLock::new();
+
+fn extra_dirs_store() -> &'static RwLock<ExtraDirs> {
+    EXTRA_DIRS.get_or_init(|| RwLock::new((Vec::new(), Vec::new())))
+}
+
+/// Configure additional read-write (`--add-dir`) and read-only (`--read-dir`) roots.
+pub fn set_extra_dirs(rw_dirs: Vec<PathBuf>, ro_dirs: Vec<PathBuf>) {
+    let canon_list = |dirs: Vec<PathBuf>| -> Vec<PathBuf> {
+        dirs.into_iter()
+            .filter_map(|p| p.canonicalize().ok())
+            .collect()
+    };
+    if let Ok(mut guard) = extra_dirs_store().write() {
+        *guard = (canon_list(rw_dirs), canon_list(ro_dirs));
+    }
+}
+
+fn is_within_allowed_roots(resolved: &Path, base: &Path, allow_read_only_extras: bool) -> bool {
+    if resolved.starts_with(base) {
+        return true;
+    }
+    if let Ok(guard) = extra_dirs_store().read() {
+        if guard.0.iter().any(|root| resolved.starts_with(root)) {
+            return true;
+        }
+        if allow_read_only_extras && guard.1.iter().any(|root| resolved.starts_with(root)) {
+            return true;
+        }
+    }
+    false
+}
 
 const SKIP_DIRS: &[&str] = &[
     ".git",
@@ -22,8 +57,21 @@ const SKIP_DIRS: &[&str] = &[
     "build",
 ];
 
-/// Confine a relative or workspace-scoped path strictly within `workspace`.
+/// Confine a relative or workspace-scoped path strictly within `workspace` (plus `--add-dir`).
 pub fn resolve_workspace_path(workspace: &Path, raw: &str) -> Result<PathBuf, String> {
+    resolve_path_internal(workspace, raw, false)
+}
+
+/// Confine a read-only path within `workspace`, `--add-dir`, or `--read-dir`.
+pub fn resolve_read_path(workspace: &Path, raw: &str) -> Result<PathBuf, String> {
+    resolve_path_internal(workspace, raw, true)
+}
+
+fn resolve_path_internal(
+    workspace: &Path,
+    raw: &str,
+    allow_read_only_extras: bool,
+) -> Result<PathBuf, String> {
     let base = workspace
         .canonicalize()
         .map_err(|e| format!("Invalid workspace: {e}"))?;
@@ -54,20 +102,20 @@ pub fn resolve_workspace_path(workspace: &Path, raw: &str) -> Result<PathBuf, St
     };
 
     if let Ok(resolved) = candidate.canonicalize() {
-        if !resolved.starts_with(&base) {
+        if !is_within_allowed_roots(&resolved, &base, allow_read_only_extras) {
             return Err(outside_workspace_err(trimmed, &base));
         }
         return Ok(resolved);
     }
 
-    // New file path: verify nearest existing ancestor is inside `base`.
+    // New file path: verify nearest existing ancestor is inside allowed roots.
     let mut probe = candidate.as_path();
     while let Some(parent) = probe.parent() {
         if parent.exists() {
             let resolved_parent = parent
                 .canonicalize()
                 .map_err(|e| format!("Invalid parent path: {e}"))?;
-            if !resolved_parent.starts_with(&base) {
+            if !is_within_allowed_roots(&resolved_parent, &base, allow_read_only_extras) {
                 return Err(outside_workspace_err(trimmed, &base));
             }
             return Ok(candidate);
@@ -96,7 +144,7 @@ fn walk_files(workspace: &Path, rel: &str, max_entries: usize) -> Result<Vec<Str
         "current" if !workspace.join("current").exists() => ".",
         other => other,
     };
-    let target = resolve_workspace_path(workspace, normalized)?;
+    let target = resolve_read_path(workspace, normalized)?;
     let base = workspace.canonicalize().map_err(|e| e.to_string())?;
     if target.is_file() {
         let rel_path = target
@@ -136,6 +184,8 @@ fn collect_files(base: &Path, dir: &Path, limit: usize, out: &mut Vec<String>) {
             }
         } else if let Ok(rel) = path.strip_prefix(base) {
             out.push(rel.to_string_lossy().into_owned());
+        } else {
+            out.push(path.to_string_lossy().into_owned());
         }
     }
     for sub in subdirs {
@@ -169,7 +219,7 @@ pub fn read_file_slice(
     start_line: usize,
     end_line: usize,
 ) -> Result<FileSlice, String> {
-    let path = resolve_workspace_path(workspace, rel)?;
+    let path = resolve_read_path(workspace, rel)?;
     let content = fs::read_to_string(&path).map_err(|e| format!("Read failed: {e}"))?;
     let lines: Vec<&str> = content.lines().collect();
     let total_lines = lines.len();
