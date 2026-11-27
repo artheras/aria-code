@@ -142,37 +142,31 @@ impl Robot {
     }
 
     /// Three rows by nine columns, the same budget as Claude Code's mascot.
-    /// Half blocks make six pixel rows: rounded slate body, teal-slate ear
-    /// nubs, glowing warm-amber eyes, and two compact feet.
+    /// Half blocks make six pixel rows: solid theme-teal body, side ears,
+    /// two crisp eyes, and two symmetric feet.
     fn compact_cream(theme: &str) -> Self {
         let body = if theme == "light" {
-            Color::Rgb(38, 43, 54)
-        } else {
-            Color::Rgb(56, 65, 82)
-        };
-        let eye = if theme == "light" {
-            Color::Rgb(245, 158, 11)
-        } else {
-            Color::Rgb(249, 180, 103)
-        };
-        let accent = if theme == "light" {
             Color::Rgb(15, 112, 139)
         } else {
             Color::Rgb(91, 192, 216)
         };
-        // 0 empty, 1 slate body, 2 amber eye, 3 teal accent/foot.
+        let eye = if theme == "light" {
+            Color::Rgb(255, 255, 255)
+        } else {
+            Color::Rgb(18, 22, 28)
+        };
+        // 0 empty, 1 teal body, 2 eye.
         let pixels: [[u8; 9]; 6] = [
-            [0, 0, 1, 1, 1, 1, 1, 0, 0],
             [0, 1, 1, 1, 1, 1, 1, 1, 0],
-            [3, 1, 2, 1, 1, 1, 2, 1, 3],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 2, 1, 1, 1, 2, 1, 1],
             [0, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 0, 1, 1, 1, 1, 1, 0, 0],
-            [0, 0, 3, 0, 0, 0, 3, 0, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 1, 1, 0, 0, 0, 1, 1, 0],
         ];
         let paint = |code: u8| match code {
             1 => Some(body),
             2 => Some(eye),
-            3 => Some(accent),
             _ => None,
         };
         let mut rows = Vec::new();
@@ -233,20 +227,12 @@ mod tests {
         }
     }
     #[test]
-    fn compact_robot_has_slate_body_amber_eyes_and_teal_accents() {
+    fn compact_robot_has_teal_body_and_two_crisp_eyes() {
         for theme in ["light", "dark"] {
-            let (body, eye, accent) = if theme == "light" {
-                (
-                    Color::Rgb(38, 43, 54),
-                    Color::Rgb(245, 158, 11),
-                    Color::Rgb(15, 112, 139),
-                )
+            let (body, eye) = if theme == "light" {
+                (Color::Rgb(15, 112, 139), Color::Rgb(255, 255, 255))
             } else {
-                (
-                    Color::Rgb(56, 65, 82),
-                    Color::Rgb(249, 180, 103),
-                    Color::Rgb(91, 192, 216),
-                )
+                (Color::Rgb(91, 192, 216), Color::Rgb(18, 22, 28))
             };
             let robot = Robot::from_event(&serde_json::json!({
                 "design": "cream-block-v2", "theme": theme
@@ -254,7 +240,7 @@ mod tests {
             assert_eq!(robot.0.len(), 3);
             assert!(robot.0.iter().all(|row| row.width() == 9));
             let face = &robot.0[1].spans;
-            assert_eq!(face[0].style.fg, Some(accent));
+            assert_eq!(face[0].style.fg, Some(body));
             assert_eq!(face[2].style.fg, Some(eye));
             assert_eq!(face[2].style.bg, Some(body));
             assert_eq!(face[6].style.fg, Some(eye));
@@ -262,9 +248,9 @@ mod tests {
             let feet = robot.0[2]
                 .spans
                 .iter()
-                .filter(|span| span.style.bg == Some(accent))
+                .filter(|span| span.style.fg == Some(body) && span.style.bg == Some(body))
                 .count();
-            assert_eq!(feet, 2);
+            assert_eq!(feet, 4);
         }
     }
     #[test]
