@@ -1238,7 +1238,7 @@ impl App {
         // A folder stays open so the next level lists at once; anything else
         // is finished and gets a space for the rest of the prompt.
         let completed = if files {
-            if whole.ends_with('/') {
+            if whole.ends_with('/') || whole.ends_with(' ') {
                 whole.clone()
             } else {
                 format!("{whole} ")

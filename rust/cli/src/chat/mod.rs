@@ -1120,6 +1120,7 @@ fn native_file_completions(workspace: &str, draft: &str) -> Vec<String> {
     let mut matches: Vec<(bool, String)> = files
         .into_iter()
         .filter_map(|rel| {
+            let rel = rel.replace('\\', "/");
             let lower = rel.to_lowercase();
             let base = lower.rsplit('/').next().unwrap_or(&lower);
             if query.is_empty() || lower.contains(&query) {
