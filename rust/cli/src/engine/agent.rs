@@ -78,13 +78,17 @@ fn build_agent_messages(
     messages
 }
 
-fn build_coding_system_prompt(workspace: &Path) -> String {
+fn is_home_workspace(workspace: &Path) -> bool {
     let home_dir = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(std::path::PathBuf::from);
-    let is_home = home_dir.as_ref().is_some_and(|h| {
+    home_dir.as_ref().is_some_and(|h| {
         h == workspace || workspace.canonicalize().ok().as_ref() == h.canonicalize().ok().as_ref()
-    });
+    })
+}
+
+fn build_coding_system_prompt(workspace: &Path) -> String {
+    let is_home = is_home_workspace(workspace);
     let mut prompt = format!(
         "{}\n\nYou are Aria Code's native coding agent. Current workspace path: `{}`{}.\n\
          You have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `repo_map`, `write_file`, `edit_file`, `multi_edit`, `restore_checkpoint`, `run_command`, `process`, `lsp_hover`, `lsp_definition`, `lsp_references`, `spawn_subagent`, `web_search`, `web_fetch`, `read_skill`, `git_status`, `git_diff`, `git_log`, `git_worktree`, `glob`, `project_scan`, `verify_workspace`) plus any configured MCP tools. \
@@ -98,39 +102,41 @@ fn build_coding_system_prompt(workspace: &Path) -> String {
             ""
         }
     );
-    if let Ok(scan) = tools::project_scan(workspace) {
-        let types = scan["project_types"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(Value::as_str)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            })
-            .unwrap_or_default();
-        let keys = scan["key_files"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(Value::as_str)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            })
-            .unwrap_or_default();
-        let git = scan["git_status"].as_str().unwrap_or("").trim();
-        let mut ctx = String::new();
-        if !types.is_empty() {
-            ctx.push_str(&format!("\nWorkspace languages/stacks: {types}"));
-        }
-        if !keys.is_empty() {
-            ctx.push_str(&format!("\nKey manifests: {keys}"));
-        }
-        if !git.is_empty() {
-            let clipped_git: String = git.chars().take(1200).collect();
-            ctx.push_str(&format!("\nGit status:\n{clipped_git}"));
-        }
-        if !ctx.is_empty() {
-            prompt.push_str(&format!("\n\n[Workspace Snapshot]{ctx}"));
+    if !is_home {
+        if let Ok(scan) = tools::project_scan(workspace) {
+            let types = scan["project_types"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default();
+            let keys = scan["key_files"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default();
+            let git = scan["git_status"].as_str().unwrap_or("").trim();
+            let mut ctx = String::new();
+            if !types.is_empty() {
+                ctx.push_str(&format!("\nWorkspace languages/stacks: {types}"));
+            }
+            if !keys.is_empty() {
+                ctx.push_str(&format!("\nKey manifests: {keys}"));
+            }
+            if !git.is_empty() {
+                let clipped_git: String = git.chars().take(1200).collect();
+                ctx.push_str(&format!("\nGit status:\n{clipped_git}"));
+            }
+            if !ctx.is_empty() {
+                prompt.push_str(&format!("\n\n[Workspace Snapshot]{ctx}"));
+            }
         }
     }
     if let Some((path, raw)) = skills::load_project_instructions(workspace) {
@@ -282,6 +288,50 @@ impl ToolLoopGuard {
             .as_array()
             .cloned()
             .unwrap_or_default();
+        arr.extend(self.mcp.tool_schemas().iter().cloned());
+        Value::Array(arr)
+    }
+
+    fn tool_schemas_for_mode(&self, allow_write: bool, is_home: bool) -> Value {
+        if allow_write {
+            return self.all_tool_schemas();
+        }
+        let mut arr: Vec<Value> = tools::tool_schemas()
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|schema| {
+                let name = schema
+                    .get("function")
+                    .and_then(|f| f.get("name"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if is_home {
+                    matches!(
+                        name,
+                        "list_files"
+                            | "read_file"
+                            | "search_code"
+                            | "glob"
+                            | "web_search"
+                            | "web_fetch"
+                            | "read_skill"
+                    )
+                } else {
+                    !matches!(
+                        name,
+                        "write_file"
+                            | "edit_file"
+                            | "multi_edit"
+                            | "restore_checkpoint"
+                            | "run_command"
+                            | "verify_workspace"
+                            | "spawn_subagent"
+                    )
+                }
+            })
+            .collect();
         arr.extend(self.mcp.tool_schemas().iter().cloned());
         Value::Array(arr)
     }
@@ -495,7 +545,7 @@ pub fn run_native_agent_with_history_streaming(
 ) -> Result<String, String> {
     let url = format!("{}/api/chat", base_url.trim_end_matches('/'));
     let mut guard = ToolLoopGuard::new(workspace);
-    let schemas = guard.all_tool_schemas();
+    let schemas = guard.tool_schemas_for_mode(allow_write, is_home_workspace(workspace));
     let system_prompt = build_coding_system_prompt(workspace);
     let mut messages = build_agent_messages(system_prompt, history, prompt);
     let agent = ureq::Agent::config_builder()
@@ -923,7 +973,7 @@ pub fn run_cloud_agent_with_history(
     let url = provider.endpoint(model, api_key);
     let model_id = model.split('/').next_back().unwrap_or(model);
     let mut guard = ToolLoopGuard::new(workspace);
-    let schemas = guard.all_tool_schemas();
+    let schemas = guard.tool_schemas_for_mode(allow_write, is_home_workspace(workspace));
     let system_prompt = build_coding_system_prompt(workspace);
     let mut messages = build_agent_messages(system_prompt, history, prompt);
     let agent = ureq::Agent::config_builder()

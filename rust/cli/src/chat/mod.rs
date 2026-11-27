@@ -871,7 +871,8 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
             .is_some_and(|tok| tok[1..].contains('/'));
     if !app.model.is_empty() {
         if crate::engine::policy::is_conversation_only_message(text)
-            && app.entries.iter().filter(|e| e.role == "user").count() <= 1
+            && (app.session == "native"
+                || app.entries.iter().filter(|e| e.role == "user").count() <= 1)
         {
             if is_ollama {
                 return Some(NativeRoute::OllamaChat);
@@ -2121,16 +2122,29 @@ fn try_dispatch_native_turn(
                         format!("Waiting for {model}…")
                     }
                 }));
+                let is_home = std::env::var_os("HOME")
+                    .or_else(|| std::env::var_os("USERPROFILE"))
+                    .map(std::path::PathBuf::from)
+                    .is_some_and(|h| {
+                        let ws = std::path::Path::new(&workspace);
+                        h == ws || ws.canonicalize().ok() == h.canonicalize().ok()
+                    });
                 let sys = format!(
-                    "{}\nCurrent workspace path: `{}`.",
+                    "{}\nCurrent workspace path: `{}`{}.",
                     crate::engine::policy::general_system_prompt("today"),
-                    workspace
+                    workspace,
+                    if is_home {
+                        " (the user's home directory, not a single project root)"
+                    } else {
+                        ""
+                    }
                 );
                 let mut reply = String::new();
-                let res = crate::engine::ollama::stream_chat_cancelable(
+                let res = crate::engine::ollama::stream_chat_with_history_cancelable(
                     &url,
                     &model,
                     &sys,
+                    &history,
                     &prompt,
                     timeout,
                     || cancel.load(Ordering::Relaxed),

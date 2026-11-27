@@ -104,6 +104,13 @@ pub fn is_capability_question(message: &str) -> bool {
         "介绍一下你的能力",
         "介绍一下你的功能",
         "介绍一下你的服务",
+        "我现在在哪",
+        "我现在在哪里",
+        "你知道我现在在哪吗",
+        "你知道我现在在哪里吗",
+        "我在哪个目录",
+        "当前目录是什么",
+        "当前工作目录是什么",
     ];
     if zh_capability.iter().any(|p| compact == *p) {
         return true;
@@ -133,6 +140,9 @@ pub fn is_capability_question(message: &str) -> bool {
             | "what are your health services"
             | "what does your health service do"
             | "what does your health service check"
+            | "where am i"
+            | "what directory am i in"
+            | "what is my current directory"
     )
 }
 

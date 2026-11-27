@@ -42,7 +42,7 @@ pub fn resolve_workspace_path(workspace: &Path, raw: &str) -> Result<PathBuf, St
                 Component::Normal(seg) => clean.push(seg),
                 Component::ParentDir => {
                     if !clean.pop() || !clean.starts_with(&base) {
-                        return Err("Path escapes workspace".into());
+                        return Err(outside_workspace_err(trimmed, &base));
                     }
                 }
                 Component::RootDir | Component::Prefix(_) => {
@@ -55,7 +55,7 @@ pub fn resolve_workspace_path(workspace: &Path, raw: &str) -> Result<PathBuf, St
 
     if let Ok(resolved) = candidate.canonicalize() {
         if !resolved.starts_with(&base) {
-            return Err("Path escapes workspace".into());
+            return Err(outside_workspace_err(trimmed, &base));
         }
         return Ok(resolved);
     }
@@ -68,13 +68,20 @@ pub fn resolve_workspace_path(workspace: &Path, raw: &str) -> Result<PathBuf, St
                 .canonicalize()
                 .map_err(|e| format!("Invalid parent path: {e}"))?;
             if !resolved_parent.starts_with(&base) {
-                return Err("Path escapes workspace".into());
+                return Err(outside_workspace_err(trimmed, &base));
             }
             return Ok(candidate);
         }
         probe = parent;
     }
     Err("Path has no valid ancestor inside workspace".into())
+}
+
+fn outside_workspace_err(raw: &str, base: &Path) -> String {
+    format!(
+        "Path escapes workspace (`{raw}` is outside `{}`). Start Aria in that folder with `aria -C <dir>` or grant access with `--add-dir <dir>`.",
+        base.display()
+    )
 }
 
 pub fn list_files(workspace: &Path, rel: &str, max_entries: usize) -> Result<Vec<String>, String> {

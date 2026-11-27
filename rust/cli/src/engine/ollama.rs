@@ -112,16 +112,43 @@ pub fn stream_chat_cancelable(
     user_message: &str,
     timeout: Duration,
     should_cancel: impl Fn() -> bool,
+    on_token: impl FnMut(&str),
+) -> Result<String, String> {
+    stream_chat_with_history_cancelable(
+        base_url,
+        model,
+        system_prompt,
+        &[],
+        user_message,
+        timeout,
+        should_cancel,
+        on_token,
+    )
+}
+
+/// Stream a multi-turn chat completion natively with prior `(role, content)` history.
+#[allow(clippy::too_many_arguments)]
+pub fn stream_chat_with_history_cancelable(
+    base_url: &str,
+    model: &str,
+    system_prompt: &str,
+    history: &[(String, String)],
+    user_message: &str,
+    timeout: Duration,
+    should_cancel: impl Fn() -> bool,
     mut on_token: impl FnMut(&str),
 ) -> Result<String, String> {
     let url = format!("{}/api/chat", base_url.trim_end_matches('/'));
+    let mut messages = Vec::with_capacity(history.len() + 2);
+    messages.push(json!({ "role": "system", "content": system_prompt }));
+    for (role, content) in history {
+        messages.push(json!({ "role": role, "content": content }));
+    }
+    messages.push(json!({ "role": "user", "content": user_message }));
     let payload = json!({
         "model": model,
         "stream": true,
-        "messages": [
-            { "role": "system", "content": system_prompt },
-            { "role": "user", "content": user_message }
-        ]
+        "messages": messages
     });
     let agent = ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
