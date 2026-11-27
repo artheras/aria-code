@@ -142,37 +142,37 @@ impl Robot {
     }
 
     /// Three rows by nine columns, the same budget as Claude Code's mascot.
-    /// Half blocks make six pixel rows: cream cap, black screen, a square eye
-    /// and an orange dash, an orange stripe, then four gray feet.
+    /// Half blocks make six pixel rows: solid warm-amber body, side ears/arms,
+    /// two crisp dark eyes, and two symmetric stubby feet.
     fn compact_cream(theme: &str) -> Self {
-        let cream = if theme == "light" {
-            Color::Rgb(224, 214, 202)
+        let amber = if theme == "light" {
+            Color::Rgb(217, 125, 58)
         } else {
-            Color::Rgb(244, 235, 228)
+            Color::Rgb(249, 180, 103)
         };
-        let screen = Color::Rgb(14, 14, 14);
-        let eye = Color::Rgb(255, 253, 245);
-        let dash = Color::Rgb(249, 180, 103);
-        let gray = if theme == "light" {
-            Color::Rgb(128, 120, 112)
+        let eye = if theme == "light" {
+            Color::Rgb(24, 24, 27)
         } else {
-            Color::Rgb(182, 173, 164)
+            Color::Rgb(18, 18, 20)
         };
-        // 0 empty, 1 cream, 2 screen, 3 white eye, 4 orange ear, 5 gray.
+        let foot = if theme == "light" {
+            Color::Rgb(186, 102, 44)
+        } else {
+            Color::Rgb(217, 146, 72)
+        };
+        // 0 empty, 1 amber body, 2 dark eye, 3 warm foot.
         let pixels: [[u8; 9]; 6] = [
             [0, 1, 1, 1, 1, 1, 1, 1, 0],
-            [5, 2, 2, 2, 2, 2, 2, 2, 5],
-            [4, 2, 3, 2, 2, 2, 3, 2, 4],
-            [5, 2, 2, 2, 2, 2, 2, 2, 5],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 2, 1, 1, 1, 2, 1, 1],
             [0, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 5, 0, 5, 0, 5, 0, 5, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 3, 3, 0, 0, 0, 3, 3, 0],
         ];
         let paint = |code: u8| match code {
-            1 => Some(cream),
-            2 => Some(screen),
-            3 => Some(eye),
-            4 => Some(dash),
-            5 => Some(gray),
+            1 => Some(amber),
+            2 => Some(eye),
+            3 => Some(foot),
             _ => None,
         };
         let mut rows = Vec::new();
@@ -233,32 +233,36 @@ mod tests {
         }
     }
     #[test]
-    fn compact_robot_has_a_square_eye_an_orange_dash_and_four_feet() {
-        let eye = Some(Color::Rgb(255, 253, 245));
-        let screen = Some(Color::Rgb(14, 14, 14));
+    fn compact_robot_has_amber_body_two_dark_eyes_and_symmetric_feet() {
         for theme in ["light", "dark"] {
+            let (amber, eye, foot) = if theme == "light" {
+                (
+                    Color::Rgb(217, 125, 58),
+                    Color::Rgb(24, 24, 27),
+                    Color::Rgb(186, 102, 44),
+                )
+            } else {
+                (
+                    Color::Rgb(249, 180, 103),
+                    Color::Rgb(18, 18, 20),
+                    Color::Rgb(217, 146, 72),
+                )
+            };
             let robot = Robot::from_event(&serde_json::json!({
                 "design": "cream-block-v2", "theme": theme
             }));
             assert_eq!(robot.0.len(), 3);
             assert!(robot.0.iter().all(|row| row.width() == 9));
             let face = &robot.0[1].spans;
-            assert_eq!(face[0].style.fg, Some(Color::Rgb(249, 180, 103)));
-            assert_eq!(face[2].style.fg, eye);
-            assert_eq!(face[2].style.bg, screen);
-            assert_eq!(face[6].style.fg, eye);
-            assert_eq!(face[6].style.bg, screen);
+            assert_eq!(face[0].style.fg, Some(amber));
+            assert_eq!(face[2].style.fg, Some(eye));
+            assert_eq!(face[2].style.bg, Some(amber));
+            assert_eq!(face[6].style.fg, Some(eye));
+            assert_eq!(face[6].style.bg, Some(amber));
             let feet = robot.0[2]
                 .spans
                 .iter()
-                .filter(|span| {
-                    span.style.bg
-                        == Some(if theme == "light" {
-                            Color::Rgb(128, 120, 112)
-                        } else {
-                            Color::Rgb(182, 173, 164)
-                        })
-                })
+                .filter(|span| span.style.bg == Some(foot))
                 .count();
             assert_eq!(feet, 4);
         }
