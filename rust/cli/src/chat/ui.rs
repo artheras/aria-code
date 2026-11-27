@@ -449,7 +449,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
         match entry.role.as_str() {
             "assistant" => lines.extend(hang::hang(
                 markdown::render(&entry.text, p, width.saturating_sub(hang::INDENT)),
-                mark::prefix(None),
+                mark::prefix_colored(None, p.assistant),
                 width,
             )),
             "user" => lines.extend(hang::hang(
@@ -484,6 +484,28 @@ pub fn draw(frame: &mut Frame, app: &App) {
             format!("› {first}{extra} · {}", app.tr("queued", "排队中")),
             Style::new().fg(p.muted),
         ));
+    }
+    if app.turn.is_some()
+        && app
+            .entries
+            .iter()
+            .skip(app.current_start())
+            .all(|e| e.role != "assistant" && e.action.is_none())
+    {
+        let secs = app.started.map(|s| s.elapsed().as_secs()).unwrap_or(0);
+        let doing = app.phase.doing(app.zh());
+        let label = if doing.is_empty() {
+            app.tr("Thinking and planning…", "正在思考与规划…")
+                .to_owned()
+        } else {
+            doing
+        };
+        let mut spans = mark::prefix_colored(Some(app.anim_tick as usize), p.assistant);
+        spans.push(Span::styled(
+            format!("{label} ({secs}s)"),
+            Style::new().fg(p.muted),
+        ));
+        lines.push(Line::from(spans));
     }
     // An empty conversation says nothing the input's own hint already says;
     // only a starting runtime or a home-folder workspace earns a line here.

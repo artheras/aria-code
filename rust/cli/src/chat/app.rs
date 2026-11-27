@@ -378,7 +378,7 @@ impl App {
             en
         }
     }
-    fn current_start(&self) -> usize {
+    pub(super) fn current_start(&self) -> usize {
         self.entries
             .iter()
             .rposition(|e| e.role == "user")
@@ -937,6 +937,9 @@ impl App {
             return None;
         }
         let text = self.editor.take();
+        if self.lang.is_empty() && text.chars().any(|c| ('\u{4E00}'..='\u{9FFF}').contains(&c)) {
+            self.lang = "zh".into();
+        }
         self.approval_context.clear();
         self.scroll = 0;
         match text.trim() {

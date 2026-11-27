@@ -79,10 +79,24 @@ fn build_agent_messages(
 }
 
 fn build_coding_system_prompt(workspace: &Path) -> String {
+    let home_dir = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from);
+    let is_home = home_dir.as_ref().is_some_and(|h| {
+        h == workspace || workspace.canonicalize().ok().as_ref() == h.canonicalize().ok().as_ref()
+    });
     let mut prompt = format!(
-        "{}\n\nYou are Aria Code's native coding agent. You have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `repo_map`, `write_file`, `edit_file`, `multi_edit`, `restore_checkpoint`, `run_command`, `process`, `lsp_hover`, `lsp_definition`, `lsp_references`, `spawn_subagent`, `web_search`, `web_fetch`, `read_skill`, `git_status`, `git_diff`, `git_log`, `git_worktree`, `glob`, `project_scan`, `verify_workspace`) plus any configured MCP tools. \
-         Inspect relevant files before answering or editing. Prefer targeted reads and minimal edits. `edit_file` fails when `old_string` is not unique; use more context or `multi_edit` for several unique replacements in one file. After code changes, run `verify_workspace` and fix failures before the final answer.",
-        policy::general_system_prompt("today")
+        "{}\n\nYou are Aria Code's native coding agent. Current workspace path: `{}`{}.\n\
+         You have native workspace tools (`list_files`, `read_file`, `search_code`, `find_symbol`, `repo_map`, `write_file`, `edit_file`, `multi_edit`, `restore_checkpoint`, `run_command`, `process`, `lsp_hover`, `lsp_definition`, `lsp_references`, `spawn_subagent`, `web_search`, `web_fetch`, `read_skill`, `git_status`, `git_diff`, `git_log`, `git_worktree`, `glob`, `project_scan`, `verify_workspace`) plus any configured MCP tools. \
+         Inspect relevant files before answering or editing. Prefer targeted reads and minimal edits. `edit_file` fails when `old_string` is not unique; use more context or `multi_edit` for several unique replacements in one file. After code changes, run `verify_workspace` and fix failures before the final answer. \
+         Never tell the user internal tool names like `project_scan`, `list_files`, or `read_file` as shell commands to run; call tools yourself when needed or answer directly.",
+        policy::general_system_prompt("today"),
+        workspace.display(),
+        if is_home {
+            " (the user's home directory, not a single project root)"
+        } else {
+            ""
+        }
     );
     if let Ok(scan) = tools::project_scan(workspace) {
         let types = scan["project_types"]

@@ -20,9 +20,8 @@ use ratatui::{
     text::Span,
 };
 
-/// The ears and stripe are this orange; it is what the robot is
-/// recognised by once it is too small to have a face.
-pub const ORANGE: Color = Color::Rgb(249, 180, 103);
+/// The mark's default colour matches the theme-teal mascot.
+pub const TEAL: Color = Color::Rgb(15, 112, 139);
 
 /// Resting: the eye as the robot wears it.
 pub const RESTING: &str = "▄";
@@ -33,25 +32,30 @@ pub const RESTING: &str = "▄";
 pub const BREATH: [&str; 6] = ["▁", "▂", "▄", "▆", "▄", "▂"];
 
 /// The mark at rest, for prefixing a line that is not working.
+#[cfg(test)]
 pub fn resting() -> Span<'static> {
-    Span::styled(RESTING, Style::new().fg(ORANGE))
+    Span::styled(RESTING, Style::new().fg(TEAL))
 }
 
 /// The mark at `tick`, for a turn in progress. Wraps, so a caller may keep
 /// counting without bounding the frame itself.
+#[cfg(test)]
 pub fn breathing(tick: usize) -> Span<'static> {
-    Span::styled(BREATH[tick % BREATH.len()], Style::new().fg(ORANGE))
+    Span::styled(BREATH[tick % BREATH.len()], Style::new().fg(TEAL))
 }
 
 /// The mark followed by its space, the way a line prefix is written.
 pub fn prefix(tick: Option<usize>) -> Vec<Span<'static>> {
-    vec![
-        match tick {
-            Some(t) => breathing(t),
-            None => resting(),
-        },
-        Span::raw(" "),
-    ]
+    prefix_colored(tick, TEAL)
+}
+
+/// The mark in an explicit theme colour (e.g. light/dark `p.assistant`).
+pub fn prefix_colored(tick: Option<usize>, color: Color) -> Vec<Span<'static>> {
+    let glyph = match tick {
+        Some(t) => BREATH[t % BREATH.len()],
+        None => RESTING,
+    };
+    vec![Span::styled(glyph, Style::new().fg(color)), Span::raw(" ")]
 }
 
 #[cfg(test)]
@@ -61,9 +65,9 @@ mod tests {
     #[test]
     fn the_mark_is_the_colour_the_robot_is_recognised_by() {
         // Changing this makes the mark stop being the robot's.
-        assert_eq!(ORANGE, Color::Rgb(249, 180, 103));
-        assert_eq!(resting().style.fg, Some(ORANGE));
-        assert_eq!(breathing(0).style.fg, Some(ORANGE));
+        assert_eq!(TEAL, Color::Rgb(15, 112, 139));
+        assert_eq!(resting().style.fg, Some(TEAL));
+        assert_eq!(breathing(0).style.fg, Some(TEAL));
     }
 
     #[test]
