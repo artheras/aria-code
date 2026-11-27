@@ -1996,10 +1996,10 @@ mod tests {
             };
             terminal.draw(|f| draw(f, &app)).unwrap();
             let buffer = terminal.backend().buffer();
-            // Nine columns, three rows. The name starts two columns past the mascot.
-            assert_eq!(buffer[(2, 1)].symbol(), "▀");
-            assert_eq!(buffer[(5, 1)].symbol(), "▀");
-            assert_eq!(buffer[(11, 0)].symbol(), "A");
+            // Thirteen columns, four rows. The name starts two columns past the mascot.
+            assert_eq!(buffer[(4, 1)].symbol(), "▀");
+            assert_eq!(buffer[(7, 1)].symbol(), "▀");
+            assert_eq!(buffer[(15, 0)].symbol(), "A");
             assert!(display(&terminal).contains("Aria Code"));
         }
     }
