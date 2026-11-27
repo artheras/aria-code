@@ -1998,7 +1998,7 @@ mod tests {
             let buffer = terminal.backend().buffer();
             // Thirteen columns, four rows. The name starts two columns past the mascot.
             assert_eq!(buffer[(4, 1)].symbol(), "▀");
-            assert_eq!(buffer[(7, 1)].symbol(), "▀");
+            assert_eq!(buffer[(8, 1)].symbol(), "▀");
             assert_eq!(buffer[(15, 0)].symbol(), "A");
             assert!(display(&terminal).contains("Aria Code"));
         }

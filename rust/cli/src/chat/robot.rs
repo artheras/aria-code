@@ -141,44 +141,34 @@ impl Robot {
         Self(rows)
     }
 
-    /// Four rows by thirteen columns: stepped theme-teal shell, inset dark
-    /// screen, a white square eye and an amber wink dash, side ears, and
-    /// four short stubby feet matching the user's signature Aria mascot.
+    /// Four rows by thirteen columns: solid theme-teal body with stepped cap,
+    /// side ears, asymmetric wink eyes (black on light, white on dark), and
+    /// four short stubby feet.
     fn compact_cream(theme: &str) -> Self {
         let body = if theme == "light" {
             Color::Rgb(15, 112, 139)
         } else {
             Color::Rgb(91, 192, 216)
         };
-        let screen = Color::Rgb(17, 19, 23);
-        let eye = Color::Rgb(255, 255, 255);
-        let hardware = if theme == "light" {
-            Color::Rgb(100, 116, 139)
+        let eye = if theme == "light" {
+            Color::Rgb(17, 19, 23)
         } else {
-            Color::Rgb(148, 163, 184)
+            Color::Rgb(255, 255, 255)
         };
-        let dash = if theme == "light" {
-            Color::Rgb(245, 158, 11)
-        } else {
-            Color::Rgb(249, 180, 103)
-        };
-        // 0 empty, 1 teal shell, 2 dark screen, 3 white eye, 4 slate ear/foot, 5 amber dash.
+        // 0 empty, 1 teal body, 2 eye.
         let pixels: [[u8; 13]; 8] = [
             [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0],
-            [0, 1, 1, 2, 2, 2, 2, 2, 2, 2, 1, 1, 0],
-            [4, 1, 1, 2, 3, 3, 2, 2, 2, 2, 1, 1, 4],
-            [4, 1, 1, 2, 3, 3, 2, 5, 5, 2, 1, 1, 4],
-            [0, 1, 1, 2, 2, 2, 2, 2, 2, 2, 1, 1, 0],
             [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 0, 0, 4, 0, 4, 0, 4, 0, 4, 0, 0, 0],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 2, 1, 1, 1, 2, 2, 1, 1, 1],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0],
             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         ];
         let paint = |code: u8| match code {
             1 => Some(body),
-            2 => Some(screen),
-            3 => Some(eye),
-            4 => Some(hardware),
-            5 => Some(dash),
+            2 => Some(eye),
             _ => None,
         };
         let mut rows = Vec::new();
@@ -239,22 +229,12 @@ mod tests {
         }
     }
     #[test]
-    fn compact_robot_has_teal_shell_inset_screen_square_eye_wink_dash_and_four_feet() {
+    fn compact_robot_has_solid_teal_body_theme_eyes_and_four_feet() {
         for theme in ["light", "dark"] {
-            let (screen, eye, hardware, dash) = if theme == "light" {
-                (
-                    Color::Rgb(17, 19, 23),
-                    Color::Rgb(255, 255, 255),
-                    Color::Rgb(100, 116, 139),
-                    Color::Rgb(245, 158, 11),
-                )
+            let (body, eye) = if theme == "light" {
+                (Color::Rgb(15, 112, 139), Color::Rgb(17, 19, 23))
             } else {
-                (
-                    Color::Rgb(17, 19, 23),
-                    Color::Rgb(255, 255, 255),
-                    Color::Rgb(148, 163, 184),
-                    Color::Rgb(249, 180, 103),
-                )
+                (Color::Rgb(91, 192, 216), Color::Rgb(255, 255, 255))
             };
             let robot = Robot::from_event(&serde_json::json!({
                 "design": "cream-block-v2", "theme": theme
@@ -262,15 +242,17 @@ mod tests {
             assert_eq!(robot.0.len(), 4);
             assert!(robot.0.iter().all(|row| row.width() == 13));
             let face = &robot.0[1].spans;
-            assert_eq!(face[0].style.fg, Some(hardware));
-            assert_eq!(face[4].style.fg, Some(eye));
+            assert_eq!(face[0].style.fg, Some(body));
+            assert_eq!(face[4].style.fg, Some(body));
             assert_eq!(face[4].style.bg, Some(eye));
-            assert_eq!(face[7].style.fg, Some(screen));
-            assert_eq!(face[7].style.bg, Some(dash));
+            assert_eq!(face[8].style.fg, Some(body));
+            assert_eq!(face[8].style.bg, Some(eye));
+            assert_eq!(face[9].style.fg, Some(body));
+            assert_eq!(face[9].style.bg, Some(eye));
             let feet = robot.0[3]
                 .spans
                 .iter()
-                .filter(|span| span.style.fg == Some(hardware) && span.style.bg.is_none())
+                .filter(|span| span.style.fg == Some(body) && span.style.bg.is_none())
                 .count();
             assert_eq!(feet, 4);
         }
