@@ -1101,54 +1101,53 @@ fn identity_lines(app: &App, p: Palette, width: usize) -> Vec<Line<'static>> {
 
 /// Lightweight startup tips shown above the fold while the conversation is empty.
 fn welcome_lines(app: &App, p: Palette) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
-    let ready_title = if app.zh() {
-        format!("Aria Code 原生终端已就绪 · v{}", app.version)
-    } else {
-        format!("Aria Code native runtime ready · v{}", app.version)
-    };
-    lines.push(Line::styled(ready_title, Style::new().bold()));
-    lines.push(Line::from(vec![
-        Span::styled(app.tr("Use ", "输入 "), Style::new().fg(p.muted)),
-        Span::styled("/model", Style::new().fg(p.accent)),
-        Span::styled(
-            app.tr(" to switch models, ", " 切换模型，"),
-            Style::new().fg(p.muted),
-        ),
-        Span::styled("/resume", Style::new().fg(p.accent)),
-        Span::styled(
-            app.tr(" to continue a session, or ", " 恢复历史会话，或 "),
-            Style::new().fg(p.muted),
-        ),
-        Span::styled("/help", Style::new().fg(p.accent)),
-        Span::styled(
-            app.tr(" for commands.", " 查看全部命令。"),
-            Style::new().fg(p.muted),
-        ),
-    ]));
-    lines.push(Line::default());
-    lines.push(Line::from(vec![
-        Span::styled(
-            app.tr("Tip: reference files with ", "提示：使用 "),
-            Style::new().fg(p.muted),
-        ),
-        Span::styled("@file", Style::new().fg(p.accent)),
-        Span::styled(
-            app.tr(", toggle details with ", " 引用文件，"),
-            Style::new().fg(p.muted),
-        ),
-        Span::styled("Ctrl+O", Style::new().fg(p.accent)),
-        Span::styled(
-            app.tr(", or press ", " 展开执行细节，按 "),
-            Style::new().fg(p.muted),
-        ),
-        Span::styled("F1", Style::new().fg(p.accent)),
-        Span::styled(
-            app.tr(" for shortcuts.", " 查看快捷键。"),
-            Style::new().fg(p.muted),
-        ),
-    ]));
-    lines
+    vec![
+        Line::from(vec![
+            Span::styled(
+                app.tr(
+                    "Ready — ask anything, or type ",
+                    "已就绪 — 可直接提问，或输入 ",
+                ),
+                Style::new().bold(),
+            ),
+            Span::styled("/help", Style::new().fg(p.assistant).bold()),
+            Span::styled(
+                app.tr(" for commands.", " 查看全部命令。"),
+                Style::new().bold(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                app.tr("Switch with ", "切换模型 "),
+                Style::new().fg(p.muted),
+            ),
+            Span::styled("/model", Style::new().fg(p.assistant)),
+            Span::styled(
+                app.tr(" · sessions ", " · 恢复会话 "),
+                Style::new().fg(p.muted),
+            ),
+            Span::styled("/resume", Style::new().fg(p.assistant)),
+            Span::styled(
+                app.tr(" · files ", " · 引用文件 "),
+                Style::new().fg(p.muted),
+            ),
+            Span::styled("@file", Style::new().fg(p.assistant)),
+        ]),
+        Line::default(),
+        Line::from(vec![
+            Span::styled(app.tr("Press ", "按 "), Style::new().fg(p.muted)),
+            Span::styled("Ctrl+O", Style::new().fg(p.assistant)),
+            Span::styled(
+                app.tr(" for details · ", " 展开执行细节 · 按 "),
+                Style::new().fg(p.muted),
+            ),
+            Span::styled("F1", Style::new().fg(p.assistant)),
+            Span::styled(
+                app.tr(" for shortcuts", " 查看快捷键"),
+                Style::new().fg(p.muted),
+            ),
+        ]),
+    ]
 }
 
 /// Model, place, and what a later action is allowed to do, fitted to one row.
