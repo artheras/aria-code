@@ -56,6 +56,18 @@ class RequiresPythonKeepsItsUpperBound(unittest.TestCase):
         self.assertIn(upper.group(1), commented,
                       "the upper bound is not the version the comment explains")
 
+    def test_publish_workflow_pins_supported_python_for_wheel_build(self):
+        """uv build without a pinned Python grabs 3.14+ and fails against <3.14."""
+        publish_yml = (
+            PYPROJECT.parent / ".github" / "workflows" / "publish.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "uv build --python 3.12",
+            publish_yml,
+            "publish.yml platform-wheels must pin --python 3.12 so uv does not "
+            "default to Python 3.14+ and reject requires-python <3.14",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

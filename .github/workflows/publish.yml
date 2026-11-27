@@ -211,6 +211,11 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          VERSION="$(node -p 'require("./package.json").version')"
+          if npm view "@artheras/aria-code@$VERSION" version --registry=https://registry.npmjs.org/ >/dev/null 2>&1; then
+            echo "@artheras/aria-code@$VERSION is already published on npmjs.com — skipping."
+            exit 0
+          fi
           npm publish --access public || {
             echo "::error::npm rejected @artheras/aria-code. Check that the token's account can publish in the @artheras scope and that the token allows package write and CI publishing."
             exit 1
@@ -233,11 +238,15 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref_name }}
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
       - name: Build sdist + pure wheel
-        run: uv build
+        run: uv build --python 3.12
 
       - name: Wait for this version's native archives
         env:
@@ -330,6 +339,10 @@ jobs:
       # secret in env is allowed; referencing one in a job-level `if` is not).
       HAS_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN != '' }}
     steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
@@ -431,10 +444,16 @@ jobs:
         working-directory: npm
 
       - name: Publish @artheras/aria-code to GitHub Packages
-        run: npm publish --access public
         working-directory: npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="$(node -p 'require("./package.json").version')"
+          if npm view "@artheras/aria-code@$VERSION" version --registry=https://npm.pkg.github.com/ >/dev/null 2>&1; then
+            echo "@artheras/aria-code@$VERSION is already published on GitHub Packages — skipping."
+            exit 0
+          fi
+          npm publish --access public
 
   # ── Did any of that actually publish anything? ──────────────────────────────
   # Four consecutive releases tagged a version and published nothing: v0.45.0
