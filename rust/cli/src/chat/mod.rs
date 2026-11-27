@@ -843,9 +843,12 @@ fn classify_native_route(app: &App, request: &Value) -> Option<NativeRoute> {
                 }
             }
         } else if !text.starts_with('/')
-            && (app.status == "Native ready" || app.status == "已完成" || app.status == "Completed")
+            && (app.session == "native"
+                || app.status == "Native ready"
+                || app.status == "已完成"
+                || app.status == "Completed")
         {
-            if is_ollama && app.provider == "ollama" {
+            if is_ollama {
                 return Some(NativeRoute::OllamaAgent);
             }
             if let Some(cloud) = crate::engine::cloud::CloudProvider::from_id(&app.provider) {
@@ -3144,11 +3147,12 @@ mod tests {
             ))
         );
         app.provider = "ollama".into();
+        app.session = "native".into();
+        app.ready = true;
+        app.editor.insert("你知道我现在在哪吗");
+        let submitted = app.submit().unwrap();
         assert_eq!(
-            classify_native_route(
-                &app,
-                &json!({"type": "turn.submit", "text": "fix src/main.rs"})
-            ),
+            classify_native_route(&app, &submitted),
             Some(NativeRoute::OllamaAgent)
         );
     }
