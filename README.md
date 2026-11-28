@@ -65,7 +65,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | **Document Studio** | [`artheras/arthera-doc-studio`](https://github.com/artheras/arthera-doc-studio) | Tier-2 high-design `.xlsx`/`.pptx`/`.docx`, LibreOffice formula audit, and `pdftoppm` visual self-inspection |
 | **Career Copilot** | [`artheras/career-service`](https://github.com/artheras/career-service) | Honest resume parsing, JD matching, Greenhouse/Lever/Ashby & job-alert ingestion, SQLite tracker |
-| **Financial Service** | [`services/financial-service`](services/financial-service/README.md) | Statements, Piotroski F / Altman Z'', portfolio backtests, and Bearer-protected `streamable-http` |
+| **Financial Service** | [`artheras/financial-service`](https://github.com/artheras/financial-service) | Statements, Piotroski F / Altman Z'', portfolio backtests, and Bearer-protected `streamable-http` |
 | **Computer Use** | [`services/aria-computer-use`](services/aria-computer-use/README.md) | Controlled browser automation with host approval hooks |
 | **Bots & Relay** | [`services/aria-bots`](services/aria-bots/README.md) & [`go/relay`](go/relay/README.md) | Feishu/Telegram 3PL & market bots with multi-turn `--resume` |
 

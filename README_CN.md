@@ -65,7 +65,7 @@ flowchart LR
 | :--- | :--- | :--- |
 | **Document Studio** | [`artheras/arthera-doc-studio`](https://github.com/artheras/arthera-doc-studio) | Tier-2 高设计感 `.xlsx`/`.pptx`/`.docx`、LibreOffice 公式审计与 `pdftoppm` 视觉自检 |
 | **Career Copilot** | [`artheras/career-service`](https://github.com/artheras/career-service) | 简历解析、JD 匹配、Greenhouse/Lever/Ashby 与订阅邮件解析、SQLite 投递追踪 |
-| **Financial Service** | [`services/financial-service`](services/financial-service/README.md) | 财报指标、Piotroski F / Altman Z''、组合回测与 Bearer 鉴权 `streamable-http` |
+| **Financial Service** | [`artheras/financial-service`](https://github.com/artheras/financial-service) | 财报指标、Piotroski F / Altman Z''、组合回测与 Bearer 鉴权 `streamable-http` |
 | **Computer Use** | [`services/aria-computer-use`](services/aria-computer-use/README.md) | 带宿主机审批门控的受控浏览器自动化 |
 | **Bots & Relay** | [`services/aria-bots`](services/aria-bots/README.md) & [`go/relay`](go/relay/README.md) | 飞书/Telegram 3PL 与行情机器人，支持多轮 `--resume` |
 

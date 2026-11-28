@@ -19,4 +19,4 @@
   - `doc_build_pptx`
   - `doc_build_docx`
   - `doc_render_visual_qa`
-- **Extraction readiness**: Packaged with its own `pyproject.toml`, `Dockerfile` (Python 3.12 + LibreOffice + Poppler + Noto CJK/Latin fonts), `skills/document-studio/SKILL.md`, and `tests/test_doc_studio.py` with zero imports from `aria_code`, matching `services/financial-service`.
+- **Extraction readiness**: Packaged with its own `pyproject.toml`, `Dockerfile` (Python 3.12 + LibreOffice + Poppler + Noto CJK/Latin fonts), `skills/document-studio/SKILL.md`, and `tests/test_doc_studio.py` with zero imports from `aria_code`, matching `artheras/financial-service`.
