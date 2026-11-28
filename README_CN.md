@@ -21,7 +21,6 @@
 </p>
 
 <p align="center"><img src="docs/assets/demo-coding.gif" alt="Aria Code v0.170.0 TUI 界面演示：原生工具执行、紧凑 Diff 摘要与安全包络验证" width="860"></p>
-<p align="center"><sub>Aria Code v0.170.0 终端界面（<a href="docs/assets/aria-tui-home.png">主界面截图</a> · <a href="docs/assets/demo-coding.png">会话静态图</a> · <a href="scripts/generate_readme_demos.py">渲染脚本</a>）</sub></p>
 
 ## Aria Code 能做什么
 

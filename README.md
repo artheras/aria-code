@@ -21,7 +21,6 @@ Numbers you can check, client data kept apart, actions a person approves.</p>
 </p>
 
 <p align="center"><img src="docs/assets/demo-coding.gif" alt="Aria Code v0.170.0 TUI session showing native tool execution, compact diff summary, and safety envelope verification" width="860"></p>
-<p align="center"><sub>Aria Code v0.170.0 TUI (<a href="docs/assets/aria-tui-home.png">Home still</a> · <a href="docs/assets/demo-coding.png">Session still</a> · <a href="scripts/generate_readme_demos.py">Renderer</a>)</sub></p>
 
 ## What Aria Code does
 
