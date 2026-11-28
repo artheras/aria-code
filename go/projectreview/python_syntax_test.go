@@ -51,6 +51,9 @@ func TestPythonSyntaxAgreesWithCPythonOnStructure(t *testing.T) {
 		"text = f\"value {1 + 2}\"\n",
 		"# only a comment\n",
 		"def f():\n\treturn 1\n",
+		"lambda x: x = 1\n",
+		"True = 1\n",
+		"1 = 2\n",
 	}
 	script := `import ast,sys
 src=sys.stdin.read()

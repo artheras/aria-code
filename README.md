@@ -27,7 +27,7 @@ Numbers you can check, client data kept apart, actions a person approves.</p>
 
 **Writes code and builds projects.** Describe the task in plain words. Aria reads the project, writes and edits files, runs commands and tests, and shows every change before it lands — nothing is written or run until you say yes. [`/review`](docs/code-review.md) reviews a change the way a careful colleague would: prioritised findings (P0–P3) with file and line, and a verdict; `aria-code review --base main --fail-on P1` gates a pull request in CI. Use a local Ollama model, Gemini on Google Cloud (Vertex AI, with nothing more than a `gcloud` login), or another supported provider.
 
-**Analyses markets and finances.** Quotes, technical indicators, backtests with an HTML report, risk and factor analysis, SEC filings, and US, Hong Kong, A-share and crypto data. Results name their data source, period and any gaps.
+**Analyses markets, valuations, and deliverables.** Quotes, technical indicators, backtests with an HTML report, SEC filings, deterministic **DCF / WACC / Peer Comps / Monte Carlo VaR & CVaR** (with an optional C++20 numerical kernel), and zero-dependency native `.xlsx` (live formulas + `Audit_Provenance`), 16:9 `.pptx`, `.docx`, and SVG chart exports. Results name their data source, period, and any gaps.
 
 <p align="center"><img src="docs/assets/demo-finance.gif" alt="Real Aria Code session: technical indicators for AAPL and a one-year momentum backtest on SPY, with data source, period and completeness stated" width="760"></p>
 
@@ -47,6 +47,27 @@ A general-purpose assistant aims for an answer that reads well. In code, markets
 **Actions a person approves.** In the terminal, every file write and command waits for your yes, with the diff in front of you. In Feishu, `/补货` turns the reorder list into a purchase-order draft card; nothing happens until an authorised approver presses approve, and what runs is exactly what was shown. The draft is a file for your own purchasing system — Aria Code places no orders.
 
 A fresh install has no live business data: the logistics tools read your exports (CSV or JSON), market data comes from public sources, and the chat features need a Feishu app or the Aria relay.
+
+## Architecture & Ecosystem MCP Services
+
+Aria Code keeps its core CLI zero-dependency while auto-discovering sibling/workspace MCP services for specialized workflows:
+
+```mermaid
+flowchart LR
+    U[User / Terminal / Feishu] --> CLI[aria / aria-native<br/>Rust CLI & Diff/Summary Renderer]
+    CLI --> RT[aria-runtime<br/>Go Sandbox, OOXML, Quant + Optional C++20 Kernel]
+    CLI --> MCP1[arthera-doc-studio<br/>Tier-2 Office + LibreOffice/Poppler Visual QA]
+    CLI --> MCP2[career-service<br/>Resume Parsing, JD Match, ATS Feeds, SQLite Tracker]
+    CLI --> MCP3[financial-service & aria-computer-use<br/>Market Data & Host-Approved Browser Automation]
+```
+
+| Service | Repository / Path | Role |
+| :--- | :--- | :--- |
+| **Document Studio** | [`artheras/arthera-doc-studio`](https://github.com/artheras/arthera-doc-studio) | Tier-2 high-design `.xlsx`/`.pptx`/`.docx`, LibreOffice formula audit, and `pdftoppm` visual self-inspection |
+| **Career Copilot** | [`artheras/career-service`](https://github.com/artheras/career-service) | Honest resume parsing, JD matching, Greenhouse/Lever/Ashby & job-alert ingestion, SQLite tracker |
+| **Financial Service** | [`services/financial-service`](services/financial-service/README.md) | Statements, Piotroski F / Altman Z'', portfolio backtests, and Bearer-protected `streamable-http` |
+| **Computer Use** | [`services/aria-computer-use`](services/aria-computer-use/README.md) | Controlled browser automation with host approval hooks |
+| **Bots & Relay** | [`services/aria-bots`](services/aria-bots/README.md) & [`go/relay`](go/relay/README.md) | Feishu/Telegram 3PL & market bots with multi-turn `--resume` |
 
 ## Quick start
 

@@ -90,6 +90,42 @@ var mcpServerTools = []mcpServedTool{
 			"american":     map[string]any{"type": "boolean", "description": "Also compute American option price via 500-step CRR tree."},
 			"market_price": map[string]any{"type": "number", "description": "Optional observed option price to solve implied volatility."},
 		}, "s", "k", "t"),
+	readOnlyTool("aria.quant.dcf_valuation", "Deterministic Gordon-Growth DCF valuation and 5x5 WACC x Terminal-Growth sensitivity matrix.",
+		map[string]any{
+			"base_fcf":        map[string]any{"type": "number", "description": "Base-year positive Free Cash Flow."},
+			"growth_rates":    map[string]any{"type": "array", "items": map[string]any{"type": "number"}, "description": "1..10 annual FCF growth rates as decimals."},
+			"wacc":            map[string]any{"type": "number", "description": "Discount rate (e.g. 0.095)."},
+			"terminal_growth": map[string]any{"type": "number", "description": "Perpetual terminal growth rate (default 0.025)."},
+			"net_debt":        map[string]any{"type": "number", "description": "Net debt (default 0)."},
+			"diluted_shares":  map[string]any{"type": "number", "description": "Diluted share count (default 1)."},
+			"current_price":   map[string]any{"type": "number", "description": "Optional current share price for upside calculation."},
+		}, "base_fcf", "growth_rates", "wacc"),
+	readOnlyTool("aria.quant.risk_metrics", "Deterministic portfolio risk & tail-risk metrics: Sharpe, Sortino, Calmar, max drawdown, Historical/Parametric/Monte Carlo VaR & CVaR.",
+		map[string]any{
+			"equity_curve":     map[string]any{"type": "array", "items": map[string]any{"type": "number"}, "description": "Ordered positive equity values."},
+			"returns":          map[string]any{"type": "array", "items": map[string]any{"type": "number"}, "description": "Alternative: periodic simple return series."},
+			"periods_per_year": map[string]any{"type": "number", "description": "Periods per year (default 252)."},
+			"risk_free_rate":   map[string]any{"type": "number", "description": "Annual risk-free rate (default 0.02)."},
+		}),
+	readOnlyTool("aria.quant.wacc", "Deterministic CAPM cost of equity, after-tax cost of debt, and Weighted Average Cost of Capital (WACC).",
+		map[string]any{
+			"risk_free_rate":      map[string]any{"type": "number", "description": "Risk-free rate (decimal)."},
+			"beta":                map[string]any{"type": "number", "description": "Equity beta."},
+			"equity_risk_premium": map[string]any{"type": "number", "description": "Equity risk premium (decimal)."},
+			"cost_of_debt":        map[string]any{"type": "number", "description": "Pre-tax cost of debt (decimal)."},
+			"tax_rate":            map[string]any{"type": "number", "description": "Corporate tax rate in [0, 1]."},
+			"equity_value":        map[string]any{"type": "number", "description": "Market value of equity."},
+			"debt_value":          map[string]any{"type": "number", "description": "Total debt value (default 0)."},
+		}, "risk_free_rate", "beta", "equity_risk_premium", "cost_of_debt", "tax_rate", "equity_value"),
+	readOnlyTool("aria.quant.peer_comps", "Deterministic comparable-company multiple percentiles (P25/Median/P75) and implied share price ranges.",
+		map[string]any{
+			"peers":             map[string]any{"type": "array", "description": "Array of peer objects with symbol, ev_ebitda, pe, ev_revenue."},
+			"target_ebitda":     map[string]any{"type": "number", "description": "Target company EBITDA."},
+			"target_net_income": map[string]any{"type": "number", "description": "Target company Net Income."},
+			"target_revenue":    map[string]any{"type": "number", "description": "Target company Revenue."},
+			"net_debt":          map[string]any{"type": "number", "description": "Target company Net Debt."},
+			"diluted_shares":    map[string]any{"type": "number", "description": "Target diluted share count (default 1)."},
+		}, "peers"),
 }
 
 // mcpProjectRoot is an existing directory under the server's working
@@ -410,15 +446,51 @@ func mcpQuantPriceOption(ctx context.Context, args map[string]any) map[string]an
 	return map[string]any{"success": true, "pricing": res.Data}
 }
 
+func mcpQuantDCFValuation(ctx context.Context, args map[string]any) map[string]any {
+	res := dcfValuationTool(ctx, args)
+	if !res.Success {
+		return mcpFail(res.Error)
+	}
+	return map[string]any{"success": true, "valuation": res.Data}
+}
+
+func mcpQuantRiskMetrics(ctx context.Context, args map[string]any) map[string]any {
+	res := riskMetricsTool(ctx, args)
+	if !res.Success {
+		return mcpFail(res.Error)
+	}
+	return map[string]any{"success": true, "risk": res.Data}
+}
+
+func mcpQuantWACC(ctx context.Context, args map[string]any) map[string]any {
+	res := waccValuationTool(ctx, args)
+	if !res.Success {
+		return mcpFail(res.Error)
+	}
+	return map[string]any{"success": true, "wacc": res.Data}
+}
+
+func mcpQuantPeerComps(ctx context.Context, args map[string]any) map[string]any {
+	res := peerCompsTool(ctx, args)
+	if !res.Success {
+		return mcpFail(res.Error)
+	}
+	return map[string]any{"success": true, "comps": res.Data}
+}
+
 var mcpServerHandlers = map[string]func(context.Context, map[string]any) map[string]any{
-	"aria.risk.assess":        mcpRiskAssess,
-	"aria.contract.check":     mcpContractCheck,
-	"aria.project.impact":     mcpProjectImpact,
-	"aria.project.commands":   mcpProjectCommands,
-	"aria.skill.list":         mcpSkillList,
-	"aria.skill.get":          mcpSkillGet,
-	"aria.world.simulate":     mcpWorldSimulate,
-	"aria.quant.price_option": mcpQuantPriceOption,
+	"aria.risk.assess":         mcpRiskAssess,
+	"aria.contract.check":      mcpContractCheck,
+	"aria.project.impact":      mcpProjectImpact,
+	"aria.project.commands":    mcpProjectCommands,
+	"aria.skill.list":          mcpSkillList,
+	"aria.skill.get":           mcpSkillGet,
+	"aria.world.simulate":      mcpWorldSimulate,
+	"aria.quant.price_option":  mcpQuantPriceOption,
+	"aria.quant.dcf_valuation": mcpQuantDCFValuation,
+	"aria.quant.risk_metrics":  mcpQuantRiskMetrics,
+	"aria.quant.wacc":          mcpQuantWACC,
+	"aria.quant.peer_comps":    mcpQuantPeerComps,
 }
 
 func mcpReply(out io.Writer, id any, result any, rpcErr map[string]any) error {

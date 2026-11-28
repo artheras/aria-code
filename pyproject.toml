@@ -313,38 +313,8 @@ select = ["E9", "F821", "F823", "F811", "W191", "E722", "F601"]
 ignore = ["E501", "F401", "E402", "F811"]
 
 [tool.ruff.lint.per-file-ignores]
-# Mixin command files rely on globals injected by aria_cli.py (console, HAS_RICH, etc.)
-# F821 is suppressed here because the names are valid at runtime via the main module's namespace.
-"apps/cli/commands/*.py" = ["F821"]
-"src/aria_code/apps/cli/commands/*.py" = ["F821"]
-"**/apps/cli/commands/*.py" = ["F821"]
-"apps/cli/providers/llm/ollama_stream.py" = ["F821"]
-"src/aria_code/apps/cli/providers/llm/ollama_stream.py" = ["F821"]
-"**/apps/cli/providers/llm/ollama_stream.py" = ["F821"]
-"apps/cli/football_reports.py" = ["F821"]
-"src/aria_code/apps/cli/football_reports.py" = ["F821"]
-"**/apps/cli/football_reports.py" = ["F821"]
-"apps/cli/broker_render.py" = ["F821"]
-"src/aria_code/apps/cli/broker_render.py" = ["F821"]
-"**/apps/cli/broker_render.py" = ["F821"]
-# ArtheraTerminal blocks moved out of aria_cli.py; mixin_binding.bind_mixin
-# binds them to aria_cli's namespace at import.
-"apps/cli/headless.py" = ["F821"]
-"src/aria_code/apps/cli/headless.py" = ["F821"]
-"**/apps/cli/headless.py" = ["F821"]
-"apps/cli/chat_turn.py" = ["F821"]
-"src/aria_code/apps/cli/chat_turn.py" = ["F821"]
-"**/apps/cli/chat_turn.py" = ["F821"]
-"apps/cli/terminal_chrome.py" = ["F821"]
-"src/aria_code/apps/cli/terminal_chrome.py" = ["F821"]
-"**/apps/cli/terminal_chrome.py" = ["F821"]
-
-# aria_cli.py 的"未使用 import"绝不能自动清理：它的 globals() 就是所有 rebound
-# mixin 方法的命名空间，94 个 ruff 眼里没用到的 import 里有 51 个是给它们准备的
-# （pathlib 一个就被 commands/ 用了 75 次）。跑一次 `ruff check --fix` 会批量重演
-# 2026-08-09 那个启动即崩的 NameError。契约由 tests/test_rebind_namespace_contract.py
-# 看守；这里显式记一笔，免得后来人以为这是可以顺手清的死代码。
-"aria_cli.py" = ["F401"]
+# Preserve explicit re-exports in package __init__.py files.
+"**/__init__.py" = ["F401"]
 
 # ── Black (optional local use) ─────────────────────────────────────────────────
 [tool.black]
@@ -352,8 +322,7 @@ line-length = 120
 target-version = ["py310", "py311", "py312"]
 exclude = '''
 /(
-    \.git | \.venv | venv | __pycache__ | dist | build | npm |
-    aria_cli\.py | dashboard_generator\.py
+    \.git | \.venv | venv | __pycache__ | dist | build | npm
 )/
 '''
 

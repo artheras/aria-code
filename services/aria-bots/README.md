@@ -8,8 +8,7 @@ Aria's chat bots, split out of the Python core:
 | `aria_bots.telegram_bot` | Telegram long-polling client |
 | `aria_bots.relay_client` | Connects to the Go relay and hands Feishu events to the bot |
 | `aria_bots.channels` | Conversation store (chat ↔ shipper binding), approvals, shipper digests |
-| `aria_bots.logistics` | Freight analysis, carrier scoring, inventory policy; every tool is scoped to the shipper a chat is bound to (`logistics.tenancy`) |
-| `aria_bots.logistics.mcp_server` | The same tools over MCP (`aria-logistics-mcp`) for the Go engine |
+| `aria_bots.erp_logistics` | Logistics MCP server (`aria-logistics-mcp`): freight analysis, carrier scoring, and inventory policy scoped per shipper (`ARIA_OWNER_SCOPE`), using `erp-service` when installed or the built-in deterministic `aria_bots.logistics_builtin` engine out of the box |
 | `aria_bots.engine` | Runs a chat turn on `aria-runtime stream` |
 | `aria_bots.market` | `/price`, `/brief`, `/alert`, `/alerts`, `/status` through `aria-runtime daemon` |
 

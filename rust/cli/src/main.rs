@@ -47,7 +47,7 @@ Usage:
   aria-native [-C DIR] pack verify-license [--token TOKEN] [--package PKG]
   aria-native [-C DIR] pack audit [--limit N] [--json]
   aria-native [-C DIR] pack usage [--json]
-  aria-native [-C DIR] export INPUT.md OUTPUT.(html|pdf|docx|pptx)
+  aria-native [-C DIR] export INPUT.md OUTPUT.(html|pdf|docx|pptx|xlsx)
   aria-native index imports|symbols < REQUEST.json
   aria-native completions bash|zsh|fish
   aria-native --version
@@ -1521,6 +1521,9 @@ fn run(options: Options) -> Result<i32, String> {
                 .unwrap_or("html")
                 .to_ascii_lowercase();
             let written = match ext.as_str() {
+                "xlsx" => {
+                    engine::report::export_markdown_xlsx(&options.workspace, &input, &output)?
+                }
                 "pptx" => {
                     engine::report::export_markdown_pptx(&options.workspace, &input, &output)?
                 }

@@ -22,7 +22,44 @@ type documentOptions struct {
 	Restricted bool
 }
 
-func documentSandboxAvailable() bool { return runtime.GOOS == "darwin" }
+func documentSandboxAvailable() bool {
+	if runtime.GOOS == "darwin" {
+		return true
+	}
+	if runtime.GOOS == "linux" {
+		_, err := exec.LookPath("bwrap")
+		return err == nil
+	}
+	return false
+}
+
+func linuxBwrapArgs(dir, executable, data string, args []string) ([]string, error) {
+	bwrapPath, err := exec.LookPath("bwrap")
+	if err != nil {
+		return nil, err
+	}
+	cmdArgs := []string{
+		bwrapPath,
+		"--unshare-net",
+		"--new-session",
+		"--die-with-parent",
+		"--proc", "/proc",
+		"--dev", "/dev",
+		"--bind", dir, dir,
+		"--chdir", dir,
+	}
+	for _, ro := range []string{"/usr", "/lib", "/lib64", "/bin", "/etc/ld.so.cache", "/etc/fonts", "/etc/poppler"} {
+		if _, statErr := os.Stat(ro); statErr == nil {
+			cmdArgs = append(cmdArgs, "--ro-bind", ro, ro)
+		}
+	}
+	if data != "" {
+		cmdArgs = append(cmdArgs, "--ro-bind", data, data)
+	}
+	cmdArgs = append(cmdArgs, "--ro-bind", executable, executable, executable)
+	cmdArgs = append(cmdArgs, args...)
+	return cmdArgs, nil
+}
 
 // Seatbelt denies network, project/home reads and all writes outside scratch.
 // Dependency roots contain installed executables/libraries, never the workspace.
@@ -77,8 +114,12 @@ func runDocumentTool(ctx context.Context, name string, args []string, input []by
 		args = append(args, "--tessdata-dir", data)
 	}
 	cmd := exec.CommandContext(ctx, executable, args...)
-	if documentSandboxAvailable() {
+	if runtime.GOOS == "darwin" {
 		cmd = exec.CommandContext(ctx, "/usr/bin/sandbox-exec", append([]string{"-p", documentProfile(dir, executable, data), executable}, args...)...)
+	} else if runtime.GOOS == "linux" {
+		if bwrapCmd, bErr := linuxBwrapArgs(dir, executable, data, args); bErr == nil {
+			cmd = exec.CommandContext(ctx, bwrapCmd[0], bwrapCmd[1:]...)
+		}
 	}
 	cmd.Dir = dir
 	cmd.Env = []string{"HOME=" + dir, "TMPDIR=" + dir, "LANG=C", "LC_ALL=C", "OMP_THREAD_LIMIT=2"}

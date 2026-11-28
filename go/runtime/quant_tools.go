@@ -265,3 +265,186 @@ func mathMax(a, b float64) float64 {
 	}
 	return b
 }
+
+func dcfValuationTool(_ context.Context, params map[string]any) toolResult {
+	baseFCF, okFCF := num(params, "base_fcf")
+	wacc, okWacc := num(params, "wacc")
+	if !okFCF || !okWacc {
+		return failed(errors.New("base_fcf and wacc are required numbers"))
+	}
+	rawRates, okRates := params["growth_rates"].([]any)
+	if !okRates || len(rawRates) == 0 {
+		return failed(errors.New("growth_rates must be a non-empty array of decimals"))
+	}
+	rates := make([]float64, 0, len(rawRates))
+	for i, item := range rawRates {
+		v, ok := numVal(item)
+		if !ok {
+			return failed(fmt.Errorf("growth_rates[%d] must be numeric", i))
+		}
+		rates = append(rates, v)
+	}
+	tg := 0.025
+	if v, ok := num(params, "terminal_growth"); ok {
+		tg = v
+	}
+	netDebt, _ := num(params, "net_debt")
+	shares := 1.0
+	if v, ok := num(params, "diluted_shares"); ok {
+		shares = v
+	}
+	var curPx *float64
+	if v, ok := num(params, "current_price"); ok && v > 0 {
+		curPx = &v
+	}
+	res, err := quant.DCFValuation(baseFCF, rates, wacc, tg, netDebt, shares, curPx)
+	if err != nil {
+		return failed(err)
+	}
+	return toolResult{
+		Success: true,
+		Data: map[string]any{
+			"source":                     "deterministic Gordon-Growth DCF",
+			"projections":                res.Projections,
+			"pv_explicit_fcf":            res.PVExplicitFCF,
+			"terminal_value":             res.TerminalValue,
+			"pv_terminal_value":          res.PVTerminalValue,
+			"terminal_value_share_of_ev": res.TerminalValueShareEV,
+			"enterprise_value":           res.EnterpriseValue,
+			"equity_value":               res.EquityValue,
+			"implied_share_price":        res.ImpliedSharePrice,
+			"upside_vs_current_price":    res.UpsideVsCurrentPrice,
+			"sensitivity_matrix":         res.SensitivityMatrix,
+		},
+	}
+}
+
+func riskMetricsTool(_ context.Context, params map[string]any) toolResult {
+	isReturns := false
+	rawSeries, ok := params["equity_curve"].([]any)
+	if !ok || len(rawSeries) == 0 {
+		rawSeries, ok = params["returns"].([]any)
+		isReturns = true
+	}
+	if !ok || len(rawSeries) == 0 {
+		return failed(errors.New("provide 'equity_curve' or 'returns' array"))
+	}
+	series := make([]float64, 0, len(rawSeries))
+	for i, item := range rawSeries {
+		v, ok := numVal(item)
+		if !ok {
+			return failed(fmt.Errorf("series[%d] must be numeric", i))
+		}
+		series = append(series, v)
+	}
+	ppy := 252.0
+	if v, ok := num(params, "periods_per_year"); ok && v > 0 {
+		ppy = v
+	}
+	rf := 0.02
+	if v, ok := num(params, "risk_free_rate"); ok {
+		rf = v
+	}
+	res, err := quant.CalculateRiskMetrics(series, isReturns, ppy, rf)
+	if err != nil {
+		return failed(err)
+	}
+	return toolResult{
+		Success: true,
+		Data: map[string]any{
+			"observations":              res.Observations,
+			"total_return_pct":          res.TotalReturnPct,
+			"annualized_return_pct":     res.AnnualizedReturnPct,
+			"annualized_volatility_pct": res.AnnualizedVolPct,
+			"sharpe_ratio":              res.SharpeRatio,
+			"sortino_ratio":             res.SortinoRatio,
+			"max_drawdown_pct":          res.MaxDrawdownPct,
+			"calmar_ratio":              res.CalmarRatio,
+			"historical_var_95_pct":     res.HistoricalVaR95Pct,
+			"historical_cvar_95_pct":    res.HistoricalCVaR95Pct,
+			"historical_var_99_pct":     res.HistoricalVaR99Pct,
+			"historical_cvar_99_pct":    res.HistoricalCVaR99Pct,
+			"parametric_var_95_pct":     res.ParametricVaR95Pct,
+			"parametric_cvar_95_pct":    res.ParametricCVaR95Pct,
+			"monte_carlo_var_95_pct":    res.MonteCarloVaR95Pct,
+			"monte_carlo_cvar_95_pct":   res.MonteCarloCVaR95Pct,
+		},
+	}
+}
+
+func waccValuationTool(_ context.Context, params map[string]any) toolResult {
+	rf, okRF := num(params, "risk_free_rate")
+	beta, okBeta := num(params, "beta")
+	erp, okERP := num(params, "equity_risk_premium")
+	kd, okKD := num(params, "cost_of_debt")
+	tax, okTax := num(params, "tax_rate")
+	eq, okEq := num(params, "equity_value")
+	debt, _ := num(params, "debt_value")
+	if !okRF || !okBeta || !okERP || !okKD || !okTax || !okEq {
+		return failed(errors.New("risk_free_rate, beta, equity_risk_premium, cost_of_debt, tax_rate, and equity_value are required numbers"))
+	}
+	res, err := quant.ComputeWACC(rf, beta, erp, kd, tax, eq, debt)
+	if err != nil {
+		return failed(err)
+	}
+	return toolResult{
+		Success: true,
+		Data: map[string]any{
+			"cost_of_equity":         res.CostOfEquity,
+			"after_tax_cost_of_debt": res.AfterTaxDebt,
+			"equity_weight":          res.EquityWeight,
+			"debt_weight":            res.DebtWeight,
+			"wacc":                   res.WACC,
+		},
+	}
+}
+
+func peerCompsTool(_ context.Context, params map[string]any) toolResult {
+	rawPeers, ok := params["peers"].([]any)
+	if !ok || len(rawPeers) == 0 {
+		return failed(errors.New("peers must be a non-empty array of objects"))
+	}
+	peers := make([]quant.PeerMultipleInput, 0, len(rawPeers))
+	for _, item := range rawPeers {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		sym, _ := m["symbol"].(string)
+		p := quant.PeerMultipleInput{Symbol: sym}
+		if v, ok := numVal(m["ev_ebitda"]); ok && v > 0 {
+			val := v
+			p.EVEBITDA = &val
+		}
+		if v, ok := numVal(m["pe"]); ok && v > 0 {
+			val := v
+			p.PE = &val
+		}
+		if v, ok := numVal(m["ev_revenue"]); ok && v > 0 {
+			val := v
+			p.EVRevenue = &val
+		}
+		peers = append(peers, p)
+	}
+	targetEBITDA, _ := num(params, "target_ebitda")
+	targetNI, _ := num(params, "target_net_income")
+	targetRev, _ := num(params, "target_revenue")
+	netDebt, _ := num(params, "net_debt")
+	shares := 1.0
+	if v, ok := num(params, "diluted_shares"); ok && v > 0 {
+		shares = v
+	}
+	res, err := quant.PeerCompsValuation(peers, targetEBITDA, targetNI, targetRev, netDebt, shares)
+	if err != nil {
+		return failed(err)
+	}
+	return toolResult{
+		Success: true,
+		Data: map[string]any{
+			"peer_count": res.PeerCount,
+			"ev_ebitda":  res.EVEBITDA,
+			"pe":         res.PE,
+			"ev_revenue": res.EVRevenue,
+		},
+	}
+}

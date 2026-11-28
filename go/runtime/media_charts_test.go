@@ -250,7 +250,7 @@ func TestChartTools(t *testing.T) {
 		"days":            {"symbol": "A", "rows": rows, "days": 5},
 		"service failure": {"symbol": "FAIL"},
 		"existing output": {"symbol": "A", "rows": rows, "output_path": named},
-		"wrong extension": {"symbol": "A", "rows": rows, "output_path": filepath.Join(home, "x.png")},
+		"wrong extension": {"symbol": "A", "rows": rows, "output_path": filepath.Join(home, "x.jpg")},
 	} {
 		if r := mcpReportChart(ctx, call); r["success"] != false {
 			t.Fatal(name, "accepted", r)

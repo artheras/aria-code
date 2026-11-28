@@ -197,6 +197,46 @@ pub fn builtin_ecosystem_skills() -> Vec<(SkillInfo, &'static str)> {
              2. **Evidence Grading**: Pass retrieved studies into the evidence review / synthesis tool to separate RCTs, meta-analyses, and observational data.\n\
              3. **Clinical & Research Workbench**: Structure findings with clear citations, limitations, and non-diagnostic safety boundaries.\n",
         ),
+        (
+            SkillInfo {
+                name: "spreadsheet-modeling".into(),
+                description: "Institutional Excel (.xlsx) modeling and 3PL reconciliation standards: live formulas, blue/black/green color coding, zero formula errors, and Audit_Provenance tabs".into(),
+                path: PathBuf::from("builtin://spreadsheet-modeling/SKILL.md"),
+                scope: "builtin",
+            },
+            "---\nname: spreadsheet-modeling\ndescription: Institutional Excel (.xlsx) financial modeling and 3PL logistics reconciliation standards\n---\n\
+             # Institutional Spreadsheet Modeling & Reconciliation SOP\n\n\
+             1. **Live Formulas Over Static Numbers**: Use `export_xlsx` / `aria.report.xlsx` with real Excel formulas (`=SUM(...)`, `=IF(...)`, cross-sheet `'Assumptions'!B3`) rather than hardcoded calculated numbers.\n\
+             2. **Color Coding**: Hardcoded numeric inputs in Blue (`role: \"input\"`), same-sheet formulas in Black (`role: \"formula\"`), cross-sheet links in Green (`role: \"link\"`).\n\
+             3. **Zero Formula Errors**: Guard potential zero denominators (`=IF(B2=0,0,C2/B2)`); never output `#REF!`, `#DIV/0!`, `#VALUE!`, or `#NAME?`.\n\
+             4. **Audit Provenance & Tenancy**: Include `provenance` (`source`, `as_of`, `owner_id`, `assumptions`, `limitations`) and never mix multiple shippers' data.\n",
+        ),
+        (
+            SkillInfo {
+                name: "document-studio".into(),
+                description: "Tier-2 high-fidelity Office generation (.xlsx/.pptx/.docx) and LibreOffice + Poppler visual self-inspection via arthera-doc-studio".into(),
+                path: PathBuf::from("builtin://document-studio/SKILL.md"),
+                scope: "builtin",
+            },
+            "---\nname: document-studio\ndescription: Claude-style high-fidelity Office generation and visual QA via arthera-doc-studio\n---\n\
+             # Document Studio Workflow (Generate -> Render -> Inspect -> Fix)\n\n\
+             1. **Check Capabilities**: Call `doc_studio_capabilities` to confirm `soffice` and `pdftoppm` availability.\n\
+             2. **Generate**: Use `doc_build_xlsx` (live formulas + `Audit_Provenance`), `doc_build_pptx` (preset themes, KPI cards, tables, charts), or `doc_build_docx` (reports or `{{placeholder}}` template fill).\n\
+             3. **Visual QA**: Call `doc_render_visual_qa` to convert to PDF and render page PNGs, inspect pages for clipping/overlap, and fix before final delivery.\n",
+        ),
+        (
+            SkillInfo {
+                name: "career-copilot".into(),
+                description: "Job-search workflow via arthera-career (resume parsing, JD matching, DOCX pack generation, SQLite tracking) and arthera-doc-studio visual QA".into(),
+                path: PathBuf::from("builtin://career-copilot/SKILL.md"),
+                scope: "builtin",
+            },
+            "---\nname: career-copilot\ndescription: Honest job-search workflow using arthera-career and arthera-doc-studio\n---\n\
+             # Career Copilot Workflow\n\n\
+             1. **Ingest & Parse**: Use `career_ingest_jobs` for job feeds and `career_parse_resume` on the user's actual resume (never fabricate skills or dates).\n\
+             2. **Match & Tailor**: Call `career_match_jd` for deterministic skill-gap analysis, then `career_prepare_application_pack` for tailored `.docx` deliverables.\n\
+             3. **Visual QA & Track**: Inspect generated `.docx` pages via `doc_render_visual_qa` when `arthera-doc-studio` is available, and track applications via `career_track_application`.\n",
+        ),
     ]
 }
 

@@ -396,7 +396,28 @@ func parseStmt(tokens []pyTok, i *int) int {
 	if tokens[*i].kind == pyName && pyCompound[tokens[*i].text] {
 		return parseCompound(tokens, i)
 	}
+	// Reject invalid assignment targets like `lambda x: x = 1`, `True = 1`, or `1 = 2`
+	stmtStart := *i
 	for *i < len(tokens) && tokens[*i].kind != pyNewline && tokens[*i].kind != pyEnd && tokens[*i].kind != pyDedent {
+		if tokens[*i].kind == pyOp && tokens[*i].text == "=" && *i > stmtStart {
+			first := tokens[stmtStart]
+			if first.kind == pyName && (first.text == "lambda" || first.text == "True" || first.text == "False" || first.text == "None" || first.text == "num" || first.text == "str") {
+				// Ensure the `=` is at top-level (not inside parens/brackets, e.g. `foo(bar=1)` is ok, `lambda x: x = 1` is invalid)
+				depth := 0
+				for j := stmtStart; j < *i; j++ {
+					if tokens[j].kind == pyOp {
+						if tokens[j].text == "(" || tokens[j].text == "[" || tokens[j].text == "{" {
+							depth++
+						} else if tokens[j].text == ")" || tokens[j].text == "]" || tokens[j].text == "}" {
+							depth--
+						}
+					}
+				}
+				if depth == 0 {
+					return tokens[*i].line
+				}
+			}
+		}
 		*i++
 	}
 	if *i < len(tokens) && tokens[*i].kind == pyNewline {

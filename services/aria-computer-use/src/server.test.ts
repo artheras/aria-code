@@ -170,6 +170,26 @@ test("cross-platform human approval adapters and fail-closed headless", () => {
     false,
   );
   assert.equal(approvalBackendLabel("linux", {}), "unavailable (fail-closed deny)");
+  assert.equal(
+    approvalBackendLabel("linux", { ARIA_COMPUTER_APPROVAL_CMD: "/usr/local/bin/aria-approve" }),
+    "host approval hook (ARIA_COMPUTER_APPROVAL_CMD)",
+  );
+  assert.equal(
+    requestHumanApproval("Allow?", {
+      platform: "linux",
+      env: { ARIA_COMPUTER_APPROVAL_CMD: "/usr/local/bin/aria-approve" },
+      exec: () => "allow\n",
+    }),
+    true,
+  );
+  assert.equal(
+    requestHumanApproval("Allow?", {
+      platform: "linux",
+      env: { ARIA_COMPUTER_APPROVAL_CMD: "/usr/local/bin/aria-approve" },
+      exec: () => "deny\n",
+    }),
+    false,
+  );
 });
 
 test("MCP JSON-RPC dispatch lists all 18 tools and executes full workflow", async () => {

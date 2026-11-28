@@ -218,9 +218,9 @@ pub fn handle_export_report_command(
     let Some(first) = tokens.first() else {
         return (
             if zh {
-                "用法: `/export-report <input.md> [--pdf|--html|--docx|--pptx]`".to_owned()
+                "用法: `/export-report <input.md> [--pdf|--html|--docx|--pptx|--xlsx]`".to_owned()
             } else {
-                "Usage: `/export-report <input.md> [--pdf|--html|--docx|--pptx]`".to_owned()
+                "Usage: `/export-report <input.md> [--pdf|--html|--docx|--pptx|--xlsx]`".to_owned()
             },
             "completed",
         );
@@ -228,8 +228,11 @@ pub fn handle_export_report_command(
     let as_pdf = tokens.contains(&"--pdf");
     let as_docx = tokens.contains(&"--docx");
     let as_pptx = tokens.contains(&"--pptx");
+    let as_xlsx = tokens.contains(&"--xlsx");
     let in_path = Path::new(first);
-    let ext = if as_pptx {
+    let ext = if as_xlsx {
+        "xlsx"
+    } else if as_pptx {
         "pptx"
     } else if as_docx {
         "docx"
@@ -247,7 +250,9 @@ pub fn handle_export_report_command(
         .join("exports")
         .join(format!("{stem}.{ext}"));
 
-    let result = if as_pptx {
+    let result = if as_xlsx {
+        export_markdown_xlsx(workspace, in_path, &out_path)
+    } else if as_pptx {
         export_markdown_pptx(workspace, in_path, &out_path)
     } else if as_docx {
         export_markdown_docx(workspace, in_path, &out_path)
@@ -294,6 +299,11 @@ pub fn render_markdown_docx_xml(md: &str) -> String {
         text.clear();
     };
 
+    let mut in_table = false;
+    let mut table_rows: Vec<Vec<String>> = Vec::new();
+    let mut cur_row: Vec<String> = Vec::new();
+    let mut in_cell = false;
+
     for ev in Parser::new_ext(md, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH) {
         match ev {
             Event::Start(Tag::Heading { level, .. }) => {
@@ -304,6 +314,60 @@ pub fn render_markdown_docx_xml(md: &str) -> String {
                 let lvl = cur_heading.take().unwrap_or(1).clamp(1, 4);
                 let style = format!("Heading{lvl}");
                 flush_para(&mut body, &mut cur_text, Some(&style));
+            }
+            Event::Start(Tag::Table(_)) => {
+                in_table = true;
+                table_rows.clear();
+            }
+            Event::End(TagEnd::Table) => {
+                in_table = false;
+                if !table_rows.is_empty() {
+                    let cols = table_rows.iter().map(|r| r.len()).max().unwrap_or(1).max(1);
+                    body.push_str("<w:tbl><w:tblPr><w:tblW w:w=\"5000\" w:type=\"pct\"/></w:tblPr><w:tblGrid>");
+                    for _ in 0..cols {
+                        body.push_str(&format!("<w:gridCol w:w=\"{}\"/>", 9638 / cols));
+                    }
+                    body.push_str("</w:tblGrid>");
+                    for (r_idx, row) in table_rows.iter().enumerate() {
+                        body.push_str("<w:tr>");
+                        for cell in row {
+                            let shade = if r_idx == 0 {
+                                "<w:tcPr><w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"1F2937\"/></w:tcPr>"
+                            } else {
+                                ""
+                            };
+                            let rpr = if r_idx == 0 {
+                                "<w:rPr><w:b/><w:color w:val=\"FFFFFF\"/></w:rPr>"
+                            } else {
+                                ""
+                            };
+                            body.push_str(&format!(
+                                "<w:tc>{shade}<w:p><w:r>{rpr}<w:t xml:space=\"preserve\">{}</w:t></w:r></w:p></w:tc>",
+                                xml_escape(cell)
+                            ));
+                        }
+                        body.push_str("</w:tr>");
+                    }
+                    body.push_str("</w:tbl><w:p/>");
+                }
+                table_rows.clear();
+            }
+            Event::Start(Tag::TableHead) | Event::Start(Tag::TableRow) => {
+                cur_row.clear();
+            }
+            Event::End(TagEnd::TableHead) | Event::End(TagEnd::TableRow) => {
+                if !cur_row.is_empty() {
+                    table_rows.push(std::mem::take(&mut cur_row));
+                }
+            }
+            Event::Start(Tag::TableCell) => {
+                in_cell = true;
+                cur_text.clear();
+            }
+            Event::End(TagEnd::TableCell) => {
+                in_cell = false;
+                cur_row.push(cur_text.trim().to_owned());
+                cur_text.clear();
             }
             Event::Start(Tag::Item) => {
                 in_list_item = true;
@@ -318,12 +382,12 @@ pub fn render_markdown_docx_xml(md: &str) -> String {
             }
             Event::End(TagEnd::Paragraph) => {
                 in_para = false;
-                if !in_list_item && cur_heading.is_none() {
+                if !in_list_item && cur_heading.is_none() && !in_table {
                     flush_para(&mut body, &mut cur_text, None);
                 }
             }
             Event::Text(t) | Event::Code(t) => {
-                if cur_heading.is_some() || in_list_item || in_para {
+                if cur_heading.is_some() || in_list_item || in_para || in_cell {
                     cur_text.push_str(&t);
                 }
             }
@@ -595,7 +659,7 @@ pub fn export_markdown_pptx(
     let pres_xml = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
 <p:presentation xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">\
-<p:sldIdLst>{sld_id_lst}</p:sldIdLst><p:sldSz cx=\"9144000\" cy=\"6858000\"/></p:presentation>"
+<p:sldIdLst>{sld_id_lst}</p:sldIdLst><p:sldSz cx=\"12192000\" cy=\"6858000\"/></p:presentation>"
     );
     let pres_rels_xml = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\
@@ -610,6 +674,239 @@ pub fn export_markdown_pptx(
         ("ppt/_rels/presentation.xml.rels", pres_rels_xml.as_bytes()),
     ];
     for (path, bytes) in &slide_files {
+        entries.push((path.as_str(), bytes.as_slice()));
+    }
+    let zip_bytes = write_store_zip(&entries);
+
+    let abs_out = if out_path.is_absolute() {
+        out_path.to_path_buf()
+    } else {
+        workspace.join(out_path)
+    };
+    if let Some(parent) = abs_out.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("failed to create output dir: {e}"))?;
+    }
+    fs::write(&abs_out, zip_bytes)
+        .map_err(|e| format!("failed to write {}: {e}", abs_out.display()))?;
+    Ok(abs_out)
+}
+
+fn xlsx_col_ref(col: usize) -> String {
+    let mut n = col + 1;
+    let mut chars = Vec::new();
+    while n > 0 {
+        n -= 1;
+        chars.push((b'A' + (n % 26) as u8) as char);
+        n /= 26;
+    }
+    chars.into_iter().rev().collect()
+}
+
+/// Export GFM tables (or summary sections) from Markdown into a valid `.xlsx` workbook.
+pub fn export_markdown_xlsx(
+    workspace: &Path,
+    in_path: &Path,
+    out_path: &Path,
+) -> Result<PathBuf, String> {
+    let abs_in = if in_path.is_absolute() {
+        in_path.to_path_buf()
+    } else {
+        workspace.join(in_path)
+    };
+    let md = fs::read_to_string(&abs_in)
+        .map_err(|e| format!("failed to read {}: {e}", abs_in.display()))?;
+
+    let mut sheets: Vec<(String, Vec<Vec<String>>)> = Vec::new();
+    let mut cur_heading = String::from("Summary");
+    let mut cur_text = String::new();
+    let mut in_heading = false;
+    let mut table_rows: Vec<Vec<String>> = Vec::new();
+    let mut cur_row: Vec<String> = Vec::new();
+    let mut in_cell = false;
+
+    for ev in Parser::new_ext(&md, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH) {
+        match ev {
+            Event::Start(Tag::Heading { .. }) => {
+                in_heading = true;
+                cur_text.clear();
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                in_heading = false;
+                let h = cur_text.trim().to_owned();
+                if !h.is_empty() {
+                    cur_heading = h;
+                }
+                cur_text.clear();
+            }
+            Event::Start(Tag::Table(_)) => {
+                table_rows.clear();
+            }
+            Event::End(TagEnd::Table) => {
+                if !table_rows.is_empty() {
+                    let clean_name: String = cur_heading
+                        .chars()
+                        .filter(|c| !matches!(c, ':' | '\\' | '/' | '?' | '*' | '[' | ']'))
+                        .take(28)
+                        .collect();
+                    let name = if clean_name.trim().is_empty() {
+                        format!("Sheet{}", sheets.len() + 1)
+                    } else {
+                        clean_name.trim().to_owned()
+                    };
+                    sheets.push((name, std::mem::take(&mut table_rows)));
+                }
+            }
+            Event::Start(Tag::TableHead) | Event::Start(Tag::TableRow) => {
+                cur_row.clear();
+            }
+            Event::End(TagEnd::TableHead) | Event::End(TagEnd::TableRow) => {
+                if !cur_row.is_empty() {
+                    table_rows.push(std::mem::take(&mut cur_row));
+                }
+            }
+            Event::Start(Tag::TableCell) => {
+                in_cell = true;
+                cur_text.clear();
+            }
+            Event::End(TagEnd::TableCell) => {
+                in_cell = false;
+                cur_row.push(cur_text.trim().to_owned());
+                cur_text.clear();
+            }
+            Event::Text(t) | Event::Code(t) => {
+                if in_heading || in_cell {
+                    cur_text.push_str(&t);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if sheets.is_empty() {
+        let mut fallback_rows = vec![vec!["Line".to_owned(), "Content".to_owned()]];
+        for (i, line) in md.lines().filter(|l| !l.trim().is_empty()).enumerate() {
+            fallback_rows.push(vec![(i + 1).to_string(), line.trim().to_owned()]);
+        }
+        sheets.push(("Summary".to_owned(), fallback_rows));
+    }
+
+    let mut shared: Vec<String> = Vec::new();
+    let mut shared_map = std::collections::HashMap::<String, usize>::new();
+    let mut intern = |s: &str| -> usize {
+        if let Some(&idx) = shared_map.get(s) {
+            return idx;
+        }
+        let idx = shared.len();
+        shared.push(s.to_owned());
+        shared_map.insert(s.to_owned(), idx);
+        idx
+    };
+
+    let mut overrides = String::from(
+        "  <Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>\n\
+         <Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/>\n\
+         <Override PartName=\"/xl/sharedStrings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml\"/>\n",
+    );
+    let mut wb_sheets = String::new();
+    let mut wb_rels = String::new();
+    let mut sheet_files: Vec<(String, Vec<u8>)> = Vec::new();
+
+    for (idx, (name, rows)) in sheets.iter().enumerate() {
+        let n = idx + 1;
+        let path = format!("xl/worksheets/sheet{n}.xml");
+        overrides.push_str(&format!(
+            "  <Override PartName=\"/{path}\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>\n"
+        ));
+        wb_sheets.push_str(&format!(
+            "<sheet name=\"{}\" sheetId=\"{n}\" r:id=\"rId{n}\"/>",
+            xml_escape(name)
+        ));
+        wb_rels.push_str(&format!(
+            "<Relationship Id=\"rId{n}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet{n}.xml\"/>"
+        ));
+
+        let mut rows_xml = String::new();
+        for (r_idx, row) in rows.iter().enumerate() {
+            let r_num = r_idx + 1;
+            rows_xml.push_str(&format!("<row r=\"{r_num}\">"));
+            for (c_idx, val) in row.iter().enumerate() {
+                let cell_ref = format!("{}{}", xlsx_col_ref(c_idx), r_num);
+                let trimmed = val.trim();
+                let style = if r_idx == 0 { "1" } else { "0" };
+                if r_idx > 0 && trimmed.starts_with('=') && trimmed.len() > 1 {
+                    rows_xml.push_str(&format!(
+                        "<c r=\"{cell_ref}\" s=\"{style}\"><f>{}</f></c>",
+                        xml_escape(trimmed.trim_start_matches('='))
+                    ));
+                } else if r_idx > 0 && trimmed.parse::<f64>().is_ok() {
+                    rows_xml.push_str(&format!(
+                        "<c r=\"{cell_ref}\" s=\"{style}\"><v>{trimmed}</v></c>"
+                    ));
+                } else {
+                    let s_id = intern(trimmed);
+                    rows_xml.push_str(&format!(
+                        "<c r=\"{cell_ref}\" s=\"{style}\" t=\"s\"><v>{s_id}</v></c>"
+                    ));
+                }
+            }
+            rows_xml.push_str("</row>");
+        }
+        let sheet_xml = format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+             <worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">\
+             <sheetData>{rows_xml}</sheetData></worksheet>"
+        );
+        sheet_files.push((path, sheet_xml.into_bytes()));
+    }
+
+    let style_rid = sheets.len() + 1;
+    let ss_rid = sheets.len() + 2;
+    wb_rels.push_str(&format!(
+        "<Relationship Id=\"rId{style_rid}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>\
+         <Relationship Id=\"rId{ss_rid}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings\" Target=\"sharedStrings.xml\"/>"
+    ));
+
+    let content_types = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+         <Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">\
+         <Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>\
+         <Default Extension=\"xml\" ContentType=\"application/xml\"/>\
+         {overrides}</Types>"
+    );
+    let root_rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#;
+    let wb_xml = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+         <workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">\
+         <sheets>{wb_sheets}</sheets><calcPr calcId=\"191029\" fullCalcOnLoad=\"1\"/></workbook>"
+    );
+    let wb_rels_xml = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+         <Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">{wb_rels}</Relationships>"
+    );
+    let styles_xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1F2937"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs></styleSheet>"#;
+
+    let mut ss_xml = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><sst xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" count=\"{}\" uniqueCount=\"{}\">",
+        shared.len(),
+        shared.len()
+    );
+    for s in &shared {
+        ss_xml.push_str(&format!(
+            "<si><t xml:space=\"preserve\">{}</t></si>",
+            xml_escape(s)
+        ));
+    }
+    ss_xml.push_str("</sst>");
+
+    let mut entries: Vec<(&str, &[u8])> = vec![
+        ("[Content_Types].xml", content_types.as_bytes()),
+        ("_rels/.rels", root_rels.as_bytes()),
+        ("xl/workbook.xml", wb_xml.as_bytes()),
+        ("xl/_rels/workbook.xml.rels", wb_rels_xml.as_bytes()),
+        ("xl/styles.xml", styles_xml.as_bytes()),
+        ("xl/sharedStrings.xml", ss_xml.as_bytes()),
+    ];
+    for (path, bytes) in &sheet_files {
         entries.push((path.as_str(), bytes.as_slice()));
     }
     let zip_bytes = write_store_zip(&entries);
@@ -695,5 +992,27 @@ mod tests {
         assert!(raw.contains("ppt/slides/slide2.xml"));
         assert!(raw.contains("Slide One"));
         assert!(raw.contains("Slide Two"));
+    }
+
+    #[test]
+    fn exports_and_reads_valid_xlsx_workbook_from_markdown() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let md = "# Valuation\n\n| Metric | Value |\n| --- | --- |\n| Revenue | 1200 |\n| Growth | =B2*0.1 |\n";
+        fs::write(dir.path().join("model.md"), md).expect("write md");
+
+        let (msg, status) =
+            handle_export_report_command(dir.path(), "model.md --xlsx", true, false);
+        assert_eq!(status, "completed");
+        assert!(msg.contains("model.xlsx"));
+
+        let bytes = fs::read(dir.path().join(".aria").join("exports").join("model.xlsx"))
+            .expect("read xlsx");
+        assert!(bytes.starts_with(b"PK\x03\x04"));
+        let extracted =
+            crate::engine::office_read::extract_office_text(&bytes, "xlsx").expect("extract xlsx");
+        assert!(extracted.contains("Valuation"));
+        assert!(extracted.contains("Revenue"));
+        assert!(extracted.contains("1200"));
+        assert!(extracted.contains("=B2*0.1"));
     }
 }

@@ -41,9 +41,9 @@ class TestErpLogisticsHost(unittest.TestCase):
 
         listed = erp_logistics.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, None)
         names = [t["name"] for t in listed["result"]["tools"]]
-        self.assertEqual(
+        self.assertTrue(
+            {"analyze_logistics_data", "score_carriers", "plan_inventory_policy"}.issubset(names),
             names,
-            ["analyze_logistics_data", "score_carriers", "plan_inventory_policy"],
         )
         for tool in listed["result"]["tools"]:
             self.assertTrue(tool["annotations"]["readOnlyHint"])

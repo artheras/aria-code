@@ -41,7 +41,7 @@ var directFinance = map[string]bool{"/broker": true, "/positions": true, "/order
 
 // offlineQuantCommands can be answered with built-in deterministic Rust/Go quant tools
 // even when the external arthera-financial-service MCP server is not connected.
-var offlineQuantCommands = map[string]bool{"/backtest": true, "/optimize": true, "/optimize-port": true, "/options": true}
+var offlineQuantCommands = map[string]bool{"/backtest": true, "/optimize": true, "/optimize-port": true, "/options": true, "/risk": true, "/stress": true, "/analyze": true}
 
 // financeTools are the service's tools as the model sees them.
 func (s *server) financeTools(ctx context.Context) []string {
@@ -77,7 +77,7 @@ func (s *server) financePrompt(ctx context.Context, name, extra string) (string,
 		if offlineQuantCommands[name] {
 			return "The user ran the quantitative finance command " + request + ".\n\n" +
 				"The external Arthera financial-service is not connected, so answer using the built-in deterministic quant tools " +
-				"(price_option, optimize_portfolio, run_backtest, inspect_data, aggregate_data) with data supplied by the user or workspace files. " +
+				"(price_option, optimize_portfolio, run_backtest, dcf_valuation, risk_metrics, inspect_data, aggregate_data) with data supplied by the user or workspace files. " +
 				"Never invent live market quotes. This is analysis, not investment advice.", nil
 		}
 		return "", err
@@ -85,8 +85,8 @@ func (s *server) financePrompt(ctx context.Context, name, extra string) (string,
 	return "The user ran the finance command " + request + ".\n\n" +
 		"Answer it with the Arthera financial-service tools (" + strings.Join(tools, ", ") + "). " +
 		"Use only figures those tools return or the user supplied, cite each tool result's source and as-of date, " +
-		"and keep missing values unknown. If the tools cannot answer this request (live quotes, news, order placement " +
-		"and A-share screens are not among them), say so plainly and say what would be needed; never invent data. " +
+		"and keep missing values unknown. If host networking or an upstream source key is disabled and a tool reports unavailable data, " +
+		"say so plainly and state what host setting would be needed; never invent data. " +
 		"This is analysis, not investment advice.", nil
 }
 

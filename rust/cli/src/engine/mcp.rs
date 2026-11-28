@@ -791,6 +791,50 @@ pub fn discover_ecosystem_mcp_servers(workspace: &Path) -> Vec<McpServerConfig> 
         }
     }
 
+    // `artheras/arthera-doc-studio`: Tier-2 high-fidelity Office + LibreOffice/Poppler visual QA.
+    let doc_candidates = [
+        base.join("services").join("arthera-doc-studio"),
+        parent.join("arthera-doc-studio"),
+    ];
+    for doc_root in &doc_candidates {
+        let doc_src = doc_root.join("src");
+        let doc_server_py = doc_src.join("arthera_doc_studio").join("server.py");
+        if let Some(cfg) = build_python_service_config(
+            "arthera-doc-studio",
+            doc_root,
+            "arthera-doc-studio",
+            &doc_src,
+            "arthera_doc_studio.server",
+            &doc_server_py,
+        ) {
+            found.push(cfg);
+            break;
+        }
+    }
+
+    // `artheras/career-service`: Career Copilot (resume parsing, JD matching, SQLite tracking).
+    let career_candidates = [
+        base.join("services").join("career-service"),
+        base.join("services").join("arthera-career"),
+        parent.join("career-service"),
+        parent.join("arthera-career"),
+    ];
+    for career_root in &career_candidates {
+        let career_src = career_root.join("src");
+        let career_server_py = career_src.join("arthera_career").join("server.py");
+        if let Some(cfg) = build_python_service_config(
+            "arthera-career",
+            career_root,
+            "arthera-career",
+            &career_src,
+            "arthera_career.server",
+            &career_server_py,
+        ) {
+            found.push(cfg);
+            break;
+        }
+    }
+
     // `artheras/healthcare-service`: biomedical literature & evidence over MCP.
     let hc_root = parent.join("healthcare-service");
     let hc_src = hc_root.join("src");
@@ -1423,6 +1467,8 @@ mod tests {
             ("erp-service", "erp_service", "mcp_server.py"),
             ("financial-service", "arthera_finance", "server.py"),
             ("financial-service", "arthera_finance", "trading_server.py"),
+            ("arthera-doc-studio", "arthera_doc_studio", "server.py"),
+            ("career-service", "arthera_career", "server.py"),
             ("healthcare-service", "aria_healthcare", "server.py"),
         ] {
             let svc = root.path().join(dir);
@@ -1435,7 +1481,9 @@ mod tests {
         }
 
         let found = discover_ecosystem_mcp_servers(&ws);
-        assert_eq!(found.len(), 4);
+        assert_eq!(found.len(), 6);
+        assert!(found.iter().any(|c| c.name == "arthera-doc-studio"));
+        assert!(found.iter().any(|c| c.name == "arthera-career"));
         for cfg in &found {
             assert_eq!(cfg.args.first().map(String::as_str), Some("-I"));
             assert_eq!(cfg.args.get(1).map(String::as_str), Some("-m"));

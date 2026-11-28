@@ -32,7 +32,7 @@ type colStats struct {
 	FreqMap map[string]int
 }
 
-// inspectDataTool profiles and summarizes structured tabular datasets (CSV, TSV, JSON, JSONL).
+// inspectDataTool profiles and summarizes structured tabular datasets (CSV, TSV, JSON, JSONL, XLSX).
 // It returns schema, data health, numeric distributions and head samples,
 // keeping token usage under ~400 tokens regardless of raw file size.
 func inspectDataTool(ctx context.Context, sc *scope, params map[string]any) toolResult {
@@ -55,6 +55,7 @@ func inspectDataTool(ctx context.Context, sc *scope, params map[string]any) tool
 	if hl, ok := params["head"].(float64); ok && hl >= 0 {
 		headLimit = int(hl)
 	}
+	sheetParam := strings.TrimSpace(str(params, "sheet", ""))
 
 	file, err := os.Open(targetPath)
 	if err != nil {
@@ -65,8 +66,37 @@ func inspectDataTool(ctx context.Context, sc *scope, params map[string]any) tool
 	ext := strings.ToLower(filepath.Ext(targetPath))
 	var headers []string
 	var rows [][]string
+	var sheetNames []string
+	var activeSheet string
+	var formulaCount int
 
 	switch ext {
+	case ".xlsx", ".xlsm":
+		rawBytes, err := io.ReadAll(io.LimitReader(file, (32<<20)+1))
+		if err != nil {
+			return failed(err)
+		}
+		if len(rawBytes) > 32<<20 {
+			return failed(errors.New("Excel workbook exceeds 32 MiB limit"))
+		}
+		sheets, err := xlsxReadWorkbook(ctx, rawBytes, maxRows+1)
+		if err != nil {
+			return failed(err)
+		}
+		chosen, names, err := selectXlsxSheet(sheets, sheetParam)
+		if err != nil {
+			return failed(err)
+		}
+		sheetNames = names
+		activeSheet = chosen.Name
+		formulaCount = chosen.FormulaCount
+		if len(chosen.Rows) > 0 {
+			headers = chosen.Rows[0]
+			if len(chosen.Rows) > 1 {
+				rows = chosen.Rows[1:]
+			}
+		}
+
 	case ".csv", ".tsv", ".txt":
 		sep := rune(',')
 		if ext == ".tsv" {
@@ -180,7 +210,7 @@ func inspectDataTool(ctx context.Context, sc *scope, params map[string]any) tool
 		}
 
 	default:
-		return failed(fmt.Errorf("unsupported structured data format '%s'; supported: .csv, .tsv, .json, .jsonl", ext))
+		return failed(fmt.Errorf("unsupported structured data format '%s'; supported: .csv, .tsv, .json, .jsonl, .xlsx", ext))
 	}
 
 	if len(headers) == 0 {
@@ -264,6 +294,9 @@ func inspectDataTool(ctx context.Context, sc *scope, params map[string]any) tool
 	// Build compact summary report
 	var b bytes.Buffer
 	b.WriteString(fmt.Sprintf("### Dataset Profile: `%s`\n", filepath.Base(targetPath)))
+	if activeSheet != "" {
+		b.WriteString(fmt.Sprintf("- **Sheet**: `%s` (Sheets: %s) | **Formulas**: %d\n", activeSheet, strings.Join(sheetNames, ", "), formulaCount))
+	}
 	b.WriteString(fmt.Sprintf("- **Rows Sampled**: %d | **Columns**: %d\n\n", len(rows), len(headers)))
 	b.WriteString("| Column | Type | Null% | Min / Stats | Max / Top Values |\n")
 	b.WriteString("| :--- | :--- | :--- | :--- | :--- |\n")
@@ -312,15 +345,21 @@ func inspectDataTool(ctx context.Context, sc *scope, params map[string]any) tool
 		}
 	}
 
+	dataOut := map[string]any{
+		"summary":   b.String(),
+		"row_count": len(rows),
+		"col_count": len(headers),
+		"columns":   headers,
+		"path":      targetPath,
+	}
+	if activeSheet != "" {
+		dataOut["sheet"] = activeSheet
+		dataOut["sheets"] = sheetNames
+		dataOut["formula_count"] = formulaCount
+	}
 	return toolResult{
 		Success: true,
-		Data: map[string]any{
-			"summary":   b.String(),
-			"row_count": len(rows),
-			"col_count": len(headers),
-			"columns":   headers,
-			"path":      targetPath,
-		},
+		Data:    dataOut,
 	}
 }
 
@@ -417,11 +456,36 @@ func aggregateDataTool(ctx context.Context, sc *scope, params map[string]any) to
 	}
 	defer file.Close()
 
+	sheetParam := strings.TrimSpace(str(params, "sheet", ""))
 	ext := strings.ToLower(filepath.Ext(targetPath))
 	var headers []string
 	var rows [][]string
 
 	switch ext {
+	case ".xlsx", ".xlsm":
+		rawBytes, err := io.ReadAll(io.LimitReader(file, (32<<20)+1))
+		if err != nil {
+			return failed(err)
+		}
+		if len(rawBytes) > 32<<20 {
+			return failed(errors.New("Excel workbook exceeds 32 MiB limit"))
+		}
+		sheets, err := xlsxReadWorkbook(ctx, rawBytes, 0)
+		if err != nil {
+			return failed(err)
+		}
+		chosen, _, err := selectXlsxSheet(sheets, sheetParam)
+		if err != nil {
+			return failed(err)
+		}
+		if len(chosen.Rows) == 0 {
+			return failed(errors.New("Excel worksheet has no rows"))
+		}
+		headers = chosen.Rows[0]
+		if len(chosen.Rows) > 1 {
+			rows = chosen.Rows[1:]
+		}
+
 	case ".csv", ".tsv", ".txt":
 		sep := rune(',')
 		if ext == ".tsv" {
@@ -483,7 +547,7 @@ func aggregateDataTool(ctx context.Context, sc *scope, params map[string]any) to
 		}
 
 	default:
-		return failed(fmt.Errorf("unsupported tabular format '%s' for aggregate_data; supported: .csv, .tsv, .jsonl", ext))
+		return failed(fmt.Errorf("unsupported tabular format '%s' for aggregate_data; supported: .csv, .tsv, .jsonl, .xlsx", ext))
 	}
 
 	groupIdx := -1

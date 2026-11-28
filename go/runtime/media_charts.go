@@ -19,6 +19,8 @@ import (
 	"html"
 	"math"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -1091,7 +1093,54 @@ func allocationChartSVG(slices []allocSlice, title string) string {
 
 // ── Tools ────────────────────────────────────────────────────────────────────
 
+func renderSVGToPNG(ctx context.Context, svg, out string) error {
+	browser := browserBinary()
+	if browser == "" {
+		return errors.New("PNG chart export requires Chrome, Chromium or Edge (set ARIA_BROWSER or use .svg)")
+	}
+	dir, err := os.MkdirTemp("", "aria-chart-png-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	page := filepath.Join(dir, "chart.html")
+	htmlDoc := `<!doctype html><html><body style="margin:0;background:#fff">` + svg + `</body></html>`
+	if err := os.WriteFile(page, []byte(htmlDoc), 0o600); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, browser, "--headless=new", "--disable-gpu", "--no-sandbox",
+		"--hide-scrollbars", "--window-size=960,640",
+		"--user-data-dir="+filepath.Join(dir, "profile"),
+		"--screenshot="+out, "file://"+filepath.ToSlash(page))
+	if outBytes, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("chart PNG render failed: %w (%s)", err, strings.TrimSpace(string(outBytes)))
+	}
+	info, err := os.Stat(out)
+	if err != nil || info.Size() == 0 {
+		return errors.New("browser produced no PNG screenshot")
+	}
+	return nil
+}
+
 func writeChart(args map[string]any, name, svg string) map[string]any {
+	wantPNG := strings.EqualFold(strings.TrimSpace(str(args, "format", "")), "png")
+	if rawOut, _ := args["output_path"].(string); strings.HasSuffix(strings.ToLower(strings.TrimSpace(rawOut)), ".png") {
+		wantPNG = true
+	}
+	if wantPNG {
+		out, err := artifactOutput(args, "chart", name, ".png")
+		if err != nil {
+			return mcpFail(err.Error())
+		}
+		if err := renderSVGToPNG(context.Background(), svg, out); err != nil {
+			os.Remove(out)
+			return mcpFail(err.Error())
+		}
+		info, _ := os.Stat(out)
+		return map[string]any{"success": true, "path": out, "bytes": info.Size(), "format": "png"}
+	}
 	out, err := artifactOutput(args, "chart", name, ".svg")
 	if err != nil {
 		return mcpFail(err.Error())
@@ -1398,6 +1447,7 @@ func init() {
 			"rows":        map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "Daily rows {date, open, high, low, close, volume}, oldest first — e.g. financial_market_history's data. Omit to fetch them from the registered financial-service."},
 			"data_path":   map[string]any{"type": "string", "description": "Or a JSON file of those rows (or of the whole tool result), under the working or home directory."},
 			"days":        map[string]any{"type": "integer", "description": "Trading days to show, 20–1000 (default 126, about six months). Averages use the full history."},
+			"format":      map[string]any{"type": "string", "enum": []any{"svg", "png"}, "description": "Output format: svg (default) or png (rasterized for Word/PowerPoint embedding)."},
 			"output_path": map[string]any{"type": "string", "description": "Optional new file to write (never overwritten); default: a new file under Aria's artifacts."},
 		}
 		for k, v := range extra {

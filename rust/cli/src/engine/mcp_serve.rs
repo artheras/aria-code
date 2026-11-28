@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 
-use super::{audit, license, skills, sql_readonly, tools};
+use super::{audit, license, report, skills, sql_readonly, tools};
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
@@ -25,6 +25,24 @@ fn is_read_only_tool(name: &str) -> bool {
             | "project_scan"
             | "sql_query_readonly"
     )
+}
+
+fn export_report_schema() -> Value {
+    json!({
+        "name": "export_report",
+        "description": "Export a workspace Markdown file to HTML, PDF, Word (.docx), PowerPoint (.pptx), or Excel (.xlsx).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "input_path": { "type": "string", "description": "Relative path to the source Markdown file" },
+                "output_path": { "type": "string", "description": "Relative destination path ending in .html, .pdf, .docx, .pptx, or .xlsx" }
+            },
+            "required": ["input_path", "output_path"]
+        },
+        "annotations": {
+            "readOnlyHint": false
+        }
+    })
 }
 
 fn sql_query_readonly_schema() -> Value {
@@ -124,6 +142,9 @@ pub fn mcp_tools_list(allow_write: bool) -> Vec<Value> {
         })
         .unwrap_or_default();
     out.push(sql_query_readonly_schema());
+    if allow_write {
+        out.push(export_report_schema());
+    }
     out
 }
 
@@ -259,6 +280,52 @@ pub fn handle_jsonrpc_request(req: &Value, workspace: &Path, allow_write: bool) 
                     match sql_readonly::query_sqlite_readonly(workspace, db, sql, max_rows) {
                         Ok(data) => json!({ "ok": true, "data": data }),
                         Err(err) => json!({ "ok": false, "error": err }),
+                    }
+                } else if name == "export_report" {
+                    if !allow_write {
+                        json!({ "ok": false, "error": "export_report requires --allow-write" })
+                    } else {
+                        let in_rel = args.get("input_path").and_then(Value::as_str).unwrap_or("");
+                        let out_rel = args
+                            .get("output_path")
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+                        match (
+                            tools::resolve_read_path(workspace, in_rel),
+                            tools::resolve_workspace_path(workspace, out_rel),
+                        ) {
+                            (Ok(abs_in), Ok(abs_out)) => {
+                                let ext = abs_out
+                                    .extension()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("html")
+                                    .to_ascii_lowercase();
+                                let res = match ext.as_str() {
+                                    "xlsx" => {
+                                        report::export_markdown_xlsx(workspace, &abs_in, &abs_out)
+                                    }
+                                    "pptx" => {
+                                        report::export_markdown_pptx(workspace, &abs_in, &abs_out)
+                                    }
+                                    "docx" => {
+                                        report::export_markdown_docx(workspace, &abs_in, &abs_out)
+                                    }
+                                    "pdf" => report::export_markdown_report(
+                                        workspace, &abs_in, &abs_out, true, false,
+                                    ),
+                                    _ => report::export_markdown_report(
+                                        workspace, &abs_in, &abs_out, false, false,
+                                    ),
+                                };
+                                match res {
+                                    Ok(written) => {
+                                        json!({ "ok": true, "path": written.display().to_string(), "format": ext })
+                                    }
+                                    Err(err) => json!({ "ok": false, "error": err }),
+                                }
+                            }
+                            (Err(e), _) | (_, Err(e)) => json!({ "ok": false, "error": e }),
+                        }
                     }
                 } else {
                     tools::execute_tool(workspace, name, &args, allow_write)

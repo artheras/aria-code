@@ -95,12 +95,14 @@ func wellFormed(t *testing.T, data []byte) map[string]string {
 		rc, _ := f.Open()
 		body, _ := io.ReadAll(rc)
 		rc.Close()
-		d := xml.NewDecoder(bytes.NewReader(body))
-		for {
-			if _, err := d.Token(); err == io.EOF {
-				break
-			} else if err != nil {
-				t.Fatalf("%s: %v", f.Name, err)
+		if strings.HasSuffix(f.Name, ".xml") || strings.HasSuffix(f.Name, ".rels") {
+			d := xml.NewDecoder(bytes.NewReader(body))
+			for {
+				if _, err := d.Token(); err == io.EOF {
+					break
+				} else if err != nil {
+					t.Fatalf("%s: %v", f.Name, err)
+				}
 			}
 		}
 		parts[f.Name] = string(body)

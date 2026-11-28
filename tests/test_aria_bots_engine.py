@@ -36,7 +36,9 @@ class TestLogisticsMCPServer:
         init = rpc({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
         assert init["result"]["protocolVersion"] == "2024-11-05"
         tools = rpc({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})["result"]["tools"]
-        assert sorted(t["name"] for t in tools) == ["analyze_logistics_data", "plan_inventory_policy", "score_carriers"]
+        assert {"analyze_logistics_data", "plan_inventory_policy", "score_carriers"}.issubset(
+            {t["name"] for t in tools}
+        )
         assert all(t["annotations"]["readOnlyHint"] is True for t in tools)
         assert all(t["inputSchema"]["type"] == "object" for t in tools)
         assert rpc({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
@@ -92,7 +94,7 @@ def test_the_server_speaks_utf8_whatever_the_console_encoding():
                          input="".join(json.dumps(m) + "\n" for m in lines).encode(), capture_output=True)
     assert out.returncode == 0, out.stderr.decode(errors="replace")[-800:]
     replies = [json.loads(line) for line in out.stdout.decode("utf-8").split("\n") if line]
-    assert len(replies[1]["result"]["tools"]) == 3 and b"\r" not in out.stdout
+    assert len(replies[1]["result"]["tools"]) >= 3 and b"\r" not in out.stdout
 
 
 class TestEngine:

@@ -25,10 +25,17 @@ func readReferenceDocument(ctx context.Context, file *scopedPath, filename strin
 		}
 		return pdfText(ctx, body, options...)
 	}
+	if ext == ".xlsx" || ext == ".xlsm" {
+		body, err := readRegular(file, 32<<20)
+		if err != nil {
+			return nil, err
+		}
+		return xlsxDocumentText(ctx, body)
+	}
 	if ext != ".docx" && ext != ".pptx" {
 		body, err := readRegular(file, documentTextLimit)
 		if err == nil && (!utf8.Valid(body) || bytes.IndexByte(body, 0) >= 0) {
-			return nil, errors.New("unsupported binary document; supported: UTF-8 text, DOCX, PPTX and PDF text/OCR")
+			return nil, errors.New("unsupported binary document; supported: UTF-8 text, DOCX, PPTX, XLSX and PDF text/OCR")
 		}
 		return body, err
 	}

@@ -50,8 +50,9 @@ These are routed in `go/runtime/finance.go`:
 
 - `/finance` shows whether the service is connected; `/finance setup <absolute path>` registers its console script (or a venv Python, run with `-I -m arthera_finance.server`) in `mcp_servers.json` as `arthera-finance`.
 - `/broker [connections | account|positions|orders <connection>]`, and `/account`, `/positions`, `/orders`, call the service's read-only broker tools directly.
-- Every other command in the list becomes a read-only turn: the model answers it with the service's tools (all `readOnlyHint`), cites their sources and dates, keeps missing values unknown, and says so when the service cannot answer (live quotes, news, order placement and A-share screens are not among its tools). Nothing is written and no command runs during such a turn.
-- Without the service, these commands say how to connect it instead of reaching the model.
+- Every other command in the list becomes a read-only turn: the model answers it with the service's tools (all `readOnlyHint`), cites their sources and dates, keeps missing values unknown, and says so when the service cannot answer. Nothing is written and no command runs during such a turn.
+- Without the service, `/backtest`, `/optimize`, `/optimize-port`, `/options`, `/risk`, `/stress`, and `/analyze` fall back to built-in deterministic Go quant tools (`price_option`, `optimize_portfolio`, `run_backtest`, `dcf_valuation`, `risk_metrics`, `inspect_data`, `aggregate_data`) using user- or workspace-supplied data (including native `.xlsx`/`.xlsm` workbooks), and deliverables can be exported via `export_xlsx`, `export_docx`, `export_pptx`, and `export_pdf`. For Tier-2 high-design decks, template-filled DOCX reports, and LibreOffice + Poppler visual QA, connect the standalone `artheras/arthera-doc-studio` MCP service (see [`docs/document-studio.md`](./document-studio.md)).
+- Other finance commands without the service say how to connect it instead of reaching the model.
 
 The service's tools are statements, SEC facts, risk metrics, backtests, market history and read-only broker data. Commands that need more (news, live quotes, A-share data, trading) get an honest "not available" until the service grows the tool.
 

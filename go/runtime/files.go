@@ -259,9 +259,18 @@ func fileRead(ctx context.Context, s *scope, params map[string]any) toolResult {
 		return failed(err)
 	}
 	defer p.Close()
-	body, err := readRegular(p, 2_000_000)
-	if err != nil {
-		return failed(err)
+	ext := strings.ToLower(filepath.Ext(p.absolute))
+	var body []byte
+	if ext == ".xlsx" || ext == ".xlsm" || ext == ".docx" || ext == ".pptx" || ext == ".pdf" {
+		body, err = readReferenceDocument(ctx, p, p.absolute)
+		if err != nil {
+			return failed(err)
+		}
+	} else {
+		body, err = readRegular(p, 2_000_000)
+		if err != nil {
+			return failed(err)
+		}
 	}
 	text := strings.ToValidUTF8(string(body), "�")
 	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
@@ -559,6 +568,61 @@ func propose(s *scope, tool string, params map[string]any) (fileChange, error) {
 			return c, errors.New("edits produced no changes")
 		}
 		c.after = []byte(working)
+	case "export_pdf":
+		if !strings.HasSuffix(strings.ToLower(c.path), ".pdf") {
+			return c, errors.New("export_pdf path must end with .pdf")
+		}
+		md := strings.TrimSpace(str(params, "markdown", ""))
+		if md == "" {
+			if mdPath := strings.TrimSpace(str(params, "markdown_path", "")); mdPath != "" {
+				mp, err := s.open(mdPath, false)
+				if err != nil {
+					return c, err
+				}
+				defer mp.Close()
+				raw, err := readRegular(mp, maxMarkdownBytes)
+				if err != nil {
+					return c, err
+				}
+				md = string(raw)
+			}
+		}
+		if md == "" {
+			return c, errors.New("markdown or markdown_path with content is required")
+		}
+		title := strings.TrimSpace(str(params, "title", strings.TrimSuffix(filepath.Base(c.path), filepath.Ext(c.path))))
+		pdfBytes, err := compileMarkdownToPDFBytes(context.Background(), md, title)
+		if err != nil {
+			return c, err
+		}
+		c.after = pdfBytes
+	case "export_xlsx":
+		if !strings.HasSuffix(strings.ToLower(c.path), ".xlsx") {
+			return c, errors.New("export_xlsx path must end with .xlsx")
+		}
+		xlsxBytes, _, _, err := compileXlsxFromParams(s, params)
+		if err != nil {
+			return c, err
+		}
+		c.after = xlsxBytes
+	case "export_docx":
+		if !strings.HasSuffix(strings.ToLower(c.path), ".docx") {
+			return c, errors.New("export_docx path must end with .docx")
+		}
+		docxBytes, err := compileDocxFromParams(s, params)
+		if err != nil {
+			return c, err
+		}
+		c.after = docxBytes
+	case "export_pptx":
+		if !strings.HasSuffix(strings.ToLower(c.path), ".pptx") {
+			return c, errors.New("export_pptx path must end with .pptx")
+		}
+		pptxBytes, err := compilePptxFromParams(s, params)
+		if err != nil {
+			return c, err
+		}
+		c.after = pptxBytes
 	default:
 		return c, errors.New("unknown file mutation")
 	}

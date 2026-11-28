@@ -16,6 +16,7 @@ pub mod mcp;
 pub mod mcp_serve;
 pub mod memory;
 pub mod oauth_callback;
+pub mod office_read;
 pub mod ollama;
 pub mod pack;
 pub mod permissions;

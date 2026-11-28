@@ -27,7 +27,7 @@
 
 **写代码、做项目。** 用大白话描述任务。Aria 读懂项目、编写和修改文件、运行命令和测试，每一处改动落地前都先给你看——你点头之前什么都不会写入、不会执行。[`/review`](docs/code-review.md) 像一位细心的同事那样审查改动：按 P0–P3 排序的问题，标明文件和行号，并给出结论；`aria-code review --base main --fail-on P1` 可以在 CI 里把关合并请求。可用本地 Ollama 模型、Google Cloud 上的 Gemini（Vertex AI，只需 `gcloud` 登录）或其他受支持的服务商。
 
-**做金融和财务分析。** 行情、技术指标、带 HTML 报告的回测、风险与因子分析、SEC 公告，以及美股、港股、A 股和加密货币数据。结果写明数据来源、区间和缺口。
+**做金融分析、估值建模与办公文档导出。** 行情、技术指标、带 HTML 报告的回测、SEC 公告、确定性 **DCF / WACC / 可比公司估值 / 蒙特卡洛 VaR & CVaR**（支持可选 C++20 数值加速核），以及零依赖原生 `.xlsx`（含实时公式与 `Audit_Provenance` 审计页）、16:9 `.pptx`、`.docx` 和 SVG 图表导出。结果写明数据来源、区间和缺口。
 
 <p align="center"><img src="docs/assets/demo-finance.gif" alt="Aria Code 真实会话：AAPL 技术指标和 SPY 一年期动量回测，写明数据来源、区间和完整度" width="760"></p>
 
@@ -47,6 +47,27 @@
 **要花钱的动作由人来批。** 在终端里，每次写文件、每条命令都等你点头，改动的差异就摆在眼前。在飞书里，`/补货` 会把补货清单变成一张采购单草稿审批卡片；审批人点「批准」之前什么都不会发生，执行的正是卡片上展示的内容。草稿是交给你们自己采购系统的文件——Aria Code 不会自动下单。
 
 新安装不带任何实时业务数据：物流工具读取你们导出的 CSV 或 JSON，行情来自公开数据源，聊天功能需要飞书应用或 Aria 中继。
+
+## 架构与生态 MCP 服务
+
+Aria Code 保持核心 CLI 零依赖，同时自动发现同级目录或工作区内的独立 MCP 服务来扩展高阶能力：
+
+```mermaid
+flowchart LR
+    U[用户 / 终端 / 飞书] --> CLI[aria / aria-native<br/>Rust 原生前端与 Diff/摘要渲染]
+    CLI --> RT[aria-runtime<br/>Go 沙箱、原生 OOXML、量化与可选 C++20 内核]
+    CLI --> MCP1[arthera-doc-studio<br/>Tier-2 高颜值文档 + LibreOffice/Poppler 视觉质检]
+    CLI --> MCP2[career-service<br/>简历解析、JD 匹配、ATS 职位拉取与 SQLite 追踪]
+    CLI --> MCP3[financial-service & aria-computer-use<br/>机构金融数据与受控浏览器自动化]
+```
+
+| 服务 | 仓库 / 路径 | 职责 |
+| :--- | :--- | :--- |
+| **Document Studio** | [`artheras/arthera-doc-studio`](https://github.com/artheras/arthera-doc-studio) | Tier-2 高设计感 `.xlsx`/`.pptx`/`.docx`、LibreOffice 公式审计与 `pdftoppm` 视觉自检 |
+| **Career Copilot** | [`artheras/career-service`](https://github.com/artheras/career-service) | 简历解析、JD 匹配、Greenhouse/Lever/Ashby 与订阅邮件解析、SQLite 投递追踪 |
+| **Financial Service** | [`services/financial-service`](services/financial-service/README.md) | 财报指标、Piotroski F / Altman Z''、组合回测与 Bearer 鉴权 `streamable-http` |
+| **Computer Use** | [`services/aria-computer-use`](services/aria-computer-use/README.md) | 带宿主机审批门控的受控浏览器自动化 |
+| **Bots & Relay** | [`services/aria-bots`](services/aria-bots/README.md) & [`go/relay`](go/relay/README.md) | 飞书/Telegram 3PL 与行情机器人，支持多轮 `--resume` |
 
 ## 快速开始
 

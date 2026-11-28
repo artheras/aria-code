@@ -341,6 +341,33 @@ pub fn run_doctor(workspace: &Path, check_network: bool) -> DoctorReport {
         suggestion: String::new(),
     });
 
+    // 5b. Tier-2 Document Studio visual QA binaries (soffice + pdftoppm)
+    let soffice = which_version("soffice", "--version");
+    let pdftoppm = which_version("pdftoppm", "-v");
+    checks.push(match (soffice, pdftoppm) {
+        (Some(so), Some(_)) => DoctorCheck {
+            name: "document_studio_qa".into(),
+            status: CheckStatus::Ok,
+            detail: format!("LibreOffice ({so}) and pdftoppm ready for Tier-2 visual QA"),
+            suggestion: String::new(),
+        },
+        (so, pdf) => {
+            let mut missing = Vec::new();
+            if so.is_none() {
+                missing.push("soffice");
+            }
+            if pdf.is_none() {
+                missing.push("pdftoppm");
+            }
+            DoctorCheck {
+                name: "document_studio_qa".into(),
+                status: CheckStatus::Warn,
+                detail: format!("missing {} (Tier-1 Go OOXML still works)", missing.join(", ")),
+                suggestion: "Install LibreOffice + poppler-utils or run services/arthera-doc-studio via Docker".into(),
+            }
+        }
+    });
+
     // 6. Optional live network probe
     if check_network {
         checks.push(probe_local_ollama());

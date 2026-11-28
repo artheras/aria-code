@@ -94,8 +94,10 @@ def with_history(prompt: str, history: Optional[Iterable[dict]]) -> str:
     return "Earlier in this conversation:\n" + "\n".join(lines) + "\n\nNow answer:\n" + prompt
 
 
-def command(engine: str, prompt: str) -> list[str]:
+def command(engine: str, prompt: str, *, session_id: Optional[str] = None) -> list[str]:
     argv = [engine, "stream", "--format=jsonl", "--quiet", "--no-banner", f"--prompt={prompt}"]
+    if session_id:
+        argv += ["--resume", session_id]
     tools = allowed_tools()
     if tools:
         argv += ["--allow-tools", ",".join(tools)]
@@ -148,15 +150,17 @@ def read_answer(stdout: bytes) -> tuple[bool, str]:
 
 
 async def run_turn(prompt: str, *, engine: str, owner: Optional[str] = None,
-                   history: Optional[Iterable[dict]] = None, timeout: float = 120) -> str:
+                   history: Optional[Iterable[dict]] = None, session_id: Optional[str] = None,
+                   timeout: float = 120) -> str:
     """The answer text, or a message starting with ❌ / ⏱️ when there is none."""
-    prompt = with_history(prompt, history)
+    if not session_id:
+        prompt = with_history(prompt, history)
     if len(prompt.encode("utf-8")) > MAX_PROMPT:
         return "❌ 消息太长，请缩短后重试。"
     workspace = state_dir() / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
     proc = await asyncio.create_subprocess_exec(
-        *command(engine, prompt),
+        *command(engine, prompt, session_id=session_id),
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,

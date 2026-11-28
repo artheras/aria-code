@@ -145,3 +145,125 @@ func OptimizeMinVariance(cov [][]float64) ([]float64, error) {
 	}
 	return w, nil
 }
+
+// ShrinkCovarianceDiagonal blends a sample covariance matrix toward its diagonal:
+// (1 - alpha) * cov + alpha * diag(cov), stabilizing ill-conditioned matrices.
+func ShrinkCovarianceDiagonal(cov [][]float64, alpha float64) ([][]float64, error) {
+	n := len(cov)
+	if n == 0 {
+		return nil, errors.New("empty covariance matrix")
+	}
+	if alpha < 0 || alpha > 1 {
+		return nil, errors.New("shrinkage alpha must be in [0, 1]")
+	}
+	out := make([][]float64, n)
+	for i := 0; i < n; i++ {
+		if len(cov[i]) != n {
+			return nil, errors.New("covariance matrix must be square")
+		}
+		out[i] = make([]float64, n)
+		for j := 0; j < n; j++ {
+			if i == j {
+				out[i][j] = cov[i][j]
+			} else {
+				out[i][j] = (1.0 - alpha) * cov[i][j]
+			}
+		}
+	}
+	return out, nil
+}
+
+// projectBoundedSimplex projects v onto {w in [lo, hi], sum(w) = 1} using bisection on Lagrange multiplier.
+func projectBoundedSimplex(v []float64, lo, hi float64) []float64 {
+	n := len(v)
+	left, right := -1e6, 1e6
+	for _, x := range v {
+		if x-hi-1.0 < left {
+			left = x - hi - 1.0
+		}
+		if x-lo+1.0 > right {
+			right = x - lo + 1.0
+		}
+	}
+	for iter := 0; iter < 80; iter++ {
+		mid := 0.5 * (left + right)
+		sum := 0.0
+		for _, x := range v {
+			c := x - mid
+			if c < lo {
+				c = lo
+			} else if c > hi {
+				c = hi
+			}
+			sum += c
+		}
+		if sum > 1.0 {
+			left = mid
+		} else {
+			right = mid
+		}
+	}
+	mu := 0.5 * (left + right)
+	w := make([]float64, n)
+	for i, x := range v {
+		c := x - mu
+		if c < lo {
+			c = lo
+		} else if c > hi {
+			c = hi
+		}
+		w[i] = c
+	}
+	return w
+}
+
+// OptimizeBoundedMinVariance computes minimum variance weights subject to minWeight <= w_i <= maxWeight and sum(w) = 1.
+func OptimizeBoundedMinVariance(cov [][]float64, minWeight, maxWeight float64) ([]float64, error) {
+	n := len(cov)
+	if n == 0 {
+		return nil, errors.New("empty covariance matrix")
+	}
+	if minWeight < 0 || maxWeight > 1 || minWeight > maxWeight {
+		return nil, errors.New("invalid weight bounds")
+	}
+	if float64(n)*minWeight > 1.0+1e-9 || float64(n)*maxWeight < 1.0-1e-9 {
+		return nil, errors.New("infeasible weight bounds for n assets")
+	}
+
+	w := make([]float64, n)
+	for i := range w {
+		w[i] = 1.0 / float64(n)
+	}
+	w = projectBoundedSimplex(w, minWeight, maxWeight)
+
+	maxDiag := 0.0
+	for i := 0; i < n; i++ {
+		if cov[i][i] > maxDiag {
+			maxDiag = cov[i][i]
+		}
+	}
+	stepSize := 1.0 / (2.0 * math.Max(maxDiag, 0.01) * float64(n))
+
+	for iter := 0; iter < 2000; iter++ {
+		grad := make([]float64, n)
+		for i := 0; i < n; i++ {
+			for j := 0; j < n; j++ {
+				grad[i] += 2.0 * cov[i][j] * w[j]
+			}
+		}
+		candidate := make([]float64, n)
+		for i := 0; i < n; i++ {
+			candidate[i] = w[i] - stepSize*grad[i]
+		}
+		newW := projectBoundedSimplex(candidate, minWeight, maxWeight)
+		diff := 0.0
+		for i := 0; i < n; i++ {
+			diff += math.Abs(newW[i] - w[i])
+		}
+		w = newW
+		if diff < 1e-6 {
+			break
+		}
+	}
+	return w, nil
+}
