@@ -69,6 +69,9 @@ flowchart LR
 | **Computer Use** | [`services/aria-computer-use`](services/aria-computer-use/README.md) | 带宿主机审批门控的受控浏览器自动化 |
 | **Bots & Relay** | [`services/aria-bots`](services/aria-bots/README.md) & [`go/relay`](go/relay/README.md) | 飞书/Telegram 3PL 与行情机器人，支持多轮 `--resume` |
 
+<p align="center"><img src="docs/assets/demo-documents.gif" alt="Aria Document Studio 真实输出：含实时公式与审计页的 XLSX 及 16:9 PPTX 看板" width="820"></p>
+<p align="center"><img src="docs/assets/demo-ecosystem.gif" alt="Aria Native 导出、C++20 蒙特卡洛内核与 Career Copilot JD 匹配真实输出" width="820"></p>
+
 ## 快速开始
 
 macOS 和 Linux 可直接安装独立 CLI，无需预装 Python、Node.js 或 npm：

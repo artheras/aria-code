@@ -69,6 +69,9 @@ flowchart LR
 | **Computer Use** | [`services/aria-computer-use`](services/aria-computer-use/README.md) | Controlled browser automation with host approval hooks |
 | **Bots & Relay** | [`services/aria-bots`](services/aria-bots/README.md) & [`go/relay`](go/relay/README.md) | Feishu/Telegram 3PL & market bots with multi-turn `--resume` |
 
+<p align="center"><img src="docs/assets/demo-documents.gif" alt="Real Aria Document Studio output: XLSX with live formulas & Audit_Provenance and 16:9 PPTX board deck" width="820"></p>
+<p align="center"><img src="docs/assets/demo-ecosystem.gif" alt="Real Aria Native export, C++20 Monte Carlo quant kernel, and Career Copilot JD matching output" width="820"></p>
+
 ## Quick start
 
 Install the standalone CLI on macOS or Linux without Python, Node.js, or npm:
