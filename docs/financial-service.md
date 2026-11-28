@@ -11,8 +11,9 @@ Aria Code. The finance plugin in artheras/aria-plugins supplies workflow guidanc
 and host-specific configuration rather than another copy of the algorithms.
 
 For zero-Python local setups with the pure-Rust `aria-native` frontend, you can also
-run `financial-service` remotely with `--transport streamable-http --host 0.0.0.0 --port 8765`
-and point `.mcp.json` / `~/.arthera/mcp_servers.json` at its `"url"` + `"headers"`.
+run `financial-service` remotely with `--transport streamable-http --host 0.0.0.0 --port 8765 --auth-token "$FINANCIAL_SERVICE_BEARER_TOKEN"`
+and point `.mcp.json` / `~/.arthera/mcp_servers.json` at its `"url"` + `"headers"` (`Authorization: Bearer ...`).
+Non-loopback `streamable-http` binds refuse to start without `--auth-token` or `FINANCIAL_SERVICE_BEARER_TOKEN`.
 
 Install the service into a separate Python 3.11+ environment from its repository.
 Install from source:

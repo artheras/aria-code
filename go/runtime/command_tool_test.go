@@ -52,8 +52,22 @@ func TestNativeCommandRejectsSpoofedPolicyAndUnapprovedWorkingDirectory(t *testi
 			t.Fatal("provider bypassed command policy", params)
 		}
 	}
-	for _, cfg := range []config{{"permission_mode": "read-only"}, {"network_enabled": false}} {
-		if _, err := commandPlan(s, cfg, map[string]any{"command": "echo ok"}); err == nil {
+	for _, tc := range []struct {
+		cfg     config
+		ro, net bool
+	}{
+		{config{"permission_mode": "read-only"}, true, false},
+		{config{"network_enabled": false}, false, true},
+	} {
+		spec, err := commandPlan(s, tc.cfg, map[string]any{"command": "echo ok"})
+		if shellSandboxAvailable() {
+			if err != nil {
+				t.Fatalf("expected sandboxed plan on %v, got %v", tc.cfg, err)
+			}
+			if spec.readOnlySandbox != tc.ro || spec.noNetworkSandbox != tc.net {
+				t.Fatalf("sandbox flags mismatch: %+v", spec)
+			}
+		} else if err == nil {
 			t.Fatal("unsupported sandbox mode was ignored")
 		}
 	}

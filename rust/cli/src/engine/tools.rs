@@ -220,7 +220,13 @@ pub fn read_file_slice(
     end_line: usize,
 ) -> Result<FileSlice, String> {
     let path = resolve_read_path(workspace, rel)?;
-    let content = fs::read_to_string(&path).map_err(|e| format!("Read failed: {e}"))?;
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let content = if super::office_read::is_office_extension(ext) {
+        let bytes = fs::read(&path).map_err(|e| format!("Read failed: {e}"))?;
+        super::office_read::extract_office_text(&bytes, ext)?
+    } else {
+        fs::read_to_string(&path).map_err(|e| format!("Read failed: {e}"))?
+    };
     let lines: Vec<&str> = content.lines().collect();
     let total_lines = lines.len();
     let start = start_line.saturating_sub(1).min(total_lines);

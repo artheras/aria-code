@@ -47,16 +47,34 @@ type docRun struct {
 }
 
 type docBlock struct {
-	kind  string // heading | para | bullet | code | table
-	level int    // heading level, or list depth
-	runs  []docRun
-	rows  [][][]docRun // table: rows of cells of runs; row 0 is the header
+	kind               string // heading | para | bullet | code | table | image
+	level              int    // heading level, or list depth
+	quote              bool   // blockquote callout paragraph
+	runs               []docRun
+	rows               [][][]docRun // table: rows of cells of runs; row 0 is the header
+	imageSrc, imageAlt string
+}
+
+func extractNodeImages(n ast.Node, src []byte) [][2]string {
+	var imgs [][2]string
+	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+		if img, ok := c.(*ast.Image); ok {
+			alt := runsText(inlineRuns(img, src, false, false))
+			imgs = append(imgs, [2]string{string(img.Destination), alt})
+		} else {
+			imgs = append(imgs, extractNodeImages(c, src)...)
+		}
+	}
+	return imgs
 }
 
 func inlineRuns(n ast.Node, src []byte, bold, italic bool) []docRun {
 	var runs []docRun
 	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
 		switch v := c.(type) {
+		case *ast.Image:
+			// Handled separately as embedded image blocks
+			continue
 		case *ast.Text:
 			t := string(v.Segment.Value(src))
 			if v.SoftLineBreak() || v.HardLineBreak() {
@@ -86,8 +104,8 @@ func markdownBlocks(md string) []docBlock {
 	src := []byte(md)
 	doc := markdownEngine.Parser().Parse(text.NewReader(src))
 	var blocks []docBlock
-	var walk func(n ast.Node, depth int)
-	walk = func(n ast.Node, depth int) {
+	var walk func(n ast.Node, depth int, inQuote bool)
+	walk = func(n ast.Node, depth int, inQuote bool) {
 		for c := n.FirstChild(); c != nil; c = c.NextSibling() {
 			switch v := c.(type) {
 			case *ast.Heading:
@@ -97,13 +115,20 @@ func markdownBlocks(md string) []docBlock {
 				if depth > 0 {
 					kind = "bullet"
 				}
-				blocks = append(blocks, docBlock{kind: kind, level: depth, runs: inlineRuns(c, src, false, false)})
+				runs := inlineRuns(c, src, false, false)
+				imgs := extractNodeImages(c, src)
+				if len(runs) > 0 || len(imgs) == 0 {
+					blocks = append(blocks, docBlock{kind: kind, level: depth, quote: inQuote, runs: runs})
+				}
+				for _, im := range imgs {
+					blocks = append(blocks, docBlock{kind: "image", imageSrc: im[0], imageAlt: im[1]})
+				}
 			case *ast.List:
-				walk(v, depth+1)
+				walk(v, depth+1, inQuote)
 			case *ast.ListItem:
-				walk(v, depth)
+				walk(v, depth, inQuote)
 			case *ast.Blockquote:
-				walk(v, depth)
+				walk(v, depth, true)
 			case *ast.FencedCodeBlock, *ast.CodeBlock:
 				var b strings.Builder
 				for i := 0; i < c.Lines().Len(); i++ {
@@ -124,7 +149,7 @@ func markdownBlocks(md string) []docBlock {
 			}
 		}
 	}
-	walk(doc, 0)
+	walk(doc, 0, false)
 	return blocks
 }
 
@@ -461,10 +486,22 @@ func docxRuns(runs []docRun, extra string) string {
 }
 
 func buildDocx(title string, blocks []docBlock) ([]byte, error) {
+	return buildDocxWithOptions(docxBuildOptions{Title: title}, blocks)
+}
+
+func buildDocxWithOptions(opts docxBuildOptions, blocks []docBlock) ([]byte, error) {
+	title := opts.Title
 	var body strings.Builder
 	if title != "" {
 		fmt.Fprintf(&body, `<w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr>%s</w:p>`, docxRuns([]docRun{{text: title}}, ""))
 	}
+	if opts.Subtitle != "" {
+		fmt.Fprintf(&body, `<w:p><w:pPr><w:spacing w:after="200"/></w:pPr>%s</w:p>`, docxRuns([]docRun{{text: opts.Subtitle, italic: true}}, `<w:color w:val="64748B"/>`))
+	}
+
+	var mediaImages []*embeddedImage
+	imageExts := map[string]string{}
+
 	for _, blk := range blocks {
 		switch blk.kind {
 		case "heading":
@@ -473,6 +510,16 @@ func buildDocx(title string, blocks []docBlock) ([]byte, error) {
 			fmt.Fprintf(&body, `<w:p><w:pPr><w:pStyle w:val="ListBullet"/><w:numPr><w:ilvl w:val="%d"/><w:numId w:val="1"/></w:numPr></w:pPr>%s</w:p>`, min(blk.level-1, 8), docxRuns(blk.runs, ""))
 		case "code":
 			fmt.Fprintf(&body, `<w:p><w:pPr><w:pStyle w:val="Code"/></w:pPr>%s</w:p>`, docxRuns(blk.runs, ""))
+		case "image":
+			seq := len(mediaImages) + 1
+			relID := fmt.Sprintf("rIdImg%d", seq)
+			if img, err := resolveEmbeddedImage(blk.imageSrc, opts.Scope, seq, relID, 5486400, 3657600); err == nil {
+				mediaImages = append(mediaImages, img)
+				imageExts[img.Ext] = img.ContentType
+				body.WriteString(docxDrawingInlineXML(100+seq, img, blk.imageAlt))
+			} else if blk.imageAlt != "" {
+				fmt.Fprintf(&body, `<w:p>%s</w:p>`, docxRuns([]docRun{{text: "[Image: " + blk.imageAlt + "]", italic: true}}, `<w:color w:val="64748B"/>`))
+			}
 		case "table":
 			// A table must declare its grid; Word reports a file without one as damaged.
 			cols := 1
@@ -493,6 +540,8 @@ func buildDocx(title string, blocks []docBlock) ([]byte, error) {
 					shade, bold := "", ""
 					if i == 0 {
 						shade, bold = `<w:shd w:val="clear" w:color="auto" w:fill="1F2937"/>`, `<w:b/><w:color w:val="FFFFFF"/>`
+					} else if i%2 == 0 {
+						shade = `<w:shd w:val="clear" w:color="auto" w:fill="F8FAFC"/>`
 					}
 					fmt.Fprintf(&body, `<w:tc><w:tcPr>%s</w:tcPr><w:p>%s</w:p></w:tc>`, shade, docxRuns(cell, bold))
 				}
@@ -500,19 +549,43 @@ func buildDocx(title string, blocks []docBlock) ([]byte, error) {
 			}
 			body.WriteString(`</w:tbl><w:p/>`)
 		default:
-			fmt.Fprintf(&body, `<w:p>%s</w:p>`, docxRuns(blk.runs, ""))
+			if blk.quote {
+				fmt.Fprintf(&body, `<w:p><w:pPr><w:pStyle w:val="Quote"/></w:pPr>%s</w:p>`, docxRuns(blk.runs, ""))
+			} else {
+				fmt.Fprintf(&body, `<w:p>%s</w:p>`, docxRuns(blk.runs, ""))
+			}
 		}
 	}
-	files := map[string]string{
-		"[Content_Types].xml":          `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/></Types>`,
-		"_rels/.rels":                  `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`,
-		"word/_rels/document.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/></Relationships>`,
-		"word/document.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` + body.String() +
-			`<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr></w:body></w:document>`,
-		"word/styles.xml":    docxStyles,
-		"word/numbering.xml": docxNumbering,
+
+	var defaultImgTypes, imgRels strings.Builder
+	for ext, ct := range imageExts {
+		fmt.Fprintf(&defaultImgTypes, `<Default Extension="%s" ContentType="%s"/>`, ext, ct)
 	}
-	return zipFiles(files, []string{"[Content_Types].xml", "_rels/.rels", "word/_rels/document.xml.rels", "word/document.xml", "word/styles.xml", "word/numbering.xml"})
+	for _, img := range mediaImages {
+		fmt.Fprintf(&imgRels, `<Relationship Id="%s" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/%s"/>`, img.RelID, img.Filename)
+	}
+
+	docNS := `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"`
+	entries := map[string][]byte{
+		"[Content_Types].xml": []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>` +
+			defaultImgTypes.String() +
+			`<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>`),
+		"_rels/.rels":                  []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`),
+		"word/_rels/document.xml.rels": []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>` + imgRels.String() + `</Relationships>`),
+		"word/document.xml": []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ` + docNS + `><w:body>` + body.String() +
+			`<w:sectPr><w:headerReference w:type="default" r:id="rId3"/><w:footerReference w:type="default" r:id="rId4"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr></w:body></w:document>`),
+		"word/styles.xml":    []byte(docxStyles),
+		"word/numbering.xml": []byte(docxNumbering),
+		"word/header1.xml":   []byte(buildDocxHeaderXML(title, opts.Subtitle)),
+		"word/footer1.xml":   []byte(buildDocxFooterXML()),
+	}
+	order := []string{"[Content_Types].xml", "_rels/.rels", "word/_rels/document.xml.rels", "word/document.xml", "word/styles.xml", "word/numbering.xml", "word/header1.xml", "word/footer1.xml"}
+	for _, img := range mediaImages {
+		p := "word/media/" + img.Filename
+		entries[p] = img.Data
+		order = append(order, p)
+	}
+	return zipBinaryFiles(entries, order)
 }
 
 func docxHeadingStyle(level int, size int) string {
@@ -525,6 +598,7 @@ var docxStyles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styl
 	`<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:qFormat/><w:pPr><w:spacing w:after="240"/></w:pPr><w:rPr><w:b/><w:sz w:val="44"/></w:rPr></w:style>` +
 	docxHeadingStyle(1, 34) + docxHeadingStyle(2, 28) + docxHeadingStyle(3, 24) + docxHeadingStyle(4, 22) +
 	`<w:style w:type="paragraph" w:styleId="ListBullet"><w:name w:val="List Bullet"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="40"/></w:pPr></w:style>` +
+	`<w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:pPr><w:pBdr><w:left w:val="single" w:sz="18" w:space="8" w:color="334155"/></w:pBdr><w:shd w:val="clear" w:color="auto" w:fill="F8FAFC"/><w:ind w:left="240" w:right="120"/><w:spacing w:before="80" w:after="120"/></w:pPr><w:rPr><w:i/><w:color w:val="334155"/></w:rPr></w:style>` +
 	`<w:style w:type="paragraph" w:styleId="Code"><w:name w:val="Code"/><w:basedOn w:val="Normal"/><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="F8FAFC"/><w:spacing w:after="120"/></w:pPr><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz w:val="18"/></w:rPr></w:style>` +
 	`<w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/><w:tblPr><w:tblBorders><w:top w:val="single" w:sz="4" w:color="E2E8F0"/><w:left w:val="single" w:sz="4" w:color="E2E8F0"/><w:bottom w:val="single" w:sz="4" w:color="E2E8F0"/><w:right w:val="single" w:sz="4" w:color="E2E8F0"/><w:insideH w:val="single" w:sz="4" w:color="E2E8F0"/><w:insideV w:val="single" w:sz="4" w:color="E2E8F0"/></w:tblBorders><w:tblCellMar><w:left w:w="100" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style>` +
 	`</w:styles>`
@@ -560,13 +634,16 @@ func zipFiles(files map[string]string, order []string) ([]byte, error) {
 // ── PowerPoint ───────────────────────────────────────────────────────────────
 
 type slide struct {
-	title string
-	lines []docBlock // para, bullet, code or table-as-rows
+	title    string
+	subtitle string
+	lines    []docBlock // para, bullet, or code
+	tables   []docBlock // native DrawingML <a:tbl> blocks
+	images   []docBlock // embedded PNG/JPEG chart or diagram blocks
 }
 
-// slidesOf is markdown_to_pptx's layout: each heading starts a slide; text
+// slidesOf builds structured 16:9 slides: each heading starts a slide; text
 // before the first heading gets a slide of its own; a slide holds at most 12
-// lines and continues on a new one.
+// text lines and continues on a new one; tables remain native table objects.
 func slidesOf(title string, blocks []docBlock) []slide {
 	var slides []slide
 	add := func(t string) { slides = append(slides, slide{title: t}) }
@@ -578,24 +655,22 @@ func slidesOf(title string, blocks []docBlock) []slide {
 		if len(slides) == 0 {
 			add(title)
 		}
-		items := []docBlock{blk}
-		if blk.kind == "table" {
-			items = nil
-			for _, row := range blk.rows {
-				var cells []string
-				for _, c := range row {
-					cells = append(cells, runsText(c))
-				}
-				items = append(items, docBlock{kind: "row", runs: []docRun{{text: strings.Join(cells, "  |  ")}}})
+		last := &slides[len(slides)-1]
+		switch blk.kind {
+		case "table":
+			if len(last.tables) >= 1 && (len(last.lines) > 0 || len(last.tables) >= 2) {
+				add(last.title + " (cont.)")
+				last = &slides[len(slides)-1]
 			}
-		}
-		for _, item := range items {
-			last := &slides[len(slides)-1]
+			last.tables = append(last.tables, blk)
+		case "image":
+			last.images = append(last.images, blk)
+		default:
 			if len(last.lines) >= 12 {
 				add(last.title + " (cont.)")
 				last = &slides[len(slides)-1]
 			}
-			last.lines = append(last.lines, item)
+			last.lines = append(last.lines, blk)
 		}
 	}
 	return slides
@@ -625,63 +700,128 @@ func pptxShape(id int, name string, x, y, cx, cy int, paragraphs string) string 
 		id, name, x, y, cx, cy, paragraphs)
 }
 
-func pptxSlideXML(s slide, cover bool) string {
-	title := fmt.Sprintf(`<a:p>%s</a:p>`, pptxRuns([]docRun{{text: s.title, bold: true}}, map[bool]int{true: 4000, false: 2800}[cover]))
-	shapes := pptxShape(2, "Title", 457200, map[bool]int{true: 2286000, false: 304800}[cover], 8229600, 1143000, title)
-	if len(s.lines) > 0 {
-		var body strings.Builder
-		for _, line := range s.lines {
-			indent := ""
-			if line.kind == "bullet" {
-				indent = fmt.Sprintf(`<a:pPr marL="%d" indent="-228600"><a:buChar char="•"/></a:pPr>`, 228600*max(1, line.level))
-			}
-			fmt.Fprintf(&body, `<a:p>%s%s</a:p>`, indent, pptxRuns(line.runs, 1600))
+func pptxSlideXML(s slide, slideNum int, cover bool, slideImg *embeddedImage) string {
+	var shapes strings.Builder
+	if cover {
+		shapes.WriteString(pptxSolidBar(10, "AccentBar", 0, 0, 274320, 6858000, "1F2937"))
+		titlePara := fmt.Sprintf(`<a:p>%s</a:p>`, pptxRuns([]docRun{{text: s.title, bold: true}}, 4000))
+		shapes.WriteString(pptxShape(2, "Title", 762000, 2286000, 10668000, 1371600, titlePara))
+		sub := s.subtitle
+		if sub == "" {
+			sub = time.Now().Format("2006-01-02")
 		}
-		shapes += pptxShape(3, "Body", 457200, 1524000, 8229600, 4800600, body.String())
+		subPara := fmt.Sprintf(`<a:p><a:r><a:rPr lang="en-US" sz="1800" dirty="0"><a:solidFill><a:srgbClr val="64748B"/></a:solidFill></a:rPr><a:t>%s</a:t></a:r></a:p>`, xmlText(sub))
+		shapes.WriteString(pptxShape(11, "Subtitle", 762000, 3810000, 10668000, 685800, subPara))
+	} else {
+		shapes.WriteString(pptxSolidBar(10, "HeaderRule", 571500, 1295400, 11049000, 25400, "E2E8F0"))
+		titlePara := fmt.Sprintf(`<a:p>%s</a:p>`, pptxRuns([]docRun{{text: s.title, bold: true}}, 2800))
+		shapes.WriteString(pptxShape(2, "Title", 571500, 342900, 11049000, 914400, titlePara))
+
+		hasRightPane := len(s.tables) > 0 || slideImg != nil
+		hasLeftText := len(s.lines) > 0
+
+		if hasLeftText {
+			var body strings.Builder
+			for _, line := range s.lines {
+				indent := ""
+				if line.kind == "bullet" {
+					indent = fmt.Sprintf(`<a:pPr marL="%d" indent="-228600"><a:buChar char="•"/></a:pPr>`, 228600*max(1, line.level))
+				}
+				fmt.Fprintf(&body, `<a:p>%s%s</a:p>`, indent, pptxRuns(line.runs, 1600))
+			}
+			bodyW := 11049000
+			if hasRightPane {
+				bodyW = 5181600 // Two-column split: text left, table/chart right
+			}
+			shapes.WriteString(pptxShape(3, "Body", 571500, 1524000, bodyW, 4724400, body.String()))
+		}
+
+		rightX, rightW := 571500, 11049000
+		if hasLeftText {
+			rightX, rightW = 6020000, 5600500
+		}
+		if len(s.tables) > 0 {
+			shapes.WriteString(pptxTableFrame(4, rightX, 1524000, rightW, 4572000, s.tables[0].rows))
+		} else if slideImg != nil {
+			shapes.WriteString(pptxPicShape(5, rightX, 1524000, slideImg))
+		}
+
+		pagePara := fmt.Sprintf(`<a:p><a:pPr algn="r"/><a:r><a:rPr lang="en-US" sz="1100" dirty="0"><a:solidFill><a:srgbClr val="94A3B8"/></a:solidFill></a:rPr><a:t>%d</a:t></a:r></a:p>`, slideNum)
+		shapes.WriteString(pptxShape(12, "SlideNumber", 10668000, 6400800, 952500, 342900, pagePara))
 	}
+
 	return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>` +
-		shapes + `</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`
+		shapes.String() + `</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`
 }
 
 func buildPptx(title string, blocks []docBlock) ([]byte, error) {
+	return buildPptxWithOptions(pptxBuildOptions{Title: title}, blocks)
+}
+
+func buildPptxWithOptions(opts pptxBuildOptions, blocks []docBlock) ([]byte, error) {
+	title := opts.Title
 	slides := slidesOf(title, blocks)
 	if title != "" {
-		slides = append([]slide{{title: title}}, slides...)
+		slides = append([]slide{{title: title, subtitle: opts.Subtitle}}, slides...)
 	}
 	if len(slides) == 0 {
-		slides = []slide{{title: "Report"}}
+		slides = []slide{{title: "Report", subtitle: opts.Subtitle}}
 	}
 	if len(slides) > 300 {
 		return nil, errors.New("the deck would have more than 300 slides")
 	}
-	files := map[string]string{
-		"_rels/.rels":                                  `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`,
-		"ppt/slideMasters/slideMaster1.xml":            pptxMaster,
-		"ppt/slideMasters/_rels/slideMaster1.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>`,
-		"ppt/slideLayouts/slideLayout1.xml":            pptxLayout,
-		"ppt/slideLayouts/_rels/slideLayout1.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/></Relationships>`,
-		"ppt/theme/theme1.xml":                         pptxTheme,
+	entries := map[string][]byte{
+		"_rels/.rels":                                  []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`),
+		"ppt/slideMasters/slideMaster1.xml":            []byte(pptxMaster),
+		"ppt/slideMasters/_rels/slideMaster1.xml.rels": []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>`),
+		"ppt/slideLayouts/slideLayout1.xml":            []byte(pptxLayout),
+		"ppt/slideLayouts/_rels/slideLayout1.xml.rels": []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/></Relationships>`),
+		"ppt/theme/theme1.xml":                         []byte(pptxTheme),
 	}
 	order := []string{"[Content_Types].xml", "_rels/.rels", "ppt/presentation.xml", "ppt/_rels/presentation.xml.rels",
 		"ppt/slideMasters/slideMaster1.xml", "ppt/slideMasters/_rels/slideMaster1.xml.rels",
 		"ppt/slideLayouts/slideLayout1.xml", "ppt/slideLayouts/_rels/slideLayout1.xml.rels", "ppt/theme/theme1.xml"}
-	var overrides, ids, rels strings.Builder
+	var overrides, ids, rels, imgDefaults strings.Builder
+	imageExts := map[string]string{}
+	imgSeq := 0
 	rels.WriteString(`<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>`)
 	for i, s := range slides {
 		n := i + 1
+		var slideImg *embeddedImage
+		slideRelExtra := ""
+		if len(s.images) > 0 {
+			imgSeq++
+			maxW := 10000000
+			if len(s.lines) > 0 {
+				maxW = 5400000
+			}
+			if resolved, err := resolveEmbeddedImage(s.images[0].imageSrc, opts.Scope, imgSeq, "rId2", maxW, 4400000); err == nil {
+				slideImg = resolved
+				imageExts[resolved.Ext] = resolved.ContentType
+				mediaPath := "ppt/media/" + resolved.Filename
+				entries[mediaPath] = resolved.Data
+				order = append(order, mediaPath)
+				slideRelExtra = fmt.Sprintf(`<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/%s"/>`, resolved.Filename)
+			}
+		}
 		name := fmt.Sprintf("ppt/slides/slide%d.xml", n)
-		files[name] = pptxSlideXML(s, title != "" && i == 0)
-		files[fmt.Sprintf("ppt/slides/_rels/slide%d.xml.rels", n)] = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>`
-		order = append(order, name, fmt.Sprintf("ppt/slides/_rels/slide%d.xml.rels", n))
+		relName := fmt.Sprintf("ppt/slides/_rels/slide%d.xml.rels", n)
+		entries[name] = []byte(pptxSlideXML(s, n, title != "" && i == 0, slideImg))
+		entries[relName] = []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>` + slideRelExtra + `</Relationships>`)
+		order = append(order, name, relName)
 		fmt.Fprintf(&overrides, `<Override PartName="/%s" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`, name)
 		fmt.Fprintf(&ids, `<p:sldId id="%d" r:id="rId%d"/>`, 255+n, n+2)
 		fmt.Fprintf(&rels, `<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide%d.xml"/>`, n+2, n)
 	}
-	files["[Content_Types].xml"] = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>` + overrides.String() + `</Types>`
-	files["ppt/presentation.xml"] = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>` +
-		ids.String() + `</p:sldIdLst><p:sldSz cx="9144000" cy="6858000" type="screen4x3"/><p:notesSz cx="6858000" cy="9144000"/></p:presentation>`
-	files["ppt/_rels/presentation.xml.rels"] = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` + rels.String() + `</Relationships>`
-	return zipFiles(files, order)
+	for ext, ct := range imageExts {
+		fmt.Fprintf(&imgDefaults, `<Default Extension="%s" ContentType="%s"/>`, ext, ct)
+	}
+	entries["[Content_Types].xml"] = []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>` + imgDefaults.String() + `<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>` + overrides.String() + `</Types>`)
+	// Standard 16:9 widescreen (13.333" x 7.5" = 12192000 x 6858000 EMU)
+	entries["ppt/presentation.xml"] = []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>` +
+		ids.String() + `</p:sldIdLst><p:sldSz cx="12192000" cy="6858000"/><p:notesSz cx="6858000" cy="9144000"/></p:presentation>`)
+	entries["ppt/_rels/presentation.xml.rels"] = []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` + rels.String() + `</Relationships>`)
+	return zipBinaryFiles(entries, order)
 }
 
 const pptxNS = `xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"`
@@ -824,20 +964,41 @@ var (
 		}
 		return printPDF(ctx, page, out)
 	})
-	mcpReportDocx = documentTool(".docx", func(_ context.Context, md, title, out string) error {
-		data, err := buildDocx(title, markdownBlocks(md))
-		if err != nil {
-			return err
+	mcpReportDocx = func(_ context.Context, args map[string]any) map[string]any {
+		if tmpl, _ := args["template_path"].(string); strings.TrimSpace(tmpl) != "" {
+			title := capRunes(strings.TrimSpace(str(args, "title", "Document")), 200)
+			out, err := documentOutput(args, title, ".docx")
+			if err != nil {
+				return mcpFail(err.Error())
+			}
+			data, err := compileDocxFromParams(nil, args)
+			if err != nil {
+				return mcpFail(err.Error())
+			}
+			if err := writeNew(out, data); err != nil {
+				return mcpFail(err.Error())
+			}
+			return map[string]any{"success": true, "path": out, "bytes": len(data)}
 		}
-		return writeNew(out, data)
-	})
-	mcpReportPptx = documentTool(".pptx", func(_ context.Context, md, title, out string) error {
-		data, err := buildPptx(title, markdownBlocks(md))
-		if err != nil {
-			return err
-		}
-		return writeNew(out, data)
-	})
+		return documentTool(".docx", func(_ context.Context, md, title, out string) error {
+			subtitle := capRunes(strings.TrimSpace(str(args, "subtitle", "")), 200)
+			data, err := buildDocxWithOptions(docxBuildOptions{Title: title, Subtitle: subtitle}, markdownBlocks(md))
+			if err != nil {
+				return err
+			}
+			return writeNew(out, data)
+		})(context.Background(), args)
+	}
+	mcpReportPptx = func(_ context.Context, args map[string]any) map[string]any {
+		return documentTool(".pptx", func(_ context.Context, md, title, out string) error {
+			subtitle := capRunes(strings.TrimSpace(str(args, "subtitle", "")), 200)
+			data, err := buildPptxWithOptions(pptxBuildOptions{Title: title, Subtitle: subtitle}, markdownBlocks(md))
+			if err != nil {
+				return err
+			}
+			return writeNew(out, data)
+		})(context.Background(), args)
+	}
 )
 
 func init() {
@@ -846,14 +1007,18 @@ func init() {
 			"markdown":      map[string]any{"type": "string", "description": "Markdown text to render" + extra},
 			"markdown_path": map[string]any{"type": "string", "description": "Or a Markdown file under the working directory or your home directory."},
 			"title":         map[string]any{"type": "string", "description": "Title, used for the file name and the cover heading."},
+			"subtitle":      map[string]any{"type": "string", "description": "Optional header/cover subtitle or classification label."},
 			"output_path":   map[string]any{"type": "string", "description": "Optional new file to write (never overwritten); default: a new file under Aria's artifacts/report."},
 		}
 	}
+	docxProps := docProps("")
+	docxProps["template_path"] = map[string]any{"type": "string", "description": "Optional existing enterprise .docx template to fill {{placeholders}} while keeping styles/logos."}
+	docxProps["variables"] = map[string]any{"type": "object", "description": "Key-value placeholder replacements when template_path is supplied."}
 	mcpServerTools = append(mcpServerTools,
 		writeTool("aria.report.html", "Render Markdown as a printable HTML page (tables, signal badges, meta bar), into a new file. Needs no browser.", docProps("")),
 		writeTool("aria.report.pdf", "Render Markdown as an A4 PDF through a local Chrome, Chromium or Edge, into a new file.", docProps("")),
-		writeTool("aria.report.docx", "Render Markdown as a Word document (headings, paragraphs, bullets, tables, code), into a new file.", docProps("")),
-		writeTool("aria.report.pptx", "Render Markdown as a slide deck: each heading starts a slide; long slides continue; tables become rows. Into a new file.", docProps(" (each heading becomes a slide)")),
+		writeTool("aria.report.docx", "Render Markdown as an executive Word document (headers/footers, page numbers, callout quotes, tables, inline PNG/JPEG charts) or fill {{placeholders}} in a .docx template.", docxProps),
+		writeTool("aria.report.pptx", "Render Markdown as a 16:9 widescreen slide deck with native DrawingML tables, automatic two-column split layouts, and embedded PNG/JPEG charts.", docProps(" (each heading becomes a slide)")),
 	)
 	mcpServerHandlers["aria.report.html"] = mcpReportHTML
 	mcpServerHandlers["aria.report.pdf"] = mcpReportPDF

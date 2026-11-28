@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -14,8 +17,22 @@ import (
 var deviceRedirect = regexp.MustCompile(`>\s*/dev/([^\s;&|]+)`)
 
 type commandSpec struct {
-	command, cwd string
-	timeout      time.Duration
+	command, cwd     string
+	timeout          time.Duration
+	readOnlySandbox  bool
+	noNetworkSandbox bool
+}
+
+func shellSandboxAvailable() bool {
+	if runtime.GOOS == "darwin" {
+		_, err := os.Stat("/usr/bin/sandbox-exec")
+		return err == nil
+	}
+	if runtime.GOOS == "linux" {
+		_, err := exec.LookPath("bwrap")
+		return err == nil
+	}
+	return false
 }
 
 func commandPlan(s *scope, c config, params map[string]any) (commandSpec, error) {
@@ -27,7 +44,12 @@ func commandPlan(s *scope, c config, params map[string]any) (commandSpec, error)
 			return commandSpec{}, fmt.Errorf("unsupported command field: %s", key)
 		}
 	}
-	if remoteScope() || s.readOnly || c.text("permission_mode", "workspace-write") == "read-only" || !c.boolean("network_enabled", true) {
+	isReadOnly := s.readOnly || c.text("permission_mode", "workspace-write") == "read-only"
+	noNetwork := !c.boolean("network_enabled", true)
+	if remoteScope() {
+		return commandSpec{}, errors.New("native shell sandbox adapter is required for remote execution")
+	}
+	if (isReadOnly || noNetwork) && !shellSandboxAvailable() {
 		return commandSpec{}, errors.New("native shell sandbox adapter is required for remote, read-only or network-disabled execution")
 	}
 	command := str(params, "command", "")
@@ -64,7 +86,13 @@ func commandPlan(s *scope, c config, params map[string]any) (commandSpec, error)
 	if seconds > 300 {
 		seconds = 300
 	}
-	return commandSpec{command: command, cwd: p.absolute, timeout: time.Duration(seconds) * time.Second}, nil
+	return commandSpec{
+		command:          command,
+		cwd:              p.absolute,
+		timeout:          time.Duration(seconds) * time.Second,
+		readOnlySandbox:  isReadOnly,
+		noNetworkSandbox: noNetwork,
+	}, nil
 }
 
 // Drain all process output while keeping bounded tails. A verbose build cannot
@@ -97,13 +125,54 @@ func (b *outputTail) text() (string, bool) {
 	defer b.mu.Unlock()
 	return strings.ToValidUTF8(string(b.bytes), "�"), b.total > b.limit
 }
+func sandboxedShellCommand(ctx context.Context, spec commandSpec) *exec.Cmd {
+	base := shellCommand(ctx, spec.command)
+	if !spec.readOnlySandbox && !spec.noNetworkSandbox {
+		return base
+	}
+	if runtime.GOOS == "darwin" {
+		var sb strings.Builder
+		sb.WriteString("(version 1)(allow default)\n")
+		if spec.noNetworkSandbox {
+			sb.WriteString("(deny network*)\n")
+		}
+		if spec.readOnlySandbox {
+			sb.WriteString("(deny file-write* (subpath " + strconv.Quote(spec.cwd) + "))\n")
+		}
+		args := append([]string{"-p", sb.String(), base.Path}, base.Args[1:]...)
+		return exec.CommandContext(ctx, "/usr/bin/sandbox-exec", args...)
+	}
+	if runtime.GOOS == "linux" {
+		if bwrap, err := exec.LookPath("bwrap"); err == nil {
+			bArgs := []string{"--new-session", "--die-with-parent", "--proc", "/proc", "--dev", "/dev"}
+			if spec.noNetworkSandbox {
+				bArgs = append(bArgs, "--unshare-net")
+			}
+			for _, ro := range []string{"/usr", "/lib", "/lib64", "/bin", "/etc"} {
+				if _, stErr := os.Stat(ro); stErr == nil {
+					bArgs = append(bArgs, "--ro-bind", ro, ro)
+				}
+			}
+			if spec.readOnlySandbox {
+				bArgs = append(bArgs, "--ro-bind", spec.cwd, spec.cwd)
+			} else {
+				bArgs = append(bArgs, "--bind", spec.cwd, spec.cwd)
+			}
+			bArgs = append(bArgs, "--chdir", spec.cwd, base.Path)
+			bArgs = append(bArgs, base.Args[1:]...)
+			return exec.CommandContext(ctx, bwrap, bArgs...)
+		}
+	}
+	return base
+}
+
 func commandTool(ctx context.Context, spec commandSpec) toolResult {
 	if ctx.Err() != nil {
 		return failed(ctx.Err())
 	}
 	bounded, cancel := context.WithTimeout(ctx, spec.timeout)
 	defer cancel()
-	cmd := shellCommand(bounded, spec.command)
+	cmd := sandboxedShellCommand(bounded, spec)
 	cmd.Dir = spec.cwd
 	cmd.Stdin = nil
 	cmd.WaitDelay = time.Second

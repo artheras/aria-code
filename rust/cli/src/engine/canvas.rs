@@ -29,7 +29,7 @@ const PORT_END: u16 = 8774;
 
 pub const ARTIFACT_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'";
 
-const CANVAS_SHELL_HTML: &str = r#"<!doctype html>
+const CANVAS_SHELL_HTML: &str = r##"<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -44,8 +44,11 @@ const CANVAS_SHELL_HTML: &str = r#"<!doctype html>
     .item.active { border-color: #3b82f6; background: #1d2538; }
     .name { font-size: 13px; font-weight: 600; word-break: break-all; }
     .meta { font-size: 11px; color: #9ca3af; margin-top: 2px; }
-    main { flex: 1; display: flex; flex-direction: column; }
+    main { flex: 1; display: flex; flex-direction: column; position: relative; }
     iframe { flex: 1; width: 100%; border: none; background: #ffffff; }
+    .office-card { display: none; flex: 1; align-items: center; justify-content: center; flex-direction: column; gap: 12px; background: #0f1117; color: #e5e7eb; padding: 32px; text-align: center; }
+    .office-card.visible { display: flex; }
+    .office-btn { padding: 10px 18px; border-radius: 8px; background: #2563eb; color: #fff; text-decoration: none; font-size: 13px; font-weight: 600; }
     .empty { padding: 24px; color: #9ca3af; font-size: 13px; }
   </style>
 </head>
@@ -55,11 +58,36 @@ const CANVAS_SHELL_HTML: &str = r#"<!doctype html>
     <div id="list"><div class="empty">Waiting for artifacts…</div></div>
   </aside>
   <main>
+    <div id="officeCard" class="office-card">
+      <div id="officeName" style="font-size:18px;font-weight:600;"></div>
+      <div id="officeMeta" style="font-size:13px;color:#9ca3af;"></div>
+      <a id="officeDownload" class="office-btn" href="#" download>Download Deliverable</a>
+    </div>
     <iframe id="viewer" sandbox="allow-scripts" title="Artifact Preview"></iframe>
   </main>
   <script>
     let currentSig = "";
     let selectedIdx = 0;
+    const OFFICE_KINDS = new Set(["xlsx", "xlsm", "docx", "pptx"]);
+    function showArtifact(item, idx) {
+      const viewer = document.getElementById("viewer");
+      const card = document.getElementById("officeCard");
+      const url = "/artifact/" + idx + "?t=" + Date.now();
+      if (item && OFFICE_KINDS.has((item.kind || "").toLowerCase())) {
+        viewer.style.display = "none";
+        viewer.removeAttribute("src");
+        document.getElementById("officeName").textContent = item.name;
+        document.getElementById("officeMeta").textContent = item.kind.toUpperCase() + " deliverable · " + item.size_bytes + " B";
+        const dl = document.getElementById("officeDownload");
+        dl.href = url;
+        dl.setAttribute("download", item.name);
+        card.classList.add("visible");
+      } else {
+        card.classList.remove("visible");
+        viewer.style.display = "block";
+        viewer.src = url;
+      }
+    }
     async function refresh() {
       try {
         const res = await fetch("/api/artifacts", { cache: "no-store" });
@@ -72,6 +100,8 @@ const CANVAS_SHELL_HTML: &str = r#"<!doctype html>
         const viewer = document.getElementById("viewer");
         if (!items.length) {
           list.innerHTML = '<div class="empty">No artifacts yet.</div>';
+          document.getElementById("officeCard").classList.remove("visible");
+          viewer.style.display = "block";
           viewer.removeAttribute("src");
           return;
         }
@@ -85,13 +115,13 @@ const CANVAS_SHELL_HTML: &str = r#"<!doctype html>
           div.querySelector(".meta").textContent = item.kind + " · " + item.size_bytes + " B";
           div.onclick = () => {
             selectedIdx = idx;
-            viewer.src = "/artifact/" + idx + "?t=" + Date.now();
+            showArtifact(item, idx);
             currentSig = "";
             refresh();
           };
           list.appendChild(div);
         });
-        viewer.src = "/artifact/" + selectedIdx + "?t=" + Date.now();
+        showArtifact(items[selectedIdx], selectedIdx);
       } catch (_) {}
     }
     refresh();
@@ -99,7 +129,7 @@ const CANVAS_SHELL_HTML: &str = r#"<!doctype html>
   </script>
 </body>
 </html>
-"#;
+"##;
 
 pub struct CanvasSession {
     pub url: String,
@@ -150,6 +180,9 @@ fn content_type_for(kind: &str) -> &'static str {
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
         "pdf" => "application/pdf",
+        "xlsx" | "xlsm" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "json" => "application/json; charset=utf-8",
         "csv" => "text/csv; charset=utf-8",
         "md" | "markdown" | "txt" => "text/plain; charset=utf-8",

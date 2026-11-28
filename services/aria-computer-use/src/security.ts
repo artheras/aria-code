@@ -84,6 +84,7 @@ export function approvalBackendLabel(
   env: NodeJS.ProcessEnv = process.env,
   hasCmd: (cmd: string) => boolean = commandExists,
 ): string {
+  if (env.ARIA_COMPUTER_APPROVAL_CMD?.trim()) return "host approval hook (ARIA_COMPUTER_APPROVAL_CMD)";
   if (platform === "darwin") return "native macOS dialog (osascript)";
   if (platform === "win32") return "native Windows dialog (MessageBox)";
   if (platform === "linux" && (env.DISPLAY || env.WAYLAND_DISPLAY)) {
@@ -119,6 +120,20 @@ export function requestHumanApproval(
   const exec = deps?.exec ?? defaultExec;
   const hasCmd = deps?.hasCmd ?? commandExists;
   const prompt = summary.slice(0, 2000);
+
+  const customHook = env.ARIA_COMPUTER_APPROVAL_CMD?.trim();
+  if (customHook) {
+    try {
+      const out = exec(customHook, [], {
+        timeout: 25_000,
+        encoding: "utf8",
+        env: { ...env, ARIA_APPROVAL_PROMPT: prompt },
+      });
+      return out.trim().toLowerCase() === "allow";
+    } catch {
+      return false;
+    }
+  }
 
   if (platform === "darwin") {
     const script = [

@@ -34,6 +34,10 @@ pub struct Renderer {
     // The gateway's final response contains tokens from all provider rounds.
     streamed: String,
     line_open: bool,
+    tool_ok_count: usize,
+    tool_fail_count: usize,
+    changed_files: Vec<String>,
+    artifacts: Vec<String>,
 }
 
 impl Renderer {
@@ -47,6 +51,10 @@ impl Renderer {
             answer_bytes: 0,
             streamed: String::new(),
             line_open: false,
+            tool_ok_count: 0,
+            tool_fail_count: 0,
+            changed_files: Vec::new(),
+            artifacts: Vec::new(),
         }
     }
 
@@ -164,13 +172,58 @@ impl Renderer {
             }
             "tool.started" | "tool.completed" => {
                 self.line_end(out)?;
+                let tool_name = event["tool"].as_str().unwrap();
                 let status = if kind == "tool.started" {
                     "running"
                 } else if event["success"] == true {
+                    self.tool_ok_count += 1;
                     "ok"
                 } else {
+                    self.tool_fail_count += 1;
                     "failed"
                 };
+                let target_path = event["path"]
+                    .as_str()
+                    .or_else(|| event.pointer("/params/path").and_then(Value::as_str))
+                    .or_else(|| event.pointer("/params/output_path").and_then(Value::as_str))
+                    .or_else(|| event.pointer("/result/output_path").and_then(Value::as_str))
+                    .or_else(|| event.pointer("/result/path").and_then(Value::as_str))
+                    .filter(|s| !s.is_empty());
+
+                if kind == "tool.completed" && event["success"] == true {
+                    if let Some(p) = target_path {
+                        let p_clean = label(p);
+                        if tool_name.contains("export")
+                            || tool_name.contains("doc_build")
+                            || tool_name.contains("report")
+                        {
+                            if !self.artifacts.contains(&p_clean) {
+                                self.artifacts.push(p_clean);
+                            }
+                        } else if (tool_name.contains("edit")
+                            || tool_name.contains("write")
+                            || tool_name.contains("patch"))
+                            && !self.changed_files.contains(&p_clean)
+                        {
+                            self.changed_files.push(p_clean);
+                        }
+                    }
+                }
+
+                let diff_badge = match (
+                    event["lines_added"].as_u64(),
+                    event["lines_removed"].as_u64(),
+                ) {
+                    (Some(add), Some(rem)) => format!(" (+{add}/-{rem})"),
+                    _ => event["diff_summary"]
+                        .as_str()
+                        .filter(|s| !s.is_empty())
+                        .map(|s| format!(" ({})", label(s)))
+                        .unwrap_or_default(),
+                };
+                let target_suffix = target_path
+                    .map(|p| format!(" -> {}", label(p)))
+                    .unwrap_or_default();
                 let error = event["error"]
                     .as_str()
                     .filter(|s| !s.is_empty())
@@ -178,8 +231,8 @@ impl Renderer {
                     .unwrap_or_default();
                 writeln!(
                     diagnostics,
-                    "[{status}] {}{error}",
-                    label(event["tool"].as_str().unwrap())
+                    "[{status}] {}{target_suffix}{diff_badge}{error}",
+                    label(tool_name)
                 )
                 .map_err(|e| e.to_string())?;
             }
@@ -202,6 +255,21 @@ impl Renderer {
                         .unwrap_or("Turn failed");
                     writeln!(diagnostics, "[failed] {}", label(error))
                         .map_err(|e| e.to_string())?;
+                } else if self.tool_ok_count > 0 || self.tool_fail_count > 0 {
+                    writeln!(
+                        diagnostics,
+                        "[summary] tools: {} ok, {} failed",
+                        self.tool_ok_count, self.tool_fail_count
+                    )
+                    .map_err(|e| e.to_string())?;
+                    if !self.changed_files.is_empty() {
+                        writeln!(diagnostics, "[files] {}", self.changed_files.join(", "))
+                            .map_err(|e| e.to_string())?;
+                    }
+                    if !self.artifacts.is_empty() {
+                        writeln!(diagnostics, "[artifacts] {}", self.artifacts.join(", "))
+                            .map_err(|e| e.to_string())?;
+                    }
                 }
             }
             _ => unreachable!(),
@@ -350,5 +418,39 @@ mod tests {
         assert!(Renderer::new(false)
             .consume(b"not json\n", &mut Vec::new(), &mut Vec::new())
             .is_err());
+    }
+
+    #[test]
+    fn renders_compact_diff_badges_and_turn_delivery_summary() {
+        let events = [
+            start(),
+            json!({
+                "type": "tool.started",
+                "tool": "edit_file",
+                "params": {"path": "src/lib.rs"}
+            }),
+            json!({
+                "type": "tool.completed",
+                "tool": "edit_file",
+                "success": true,
+                "path": "src/lib.rs",
+                "lines_added": 12,
+                "lines_removed": 3
+            }),
+            json!({
+                "type": "tool.completed",
+                "tool": "export_xlsx",
+                "success": true,
+                "path": "out/model.xlsx"
+            }),
+            end("Done."),
+        ];
+        let (result, out, err) = run(&events, false);
+        assert_eq!(result.unwrap(), 0);
+        assert_eq!(out, "Done.\n");
+        assert!(err.contains("[ok] edit_file -> src/lib.rs (+12/-3)"));
+        assert!(err.contains("[summary] tools: 2 ok, 0 failed"));
+        assert!(err.contains("[files] src/lib.rs"));
+        assert!(err.contains("[artifacts] out/model.xlsx"));
     }
 }

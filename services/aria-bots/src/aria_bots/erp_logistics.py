@@ -46,29 +46,110 @@ _FALLBACK_SCHEMAS = (
 
 
 def _implementations() -> Dict[str, tuple[Callable[[Dict[str, Any]], Dict[str, Any]], Dict[str, Any]]]:
-    from erp_service.logistics.carriers import SCHEMA as carrier_schema
-    from erp_service.logistics.carriers import tool_score_carriers
-    from erp_service.logistics.inventory import SCHEMA as inventory_schema
-    from erp_service.logistics.inventory import tool_plan_inventory_policy
-    from erp_service.logistics.tenancy import owner_params_schema
+    try:
+        from erp_service.logistics.carriers import SCHEMA as carrier_schema
+        from erp_service.logistics.carriers import tool_score_carriers as ext_score_carriers
+        from erp_service.logistics.inventory import SCHEMA as inventory_schema
+        from erp_service.logistics.inventory import tool_plan_inventory_policy as ext_plan_inventory
+        from erp_service.logistics.tenancy import owner_params_schema
 
-    freight_schema = {
-        "name": "analyze_logistics_data",
-        "description": "Analyze actual waybills from supplied records, a CSV/JSON file, or an existing local database",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "file_path": {"type": "string", "description": "CSV or JSON waybill file path"},
-                "waybills": {"type": "array", "description": "Waybill records with total_cost"},
-                **owner_params_schema(),
+        freight_schema = {
+            "name": "analyze_logistics_data",
+            "description": "Analyze actual waybills from supplied records, a CSV/JSON file, or an existing local database",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "CSV or JSON waybill file path"},
+                    "waybills": {"type": "array", "description": "Waybill records with total_cost"},
+                    **owner_params_schema(),
+                },
             },
-        },
-    }
-    return {
-        "analyze_logistics_data": (tool_analyze_logistics_data, freight_schema),
-        "score_carriers": (tool_score_carriers, carrier_schema),
-        "plan_inventory_policy": (tool_plan_inventory_policy, inventory_schema),
-    }
+        }
+        return {
+            "analyze_logistics_data": (tool_analyze_logistics_data, freight_schema),
+            "score_carriers": (ext_score_carriers, carrier_schema),
+            "plan_inventory_policy": (ext_plan_inventory, inventory_schema),
+        }
+    except ImportError:
+        from . import logistics_builtin as builtin
+
+        freight_schema = {
+            "name": "analyze_logistics_data",
+            "description": "Analyze actual waybills from supplied records or a CSV/JSON/XLSX file, scoped per shipper",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "CSV, JSON, or XLSX waybill file path"},
+                    "waybills": {"type": "array", "description": "Waybill records with total_cost"},
+                    **builtin.owner_params_schema(),
+                },
+            },
+        }
+        return {
+            "analyze_logistics_data": (builtin.tool_analyze_logistics_data_builtin, freight_schema),
+            "score_carriers": (builtin.tool_score_carriers, builtin.CARRIER_SCHEMA),
+            "plan_inventory_policy": (builtin.tool_plan_inventory_policy, builtin.INVENTORY_SCHEMA),
+            "reconcile_ar_aging": (
+                builtin.tool_reconcile_ar_aging,
+                {
+                    "name": "reconcile_ar_aging",
+                    "description": "Compute accounts-receivable aging buckets (current, 1-30, 31-60, 61-90, 90+) as of cutoff_date.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "cutoff_date": {"type": "string", "description": "Cutoff date YYYY-MM-DD"},
+                            "invoices_path": {"type": "string"},
+                            "payments_path": {"type": "string"},
+                        },
+                        "required": ["cutoff_date"],
+                    },
+                },
+            ),
+            "reconcile_cycle_count": (
+                builtin.tool_reconcile_cycle_count,
+                {
+                    "name": "reconcile_cycle_count",
+                    "description": "Reconcile warehouse cycle counts with UOM conversions against system stock.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "system_path": {"type": "string"},
+                            "counts_path": {"type": "string"},
+                            "uom_path": {"type": "string"},
+                        },
+                    },
+                },
+            ),
+            "convert_fx_invoices": (
+                builtin.tool_convert_fx_invoices,
+                {
+                    "name": "convert_fx_invoices",
+                    "description": "Convert foreign-currency invoices to EUR using latest rate on or before invoice date.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "invoices_path": {"type": "string"},
+                            "rates_path": {"type": "string"},
+                        },
+                    },
+                },
+            ),
+            "calculate_customs_duty": (
+                builtin.tool_calculate_customs_duty,
+                {
+                    "name": "calculate_customs_duty",
+                    "description": "Calculate EU customs duty per shipment with EUR 150 de minimis threshold and longest HS prefix match.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "lines_path": {"type": "string"},
+                            "duty_rates_path": {"type": "string"},
+                            "fx_path": {"type": "string"},
+                        },
+                    },
+                },
+            ),
+        }
 
 
 def tool_plan_inventory_policy(params: Dict[str, Any]) -> Dict[str, Any]:
@@ -80,14 +161,14 @@ def tool_score_carriers(params: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def tool_analyze_logistics_data(params: Dict[str, Any]) -> Dict[str, Any]:
-    """erp-service freight math, after this host's shipper check.
-
-    erp-service's freight helper does not apply tenancy itself. Mixed shipper
-    files must still be refused here, before any total is computed.
-    """
-    from erp_service.freight import tool_analyze_logistics_data as impl
-    from erp_service.logistics.records import load_records
-    from erp_service.logistics.tenancy import TenancyError, scope_records
+    """erp-service freight math, after this host's shipper check (with built-in fallback)."""
+    try:
+        from erp_service.freight import tool_analyze_logistics_data as impl
+        from erp_service.logistics.records import load_records
+        from erp_service.logistics.tenancy import TenancyError, scope_records
+    except ImportError:
+        from .logistics_builtin import tool_analyze_logistics_data_builtin
+        return tool_analyze_logistics_data_builtin(params)
 
     try:
         records, source = load_records(params, "waybills")
