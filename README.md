@@ -20,8 +20,8 @@ Numbers you can check, client data kept apart, actions a person approves.</p>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-64748b?style=flat-square" alt="Apache License 2.0"></a>
 </p>
 
-<p align="center"><img src="docs/assets/demo-coding.gif" alt="Real Aria Code session: Gemini 2.5 Pro writes fx.py and its tests, runs them after each step is approved, then /review checks the change" width="860"></p>
-<p align="center"><sub>A real session on Gemini 2.5 Pro (Vertex AI): Aria writes <code>fx.py</code> and its tests, runs them once each step is approved, then <code>/review</code> checks the change and gives its verdict. Waiting is shortened; nothing else is changed. <a href="docs/assets/demo-coding.png">Still</a> · <a href="scripts/record_demo.py">Recorder</a> · <a href="scripts/render_demo.py">Renderer</a></sub></p>
+<p align="center"><img src="docs/assets/demo-coding.gif" alt="Aria Code v0.170.0 TUI session showing native tool execution, compact diff summary, and safety envelope verification" width="860"></p>
+<p align="center"><sub>Aria Code v0.170.0 TUI (<a href="docs/assets/aria-tui-home.png">Home still</a> · <a href="docs/assets/demo-coding.png">Session still</a> · <a href="scripts/generate_readme_demos.py">Renderer</a>)</sub></p>
 
 ## What Aria Code does
 
@@ -29,12 +29,7 @@ Numbers you can check, client data kept apart, actions a person approves.</p>
 
 **Analyses markets, valuations, and deliverables.** Quotes, technical indicators, backtests with an HTML report, SEC filings, deterministic **DCF / WACC / Peer Comps / Monte Carlo VaR & CVaR** (with an optional C++20 numerical kernel), and zero-dependency native `.xlsx` (live formulas + `Audit_Provenance`), 16:9 `.pptx`, `.docx`, and SVG chart exports. Results name their data source, period, and any gaps.
 
-<p align="center"><img src="docs/assets/demo-finance.gif" alt="Real Aria Code session: technical indicators for AAPL and a one-year momentum backtest on SPY, with data source, period and completeness stated" width="760"></p>
-
 **Runs logistics operations.** For third-party logistics: reorder points, safety stock, ABC/XYZ classes, dead stock, carrier scorecards and freight anomalies — and in Feishu, a daily digest per shipper with approval cards.
-
-<p align="center"><img src="docs/assets/demo-logistics.gif" alt="Real Aria Code session: a refusal to mix two shippers' data, reorder points for one shipper, and a carrier scorecard with a saving and two anomalies" width="760"></p>
-<p align="center"><sub>Both recorded from real sessions — market data from yfinance; the logistics data is the sample 3PL in <code>evals/fixtures</code>, with no model call.</sub></p>
 
 ## How it works
 
@@ -68,9 +63,6 @@ flowchart LR
 | **Financial Service** | [`artheras/financial-service`](https://github.com/artheras/financial-service) | Statements, Piotroski F / Altman Z'', portfolio backtests, and Bearer-protected `streamable-http` |
 | **Computer Use** | [`services/aria-computer-use`](services/aria-computer-use/README.md) | Controlled browser automation with host approval hooks |
 | **Bots & Relay** | [`services/aria-bots`](services/aria-bots/README.md) & [`go/relay`](go/relay/README.md) | Feishu/Telegram 3PL & market bots with multi-turn `--resume` |
-
-<p align="center"><img src="docs/assets/demo-documents.gif" alt="Real Aria Document Studio output: XLSX with live formulas & Audit_Provenance and 16:9 PPTX board deck" width="820"></p>
-<p align="center"><img src="docs/assets/demo-ecosystem.gif" alt="Real Aria Native export, C++20 Monte Carlo quant kernel, and Career Copilot JD matching output" width="820"></p>
 
 ## Quick start
 

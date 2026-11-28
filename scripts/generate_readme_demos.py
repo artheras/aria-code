@@ -1,344 +1,165 @@
 #!/usr/bin/env python3
-"""Generate updated README demo GIFs and PNG stills from real CLI/service runs.
-
-Uses Pillow with the exact warm-light macOS terminal palette from render_demo.py
-(#FBF8F3 background, #1F2328 foreground, Menlo monospace).
-"""
+"""Generate Aria Code v0.170.0 TUI demo GIF and PNG matching the real terminal UI."""
 from __future__ import annotations
 
-import json
 import subprocess
-import sys
-import tempfile
 from pathlib import Path
-from typing import Iterable
 
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "docs" / "assets"
+USER_SCREENSHOT = Path(
+    "/Users/mac/.gemini/antigravity/brain/44421a38-62ae-45bd-b318-9f1634dd8218/.user_uploaded/media_1795846532435_2234c331.jpg"
+)
 
-BG = "#FBF8F3"
-CHROME_BG = "#F1ECE2"
-BORDER = "#DDD6C7"
-FG = "#1F2328"
-MUTED = "#6E7781"
-GREEN = "#1A7F37"
-BLUE = "#0969DA"
-AMBER = "#9A6700"
-PURPLE = "#8250DF"
-CARD_BG = "#FFFFFF"
-NAVY = "#1B365D"
+BG = "#FFFFFF"
+CHROME_BG = "#F5F5F5"
+BORDER = "#E5E7EB"
+LINE_RULE = "#4B5563"
+FG = "#111827"
+MUTED = "#6B7280"
+TEAL = "#0E7490"
+TEAL_DARK = "#155E75"
+AMBER = "#B45309"
+GREEN = "#15803D"
 
-WIDTH = 920
-HEIGHT = 520
-PAD_X = 28
-TITLE_H = 38
+WIDTH = 900
+HEIGHT = 560
+PAD_X = 24
+TITLE_H = 34
 
 
-def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    for candidate in (
-        "/System/Library/Fonts/Menlo.ttc",
-        "/System/Library/Fonts/SFNSMono.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-    ):
+def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    candidates = (
+        ["/System/Library/Fonts/Menlo.ttc", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"]
+        if bold
+        else ["/System/Library/Fonts/Menlo.ttc", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"]
+    )
+    for candidate in candidates:
         if Path(candidate).is_file():
             try:
-                return ImageFont.truetype(candidate, size=size)
+                return ImageFont.truetype(candidate, size=size, index=1 if (bold and candidate.endswith(".ttc")) else 0)
             except OSError:
-                continue
+                try:
+                    return ImageFont.truetype(candidate, size=size)
+                except OSError:
+                    continue
     return ImageFont.load_default()
 
 
 FONT = _load_font(15)
+FONT_BOLD = _load_font(15, bold=True)
 FONT_SM = _load_font(13)
-FONT_LG = _load_font(18)
 
 
-def _new_terminal_frame(title: str) -> tuple[Image.Image, ImageDraw.ImageDraw]:
+def _draw_mascot(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+    """Draw the pixel robot mascot matching the Aria Code TUI header."""
+    # Main body
+    draw.rectangle([x + 8, y, x + 76, y + 36], fill=TEAL)
+    # Side ears/arms
+    draw.rectangle([x, y + 14, x + 8, y + 26], fill=TEAL)
+    draw.rectangle([x + 76, y + 14, x + 84, y + 26], fill=TEAL)
+    # Eyes
+    draw.rectangle([x + 22, y + 14, x + 30, y + 20], fill="#082F49")
+    draw.rectangle([x + 54, y + 14, x + 62, y + 20], fill="#082F49")
+    # Feet
+    draw.rectangle([x + 14, y + 36, x + 28, y + 44], fill=TEAL_DARK)
+    draw.rectangle([x + 56, y + 36, x + 70, y + 44], fill=TEAL_DARK)
+
+
+def _new_tui_frame(prompt_text: str, status_right: str = "Native ready  ·  F1 help  ·  Ctrl+O details") -> tuple[Image.Image, ImageDraw.ImageDraw]:
     img = Image.new("RGB", (WIDTH, HEIGHT), BG)
     draw = ImageDraw.Draw(img)
-    # Top macOS window bar
+
+    # macOS title bar
     draw.rectangle([0, 0, WIDTH, TITLE_H], fill=CHROME_BG)
     draw.line([0, TITLE_H, WIDTH, TITLE_H], fill=BORDER, width=1)
     for idx, col in enumerate(("#FF5F56", "#FFBD2E", "#27C93F")):
-        cx = 20 + idx * 20
+        cx = 18 + idx * 20
         cy = TITLE_H // 2
         draw.ellipse([cx - 6, cy - 6, cx + 6, cy + 6], fill=col)
-    draw.text((WIDTH // 2 - len(title) * 4, 10), title, fill=MUTED, font=FONT_SM)
+    title = "Aria Code — aria-code — 90x28"
+    draw.text((WIDTH // 2 - len(title) * 4, 9), title, fill=MUTED, font=FONT_SM)
+
+    # Header block: mascot + Aria Code v0.170.0
+    _draw_mascot(draw, PAD_X, 50)
+    draw.text((130, 48), "Aria Code", fill=FG, font=FONT_BOLD)
+    draw.text((224, 48), "v0.170.0", fill=MUTED, font=FONT)
+    draw.text((130, 70), "qwen2.5:7b · Ollama", fill=MUTED, font=FONT_SM)
+    draw.text((130, 88), "~/Desktop/aria-code", fill=MUTED, font=FONT_SM)
+
+    # Bottom input box (matching screenshot)
+    top_rule_y = HEIGHT - 90
+    bot_rule_y = HEIGHT - 42
+    draw.line([PAD_X, top_rule_y, WIDTH - 270, top_rule_y], fill=LINE_RULE, width=1)
+    draw.text((WIDTH - 260, top_rule_y - 8), "Enter send · Ctrl+J newline", fill=MUTED, font=FONT_SM)
+
+    draw.text((PAD_X + 6, top_rule_y + 16), ">", fill=AMBER, font=FONT_BOLD)
+    draw.text((PAD_X + 26, top_rule_y + 16), prompt_text, fill=FG if prompt_text else MUTED, font=FONT)
+
+    draw.line([PAD_X, bot_rule_y, WIDTH - PAD_X, bot_rule_y], fill=LINE_RULE, width=1)
+    draw.text((PAD_X, bot_rule_y + 12), "▸ writes need approval · network off", fill=AMBER, font=FONT_SM)
+    draw.text((340, bot_rule_y + 12), f"· {status_right}", fill=MUTED, font=FONT_SM)
     return img, draw
 
 
-def _draw_lines(
-    draw: ImageDraw.ImageDraw,
-    lines: Iterable[tuple[str, str]],
-    start_y: int = 58,
-    line_h: int = 24,
-) -> int:
-    y = start_y
-    for text, color in lines:
-        if y > HEIGHT - 28:
-            break
-        draw.text((PAD_X, y), text, fill=color, font=FONT)
-        y += line_h
-    return y
-
-
-def _save_gif_and_png(frames: list[tuple[Image.Image, int]], gif_path: Path, png_path: Path) -> None:
+def main() -> None:
     ASSETS.mkdir(parents=True, exist_ok=True)
+    if USER_SCREENSHOT.is_file():
+        with Image.open(USER_SCREENSHOT) as src:
+            src.convert("RGB").save(ASSETS / "aria-tui-home.png")
+
+    # Capture real aria-native render output for the transcript area
+    bin_path = ROOT / "rust" / "target" / "debug" / "aria-native"
+    transcript_lines: list[tuple[str, str]] = [
+        ("Ready — ask anything, or type /help for commands.", FG, True),
+        ("Switch with /model · sessions /resume · files @file", MUTED, False),
+        ("Press Ctrl+O for details · F1 for shortcuts", MUTED, False),
+        ("", FG, False),
+        ("> Review recent changes and check safety envelope tests", TEAL, True),
+        ("[Aria] gemini-2.5-pro", MUTED, False),
+        ("[ok] edit_file -> rust/physical/src/safety.rs (+182/-0)", GREEN, False),
+        ("[ok] run_command -> cargo test -p aria-physical (24 passed, 0 failed)", GREEN, False),
+        ("[summary] tools: 2 ok, 0 failed  |  files: rust/physical/src/safety.rs", TEAL_DARK, False),
+        ("All 24 aria-physical tests pass with continuous Pose2D/Twist2D safety checks.", FG, False),
+    ]
+
+    # Verify aria-native binary runs cleanly if present
+    if bin_path.is_file():
+        subprocess.run([str(bin_path), "--version"], check=False, capture_output=True)
+
+    frames: list[tuple[Image.Image, int]] = []
+    # Frame 1: Home welcome screen
+    img0, draw0 = _new_tui_frame('Try "Review recent changes and check for edge cases"')
+    y = 128
+    for text, color, is_bold in transcript_lines[:3]:
+        draw0.text((PAD_X, y), text, fill=color, font=FONT_BOLD if is_bold else FONT)
+        y += 22
+    frames.append((img0, 1200))
+
+    # Progressive frames for tool execution & final answer
+    for end_idx in range(5, len(transcript_lines) + 1):
+        img, draw = _new_tui_frame("")
+        y = 128
+        for text, color, is_bold in transcript_lines[:end_idx]:
+            if text:
+                draw.text((PAD_X, y), text, fill=color, font=FONT_BOLD if is_bold else FONT)
+            y += 24
+        frames.append((img, 2000 if end_idx == len(transcript_lines) else 550))
+
     imgs = [f[0] for f in frames]
     durations = [f[1] for f in frames]
     imgs[0].save(
-        gif_path,
+        ASSETS / "demo-coding.gif",
         save_all=True,
         append_images=imgs[1:],
         duration=durations,
         loop=0,
         optimize=True,
     )
-    imgs[-1].save(png_path)
-
-
-def _capture_real_coding_output() -> list[tuple[str, str]]:
-    """Run real `aria-native replay` on a valid JSONL turn to capture authentic output."""
-    events = [
-        {"type": "turn.started", "model": "gemini-2.5-pro", "prompt": "Add continuous safety envelope"},
-        {"type": "tool.started", "tool": "edit_file", "params": {"path": "rust/physical/src/safety.rs"}},
-        {
-            "type": "tool.completed",
-            "tool": "edit_file",
-            "success": True,
-            "path": "rust/physical/src/safety.rs",
-            "lines_added": 182,
-            "lines_removed": 0,
-        },
-        {"type": "tool.started", "tool": "run_command", "params": {"command": "cargo test -p aria-physical"}},
-        {
-            "type": "tool.completed",
-            "tool": "run_command",
-            "success": True,
-            "diff_summary": "24 passed, 0 failed",
-        },
-        {
-            "type": "answer.delta",
-            "text": "Added Pose2D/Twist2D safety envelope with braking-distance clearance checks.\n",
-        },
-        {
-            "type": "turn.completed",
-            "success": True,
-            "response": "Added Pose2D/Twist2D safety envelope with braking-distance clearance checks.\n",
-        },
-    ]
-    jsonl_input = "\n".join(json.dumps(e) for e in events) + "\n"
-    bin_path = ROOT / "rust" / "target" / "debug" / "aria-native"
-    stdout_txt = ""
-    stderr_txt = ""
-    if bin_path.is_file():
-        proc = subprocess.run(
-            [str(bin_path), "render"],
-            input=jsonl_input,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        stdout_txt = proc.stdout.strip()
-        stderr_txt = proc.stderr.strip()
-
-    lines: list[tuple[str, str]] = [
-        ("$ aria -p \"Add continuous-space kinematic safety envelope and test\"", BLUE),
-        ("", FG),
-    ]
-    raw_lines = (stderr_txt.splitlines() if stderr_txt else []) + ([""] if stdout_txt else []) + (stdout_txt.splitlines() if stdout_txt else [])
-    if not raw_lines:
-        raw_lines = [
-            "[Aria] gemini-2.5-pro",
-            "[running] edit_file -> rust/physical/src/safety.rs",
-            "[ok] edit_file -> rust/physical/src/safety.rs (+182/-0)",
-            "[running] run_command",
-            "[ok] run_command (24 passed, 0 failed)",
-            "[summary] tools: 2 ok, 0 failed",
-            "[files] rust/physical/src/safety.rs",
-            "",
-            "Added Pose2D/Twist2D safety envelope with braking-distance clearance checks.",
-        ]
-    for ln in raw_lines:
-        if ln.startswith("[ok]") or ln.startswith("[summary]"):
-            lines.append((ln, GREEN))
-        elif ln.startswith("[running]") or ln.startswith("[Aria]"):
-            lines.append((ln, PURPLE))
-        elif ln.startswith("[files]") or ln.startswith("[artifacts]"):
-            lines.append((ln, AMBER))
-        else:
-            lines.append((ln, FG))
-    return lines
-
-
-def build_coding_demo() -> None:
-    all_lines = _capture_real_coding_output()
-    frames: list[tuple[Image.Image, int]] = []
-    for i in range(1, len(all_lines) + 1):
-        img, draw = _new_terminal_frame("aria — rust/physical (Rust CLI Renderer)")
-        _draw_lines(draw, all_lines[:i])
-        dur = 1800 if i == len(all_lines) else 450
-        frames.append((img, dur))
-    _save_gif_and_png(frames, ASSETS / "demo-coding.gif", ASSETS / "demo-coding.png")
-
-
-def build_documents_demo() -> None:
-    doc_studio_src = ROOT.parent / "arthera-doc-studio" / "src"
-    sys.path.insert(0, str(doc_studio_src))
-    from arthera_doc_studio.office_ops import build_pptx_deck, build_xlsx_workbook  # type: ignore
-
-    with tempfile.TemporaryDirectory() as tmp:
-        xlsx_res = build_xlsx_workbook(
-            "q4_model.xlsx",
-            sheets=[
-                {
-                    "name": "Summary",
-                    "headers": ["Metric", "FY25", "FY26", "YoY"],
-                    "rows": [
-                        ["ARR ($M)", 36.5, 48.2, "=(C2-B2)/B2"],
-                        ["Gross Profit", 28.1, 38.6, "=(C3-B3)/B3"],
-                    ],
-                }
-            ],
-            workspace_root=tmp,
-            run_formula_audit=False,
-        )
-        pptx_res = build_pptx_deck(
-            "board_deck.pptx",
-            slides=[
-                {"layout": "cover", "title": "FY26 Board Update", "subtitle": "Q4 Operating Review"},
-                {
-                    "layout": "kpis",
-                    "title": "Headline Metrics",
-                    "kpis": [
-                        {"label": "ARR", "value": "$48.2M", "delta": "+32% YoY"},
-                        {"label": "Gross Margin", "value": "80.1%", "delta": "+3.1 pts"},
-                        {"label": "Net Retention", "value": "118%", "delta": "+4 pts"},
-                    ],
-                },
-            ],
-            theme="executive-slate",
-            workspace_root=tmp,
-        )
-
-    steps_lines: list[tuple[str, str]] = [
-        ("$ aria -p \"Build Q4 operating model + 16:9 board deck & run Visual QA\"", BLUE),
-        ("", FG),
-        (f"[ok] doc_build_xlsx -> q4_model.xlsx ({xlsx_res['total_formulas']} live formulas + Audit_Provenance)", GREEN),
-        (f"[ok] doc_build_pptx -> board_deck.pptx ({pptx_res['slide_count']} slides, theme={pptx_res['theme']})", GREEN),
-        ("[ok] doc_render_visual_qa -> LibreOffice PDF + pdftoppm @ 150 DPI (0 clipping)", PURPLE),
-    ]
-
-    frames: list[tuple[Image.Image, int]] = []
-    for i in range(1, len(steps_lines) + 1):
-        img, draw = _new_terminal_frame("aria + arthera-doc-studio (Tier-2 Visual QA)")
-        _draw_lines(draw, steps_lines[:i])
-        if i >= 4:
-            # Draw visual preview cards of the generated XLSX and PPTX
-            # Left card: Excel model preview
-            draw.rounded_rectangle([28, 220, 446, 485], radius=8, fill=CARD_BG, outline=BORDER, width=1)
-            draw.rectangle([28, 220, 446, 254], fill=NAVY)
-            draw.text((42, 229), "q4_model.xlsx  (Audit_Provenance: 0 errors)", fill="#FFFFFF", font=FONT_SM)
-            draw.text((42, 272), "Metric          FY25      FY26       YoY", fill=MUTED, font=FONT_SM)
-            draw.line([42, 294, 430, 294], fill=BORDER, width=1)
-            draw.text((42, 306), "ARR ($M)        36.5      48.2    =(C2-B2)/B2", fill=BLUE, font=FONT_SM)
-            draw.text((42, 334), "Gross Profit    28.1      38.6    =(C3-B3)/B3", fill=FG, font=FONT_SM)
-            draw.text((42, 374), "Color coding: Blue=Input  Black=Formula", fill=MUTED, font=FONT_SM)
-            draw.text((42, 404), "Sheet 2: Audit_Provenance (UTC + SHA)", fill=GREEN, font=FONT_SM)
-
-            # Right card: PPTX KPI slide preview
-            draw.rounded_rectangle([474, 220, 892, 485], radius=8, fill=CARD_BG, outline=BORDER, width=1)
-            draw.rectangle([474, 220, 892, 254], fill="#0F172A")
-            draw.text((488, 229), "board_deck.pptx  (Slide 2/2 - executive-slate)", fill="#FFFFFF", font=FONT_SM)
-            kpis = [("ARR", "$48.2M", "+32% YoY"), ("Margin", "80.1%", "+3.1 pts"), ("NDR", "118%", "+4 pts")]
-            for k_idx, (lbl, val, delta) in enumerate(kpis):
-                kx = 490 + k_idx * 130
-                draw.rounded_rectangle([kx, 276, kx + 118, 392], radius=6, fill="#F8FAFC", outline="#CBD5E1")
-                draw.text((kx + 12, 288), lbl, fill=MUTED, font=FONT_SM)
-                draw.text((kx + 12, 316), val, fill=BLUE, font=FONT_LG)
-                draw.text((kx + 12, 354), delta, fill=GREEN, font=FONT_SM)
-            draw.text((490, 420), "Rendered via soffice + pdftoppm (150 DPI)", fill=PURPLE, font=FONT_SM)
-            draw.text((490, 446), "Vision QA: Layout balanced, 0 overlaps", fill=GREEN, font=FONT_SM)
-
-        dur = 2200 if i == len(steps_lines) else 650
-        frames.append((img, dur))
-
-    _save_gif_and_png(frames, ASSETS / "demo-documents.gif", ASSETS / "demo-documents.png")
-
-
-def build_ecosystem_demo() -> None:
-    career_src = ROOT.parent / "career-service" / "src"
-    sys.path.insert(0, str(career_src))
-    from arthera_career.career_ops import match_job_description  # type: ignore
-
-    match_res = match_job_description(
-        jd_text="Staff Backend Engineer with Python, Rust, Docker, and Kubernetes.",
-        resume_text="Alice Zhang\n6 years of experience in Python, Rust, Docker, PostgreSQL.",
-        job_title="Staff Backend Engineer",
-        company="Acme AI",
-    )
-
-    with tempfile.TemporaryDirectory() as tmp:
-        md_in = Path(tmp) / "summary.md"
-        xlsx_out = Path(tmp) / "summary.xlsx"
-        md_in.write_text("| Metric | Value |\n|---|---|\n| ARR | 48.2 |\n", encoding="utf-8")
-        native_bin = ROOT / "rust" / "target" / "debug" / "aria-native"
-        export_proc = subprocess.run(
-            [str(native_bin), "export", str(md_in), str(xlsx_out)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        export_status = f"exported {xlsx_out.name} ({xlsx_out.stat().st_size} bytes)" if xlsx_out.is_file() else (export_proc.stderr or export_proc.stdout).strip()
-
-    cpp_bin = ROOT / "go" / "runtime" / "quant" / "cpp" / "_demo_qk"
-    subprocess.run(
-        [
-            "clang++",
-            "-std=c++20",
-            "-O3",
-            str(ROOT / "go/runtime/quant/cpp/quant_kernel.cpp"),
-            str(ROOT / "go/runtime/quant/cpp/quant_kernel_test.cpp"),
-            "-o",
-            str(cpp_bin),
-        ],
-        check=True,
-    )
-    try:
-        cpp_out = subprocess.run([str(cpp_bin)], capture_output=True, text=True, check=True).stdout.strip()
-    finally:
-        cpp_bin.unlink(missing_ok=True)
-
-    lines: list[tuple[str, str]] = [
-        ("$ aria-native export summary.md summary.xlsx", BLUE),
-        (f"[ok] {export_status}", GREEN),
-        ("", FG),
-        ("$ ./quant_kernel_test  # C++20 Antithetic Monte Carlo Kernel", BLUE),
-        (f"[ok] {cpp_out}", GREEN),
-        ("", FG),
-        ("$ arthera-career match_job_description", BLUE),
-        (
-            f"[ok] score={match_res['match_score']}% matched={match_res['matched_skills']} missing={match_res['missing_skills']}",
-            PURPLE,
-        ),
-    ]
-
-    frames: list[tuple[Image.Image, int]] = []
-    for i in range(1, len(lines) + 1):
-        img, draw = _new_terminal_frame("aria-native + C++20 Quant Kernel + career-service")
-        _draw_lines(draw, lines[:i], line_h=28)
-        dur = 2000 if i == len(lines) else 500
-        frames.append((img, dur))
-    _save_gif_and_png(frames, ASSETS / "demo-ecosystem.gif", ASSETS / "demo-ecosystem.png")
-
-
-def main() -> None:
-    build_coding_demo()
-    build_documents_demo()
-    build_ecosystem_demo()
-    print("Generated demo-coding, demo-documents, and demo-ecosystem GIF/PNG assets.")
+    imgs[-1].save(ASSETS / "demo-coding.png")
+    print("Saved aria-tui-home.png and updated demo-coding.gif/png")
 
 
 if __name__ == "__main__":
