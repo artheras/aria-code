@@ -773,10 +773,8 @@ pub fn export_markdown_xlsx(
                 cur_row.push(cur_text.trim().to_owned());
                 cur_text.clear();
             }
-            Event::Text(t) | Event::Code(t) => {
-                if in_heading || in_cell {
-                    cur_text.push_str(&t);
-                }
+            Event::Text(t) | Event::Code(t) if in_heading || in_cell => {
+                cur_text.push_str(&t);
             }
             _ => {}
         }

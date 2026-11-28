@@ -200,13 +200,12 @@ impl Renderer {
                             if !self.artifacts.contains(&p_clean) {
                                 self.artifacts.push(p_clean);
                             }
-                        } else if tool_name.contains("edit")
+                        } else if (tool_name.contains("edit")
                             || tool_name.contains("write")
-                            || tool_name.contains("patch")
+                            || tool_name.contains("patch"))
+                            && !self.changed_files.contains(&p_clean)
                         {
-                            if !self.changed_files.contains(&p_clean) {
-                                self.changed_files.push(p_clean);
-                            }
+                            self.changed_files.push(p_clean);
                         }
                     }
                 }
