@@ -20,8 +20,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-64748b?style=flat-square" alt="Apache License 2.0"></a>
 </p>
 
-<p align="center"><img src="docs/assets/demo-coding.gif" alt="Aria Code 真实会话：Gemini 2.5 Pro 编写 fx.py 和测试，每一步经批准后运行测试，随后 /review 审查这次改动" width="860"></p>
-<p align="center"><sub>真实会话，模型为 Gemini 2.5 Pro（Vertex AI）：Aria 编写 <code>fx.py</code> 和测试，每一步经你批准后运行测试，随后 <code>/review</code> 审查这次改动并给出结论。仅缩短了等待时间，其余未做改动。<a href="docs/assets/demo-coding.png">静态截图</a> · <a href="scripts/record_demo.py">录制脚本</a> · <a href="scripts/render_demo.py">渲染脚本</a></sub></p>
+<p align="center"><img src="docs/assets/demo-coding.gif" alt="Aria Code v0.170.0 TUI 界面演示：原生工具执行、紧凑 Diff 摘要与安全包络验证" width="860"></p>
 
 ## Aria Code 能做什么
 
@@ -29,12 +28,7 @@
 
 **做金融分析、估值建模与办公文档导出。** 行情、技术指标、带 HTML 报告的回测、SEC 公告、确定性 **DCF / WACC / 可比公司估值 / 蒙特卡洛 VaR & CVaR**（支持可选 C++20 数值加速核），以及零依赖原生 `.xlsx`（含实时公式与 `Audit_Provenance` 审计页）、16:9 `.pptx`、`.docx` 和 SVG 图表导出。结果写明数据来源、区间和缺口。
 
-<p align="center"><img src="docs/assets/demo-finance.gif" alt="Aria Code 真实会话：AAPL 技术指标和 SPY 一年期动量回测，写明数据来源、区间和完整度" width="760"></p>
-
 **管物流运营。** 面向第三方物流：补货点、安全库存、ABC/XYZ 分类、呆滞库存、承运商评分和运费异常；在飞书里，每个货主每天一份简报，附带审批卡片。
-
-<p align="center"><img src="docs/assets/demo-logistics.gif" alt="Aria Code 真实会话：拒绝混合两个货主的数据、单个货主的补货点、承运商评分及一项可节省金额和两条异常" width="760"></p>
-<p align="center"><sub>两段都录自真实会话——行情来自 yfinance；物流数据是 <code>evals/fixtures</code> 中的示例 3PL 数据，不调用模型。</sub></p>
 
 ## 它怎么工作
 

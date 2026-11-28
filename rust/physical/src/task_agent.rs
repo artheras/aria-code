@@ -12,8 +12,7 @@ use std::time::{Duration, Instant};
 
 const MAX_TASKS: usize = 32;
 const TICK: Duration = Duration::from_millis(100);
-pub const SCHEMA: &str =
-    include_str!("../../../src/aria_code/agents/warehouse/navigation.schema.json");
+pub const SCHEMA: &str = include_str!("../navigation.schema.json");
 
 #[derive(Clone, Debug, Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]

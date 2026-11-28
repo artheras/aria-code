@@ -1,4 +1,5 @@
 //! Simulation-only, deterministic navigation. No hardware transport is provided.
+pub mod safety;
 pub mod task_agent;
 
 use serde::{Deserialize, Serialize};
